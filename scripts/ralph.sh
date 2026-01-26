@@ -35,6 +35,9 @@ echo "Progress File: $PROGRESS_FILE"
 echo "Max Iterations: $MAX_ITERATIONS"
 echo ""
 
+# Change to project directory
+cd "$PROJECT_DIR"
+
 for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
     echo "==============================================================="
@@ -48,10 +51,13 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "### Iteration $i - $(date)" >> "$PROGRESS_FILE"
     echo "" >> "$PROGRESS_FILE"
 
-    # Run Claude Code with the instructions from CLAUDE.md
-    # Using --dangerously-skip-permissions for autonomous operation
-    # Using --print to capture output
-    OUTPUT=$(claude --dangerously-skip-permissions --print < "$CLAUDE_MD" 2>&1 | tee /dev/stderr) || true
+    # Read the instructions from CLAUDE.md
+    INSTRUCTIONS="$(cat "$CLAUDE_MD")"
+
+    # Run Claude Code with the instructions as prompt
+    # --dangerously-skip-permissions for autonomous operation
+    # --print for non-interactive output
+    OUTPUT=$(claude --dangerously-skip-permissions --print "$INSTRUCTIONS" 2>&1 | tee /dev/stderr) || true
 
     # Check for completion signal
     if echo "$OUTPUT" | grep -q "COMPLETE"; then
