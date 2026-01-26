@@ -1,0 +1,29 @@
+# Mahilo Registry Development Progress
+
+Started: Not yet started
+
+---
+
+## Current Focus
+
+Implementing the Mahilo Registry service based on the design document.
+
+## Key Files
+
+- `docs/registry-design.md` - Full design specification
+- `docs/tasks-registry.md` - Phase 1 tasks with priorities and acceptance criteria
+- `docs/findings.md` - Design review findings to address
+
+## Task Summary
+
+| Priority | Total | Pending | In Progress | Done |
+|----------|-------|---------|-------------|------|
+| P0       | 19    | 19      | 0           | 0    |
+| P1       | 10    | 10      | 0           | 0    |
+| P2       | 6     | 6       | 0           | 0    |
+| **Total**| 35    | 35      | 0           | 0    |
+
+## Session Log
+
+(Sessions will be logged here as the Ralph loop runs)
+
