@@ -55,7 +55,8 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     sleep 1
 
     # Run Claude Code with SHORT prompt
-    OUTPUT=$(claude --dangerously-skip-permissions -p "$PROMPT" 2>&1 | tee /dev/stderr) || true
+    # --no-session-persistence ensures truly fresh session each iteration
+    OUTPUT=$(claude --dangerously-skip-permissions --no-session-persistence -p "$PROMPT" 2>&1 | tee /dev/stderr) || true
 
     # Check for completion signal
     if echo "$OUTPUT" | grep -q "COMPLETE"; then
