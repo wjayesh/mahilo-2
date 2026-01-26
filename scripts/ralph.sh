@@ -5,12 +5,9 @@
 # Usage: ./ralph.sh [max_iterations]
 # Default: 50 iterations
 
-set -e
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PROGRESS_FILE="$PROJECT_DIR/progress.txt"
-CLAUDE_MD="$PROJECT_DIR/CLAUDE.md"
 MAX_ITERATIONS="${1:-50}"
 
 # Initialize progress file if it doesn't exist
@@ -37,6 +34,9 @@ echo ""
 # Change to project directory
 cd "$PROJECT_DIR"
 
+# SHORT prompt - Claude reads the files itself
+PROMPT="Read CLAUDE.md for full instructions. Check progress.txt for what is done. Find next pending P0 task in docs/tasks-registry.md and implement it. Update task status and progress.txt when done. Say COMPLETE when all tasks are finished."
+
 for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
     echo "==============================================================="
@@ -50,9 +50,12 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "### Iteration $i - $(date)" >> "$PROGRESS_FILE"
     echo "" >> "$PROGRESS_FILE"
 
-    # Run Claude Code exactly like snarktank/ralph does
-    # Pipe the CLAUDE.md file via stdin
-    OUTPUT=$(claude --dangerously-skip-permissions --print < "$CLAUDE_MD" 2>&1 | tee /dev/stderr) || true
+    # Kill any lingering claude processes
+    pkill -f "claude.*--print" 2>/dev/null || true
+    sleep 1
+
+    # Run Claude Code with SHORT prompt
+    OUTPUT=$(claude --dangerously-skip-permissions -p "$PROMPT" 2>&1 | tee /dev/stderr) || true
 
     # Check for completion signal
     if echo "$OUTPUT" | grep -q "COMPLETE"; then
