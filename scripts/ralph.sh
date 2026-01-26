@@ -10,6 +10,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PROGRESS_FILE="$PROJECT_DIR/progress.txt"
+CLAUDE_MD="$PROJECT_DIR/CLAUDE.md"
 MAX_ITERATIONS="${1:-50}"
 
 # Initialize progress file if it doesn't exist
@@ -36,9 +37,6 @@ echo ""
 # Change to project directory
 cd "$PROJECT_DIR"
 
-# Short prompt that tells Claude to read the instructions
-PROMPT="Read CLAUDE.md for your instructions. Check progress.txt to see what's done. Pick the next pending P0 task from docs/tasks-registry.md and implement it. Update progress.txt and the task status when done. Output COMPLETE (all caps) when ALL tasks are finished."
-
 for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
     echo "==============================================================="
@@ -52,8 +50,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "### Iteration $i - $(date)" >> "$PROGRESS_FILE"
     echo "" >> "$PROGRESS_FILE"
 
-    # Run Claude Code with short prompt
-    OUTPUT=$(claude --dangerously-skip-permissions --print "$PROMPT" 2>&1 | tee /dev/stderr) || true
+    # Run Claude Code exactly like snarktank/ralph does
+    # Pipe the CLAUDE.md file via stdin
+    OUTPUT=$(claude --dangerously-skip-permissions --print < "$CLAUDE_MD" 2>&1 | tee /dev/stderr) || true
 
     # Check for completion signal
     if echo "$OUTPUT" | grep -q "COMPLETE"; then
