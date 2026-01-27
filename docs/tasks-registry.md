@@ -24,9 +24,9 @@
 
 #### 1.1 Initialize Project Repository
 - **ID**: `REG-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
-- **Notes**: 
+- **Notes**:
   - Create new repo `mahilo` (or `mahilo-registry`)
   - TypeScript project with modern tooling
   - Consider: Bun for runtime (fast, modern), Hono for HTTP (lightweight)
@@ -39,7 +39,7 @@
 
 #### 1.2 Choose and Configure Database
 - **ID**: `REG-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - SQLite for self-hosted (via better-sqlite3 or Drizzle)
@@ -52,7 +52,7 @@
 
 #### 1.3 Setup HTTP Server
 - **ID**: `REG-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Hono or Fastify (lightweight, fast)
@@ -69,7 +69,7 @@
 
 #### 2.1 Create Users Table
 - **ID**: `REG-004`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Fields: id, username, display_name, api_key_hash, created_at
@@ -81,7 +81,7 @@
 
 #### 2.2 Create Agent Connections Table
 - **ID**: `REG-005`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Fields: id, user_id, framework, label, description, capabilities, public_key, public_key_alg, routing_priority, callback_url, callback_secret, status, last_seen, created_at
@@ -93,7 +93,7 @@
 
 #### 2.3 Create Friendships Table
 - **ID**: `REG-006`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Fields: id, requester_id, addressee_id, status, created_at
@@ -105,7 +105,7 @@
 
 #### 2.4 Create Messages Table
 - **ID**: `REG-007`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Fields: id, correlation_id, sender_user_id, sender_agent, recipient_type, recipient_id, recipient_connection_id, payload, payload_type, encryption, sender_signature, context, status, rejection_reason, retry_count, idempotency_key, created_at, delivered_at
@@ -132,7 +132,7 @@
 
 #### 3.1 Implement API Key Generation
 - **ID**: `REG-009`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Format: `mhl_<random_32_chars>`
@@ -146,7 +146,7 @@
 
 #### 3.2 Implement Auth Middleware
 - **ID**: `REG-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Extract `Authorization: Bearer <key>` header
@@ -161,7 +161,7 @@
 
 #### 3.3 User Registration Endpoint
 - **ID**: `REG-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - `POST /api/v1/auth/register`
@@ -191,7 +191,7 @@
 
 #### 4.1 Register Agent Endpoint
 - **ID**: `REG-013`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - `POST /api/v1/agents`
@@ -208,7 +208,7 @@
 
 #### 4.2 List Agents Endpoint
 - **ID**: `REG-014`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - `GET /api/v1/agents`
@@ -251,7 +251,7 @@
 
 #### 5.1 Send Friend Request Endpoint
 - **ID**: `REG-017`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - `POST /api/v1/friends/request`
@@ -265,7 +265,7 @@
 
 #### 5.2 Accept Friend Request Endpoint
 - **ID**: `REG-018`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - `POST /api/v1/friends/:id/accept`
@@ -278,7 +278,7 @@
 
 #### 5.3 List Friends Endpoint
 - **ID**: `REG-019`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - `GET /api/v1/friends`
@@ -308,7 +308,7 @@
 
 #### 6.1 Send Message Endpoint
 - **ID**: `REG-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - `POST /api/v1/messages/send`
@@ -331,7 +331,7 @@
 
 #### 6.2 Callback URL Delivery
 - **ID**: `REG-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - HTTP POST to agent's callback_url
@@ -348,7 +348,7 @@
 
 #### 6.3 Delivery Retry Logic
 - **ID**: `REG-023`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - On failure/timeout: queue for retry
@@ -382,7 +382,7 @@
 
 #### 7.1 Implement Heuristic Policy Evaluation
 - **ID**: `REG-025`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Validate JSON policy rules on create/update
@@ -422,7 +422,7 @@
 
 #### 7.4 Integrate Policy Evaluation in Message Send
 - **ID**: `REG-028`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Default: registry does not evaluate message content (E2E mode)
@@ -537,10 +537,10 @@
 
 | Priority | Total | Pending | In Progress | Done |
 |----------|-------|---------|-------------|------|
-| P0       | 19    | 19      | 0           | 0    |
+| P0       | 19    | 6       | 0           | 13   |
 | P1       | 10    | 10      | 0           | 0    |
 | P2       | 6     | 6       | 0           | 0    |
-| **Total**| 35    | 35      | 0           | 0    |
+| **Total**| 35    | 22      | 0           | 13   |
 
 ---
 

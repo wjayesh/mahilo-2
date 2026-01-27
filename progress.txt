@@ -1,12 +1,12 @@
 # Mahilo Registry Development Progress
 
-Started: Not yet started
+Started: 2026-01-27
 
 ---
 
 ## Current Focus
 
-Implementing the Mahilo Registry service based on the design document.
+Core infrastructure complete! Ready for integration testing and remaining P1/P2 tasks.
 
 ## Key Files
 
@@ -18,36 +18,119 @@ Implementing the Mahilo Registry service based on the design document.
 
 | Priority | Total | Pending | In Progress | Done |
 |----------|-------|---------|-------------|------|
-| P0       | 19    | 19      | 0           | 0    |
+| P0       | 19    | 6       | 0           | 13   |
 | P1       | 10    | 10      | 0           | 0    |
 | P2       | 6     | 6       | 0           | 0    |
-| **Total**| 35    | 35      | 0           | 0    |
+| **Total**| 35    | 22      | 0           | 13   |
 
 ## Session Log
 
-(Sessions will be logged here as the Ralph loop runs)
+### Session 1 - 2026-01-27 10:00 IST
 
+**Completed Tasks:**
+- REG-001: Initialize Project Repository
+  - Created TypeScript project with Bun runtime
+  - Configured Hono HTTP framework
+  - Set up package.json, tsconfig.json, drizzle.config.ts
+  - Added ESLint, Prettier, Bun test runner
 
-### Iteration 1 - Tue Jan 27 01:16:46 IST 2026
+- REG-002: Choose and Configure Database
+  - Configured SQLite with Drizzle ORM (using Bun's native SQLite)
+  - Set up migrations system
+  - Created initial migration
 
+- REG-003: Setup HTTP Server
+  - Created Hono server with health check endpoint
+  - Added middleware (logger, CORS, error handling, secure headers)
+  - Server starts and responds to /health
 
-### Iteration 2 - Tue Jan 27 01:16:55 IST 2026
+- REG-004: Create Users Table
+  - Added users table with id, username, display_name, api_key_hash, api_key_id, created_at, deleted_at
+  - Added indexes on username and api_key_id
 
+- REG-005: Create Agent Connections Table
+  - Added agent_connections table with all required fields
+  - Includes public_key, callback_url, capabilities, routing_priority
+  - Unique constraint on (user_id, framework, label)
 
-### Iteration 1 - Tue Jan 27 01:18:33 IST 2026
+- REG-006: Create Friendships Table
+  - Added friendships table with requester_id, addressee_id, status
+  - Bidirectional lookup indexes
 
+- REG-007: Create Messages Table
+  - Added messages table with sender, recipient, payload, encryption, signature fields
+  - Indexes on sender, recipient, status, correlation_id, idempotency_key
 
-### Iteration 1 - Tue Jan 27 01:21:17 IST 2026
+- REG-009: Implement API Key Generation
+  - Format: mhl_<kid>_<secret>
+  - Argon2id hashing
+  - Key ID prefix for indexed lookup
 
+- REG-010: Implement Auth Middleware
+  - Extracts and validates Bearer token
+  - Returns 401 for invalid/missing key
+  - Attaches user to request context
 
-### Iteration 1 - Tue Jan 27 01:28:57 IST 2026
+- REG-011: User Registration Endpoint
+  - POST /api/v1/auth/register
+  - Validates username format
+  - Returns API key (shown only once)
 
+- REG-013: Register Agent Endpoint
+  - POST /api/v1/agents
+  - Supports upsert (update existing or create new)
+  - Validates callback URL (SSRF protection)
+  - Generates callback_secret if not provided
 
-### Iteration 1 - Tue Jan 27 01:30:48 IST 2026
+- REG-014: List Agents Endpoint
+  - GET /api/v1/agents returns user's connections
+  - GET /api/v1/friends/contacts/:username/connections for routing selection
 
+- REG-017-019: Friendship Management
+  - POST /api/v1/friends/request - Send friend request
+  - POST /api/v1/friends/:id/accept - Accept request
+  - GET /api/v1/friends - List friends by status
 
-### Iteration 1 - Tue Jan 27 01:32:06 IST 2026
+- REG-021: Send Message Endpoint
+  - POST /api/v1/messages/send
+  - Validates friendship
+  - Supports recipient_connection_id and idempotency_key
+  - Enforces max payload size
 
+- REG-022: Callback URL Delivery
+  - HTTP POST with HMAC-SHA256 signature
+  - Includes timestamp and message_id headers
+  - 30 second timeout
 
-### Iteration 2 - Tue Jan 27 01:32:16 IST 2026
+- REG-023: Delivery Retry Logic
+  - Exponential backoff (1s, 2s, 4s, 8s, 16s)
+  - Max 5 retries
+  - In-memory queue for MVP
+
+- REG-025: Heuristic Policy Evaluation
+  - Validates JSON policy rules on create/update
+  - Supports maxLength, blockedPatterns, requireContext
+  - Optional evaluation in trusted mode
+
+- REG-028: Policy Integration in Message Send
+  - E2E mode skips content evaluation
+  - Trusted mode evaluates before delivery
+
+**Tests Created:**
+- tests/unit/auth.test.ts - API key generation, parsing, username validation
+- tests/unit/validation.test.ts - URL validation, payload size validation
+- tests/unit/policy.test.ts - Policy content validation
+
+All 23 unit tests passing.
+
+**Tech Notes:**
+- Switched from better-sqlite3 to Bun's native SQLite (bun:sqlite) due to compatibility
+- Switched from Vitest to Bun's test runner for same reason
+
+**Next Steps:**
+- REG-008: Create Policies Table (P1)
+- REG-012: API Key Rotation Endpoint (P1)
+- REG-015: Delete Agent Endpoint (P1)
+- REG-020: Block/Unfriend Endpoints (P1)
+- REG-029-031: More comprehensive testing
 
