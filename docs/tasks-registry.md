@@ -690,7 +690,7 @@
 
 #### 14.1 WebSocket Auth and Connection
 - **ID**: `REG-048`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**:
   - `GET /api/v1/notifications/ws`
@@ -702,7 +702,7 @@
 
 #### 14.2 WebSocket Event Types
 - **ID**: `REG-049`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**:
   - Events: message_received, delivery_status, group_invite, group_join
@@ -1104,9 +1104,9 @@
 | Priority | Total | Pending | In Progress | Done |
 |----------|-------|---------|-------------|------|
 | P0       | 40    | 6       | 0           | 34   |
-| P1       | 26    | 15      | 0           | 11   |
+| P1       | 26    | 13      | 0           | 13   |
 | P2       | 17    | 14      | 0           | 3    |
-| **Total**| 83    | 35      | 0           | 48   |
+| **Total**| 83    | 33      | 0           | 50   |
 
 ---
 

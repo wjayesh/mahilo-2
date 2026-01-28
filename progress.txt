@@ -304,10 +304,24 @@ ALL 35 TASKS COMPLETE - Mahilo Registry Phase 1 is finished!
   - Added examples for create, invite, join, send group message
   - Added Group Message Callback format section
 
+- REG-048: WebSocket Auth and Connection (P1)
+  - Created notifications route at /api/v1/notifications/ws
+  - API key authentication via query parameter
+  - Connection tracking with ping/pong keepalive
+  - Helper functions: notifyUser, notifyUsers, notifyGroup
+
+- REG-049: WebSocket Event Types (P1)
+  - Defined event types: message_received, delivery_status, group_invite, group_join, group_leave, friend_request, connection
+  - Typed NotificationEvent interface
+  - Connection and pong response messages
+
+**Files Created:**
+- src/routes/notifications.ts - WebSocket notifications route
+
 **All P0 Phase 2 tasks complete!**
 
+**Phase 2 Status: 14 of 16 tasks done**
+
 **Next Steps:**
-- REG-048: WebSocket Auth and Connection (P1)
-- REG-049: WebSocket Event Types (P1)
 - REG-050: Group Flow Integration Tests (P1)
 

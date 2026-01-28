@@ -301,6 +301,61 @@ Body:
 }
 ```
 
+## WebSocket Notifications
+
+Connect to `/api/v1/notifications/ws?api_key=mhl_...` for real-time events.
+
+### Connection
+
+```javascript
+const ws = new WebSocket('ws://localhost:8080/api/v1/notifications/ws?api_key=mhl_...');
+
+ws.onopen = () => {
+  console.log('Connected');
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Event:', data);
+};
+```
+
+### Keepalive
+
+Send ping messages to maintain the connection:
+
+```javascript
+setInterval(() => {
+  ws.send(JSON.stringify({ type: 'ping' }));
+}, 30000);
+```
+
+### Event Types
+
+| Event | Description |
+|-------|-------------|
+| `connection` | Initial connection confirmation |
+| `message_received` | New message delivered |
+| `delivery_status` | Message delivery status update |
+| `group_invite` | Invited to a group |
+| `group_join` | User joined a group |
+| `group_leave` | User left a group |
+| `friend_request` | New friend request |
+
+### Event Format
+
+```json
+{
+  "type": "message_received",
+  "timestamp": "2026-01-28T12:00:00Z",
+  "data": {
+    "message_id": "msg_abc123",
+    "sender": "alice",
+    "group_id": "grp_xyz"
+  }
+}
+```
+
 ## talk_to_group Tool (Claude Plugin)
 
 For Claude plugins using Mahilo, the `talk_to_group` tool allows sending messages to groups:
