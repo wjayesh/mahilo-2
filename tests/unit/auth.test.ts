@@ -1,5 +1,6 @@
-import { describe, it, expect } from "bun:test";
-import { generateApiKey, parseApiKey, validateUsername } from "../../src/services/auth";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { generateApiKey, parseApiKey, validateUsername, verifyApiKey } from "../../src/services/auth";
+import { cleanupTestDatabase, createTestUser, setupTestDatabase } from "../helpers/setup";
 
 describe("Auth Service", () => {
   describe("generateApiKey", () => {
@@ -40,6 +41,29 @@ describe("Auth Service", () => {
       expect(parseApiKey("mhl_only_two_parts_here_extra")).toBeNull();
       expect(parseApiKey("mhl_onepart")).toBeNull();
       expect(parseApiKey("")).toBeNull();
+    });
+  });
+
+  describe("verifyApiKey", () => {
+    beforeAll(async () => {
+      await setupTestDatabase();
+    });
+
+    afterAll(() => {
+      cleanupTestDatabase();
+    });
+
+    it("should verify a valid API key", async () => {
+      const { apiKey, user } = await createTestUser("verifyuser");
+      const verified = await verifyApiKey(apiKey);
+
+      expect(verified).not.toBeNull();
+      expect(verified!.id).toBe(user.id);
+    });
+
+    it("should reject an invalid API key", async () => {
+      const verified = await verifyApiKey("mhl_invalid_key_secret");
+      expect(verified).toBeNull();
     });
   });
 

@@ -116,7 +116,7 @@
 
 #### 2.5 Create Policies Table
 - **ID**: `REG-008`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - Fields: id, user_id, scope, target_id, policy_type, policy_content, priority, enabled, created_at
@@ -175,7 +175,7 @@
 
 #### 3.4 API Key Rotation Endpoint
 - **ID**: `REG-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - `POST /api/v1/auth/rotate-key`
@@ -222,7 +222,7 @@
 
 #### 4.3 Delete Agent Endpoint
 - **ID**: `REG-015`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - `DELETE /api/v1/agents/:id`
@@ -234,7 +234,7 @@
 
 #### 4.4 Agent Ping/Health Check
 - **ID**: `REG-016`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Notes**: 
   - `POST /api/v1/agents/:id/ping`
@@ -291,7 +291,7 @@
 
 #### 5.4 Block/Unfriend Endpoints
 - **ID**: `REG-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - `POST /api/v1/friends/:id/block`
@@ -364,7 +364,7 @@
 
 #### 6.4 Message History Endpoint
 - **ID**: `REG-024`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Notes**: 
   - `GET /api/v1/messages`
@@ -396,7 +396,7 @@
 
 #### 7.2 Create Policy Endpoint
 - **ID**: `REG-026`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - `POST /api/v1/policies`
@@ -409,7 +409,7 @@
 
 #### 7.3 Policy CRUD Endpoints
 - **ID**: `REG-027`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - `GET /api/v1/policies` - List
@@ -442,7 +442,7 @@
 
 #### 8.1 Unit Tests for Core Functions
 - **ID**: `REG-029`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Auth: key generation, verification
@@ -454,7 +454,7 @@
 
 #### 8.2 Integration Tests for API Endpoints
 - **ID**: `REG-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Test each endpoint with valid/invalid inputs
@@ -466,7 +466,7 @@
 
 #### 8.3 E2E Test: Two Users Exchange Messages
 - **ID**: `REG-031`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Create two users
@@ -479,7 +479,7 @@
 
 #### 8.4 API Documentation
 - **ID**: `REG-032`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - OpenAPI spec (auto-generated or manual)
@@ -495,7 +495,7 @@
 
 #### 9.1 Dockerfile for Self-Hosting
 - **ID**: `REG-033`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**: 
   - Multi-stage build
@@ -509,7 +509,7 @@
 
 #### 9.2 Local Development Setup
 - **ID**: `REG-034`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**: 
   - Simple `npm run dev` or `bun run dev`
@@ -521,7 +521,7 @@
 
 #### 9.3 Production Deployment Guide
 - **ID**: `REG-035`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Notes**: 
   - Document: env vars, DB setup, reverse proxy
@@ -537,10 +537,10 @@
 
 | Priority | Total | Pending | In Progress | Done |
 |----------|-------|---------|-------------|------|
-| P0       | 19    | 6       | 0           | 13   |
-| P1       | 10    | 10      | 0           | 0    |
-| P2       | 6     | 6       | 0           | 0    |
-| **Total**| 35    | 22      | 0           | 13   |
+| P0       | 24    | 0       | 0           | 24   |
+| P1       | 8     | 0       | 0           | 8    |
+| P2       | 3     | 0       | 0           | 3    |
+| **Total**| 35    | 0       | 0           | 35   |
 
 ---
 

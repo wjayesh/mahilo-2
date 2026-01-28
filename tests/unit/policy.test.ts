@@ -1,5 +1,8 @@
-import { describe, it, expect } from "bun:test";
-import { validatePolicyContent } from "../../src/services/policy";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { evaluatePolicies, validatePolicyContent } from "../../src/services/policy";
+import { cleanupTestDatabase, createTestUser, getTestDb, setupTestDatabase } from "../helpers/setup";
+import * as schema from "../../src/db/schema";
+import { nanoid } from "nanoid";
 
 describe("Policy Service", () => {
   describe("validatePolicyContent", () => {
@@ -65,6 +68,56 @@ describe("Policy Service", () => {
         expect(result.valid).toBe(false);
         expect(result.error).toContain("Unknown policy type");
       });
+    });
+  });
+
+  describe("evaluatePolicies", () => {
+    beforeAll(async () => {
+      await setupTestDatabase();
+    });
+
+    afterAll(() => {
+      cleanupTestDatabase();
+    });
+
+    it("should reject messages that violate heuristic policies", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("policy_sender");
+      const { user: recipient } = await createTestUser("policy_recipient");
+
+      await db.insert(schema.policies).values({
+        id: nanoid(),
+        userId: sender.id,
+        scope: "global",
+        policyType: "heuristic",
+        policyContent: JSON.stringify({ blockedPatterns: ["secret"] }),
+        priority: 10,
+        enabled: true,
+        createdAt: new Date(),
+      });
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "this is a secret");
+      expect(result.allowed).toBe(false);
+    });
+
+    it("should allow messages when policies pass", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("policy_sender_ok");
+      const { user: recipient } = await createTestUser("policy_recipient_ok");
+
+      await db.insert(schema.policies).values({
+        id: nanoid(),
+        userId: sender.id,
+        scope: "global",
+        policyType: "heuristic",
+        policyContent: JSON.stringify({ maxLength: 100 }),
+        priority: 1,
+        enabled: true,
+        createdAt: new Date(),
+      });
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "hello");
+      expect(result.allowed).toBe(true);
     });
   });
 });

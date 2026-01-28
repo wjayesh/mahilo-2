@@ -9,6 +9,7 @@ import { agentRoutes } from "./routes/agents";
 import { friendRoutes } from "./routes/friends";
 import { messageRoutes } from "./routes/messages";
 import { policyRoutes } from "./routes/policies";
+import { contactRoutes } from "./routes/contacts";
 
 export type AppEnv = {
   Variables: {
@@ -52,6 +53,7 @@ export function createApp() {
   const api = new Hono<AppEnv>();
   api.route("/auth", authRoutes);
   api.route("/agents", agentRoutes);
+  api.route("/contacts", contactRoutes);
   api.route("/friends", friendRoutes);
   api.route("/messages", messageRoutes);
   api.route("/policies", policyRoutes);

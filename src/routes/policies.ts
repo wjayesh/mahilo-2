@@ -85,25 +85,16 @@ policyRoutes.get("/", async (c) => {
   const targetId = c.req.query("target_id");
   const db = getDb();
 
-  let query = db
-    .select()
-    .from(schema.policies)
-    .where(eq(schema.policies.userId, user.id))
-    .$dynamic();
-
+  const conditions = [eq(schema.policies.userId, user.id)];
   if (scope) {
-    query = query.where(
-      and(eq(schema.policies.userId, user.id), eq(schema.policies.scope, scope))
-    );
+    conditions.push(eq(schema.policies.scope, scope));
   }
-
   if (targetId) {
-    query = query.where(
-      and(eq(schema.policies.userId, user.id), eq(schema.policies.targetId, targetId))
-    );
+    conditions.push(eq(schema.policies.targetId, targetId));
   }
 
-  const policies = await query;
+  const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
+  const policies = await db.select().from(schema.policies).where(whereClause);
 
   return c.json(
     policies.map((p) => ({
@@ -146,7 +137,7 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
   }
 
   // Validate policy content if provided
-  if (data.policy_content) {
+  if (data.policy_content !== undefined) {
     const validation = validatePolicyContent(policy.policyType, data.policy_content);
     if (!validation.valid) {
       throw new AppError(validation.error!, 400, "INVALID_POLICY_CONTENT");

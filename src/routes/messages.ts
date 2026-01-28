@@ -2,14 +2,15 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, gt } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
-import { validatePayloadSize } from "../services/validation";
+import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage } from "../services/delivery";
 import { evaluatePolicies } from "../services/policy";
+import { config } from "../config";
 
 export const messageRoutes = new Hono<AppEnv>();
 
@@ -63,7 +64,12 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
     const [existing] = await db
       .select()
       .from(schema.messages)
-      .where(eq(schema.messages.idempotencyKey, data.idempotency_key))
+      .where(
+        and(
+          eq(schema.messages.senderUserId, user.id),
+          eq(schema.messages.idempotencyKey, data.idempotency_key)
+        )
+      )
       .limit(1);
 
     if (existing) {
@@ -167,7 +173,7 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
 
       if (!recipientConnection && data.routing_hints?.tags?.length) {
         const tagMatch = connections.find((c) => {
-          const caps = c.capabilities ? JSON.parse(c.capabilities) : [];
+          const caps = parseCapabilities(c.capabilities);
           return data.routing_hints!.tags!.some((t: string) => caps.includes(t));
         });
         if (tagMatch) {
@@ -191,8 +197,13 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
 
   // Policy evaluation (only in trusted mode with plaintext)
   const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
-  if (!isEncrypted) {
-    const policyResult = await evaluatePolicies(user.id, recipientUserId, data.message);
+  if (!isEncrypted && config.trustedMode) {
+    const policyResult = await evaluatePolicies(
+      user.id,
+      recipientUserId,
+      data.message,
+      data.context
+    );
     if (!policyResult.allowed) {
       // Create message record for audit
       const messageId = nanoid();
@@ -281,6 +292,7 @@ messageRoutes.get("/", async (c) => {
   const user = c.get("user")!;
   const limitParam = parseInt(c.req.query("limit") || "50", 10);
   const direction = c.req.query("direction") as "sent" | "received" | undefined;
+  const sinceParam = c.req.query("since");
   const db = getDb();
 
   // Build where clause based on direction
@@ -302,10 +314,29 @@ messageRoutes.get("/", async (c) => {
     );
   }
 
+  let whereFilters = whereClause;
+
+  if (sinceParam) {
+    let sinceMs: number;
+    if (/^\d+$/.test(sinceParam)) {
+      sinceMs = Number(sinceParam);
+      if (sinceMs < 1_000_000_000_000) {
+        sinceMs *= 1000;
+      }
+    } else {
+      sinceMs = Date.parse(sinceParam);
+    }
+
+    if (Number.isNaN(sinceMs)) {
+      throw new AppError("Invalid since parameter", 400, "INVALID_SINCE");
+    }
+    whereFilters = and(whereFilters, gt(schema.messages.createdAt, new Date(sinceMs)));
+  }
+
   const messages = await db
     .select()
     .from(schema.messages)
-    .where(whereClause)
+    .where(whereFilters)
     .orderBy(desc(schema.messages.createdAt))
     .limit(Math.min(limitParam, 100));
 

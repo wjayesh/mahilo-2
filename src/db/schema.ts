@@ -110,6 +110,7 @@ export const messages = sqliteTable(
     index("idx_messages_status").on(table.status),
     index("idx_messages_correlation").on(table.correlationId),
     index("idx_messages_idempotency").on(table.idempotencyKey),
+    unique("idx_messages_idempotency_sender").on(table.senderUserId, table.idempotencyKey),
   ]
 );
 

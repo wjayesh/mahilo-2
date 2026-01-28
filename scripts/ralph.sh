@@ -36,6 +36,8 @@ cd "$PROJECT_DIR"
 
 # SHORT prompt - Claude reads the files itself
 PROMPT="Read CLAUDE.md for full instructions. Check progress.txt for what is done. Find next pending P0 task in docs/tasks-registry.md and implement it. Update task status and progress.txt when done. Say COMPLETE when all tasks are finished."
+SYSTEM_PROMPT="Tool use rules: call at most one tool per assistant response and wait for its result before any other tool call. Never emit multiple tool_use blocks in a single message. Do not use the Read tool; use Bash (rg/sed/cat) to inspect files."
+DISALLOWED_TOOLS="Read"
 
 for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
@@ -56,7 +58,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
 
     # Run Claude Code with SHORT prompt
     # --no-session-persistence ensures truly fresh session each iteration
-    OUTPUT=$(claude --dangerously-skip-permissions --no-session-persistence -p "$PROMPT" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(claude --dangerously-skip-permissions --no-session-persistence --append-system-prompt "$SYSTEM_PROMPT" --disallowed-tools "$DISALLOWED_TOOLS" -p "$PROMPT" 2>&1 | tee /dev/stderr) || true
 
     # Check for completion signal
     if echo "$OUTPUT" | grep -q "COMPLETE"; then

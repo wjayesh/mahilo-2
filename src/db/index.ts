@@ -1,12 +1,13 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { config } from "../config";
 import * as schema from "./schema";
 import { existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
 
-let db: ReturnType<typeof drizzle<typeof schema>>;
-let sqlite: Database;
+let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
+let sqlite: Database | null = null;
 
 export function getDb() {
   if (!db) {
@@ -48,15 +49,31 @@ export async function initializeDatabase() {
 }
 
 async function runMigrations() {
-  // For now, we'll use push-based schema sync in development
-  // In production, use proper migrations
   console.log("Running database migrations...");
-  // Migrations will be handled by drizzle-kit
+  migrate(db, { migrationsFolder: "./src/db/migrations" });
+}
+
+export function setDbForTests(
+  testDb: ReturnType<typeof drizzle<typeof schema>>,
+  testSqlite: Database
+) {
+  db = testDb;
+  sqlite = testSqlite;
+}
+
+export function resetDbForTests() {
+  if (sqlite) {
+    sqlite.close();
+  }
+  db = null;
+  sqlite = null;
 }
 
 export function closeDatabase() {
   if (sqlite) {
     sqlite.close();
+    sqlite = null;
+    db = null;
   }
 }
 

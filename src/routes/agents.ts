@@ -8,7 +8,7 @@ import { getDb, schema } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { generateCallbackSecret } from "../services/auth";
 import { AppError } from "../middleware/error";
-import { validateCallbackUrl } from "../services/validation";
+import { normalizeCapabilities, parseCapabilities, validateCallbackUrl } from "../services/validation";
 
 export const agentRoutes = new Hono<AppEnv>();
 
@@ -34,7 +34,7 @@ agentRoutes.post("/", zValidator("json", registerAgentSchema), async (c) => {
   const data = c.req.valid("json");
 
   // Validate callback URL
-  const urlValidation = validateCallbackUrl(data.callback_url);
+  const urlValidation = await validateCallbackUrl(data.callback_url);
   if (!urlValidation.valid) {
     throw new AppError(urlValidation.error!, 400, "INVALID_CALLBACK_URL");
   }
@@ -55,10 +55,11 @@ agentRoutes.post("/", zValidator("json", registerAgentSchema), async (c) => {
     .limit(1);
 
   // Normalize capabilities to JSON string
-  const capabilities =
-    typeof data.capabilities === "string"
-      ? data.capabilities
-      : JSON.stringify(data.capabilities || []);
+  const capabilitiesResult = normalizeCapabilities(data.capabilities);
+  if (!capabilitiesResult.valid) {
+    throw new AppError(capabilitiesResult.error!, 400, "INVALID_CAPABILITIES");
+  }
+  const capabilities = capabilitiesResult.value;
 
   if (existing) {
     // Update existing connection
@@ -147,7 +148,7 @@ agentRoutes.get("/", async (c) => {
       framework: conn.framework,
       label: conn.label,
       description: conn.description,
-      capabilities: conn.capabilities ? JSON.parse(conn.capabilities) : [],
+      capabilities: parseCapabilities(conn.capabilities),
       routing_priority: conn.routingPriority,
       callback_url: conn.callbackUrl,
       public_key: conn.publicKey,

@@ -1,3 +1,16 @@
+CREATE TABLE `users` (
+	`id` text PRIMARY KEY NOT NULL,
+	`username` text NOT NULL,
+	`display_name` text,
+	`api_key_hash` text NOT NULL,
+	`api_key_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`deleted_at` integer
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `users_username_unique` ON `users` (`username`);--> statement-breakpoint
+CREATE INDEX `idx_users_username` ON `users` (`username`);--> statement-breakpoint
+CREATE INDEX `idx_users_api_key_id` ON `users` (`api_key_id`);--> statement-breakpoint
 CREATE TABLE `agent_connections` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -62,6 +75,7 @@ CREATE INDEX `idx_messages_connection` ON `messages` (`recipient_connection_id`)
 CREATE INDEX `idx_messages_status` ON `messages` (`status`);--> statement-breakpoint
 CREATE INDEX `idx_messages_correlation` ON `messages` (`correlation_id`);--> statement-breakpoint
 CREATE INDEX `idx_messages_idempotency` ON `messages` (`idempotency_key`);--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_messages_idempotency_sender` ON `messages` (`sender_user_id`,`idempotency_key`);--> statement-breakpoint
 CREATE TABLE `policies` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -76,17 +90,4 @@ CREATE TABLE `policies` (
 );
 --> statement-breakpoint
 CREATE INDEX `idx_policies_user` ON `policies` (`user_id`);--> statement-breakpoint
-CREATE INDEX `idx_policies_scope` ON `policies` (`scope`,`target_id`);--> statement-breakpoint
-CREATE TABLE `users` (
-	`id` text PRIMARY KEY NOT NULL,
-	`username` text NOT NULL,
-	`display_name` text,
-	`api_key_hash` text NOT NULL,
-	`api_key_id` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`deleted_at` integer
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `users_username_unique` ON `users` (`username`);--> statement-breakpoint
-CREATE INDEX `idx_users_username` ON `users` (`username`);--> statement-breakpoint
-CREATE INDEX `idx_users_api_key_id` ON `users` (`api_key_id`);
+CREATE INDEX `idx_policies_scope` ON `policies` (`scope`,`target_id`);
