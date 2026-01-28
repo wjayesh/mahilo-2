@@ -38,8 +38,11 @@ describe("Auth Service", () => {
     });
 
     it("should return null for malformed key", () => {
-      expect(parseApiKey("mhl_only_two_parts_here_extra")).toBeNull();
       expect(parseApiKey("mhl_onepart")).toBeNull();
+      expect(parseApiKey("mhl_abc1234")).toBeNull();
+      expect(parseApiKey("mhl_abcdefgh")).toBeNull();
+      expect(parseApiKey("mhl_abcdefgh_")).toBeNull();
+      expect(parseApiKey("mhl_abcdefghsecret")).toBeNull();
       expect(parseApiKey("")).toBeNull();
     });
   });

@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { eq } from "drizzle-orm";
 import * as schema from "../../src/db/schema";
 import { createApp } from "../../src/server";
 import { generateApiKey } from "../../src/services/auth";
@@ -145,7 +146,7 @@ export async function createTestUser(username: string, displayName?: string): Pr
   const [createdUser] = await db
     .select()
     .from(schema.users)
-    .where((t, { eq }) => eq(t.id, user.id))
+    .where(eq(schema.users.id, user.id))
     .limit(1);
 
   return {
@@ -175,7 +176,7 @@ export async function createFriendship(
   const [created] = await db
     .select()
     .from(schema.friendships)
-    .where((t, { eq }) => eq(t.id, friendship.id))
+    .where(eq(schema.friendships.id, friendship.id))
     .limit(1);
 
   return created;
@@ -211,7 +212,7 @@ export async function createAgentConnection(
   const [created] = await db
     .select()
     .from(schema.agentConnections)
-    .where((t, { eq }) => eq(t.id, connection.id))
+    .where(eq(schema.agentConnections.id, connection.id))
     .limit(1);
 
   return created;

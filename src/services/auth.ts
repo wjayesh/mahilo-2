@@ -29,14 +29,30 @@ export async function generateApiKey(): Promise<{ apiKey: string; keyId: string;
 
 // Parse an API key to extract the key ID
 export function parseApiKey(apiKey: string): { prefix: string; keyId: string; secret: string } | null {
-  const parts = apiKey.split("_");
-  if (parts.length !== 3 || parts[0] !== API_KEY_PREFIX) {
+  const prefix = `${API_KEY_PREFIX}_`;
+  if (!apiKey.startsWith(prefix)) {
     return null;
   }
+
+  const rest = apiKey.slice(prefix.length);
+  if (rest.length <= KEY_ID_LENGTH + 1) {
+    return null;
+  }
+
+  const keyId = rest.slice(0, KEY_ID_LENGTH);
+  if (rest[KEY_ID_LENGTH] !== "_") {
+    return null;
+  }
+
+  const secret = rest.slice(KEY_ID_LENGTH + 1);
+  if (!secret) {
+    return null;
+  }
+
   return {
-    prefix: parts[0],
-    keyId: parts[1],
-    secret: parts[2],
+    prefix: API_KEY_PREFIX,
+    keyId,
+    secret,
   };
 }
 

@@ -1,58 +1,67 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { createHmac } from "crypto";
-import { serve } from "bun";
 import { createApp } from "../../src/server";
 import { cleanupTestDatabase, setupTestDatabase } from "../helpers/setup";
 
 let app: ReturnType<typeof createApp>;
-let mockCallbackServer: ReturnType<typeof serve> | null = null;
 let receivedCallbacks: Array<{
   rawBody: string;
   body: Record<string, unknown> | null;
   headers: Record<string, string>;
 }> = [];
 
-const MOCK_CALLBACK_PORT = 9999;
-const MOCK_CALLBACK_URL = `http://localhost:${MOCK_CALLBACK_PORT}/callback`;
+const mockCallbackUrl = "https://callback.test/mahilo";
+let originalFetch: typeof fetch | null = null;
 
-function startMockCallbackServer() {
+function setupMockFetch() {
   receivedCallbacks = [];
-  mockCallbackServer = serve({
-    port: MOCK_CALLBACK_PORT,
-    fetch: async (req) => {
-      const url = new URL(req.url);
-      if (url.pathname === "/callback" && req.method === "POST") {
-        const rawBody = await req.text();
-        let body: Record<string, unknown> | null = null;
-        try {
-          body = JSON.parse(rawBody);
-        } catch {
-          body = null;
-        }
+  originalFetch = globalThis.fetch;
 
-        receivedCallbacks.push({
-          rawBody,
-          body,
-          headers: {
-            "x-mahilo-signature": req.headers.get("x-mahilo-signature") || "",
-            "x-mahilo-timestamp": req.headers.get("x-mahilo-timestamp") || "",
-            "x-mahilo-message-id": req.headers.get("x-mahilo-message-id") || "",
-          },
-        });
-
-        return new Response(JSON.stringify({ acknowledged: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url === mockCallbackUrl) {
+      const bodyString =
+        typeof init?.body === "string"
+          ? init.body
+          : init?.body
+          ? new TextDecoder().decode(init.body as ArrayBufferView)
+          : "";
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = bodyString ? JSON.parse(bodyString) : null;
+      } catch {
+        body = null;
       }
-      return new Response("Not Found", { status: 404 });
-    },
-  });
+
+      const headers = new Headers(init?.headers || undefined);
+      receivedCallbacks.push({
+        rawBody: bodyString,
+        body,
+        headers: {
+          "x-mahilo-signature": headers.get("X-Mahilo-Signature") || "",
+          "x-mahilo-timestamp": headers.get("X-Mahilo-Timestamp") || "",
+          "x-mahilo-message-id": headers.get("X-Mahilo-Message-Id") || "",
+        },
+      });
+
+      return new Response(JSON.stringify({ acknowledged: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (!originalFetch) {
+      throw new Error("Original fetch is not available");
+    }
+    return originalFetch(input, init);
+  };
 }
 
-function stopMockCallbackServer() {
-  mockCallbackServer?.stop();
-  mockCallbackServer = null;
+function teardownMockFetch() {
+  if (originalFetch) {
+    globalThis.fetch = originalFetch;
+    originalFetch = null;
+  }
 }
 
 async function waitForCallbacks(count: number, timeoutMs = 2000) {
@@ -71,11 +80,11 @@ describe("E2E: Two Users Exchange Messages", () => {
   beforeEach(async () => {
     await setupTestDatabase();
     app = createApp();
-    startMockCallbackServer();
+    setupMockFetch();
   });
 
   afterEach(() => {
-    stopMockCallbackServer();
+    teardownMockFetch();
     cleanupTestDatabase();
   });
 
@@ -100,7 +109,7 @@ describe("E2E: Two Users Exchange Messages", () => {
         body: JSON.stringify({
           framework: "clawdbot",
           label,
-          callback_url: MOCK_CALLBACK_URL,
+          callback_url: mockCallbackUrl,
           public_key: "test-public-key",
           public_key_alg: "ed25519",
           capabilities: ["chat"],

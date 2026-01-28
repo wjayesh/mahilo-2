@@ -77,10 +77,11 @@ export async function validateCallbackUrl(
     const hostname = url.hostname.toLowerCase();
     const isLocalhost = isLocalhostHostname(hostname);
     const isLoopback = isLoopbackIp(hostname);
+    const isLocalOrLoopback = isLocalhost || isLoopback;
 
     // Must be HTTPS (except localhost in dev)
     if (url.protocol !== "https:") {
-      if (!isLocalhost || config.nodeEnv === "production") {
+      if (!isLocalOrLoopback || config.nodeEnv === "production") {
         return {
           valid: false,
           error: "Callback URL must use HTTPS (except localhost in development)",
@@ -89,14 +90,14 @@ export async function validateCallbackUrl(
     }
 
     // In development mode, allow localhost
-    if (config.nodeEnv !== "production" && (isLocalhost || isLoopback)) {
+    if (config.nodeEnv !== "production" && isLocalOrLoopback) {
       return { valid: true };
     }
 
     if (!config.allowPrivateIps) {
       // Block localhost and .local domains in production
       if (config.nodeEnv === "production") {
-        if (isLocalhost || hostname.endsWith(".local")) {
+        if (isLocalOrLoopback || hostname.endsWith(".local")) {
           return {
             valid: false,
             error: "Callback URL cannot point to localhost in production",
