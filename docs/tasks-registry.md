@@ -717,7 +717,7 @@
 
 #### 15.1 Group Flow Integration Tests
 - **ID**: `REG-050`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**:
   - Create group, invite, join, send group message
@@ -1104,9 +1104,9 @@
 | Priority | Total | Pending | In Progress | Done |
 |----------|-------|---------|-------------|------|
 | P0       | 40    | 6       | 0           | 34   |
-| P1       | 26    | 13      | 0           | 13   |
+| P1       | 26    | 12      | 0           | 14   |
 | P2       | 17    | 14      | 0           | 3    |
-| **Total**| 83    | 33      | 0           | 50   |
+| **Total**| 83    | 32      | 0           | 51   |
 
 ---
 

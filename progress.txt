@@ -320,8 +320,26 @@ ALL 35 TASKS COMPLETE - Mahilo Registry Phase 1 is finished!
 
 **All P0 Phase 2 tasks complete!**
 
-**Phase 2 Status: 14 of 16 tasks done**
+- REG-050: Group Flow Integration Tests (P1)
+  - Created tests/integration/groups.test.ts
+  - Tests: create group, list groups, invite, join, leave
+  - Tests: public vs invite-only groups
+  - Tests: owner cannot leave while members exist
+  - Full flow test: create -> invite -> join -> members -> message
+
+**Files Created:**
+- tests/integration/groups.test.ts - Group flow integration tests
+
+**Phase 2 Status: ALL 16 TASKS COMPLETE!**
 
 **Next Steps:**
-- REG-050: Group Flow Integration Tests (P1)
+Phase 2 is complete. Ready to start Phase 3 (Federation) or Phase 4 (Advanced Intelligence).
+
+Phase 3 remaining P0 tasks:
+- REG-052: Create Registry Instances Table
+- REG-053: Federation Trust Configuration
+- REG-054: Instance Handshake Endpoint
+- REG-055: Remote User Discovery Endpoint
+- REG-057: Outbound Federated Routing
+- REG-058: Inbound Federated Message Verification
 
