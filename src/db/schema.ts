@@ -138,6 +138,86 @@ export const policies = sqliteTable(
   ]
 );
 
+// Message deliveries table (for fan-out tracking in group messages)
+export const messageDeliveries = sqliteTable(
+  "message_deliveries",
+  {
+    id: text("id").primaryKey(),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => users.id),
+    recipientConnectionId: text("recipient_connection_id").references(
+      () => agentConnections.id
+    ),
+    status: text("status").notNull().default("pending"), // 'pending', 'delivered', 'failed'
+    retryCount: integer("retry_count").notNull().default(0),
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deliveredAt: integer("delivered_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("idx_message_deliveries_message").on(table.messageId),
+    index("idx_message_deliveries_recipient").on(table.recipientUserId),
+    index("idx_message_deliveries_status").on(table.status),
+    unique("idx_message_deliveries_unique").on(table.messageId, table.recipientUserId),
+  ]
+);
+
+// Groups table
+export const groups = sqliteTable(
+  "groups",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull().unique(),
+    description: text("description"),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    inviteOnly: integer("invite_only", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("idx_groups_name").on(table.name),
+    index("idx_groups_owner").on(table.ownerUserId),
+  ]
+);
+
+// Group memberships table
+export const groupMemberships = sqliteTable(
+  "group_memberships",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"), // 'owner', 'admin', 'member'
+    status: text("status").notNull().default("pending"), // 'invited', 'pending', 'active'
+    invitedByUserId: text("invited_by_user_id").references(() => users.id),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("idx_group_memberships_group").on(table.groupId),
+    index("idx_group_memberships_user").on(table.userId),
+    index("idx_group_memberships_status").on(table.status),
+    unique("idx_group_memberships_unique").on(table.groupId, table.userId),
+  ]
+);
+
 // Type exports for use in services
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -149,3 +229,9 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type Policy = typeof policies.$inferSelect;
 export type NewPolicy = typeof policies.$inferInsert;
+export type Group = typeof groups.$inferSelect;
+export type NewGroup = typeof groups.$inferInsert;
+export type GroupMembership = typeof groupMemberships.$inferSelect;
+export type NewGroupMembership = typeof groupMemberships.$inferInsert;
+export type MessageDelivery = typeof messageDeliveries.$inferSelect;
+export type NewMessageDelivery = typeof messageDeliveries.$inferInsert;

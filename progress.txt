@@ -212,3 +212,81 @@ None - All tasks complete!
 **Project Status:**
 ALL 35 TASKS COMPLETE - Mahilo Registry Phase 1 is finished!
 
+### Session 4 - 2026-01-28 (Phase 2)
+
+**Branch:** `phase2/groups-and-advanced`
+
+**Completed Tasks:**
+- REG-036: Create Groups Table (P0)
+  - Added groups table with id, name, description, owner_user_id, invite_only, created_at, updated_at
+  - Indexes on name (unique), owner_user_id
+  - Migration: 0001_wonderful_triathlon.sql
+
+- REG-037: Create Group Memberships Table (P0)
+  - Added group_memberships table with id, group_id, user_id, role, status, invited_by_user_id, created_at
+  - Role: 'owner', 'admin', 'member'
+  - Status: 'invited', 'pending', 'active'
+  - Unique constraint on (group_id, user_id)
+  - Migration: 0001_wonderful_triathlon.sql
+
+- REG-038: Create Group Endpoint (P0)
+  - POST /api/v1/groups
+  - Creator becomes owner with active membership
+  - Returns group_id
+
+- REG-039: List Groups Endpoint (P0)
+  - GET /api/v1/groups
+  - Returns groups user belongs to with role and member_count
+
+- REG-040: Invite User Endpoint (P0)
+  - POST /api/v1/groups/:id/invite
+  - Owner/admin only
+  - Creates 'invited' membership for target user
+
+- REG-041: Join Group Endpoint (P0)
+  - POST /api/v1/groups/:id/join
+  - Accept invite or join public group
+  - Rejects if invite_only and no invite exists
+
+- REG-042: Leave Group Endpoint (P1)
+  - DELETE /api/v1/groups/:id/leave
+  - Owner cannot leave while other members exist
+  - Deletes group if owner is last member
+
+- REG-045: Send Message to Group (P0)
+  - Extended POST /api/v1/messages/send with recipient_type=group
+  - Validates sender membership
+  - Creates parent message record for group
+
+- REG-046: Fan-out Delivery Tracking (P0)
+  - Added message_deliveries table for per-recipient tracking
+  - Migration: 0002_gray_sally_floyd.sql
+  - Delivers to each member's highest-priority connection
+  - Tracks delivered/pending/failed counts per recipient
+
+**Additional Endpoints Implemented:**
+- GET /api/v1/groups/:id - Get group details
+- GET /api/v1/groups/:id/members - List group members
+- POST /api/v1/groups/:id/transfer - Transfer ownership
+- DELETE /api/v1/groups/:id - Delete group (owner only)
+
+**Files Created:**
+- src/routes/groups.ts - Full group management routes
+- src/db/migrations/0001_wonderful_triathlon.sql - Groups + memberships
+- src/db/migrations/0002_gray_sally_floyd.sql - Message deliveries
+
+**Files Modified:**
+- src/db/schema.ts - Added groups, groupMemberships, messageDeliveries tables
+- src/server.ts - Added groupRoutes
+- src/routes/messages.ts - Implemented group messaging
+- src/services/delivery.ts - Added deliverToConnection for fan-out
+
+**Next Steps:**
+- REG-043: Enforce Group Policy Scope (P0)
+- REG-044: Evaluate Group Policies for Group Messages (P0)
+- REG-047: talk_to_group Tool Support (P1)
+- REG-048: WebSocket Auth and Connection (P1)
+- REG-049: WebSocket Event Types (P1)
+- REG-050: Group Flow Integration Tests (P1)
+- REG-051: API Documentation for Groups (P1)
+

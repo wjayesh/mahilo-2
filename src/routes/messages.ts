@@ -2,13 +2,13 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq, and, or, desc, gt } from "drizzle-orm";
+import { eq, and, or, desc, gt, ne } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
-import { deliverMessage } from "../services/delivery";
+import { deliverMessage, deliverToConnection } from "../services/delivery";
 import { evaluatePolicies } from "../services/policy";
 import { config } from "../config";
 
@@ -187,8 +187,210 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
       }
     }
   } else {
-    // Group messaging (Phase 2)
-    throw new AppError("Group messaging not yet supported", 501, "NOT_IMPLEMENTED");
+    // Group messaging (REG-045, REG-046)
+    const groupId = data.recipient;
+
+    // Get the group
+    const [group] = await db
+      .select()
+      .from(schema.groups)
+      .where(eq(schema.groups.id, groupId))
+      .limit(1);
+
+    if (!group) {
+      throw new AppError("Group not found", 404, "GROUP_NOT_FOUND");
+    }
+
+    // Check if sender is an active member
+    const [senderMembership] = await db
+      .select()
+      .from(schema.groupMemberships)
+      .where(
+        and(
+          eq(schema.groupMemberships.groupId, groupId),
+          eq(schema.groupMemberships.userId, user.id),
+          eq(schema.groupMemberships.status, "active")
+        )
+      )
+      .limit(1);
+
+    if (!senderMembership) {
+      throw new AppError("Not a member of this group", 403, "NOT_MEMBER");
+    }
+
+    // Get sender's agent connection for sender_agent field
+    const senderAgent = data.routing_hints?.labels?.[0] || "agent";
+
+    // Get sender username
+    const [sender] = await db
+      .select({ username: schema.users.username })
+      .from(schema.users)
+      .where(eq(schema.users.id, user.id))
+      .limit(1);
+
+    // Create the parent message record
+    const messageId = nanoid();
+    await db.insert(schema.messages).values({
+      id: messageId,
+      correlationId: data.correlation_id,
+      senderUserId: user.id,
+      senderAgent,
+      recipientType: "group",
+      recipientId: groupId,
+      recipientConnectionId: null,
+      payload: data.message,
+      payloadType: data.payload_type,
+      encryption: data.encryption ? JSON.stringify(data.encryption) : null,
+      senderSignature: data.sender_signature
+        ? JSON.stringify(data.sender_signature)
+        : null,
+      context: data.context,
+      status: "pending",
+      idempotencyKey: data.idempotency_key,
+    });
+
+    // Get all active group members (excluding sender)
+    const members = await db
+      .select({
+        userId: schema.groupMemberships.userId,
+      })
+      .from(schema.groupMemberships)
+      .where(
+        and(
+          eq(schema.groupMemberships.groupId, groupId),
+          eq(schema.groupMemberships.status, "active"),
+          ne(schema.groupMemberships.userId, user.id)
+        )
+      );
+
+    if (members.length === 0) {
+      // No other members - mark as delivered
+      await db
+        .update(schema.messages)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(eq(schema.messages.id, messageId));
+
+      return c.json({
+        message_id: messageId,
+        status: "delivered",
+        recipients: 0,
+      });
+    }
+
+    // Get active connections for each member
+    const memberUserIds = members.map((m) => m.userId);
+    const memberConnections = await db
+      .select()
+      .from(schema.agentConnections)
+      .where(
+        and(
+          eq(schema.agentConnections.status, "active")
+        )
+      );
+
+    // Filter to only include connections for group members
+    const memberConnectionsFiltered = memberConnections.filter((c) =>
+      memberUserIds.includes(c.userId)
+    );
+
+    // Group connections by user and pick highest priority
+    const connectionsByUser = new Map<string, schema.AgentConnection>();
+    for (const conn of memberConnectionsFiltered) {
+      const existing = connectionsByUser.get(conn.userId);
+      if (!existing || conn.routingPriority > existing.routingPriority) {
+        connectionsByUser.set(conn.userId, conn);
+      }
+    }
+
+    // Create delivery records and deliver to each recipient
+    const deliveryPromises: Promise<void>[] = [];
+    let deliveredCount = 0;
+    let pendingCount = 0;
+    let failedCount = 0;
+
+    for (const member of members) {
+      const connection = connectionsByUser.get(member.userId);
+      const deliveryId = nanoid();
+
+      if (!connection) {
+        // No active connection for this member - mark as failed
+        await db.insert(schema.messageDeliveries).values({
+          id: deliveryId,
+          messageId,
+          recipientUserId: member.userId,
+          recipientConnectionId: null,
+          status: "failed",
+          errorMessage: "No active connection",
+        });
+        failedCount++;
+        continue;
+      }
+
+      // Create delivery record
+      await db.insert(schema.messageDeliveries).values({
+        id: deliveryId,
+        messageId,
+        recipientUserId: member.userId,
+        recipientConnectionId: connection.id,
+        status: "pending",
+      });
+
+      // Deliver asynchronously
+      deliveryPromises.push(
+        deliverToConnection(connection, {
+          message_id: messageId,
+          delivery_id: deliveryId,
+          correlation_id: data.correlation_id,
+          recipient_connection_id: connection.id,
+          sender: sender!.username,
+          sender_agent: senderAgent,
+          message: data.message,
+          payload_type: data.payload_type,
+          encryption: data.encryption,
+          sender_signature: data.sender_signature,
+          context: data.context,
+          group_id: groupId,
+          group_name: group.name,
+          timestamp: new Date().toISOString(),
+        }).then((result) => {
+          if (result.status === "delivered") {
+            deliveredCount++;
+          } else if (result.status === "pending") {
+            pendingCount++;
+          } else {
+            failedCount++;
+          }
+        })
+      );
+    }
+
+    // Wait for all deliveries to complete
+    await Promise.all(deliveryPromises);
+
+    // Update parent message status based on delivery results
+    let overallStatus: "delivered" | "pending" | "failed" = "delivered";
+    if (pendingCount > 0) {
+      overallStatus = "pending";
+    } else if (failedCount === members.length) {
+      overallStatus = "failed";
+    }
+
+    await db
+      .update(schema.messages)
+      .set({
+        status: overallStatus,
+        deliveredAt: overallStatus === "delivered" ? new Date() : undefined,
+      })
+      .where(eq(schema.messages.id, messageId));
+
+    return c.json({
+      message_id: messageId,
+      status: overallStatus,
+      recipients: members.length,
+      delivered: deliveredCount,
+      pending: pendingCount,
+      failed: failedCount,
+    });
   }
 
   // Get sender's agent connection for sender_agent field

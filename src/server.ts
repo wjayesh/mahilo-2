@@ -7,6 +7,7 @@ import { errorHandler } from "./middleware/error";
 import { authRoutes } from "./routes/auth";
 import { agentRoutes } from "./routes/agents";
 import { friendRoutes } from "./routes/friends";
+import { groupRoutes } from "./routes/groups";
 import { messageRoutes } from "./routes/messages";
 import { policyRoutes } from "./routes/policies";
 import { contactRoutes } from "./routes/contacts";
@@ -55,6 +56,7 @@ export function createApp() {
   api.route("/agents", agentRoutes);
   api.route("/contacts", contactRoutes);
   api.route("/friends", friendRoutes);
+  api.route("/groups", groupRoutes);
   api.route("/messages", messageRoutes);
   api.route("/policies", policyRoutes);
 
