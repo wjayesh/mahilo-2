@@ -676,7 +676,7 @@
 
 #### 13.3 talk_to_group Tool Support
 - **ID**: `REG-047`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**:
   - Document payload shape for group sends
@@ -727,7 +727,7 @@
 
 #### 15.2 API Documentation for Groups
 - **ID**: `REG-051`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Notes**:
   - Update OpenAPI and README for group endpoints and WebSocket
@@ -1104,9 +1104,9 @@
 | Priority | Total | Pending | In Progress | Done |
 |----------|-------|---------|-------------|------|
 | P0       | 40    | 6       | 0           | 34   |
-| P1       | 26    | 17      | 0           | 9    |
+| P1       | 26    | 15      | 0           | 11   |
 | P2       | 17    | 14      | 0           | 3    |
-| **Total**| 83    | 37      | 0           | 46   |
+| **Total**| 83    | 35      | 0           | 48   |
 
 ---
 

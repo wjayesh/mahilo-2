@@ -295,12 +295,19 @@ ALL 35 TASKS COMPLETE - Mahilo Registry Phase 1 is finished!
 - src/routes/policies.ts - Added group membership validation for group policies
 - src/services/policy.ts - Added evaluateGroupPolicies function
 
+- REG-047: talk_to_group Tool Support (P1)
+  - Documented talk_to_group tool schema in README
+  - Shows how Claude plugins should translate to messages/send
+
+- REG-051: API Documentation for Groups (P1)
+  - Added Groups section to README with all endpoints
+  - Added examples for create, invite, join, send group message
+  - Added Group Message Callback format section
+
 **All P0 Phase 2 tasks complete!**
 
 **Next Steps:**
-- REG-047: talk_to_group Tool Support (P1)
 - REG-048: WebSocket Auth and Connection (P1)
 - REG-049: WebSocket Event Types (P1)
 - REG-050: Group Flow Integration Tests (P1)
-- REG-051: API Documentation for Groups (P1)
 
