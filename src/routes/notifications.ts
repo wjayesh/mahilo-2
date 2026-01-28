@@ -51,7 +51,7 @@ notificationRoutes.get(
     let connectionId: string | null = null;
 
     return {
-      onOpen: async (event, ws) => {
+      onOpen: async (_event, ws) => {
         // Get API key from query parameter
         const url = new URL(c.req.url);
         const apiKey = url.searchParams.get("api_key");
