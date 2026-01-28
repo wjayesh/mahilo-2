@@ -9,7 +9,7 @@ import { requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage, deliverToConnection } from "../services/delivery";
-import { evaluatePolicies } from "../services/policy";
+import { evaluatePolicies, evaluateGroupPolicies } from "../services/policy";
 import { config } from "../config";
 
 export const messageRoutes = new Hono<AppEnv>();
@@ -227,6 +227,49 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
       .from(schema.users)
       .where(eq(schema.users.id, user.id))
       .limit(1);
+
+    // Group policy evaluation in trusted mode (REG-044)
+    const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
+    if (!isEncrypted && config.trustedMode) {
+      const policyResult = await evaluateGroupPolicies(
+        user.id,
+        groupId,
+        data.message,
+        data.context
+      );
+      if (!policyResult.allowed) {
+        // Create message record for audit with rejected status
+        const messageId = nanoid();
+        await db.insert(schema.messages).values({
+          id: messageId,
+          correlationId: data.correlation_id,
+          senderUserId: user.id,
+          senderAgent,
+          recipientType: "group",
+          recipientId: groupId,
+          recipientConnectionId: null,
+          payload: data.message,
+          payloadType: data.payload_type,
+          encryption: data.encryption ? JSON.stringify(data.encryption) : null,
+          senderSignature: data.sender_signature
+            ? JSON.stringify(data.sender_signature)
+            : null,
+          context: data.context,
+          status: "rejected",
+          rejectionReason: policyResult.reason,
+          idempotencyKey: data.idempotency_key,
+        });
+
+        return c.json(
+          {
+            message_id: messageId,
+            status: "rejected",
+            rejection_reason: policyResult.reason,
+          },
+          403
+        );
+      }
+    }
 
     // Create the parent message record
     const messageId = nanoid();

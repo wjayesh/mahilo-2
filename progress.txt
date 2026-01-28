@@ -281,9 +281,23 @@ ALL 35 TASKS COMPLETE - Mahilo Registry Phase 1 is finished!
 - src/routes/messages.ts - Implemented group messaging
 - src/services/delivery.ts - Added deliverToConnection for fan-out
 
-**Next Steps:**
 - REG-043: Enforce Group Policy Scope (P0)
+  - Updated policies.ts to validate group membership for scope=group
+  - Only group owners and admins can create/manage group policies
+  - Validates target_id is a valid group
+
 - REG-044: Evaluate Group Policies for Group Messages (P0)
+  - Added evaluateGroupPolicies() function in policy.ts
+  - Evaluation order: sender's global policies first, then group policies
+  - Integrated into messages/send for group messages in trusted mode
+
+**Files Modified (continued):**
+- src/routes/policies.ts - Added group membership validation for group policies
+- src/services/policy.ts - Added evaluateGroupPolicies function
+
+**All P0 Phase 2 tasks complete!**
+
+**Next Steps:**
 - REG-047: talk_to_group Tool Support (P1)
 - REG-048: WebSocket Auth and Connection (P1)
 - REG-049: WebSocket Event Types (P1)

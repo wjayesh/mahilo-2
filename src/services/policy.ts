@@ -194,3 +194,91 @@ export async function evaluatePolicies(
 
   return { allowed: true };
 }
+
+// Evaluate policies for group messages (REG-044)
+export async function evaluateGroupPolicies(
+  senderUserId: string,
+  groupId: string,
+  message: string,
+  context?: string
+): Promise<PolicyResult> {
+  const db = getDb();
+
+  // Evaluation order:
+  // 1. Sender's global policies (highest priority first)
+  // 2. Group policies (highest priority first)
+
+  // Get sender's global policies
+  const senderPolicies = await db
+    .select()
+    .from(schema.policies)
+    .where(
+      and(
+        eq(schema.policies.userId, senderUserId),
+        eq(schema.policies.enabled, true),
+        eq(schema.policies.scope, "global")
+      )
+    )
+    .orderBy(desc(schema.policies.priority));
+
+  // Get group policies (from all users who created policies for this group)
+  const groupPolicies = await db
+    .select()
+    .from(schema.policies)
+    .where(
+      and(
+        eq(schema.policies.enabled, true),
+        eq(schema.policies.scope, "group"),
+        eq(schema.policies.targetId, groupId)
+      )
+    )
+    .orderBy(desc(schema.policies.priority));
+
+  // Combine policies: sender global first, then group policies
+  const allPolicies = [...senderPolicies, ...groupPolicies];
+
+  if (allPolicies.length === 0) {
+    return { allowed: true };
+  }
+
+  // Get group name for logging/errors
+  const [group] = await db
+    .select({ name: schema.groups.name })
+    .from(schema.groups)
+    .where(eq(schema.groups.id, groupId))
+    .limit(1);
+
+  // Evaluate all policies
+  for (const policy of allPolicies) {
+    if (policy.policyType === "heuristic") {
+      try {
+        const rules = JSON.parse(policy.policyContent) as HeuristicRules;
+
+        // Check context requirement
+        if (rules.requireContext && !context) {
+          return {
+            allowed: false,
+            reason: `Context is required for messages to group '${group?.name || groupId}'`,
+          };
+        }
+
+        // Evaluate heuristic rules (without recipient username for groups)
+        const result = evaluateHeuristicPolicy(rules, message);
+        if (!result.allowed) {
+          return {
+            allowed: false,
+            reason: `${result.reason} (group policy)`,
+          };
+        }
+      } catch (e) {
+        console.error(`Error evaluating group policy ${policy.id}:`, e);
+        // Continue to next policy on error
+      }
+    } else if (policy.policyType === "llm") {
+      // LLM policy evaluation would go here
+      console.log(`Skipping LLM policy ${policy.id} (plugin-side evaluation)`);
+    }
+  }
+
+  return { allowed: true };
+}

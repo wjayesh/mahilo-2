@@ -57,6 +57,40 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     }
   }
 
+  // If scope is "group", verify the group exists and user is owner/admin (REG-043)
+  if (data.scope === "group" && data.target_id) {
+    const [group] = await db
+      .select()
+      .from(schema.groups)
+      .where(eq(schema.groups.id, data.target_id))
+      .limit(1);
+
+    if (!group) {
+      throw new AppError("Target group not found", 404, "GROUP_NOT_FOUND");
+    }
+
+    // Verify user is owner or admin of the group
+    const [membership] = await db
+      .select()
+      .from(schema.groupMemberships)
+      .where(
+        and(
+          eq(schema.groupMemberships.groupId, data.target_id),
+          eq(schema.groupMemberships.userId, user.id),
+          eq(schema.groupMemberships.status, "active")
+        )
+      )
+      .limit(1);
+
+    if (!membership) {
+      throw new AppError("Not a member of this group", 403, "NOT_MEMBER");
+    }
+
+    if (membership.role !== "owner" && membership.role !== "admin") {
+      throw new AppError("Only group owners and admins can manage group policies", 403, "FORBIDDEN");
+    }
+  }
+
   // Create policy
   const policyId = nanoid();
   await db.insert(schema.policies).values({

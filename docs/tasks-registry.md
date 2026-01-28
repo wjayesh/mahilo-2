@@ -627,7 +627,7 @@
 
 #### 12.1 Enforce Group Policy Scope
 - **ID**: `REG-043`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**:
   - Policies with scope=group require membership or ownership
@@ -638,7 +638,7 @@
 
 #### 12.2 Evaluate Group Policies for Group Messages
 - **ID**: `REG-044`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Notes**:
   - In trusted mode, apply group policies before routing
@@ -1103,10 +1103,10 @@
 
 | Priority | Total | Pending | In Progress | Done |
 |----------|-------|---------|-------------|------|
-| P0       | 40    | 8       | 0           | 32   |
+| P0       | 40    | 6       | 0           | 34   |
 | P1       | 26    | 17      | 0           | 9    |
 | P2       | 17    | 14      | 0           | 3    |
-| **Total**| 83    | 39      | 0           | 44   |
+| **Total**| 83    | 37      | 0           | 46   |
 
 ---
 
