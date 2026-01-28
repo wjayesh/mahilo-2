@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { config } from "../config";
 
@@ -138,6 +138,7 @@ export async function deliverToConnection(
             deliveredAt: new Date(),
           })
           .where(eq(schema.messageDeliveries.id, payload.delivery_id));
+        await recomputeGroupMessageStatus(payload.message_id);
       }
 
       // Update connection last_seen
@@ -240,6 +241,67 @@ async function markDeliveryFailed(deliveryId: string, reason: string) {
       errorMessage: reason,
     })
     .where(eq(schema.messageDeliveries.id, deliveryId));
+
+  const [delivery] = await db
+    .select({ messageId: schema.messageDeliveries.messageId })
+    .from(schema.messageDeliveries)
+    .where(eq(schema.messageDeliveries.id, deliveryId))
+    .limit(1);
+
+  if (delivery) {
+    await recomputeGroupMessageStatus(delivery.messageId);
+  }
+}
+
+async function recomputeGroupMessageStatus(messageId: string) {
+  const db = getDb();
+
+  const counts = await db
+    .select({
+      status: schema.messageDeliveries.status,
+      count: sql<number>`count(*)`.as("count"),
+    })
+    .from(schema.messageDeliveries)
+    .where(eq(schema.messageDeliveries.messageId, messageId))
+    .groupBy(schema.messageDeliveries.status);
+
+  if (counts.length === 0) {
+    return;
+  }
+
+  let pendingCount = 0;
+  let failedCount = 0;
+  let deliveredCount = 0;
+
+  for (const row of counts) {
+    if (row.status === "pending") {
+      pendingCount += row.count;
+    } else if (row.status === "failed") {
+      failedCount += row.count;
+    } else if (row.status === "delivered") {
+      deliveredCount += row.count;
+    }
+  }
+
+  const total = pendingCount + failedCount + deliveredCount;
+  if (total === 0) {
+    return;
+  }
+
+  let overallStatus: "delivered" | "pending" | "failed" = "delivered";
+  if (pendingCount > 0) {
+    overallStatus = "pending";
+  } else if (failedCount === total) {
+    overallStatus = "failed";
+  }
+
+  await db
+    .update(schema.messages)
+    .set({
+      status: overallStatus,
+      deliveredAt: overallStatus === "delivered" ? new Date() : null,
+    })
+    .where(eq(schema.messages.id, messageId));
 }
 
 function queueForRetry(

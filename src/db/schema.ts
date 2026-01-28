@@ -164,7 +164,7 @@ export const messageDeliveries = sqliteTable(
     index("idx_message_deliveries_message").on(table.messageId),
     index("idx_message_deliveries_recipient").on(table.recipientUserId),
     index("idx_message_deliveries_status").on(table.status),
-    unique("idx_message_deliveries_unique").on(table.messageId, table.recipientUserId),
+    unique("idx_message_deliveries_unique").on(table.messageId, table.recipientConnectionId),
   ]
 );
 

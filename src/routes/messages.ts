@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq, and, or, desc, gt, ne } from "drizzle-orm";
+import { eq, and, or, desc, gt, ne, inArray } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireAuth } from "../middleware/auth";
@@ -327,36 +327,40 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
       .from(schema.agentConnections)
       .where(
         and(
+          inArray(schema.agentConnections.userId, memberUserIds),
           eq(schema.agentConnections.status, "active")
         )
       );
 
-    // Filter to only include connections for group members
-    const memberConnectionsFiltered = memberConnections.filter((c) =>
-      memberUserIds.includes(c.userId)
-    );
-
-    // Group connections by user and pick highest priority
-    const connectionsByUser = new Map<string, schema.AgentConnection>();
-    for (const conn of memberConnectionsFiltered) {
-      const existing = connectionsByUser.get(conn.userId);
-      if (!existing || conn.routingPriority > existing.routingPriority) {
-        connectionsByUser.set(conn.userId, conn);
-      }
+    // Group connections by user
+    const connectionsByUser = new Map<string, schema.AgentConnection[]>();
+    for (const conn of memberConnections) {
+      const list = connectionsByUser.get(conn.userId) || [];
+      list.push(conn);
+      connectionsByUser.set(conn.userId, list);
     }
 
-    // Create delivery records and deliver to each recipient
+    // Create delivery records and deliver to each recipient connection
     const deliveryPromises: Promise<void>[] = [];
-    let deliveredCount = 0;
+    const memberResults = new Map<
+      string,
+      { delivered: number; pending: number; failed: number }
+    >();
     let pendingCount = 0;
     let failedCount = 0;
+    let deliveryTotal = 0;
 
     for (const member of members) {
-      const connection = connectionsByUser.get(member.userId);
-      const deliveryId = nanoid();
+      const connections = connectionsByUser.get(member.userId) || [];
+      const memberStats = memberResults.get(member.userId) || {
+        delivered: 0,
+        pending: 0,
+        failed: 0,
+      };
 
-      if (!connection) {
+      if (connections.length === 0) {
         // No active connection for this member - mark as failed
+        const deliveryId = nanoid();
         await db.insert(schema.messageDeliveries).values({
           id: deliveryId,
           messageId,
@@ -365,56 +369,93 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
           status: "failed",
           errorMessage: "No active connection",
         });
+        deliveryTotal++;
         failedCount++;
+        memberStats.failed++;
+        memberResults.set(member.userId, memberStats);
         continue;
       }
 
-      // Create delivery record
-      await db.insert(schema.messageDeliveries).values({
-        id: deliveryId,
-        messageId,
-        recipientUserId: member.userId,
-        recipientConnectionId: connection.id,
-        status: "pending",
-      });
+      for (const connection of connections) {
+        const deliveryId = nanoid();
+        // Create delivery record
+        await db.insert(schema.messageDeliveries).values({
+          id: deliveryId,
+          messageId,
+          recipientUserId: member.userId,
+          recipientConnectionId: connection.id,
+          status: "pending",
+        });
+        deliveryTotal++;
 
-      // Deliver asynchronously
-      deliveryPromises.push(
-        deliverToConnection(connection, {
-          message_id: messageId,
-          delivery_id: deliveryId,
-          correlation_id: data.correlation_id,
-          recipient_connection_id: connection.id,
-          sender: sender!.username,
-          sender_agent: senderAgent,
-          message: data.message,
-          payload_type: data.payload_type,
-          encryption: data.encryption,
-          sender_signature: data.sender_signature,
-          context: data.context,
-          group_id: groupId,
-          group_name: group.name,
-          timestamp: new Date().toISOString(),
-        }).then((result) => {
-          if (result.status === "delivered") {
-            deliveredCount++;
-          } else if (result.status === "pending") {
-            pendingCount++;
-          } else {
-            failedCount++;
-          }
-        })
-      );
+        // Deliver asynchronously
+        deliveryPromises.push(
+          deliverToConnection(connection, {
+            message_id: messageId,
+            delivery_id: deliveryId,
+            correlation_id: data.correlation_id,
+            recipient_connection_id: connection.id,
+            sender: sender!.username,
+            sender_agent: senderAgent,
+            message: data.message,
+            payload_type: data.payload_type,
+            encryption: data.encryption,
+            sender_signature: data.sender_signature,
+            context: data.context,
+            group_id: groupId,
+            group_name: group.name,
+            timestamp: new Date().toISOString(),
+          }).then((result) => {
+            const stats = memberResults.get(member.userId) || {
+              delivered: 0,
+              pending: 0,
+              failed: 0,
+            };
+
+            if (result.status === "delivered") {
+              stats.delivered++;
+            } else if (result.status === "pending") {
+              pendingCount++;
+              stats.pending++;
+            } else {
+              failedCount++;
+              stats.failed++;
+            }
+
+            memberResults.set(member.userId, stats);
+          })
+        );
+      }
     }
 
     // Wait for all deliveries to complete
     await Promise.all(deliveryPromises);
 
+    // Aggregate per-member delivery status for response
+    let memberDeliveredCount = 0;
+    let memberPendingCount = 0;
+    let memberFailedCount = 0;
+
+    for (const member of members) {
+      const stats = memberResults.get(member.userId);
+      if (!stats) {
+        memberFailedCount++;
+        continue;
+      }
+      if (stats.pending > 0) {
+        memberPendingCount++;
+      } else if (stats.delivered > 0) {
+        memberDeliveredCount++;
+      } else {
+        memberFailedCount++;
+      }
+    }
+
     // Update parent message status based on delivery results
     let overallStatus: "delivered" | "pending" | "failed" = "delivered";
     if (pendingCount > 0) {
       overallStatus = "pending";
-    } else if (failedCount === members.length) {
+    } else if (failedCount === deliveryTotal) {
       overallStatus = "failed";
     }
 
@@ -430,9 +471,9 @@ messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => 
       message_id: messageId,
       status: overallStatus,
       recipients: members.length,
-      delivered: deliveredCount,
-      pending: pendingCount,
-      failed: failedCount,
+      delivered: memberDeliveredCount,
+      pending: memberPendingCount,
+      failed: memberFailedCount,
     });
   }
 

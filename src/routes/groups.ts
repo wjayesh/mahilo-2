@@ -44,25 +44,37 @@ groupRoutes.post("/", zValidator("json", createGroupSchema), async (c) => {
   const membershipId = nanoid();
   const now = new Date();
 
-  // Create group and owner membership in a transaction
-  await db.insert(schema.groups).values({
-    id: groupId,
-    name: data.name,
-    description: data.description,
-    ownerUserId: user.id,
-    inviteOnly: data.invite_only,
-    createdAt: now,
-    updatedAt: now,
-  });
+  // Create group and owner membership
+  try {
+    await db.insert(schema.groups).values({
+      id: groupId,
+      name: data.name,
+      description: data.description,
+      ownerUserId: user.id,
+      inviteOnly: data.invite_only,
+      createdAt: now,
+      updatedAt: now,
+    });
 
-  await db.insert(schema.groupMemberships).values({
-    id: membershipId,
-    groupId,
-    userId: user.id,
-    role: "owner",
-    status: "active",
-    createdAt: now,
-  });
+    await db.insert(schema.groupMemberships).values({
+      id: membershipId,
+      groupId,
+      userId: user.id,
+      role: "owner",
+      status: "active",
+      createdAt: now,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (
+      message.includes("groups_name_unique") ||
+      message.includes("groups.name") ||
+      message.includes("UNIQUE constraint failed")
+    ) {
+      throw new AppError("Group name already exists", 409, "GROUP_EXISTS");
+    }
+    throw error;
+  }
 
   return c.json(
     {

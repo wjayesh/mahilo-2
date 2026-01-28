@@ -100,6 +100,32 @@ mahilo-2/
 4. **Commit often** - Small, focused commits with clear messages
 5. **Update progress** - Keep progress.txt current so future sessions know what's done
 
+## Codebase Patterns & Decisions
+
+Document quirks, patterns, and design decisions here as you implement. This helps future sessions understand why things are done a certain way.
+
+### Hono WebSocket Handlers
+- When using `upgradeWebSocket()`, handler callbacks like `onOpen`, `onMessage`, `onError` receive an `event` parameter
+- If you need to declare a variable named `event` inside these handlers, prefix the parameter with underscore (`_event`) to avoid shadowing
+- Example: `onOpen: async (_event, ws) => { const event: NotificationEvent = {...} }`
+
+### Naming Conventions
+- Database tables use snake_case (e.g., `group_memberships`)
+- TypeScript types/interfaces use PascalCase (e.g., `NotificationEvent`)
+- Route files export a Hono router instance named `{resource}Routes` (e.g., `notificationRoutes`)
+
+### Testing
+- Unit tests in `tests/unit/`, integration tests in `tests/integration/`, e2e in `tests/e2e/`
+- Use Vitest for testing
+- Integration tests may need to handle port conflicts when running server instances
+
+### Database
+- SQLite database stored at `./data/mahilo.db`
+- Drizzle ORM for schema and queries
+- Migrations run automatically on server startup
+
+*(Add more patterns as you discover them)*
+
 ## Completion Criteria
 
 When ALL tasks in `docs/tasks-registry.md` are marked as `done`, output `COMPLETE` to signal the Ralph loop to stop.
