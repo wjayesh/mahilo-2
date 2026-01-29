@@ -2295,6 +2295,92 @@ body {
 }
 
 /* ========================================
+   SETTINGS VIEW
+   ======================================== */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-lg);
+  max-width: 900px;
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-card .card-header {
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: 2px dashed var(--color-card-border);
+}
+
+.settings-card .card-header h3 {
+  font-size: 1.1rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings-form .input-group {
+  margin-bottom: 0;
+}
+
+.settings-form .input-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.quiet-hours-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px dashed var(--color-card-border);
+}
+
+.quiet-hours-row.hidden {
+  display: none;
+}
+
+.settings-save-card {
+  grid-column: span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.settings-save-card .squishy-btn {
+  max-width: 300px;
+}
+
+@media (max-width: 768px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .settings-save-card {
+    grid-column: span 1;
+  }
+  
+  .quiet-hours-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .quiet-hours-row .input-group:last-child {
+    grid-column: span 2;
+  }
+}
+
+/* ========================================
    DEVELOPER VIEW
    ======================================== */
 .dev-api-key-section {

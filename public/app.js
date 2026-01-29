@@ -257,6 +257,20 @@ const API = {
     },
   },
 
+  // Preferences endpoints
+  preferences: {
+    async get() {
+      return API.request('/preferences');
+    },
+
+    async update(prefs) {
+      return API.request('/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify(prefs),
+      });
+    },
+  },
+
   // Contact endpoints
   contacts: {
     async connections(username) {
@@ -474,6 +488,15 @@ const DataLoader = {
       console.error('Failed to load policies:', error);
     }
   },
+
+  async loadPreferences() {
+    try {
+      State.preferences = await API.preferences.get();
+      UI.renderSettings();
+    } catch (error) {
+      console.error('Failed to load preferences:', error);
+    }
+  },
 };
 
 // ========================================
@@ -668,6 +691,17 @@ const UI = {
       this.handleLogout();
     });
 
+    // Save preferences
+    document.getElementById('save-preferences-btn')?.addEventListener('click', () => {
+      this.handleSavePreferences();
+    });
+
+    // Quiet hours toggle
+    document.getElementById('pref-quiet-enabled')?.addEventListener('change', (e) => {
+      const row = document.getElementById('quiet-hours-row');
+      row.classList.toggle('hidden', !e.target.checked);
+    });
+
     // Rotate API key
     document.getElementById('rotate-api-key-btn')?.addEventListener('click', () => {
       this.handleRotateKey();
@@ -763,6 +797,29 @@ const UI = {
       WebSocketManager.connect();
     } catch (error) {
       this.showToast(error.message || 'Registration failed', 'error');
+    }
+  },
+
+  // Handle save preferences
+  async handleSavePreferences() {
+    const prefs = {
+      preferred_channel: document.getElementById('pref-channel').value || null,
+      urgent_behavior: document.getElementById('pref-urgent').value,
+      quiet_hours: {
+        enabled: document.getElementById('pref-quiet-enabled').checked,
+        start: document.getElementById('pref-quiet-start').value,
+        end: document.getElementById('pref-quiet-end').value,
+        timezone: document.getElementById('pref-quiet-timezone').value,
+      },
+      default_llm_provider: document.getElementById('pref-llm-provider').value || null,
+      default_llm_model: document.getElementById('pref-llm-model').value || null,
+    };
+
+    try {
+      await API.preferences.update(prefs);
+      this.showToast('Settings saved successfully', 'success');
+    } catch (error) {
+      this.showToast(error.message || 'Failed to save settings', 'error');
     }
   },
 
@@ -1140,6 +1197,7 @@ const UI = {
       groups: { title: 'Groups', subtitle: 'Collaborate with multiple friends' },
       logs: { title: 'Delivery Logs', subtitle: 'Monitor and audit message delivery' },
       policies: { title: 'Policies', subtitle: 'Control what your agents can share' },
+      settings: { title: 'Settings', subtitle: 'Manage your preferences and notification settings' },
       developer: { title: 'Developer Tools', subtitle: 'Debug and test messaging' },
     };
 
@@ -1154,6 +1212,8 @@ const UI = {
     // Load data if needed
     if (view === 'logs') {
       this.renderLogs();
+    } else if (view === 'settings') {
+      DataLoader.loadPreferences();
     } else if (view === 'developer') {
       this.renderDevConversations();
       this.renderDevApiKey();
@@ -1431,6 +1491,39 @@ const UI = {
       this.showToast('Policy deleted', 'success');
     } catch (error) {
       this.showToast('Failed to delete policy', 'error');
+    }
+  },
+
+  renderSettings() {
+    const prefs = State.preferences;
+    if (!prefs) return;
+
+    // Notification preferences
+    if (prefs.preferred_channel !== undefined) {
+      document.getElementById('pref-channel').value = prefs.preferred_channel || '';
+    }
+    if (prefs.urgent_behavior) {
+      document.getElementById('pref-urgent').value = prefs.urgent_behavior;
+    }
+
+    // Quiet hours
+    if (prefs.quiet_hours) {
+      document.getElementById('pref-quiet-enabled').checked = prefs.quiet_hours.enabled;
+      document.getElementById('pref-quiet-start').value = prefs.quiet_hours.start || '22:00';
+      document.getElementById('pref-quiet-end').value = prefs.quiet_hours.end || '07:00';
+      document.getElementById('pref-quiet-timezone').value = prefs.quiet_hours.timezone || 'UTC';
+      
+      // Show/hide quiet hours row
+      const row = document.getElementById('quiet-hours-row');
+      row.classList.toggle('hidden', !prefs.quiet_hours.enabled);
+    }
+
+    // LLM defaults
+    if (prefs.default_llm_provider !== undefined) {
+      document.getElementById('pref-llm-provider').value = prefs.default_llm_provider || '';
+    }
+    if (prefs.default_llm_model !== undefined) {
+      document.getElementById('pref-llm-model').value = prefs.default_llm_model || '';
     }
   },
 
