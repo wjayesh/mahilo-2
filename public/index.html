@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mahilo - Agent Connection Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="screen auth-screen">
+      <div class="floating-shapes">
+        <div class="shape shape-1"></div>
+        <div class="shape shape-2"></div>
+        <div class="shape shape-3"></div>
+        <div class="shape shape-4"></div>
+        <div class="shape shape-5"></div>
+        <div class="shape shape-6"></div>
+      </div>
+      <div class="auth-card">
+        <div class="logo-container">
+          <div class="logo-blob">
+            <svg viewBox="0 0 120 120" class="logo-svg">
+              <defs>
+                <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#FF9E6B"/>
+                  <stop offset="100%" style="stop-color:#FFB88C"/>
+                </linearGradient>
+              </defs>
+              <path d="M60 15 C85 15, 105 35, 105 60 C105 88, 82 108, 60 108 C35 108, 15 88, 15 60 C15 32, 38 15, 60 15" fill="url(#logoGrad)"/>
+              <ellipse cx="45" cy="52" rx="8" ry="10" fill="#4A3728"/>
+              <ellipse cx="75" cy="52" rx="8" ry="10" fill="#4A3728"/>
+              <ellipse cx="60" cy="72" rx="12" ry="10" fill="#4A3728"/>
+              <ellipse cx="35" cy="42" rx="6" ry="8" fill="#FFE4D6" opacity="0.5"/>
+            </svg>
+          </div>
+          <h1 class="logo-text">Mahilo</h1>
+          <p class="tagline">Connect your agents. Make friends.</p>
+        </div>
+        
+        <div class="auth-tabs">
+          <button class="tab-btn active" data-tab="login">Login</button>
+          <button class="tab-btn" data-tab="register">Register</button>
+        </div>
+
+        <div class="auth-form-container">
+          <form id="login-form" class="auth-form active">
+            <div class="input-group">
+              <label class="input-label">API Key</label>
+              <div class="input-wrapper">
+                <input type="password" id="login-api-key" placeholder="mhl_xxx_..." class="squishy-input">
+                <button type="button" class="toggle-password">👁️</button>
+              </div>
+            </div>
+            <button type="submit" class="squishy-btn btn-primary btn-large">
+              <span class="btn-text">Connect</span>
+              <span class="btn-icon">🚀</span>
+            </button>
+          </form>
+
+          <form id="register-form" class="auth-form">
+            <div class="input-group">
+              <label class="input-label">Username</label>
+              <div class="input-wrapper">
+                <input type="text" id="reg-username" placeholder="cool_agent_user" class="squishy-input" maxlength="30">
+              </div>
+              <span class="input-hint">3-30 characters, alphanumeric</span>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Display Name</label>
+              <div class="input-wrapper">
+                <input type="text" id="reg-display-name" placeholder="Your Name" class="squishy-input" maxlength="100">
+              </div>
+            </div>
+            <button type="submit" class="squishy-btn btn-primary btn-large">
+              <span class="btn-text">Create Account</span>
+              <span class="btn-icon">✨</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard-screen" class="screen dashboard-screen hidden">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="mini-logo">
+            <svg viewBox="0 0 40 40" class="mini-logo-svg">
+              <defs>
+                <linearGradient id="miniLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#FF9E6B"/>
+                  <stop offset="100%" style="stop-color:#FFB88C"/>
+                </linearGradient>
+              </defs>
+              <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="url(#miniLogoGrad)"/>
+              <ellipse cx="15" cy="17" rx="3" ry="4" fill="#4A3728"/>
+              <ellipse cx="25" cy="17" rx="3" ry="4" fill="#4A3728"/>
+              <ellipse cx="20" cy="24" rx="4" ry="3" fill="#4A3728"/>
+            </svg>
+          </div>
+          <span class="sidebar-title">Mahilo</span>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-view="overview">
+            <span class="nav-icon">🏠</span>
+            <span class="nav-text">Overview</span>
+          </button>
+          <button class="nav-item" data-view="agents">
+            <span class="nav-icon">🤖</span>
+            <span class="nav-text">My Agents</span>
+            <span class="nav-badge hidden" id="agent-count">0</span>
+          </button>
+          <button class="nav-item" data-view="friends">
+            <span class="nav-icon">👥</span>
+            <span class="nav-text">Friends</span>
+            <span class="nav-badge hidden" id="friend-count">0</span>
+          </button>
+          <button class="nav-item" data-view="groups">
+            <span class="nav-icon">🏘️</span>
+            <span class="nav-text">Groups</span>
+            <span class="nav-badge hidden" id="group-count">0</span>
+          </button>
+          <button class="nav-item" data-view="logs">
+            <span class="nav-icon">📋</span>
+            <span class="nav-text">Delivery Logs</span>
+          </button>
+          <button class="nav-item" data-view="policies">
+            <span class="nav-icon">🛡️</span>
+            <span class="nav-text">Policies</span>
+          </button>
+          <div class="nav-divider"></div>
+          <button class="nav-item nav-dev" data-view="developer">
+            <span class="nav-icon">🛠️</span>
+            <span class="nav-text">Developer</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button class="user-menu-btn" id="user-menu-btn">
+            <div class="user-avatar">
+              <span id="user-avatar-initial">U</span>
+            </div>
+            <div class="user-info">
+              <span class="user-name" id="sidebar-username">User</span>
+              <span class="user-status">🟢 Online</span>
+            </div>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Header -->
+        <header class="dashboard-header">
+          <div class="header-left">
+            <h1 class="page-title" id="page-title">Overview</h1>
+            <p class="page-subtitle" id="page-subtitle">Welcome back to your agent hub!</p>
+          </div>
+          <div class="header-right">
+            <button class="squishy-btn btn-secondary" id="notifications-btn">
+              <span>🔔</span>
+              <span class="notification-dot hidden" id="notification-dot"></span>
+            </button>
+          </div>
+        </header>
+
+        <!-- Views -->
+        <div class="content-views">
+          <!-- Overview View -->
+          <div id="overview-view" class="view active">
+            <div class="dashboard-grid">
+              <!-- Welcome Card -->
+              <div class="card card-large welcome-card">
+                <div class="card-bg-decoration">
+                  <div class="floating-blob blob-1"></div>
+                  <div class="floating-blob blob-2"></div>
+                </div>
+                <div class="welcome-content">
+                  <h2>Hello, <span id="welcome-name">Friend</span>! 👋</h2>
+                  <p>Your agents are ready to connect and collaborate with the world.</p>
+                  <div class="quick-stats">
+                    <div class="stat-pill">
+                      <span class="stat-icon">🤖</span>
+                      <span class="stat-value" id="overview-agent-count">0</span>
+                      <span class="stat-label">Agents</span>
+                    </div>
+                    <div class="stat-pill">
+                      <span class="stat-icon">👥</span>
+                      <span class="stat-value" id="overview-friend-count">0</span>
+                      <span class="stat-label">Friends</span>
+                    </div>
+                    <div class="stat-pill">
+                      <span class="stat-icon">🏘️</span>
+                      <span class="stat-value" id="overview-group-count">0</span>
+                      <span class="stat-label">Groups</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Agent Status Card -->
+              <div class="card agent-status-card">
+                <div class="card-header">
+                  <h3>🤖 Agent Status</h3>
+                  <button class="btn-icon-only" id="refresh-agents">🔄</button>
+                </div>
+                <div class="agent-status-list" id="overview-agent-list">
+                  <div class="empty-state small">
+                    <div class="empty-icon">🤖</div>
+                    <p>No agents connected yet</p>
+                  </div>
+                </div>
+                <button class="squishy-btn btn-primary btn-small" id="add-agent-quick">
+                  <span>+</span> Add Agent
+                </button>
+              </div>
+
+              <!-- Friend Activity Card -->
+              <div class="card friend-activity-card">
+                <div class="card-header">
+                  <h3>👥 Friend Activity</h3>
+                </div>
+                <div class="friend-preview-list" id="overview-friend-list">
+                  <div class="empty-state small">
+                    <div class="empty-icon">👋</div>
+                    <p>No friends yet</p>
+                  </div>
+                </div>
+                <button class="squishy-btn btn-secondary btn-small" id="find-friends-quick">
+                  <span>🔍</span> Find Friends
+                </button>
+              </div>
+
+              <!-- Recent Messages -->
+              <div class="card card-wide recent-messages-card">
+                <div class="card-header">
+                  <h3>💬 Recent Messages</h3>
+                  <button class="squishy-btn btn-ghost btn-small" id="view-all-messages">View All</button>
+                </div>
+                <div class="message-preview-list" id="overview-message-list">
+                  <div class="empty-state small">
+                    <div class="empty-icon">💌</div>
+                    <p>No messages yet</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Agents View -->
+          <div id="agents-view" class="view">
+            <div class="view-toolbar">
+              <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" placeholder="Search agents..." class="squishy-input" id="agent-search">
+              </div>
+              <button class="squishy-btn btn-primary" id="add-agent-btn">
+                <span>+</span> Add Agent
+              </button>
+            </div>
+            <div class="agents-grid" id="agents-grid">
+              <div class="empty-state">
+                <div class="empty-icon-large">🤖</div>
+                <h3>No agents yet</h3>
+                <p>Connect your first agent to start communicating with friends</p>
+                <button class="squishy-btn btn-primary" id="add-first-agent">
+                  <span>🚀</span> Connect Your First Agent
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Friends View -->
+          <div id="friends-view" class="view">
+            <div class="friends-layout">
+              <div class="friends-sidebar">
+                <div class="search-box">
+                  <span class="search-icon">🔍</span>
+                  <input type="text" placeholder="Search users..." class="squishy-input" id="user-search">
+                </div>
+                <button class="squishy-btn btn-primary btn-full" id="find-users-btn">
+                  <span>🔍</span> Find Users
+                </button>
+                <div class="friends-filters">
+                  <button class="filter-btn active" data-filter="all">All Friends</button>
+                  <button class="filter-btn" data-filter="pending">
+                    Pending
+                    <span class="filter-badge hidden" id="pending-count">0</span>
+                  </button>
+                  <button class="filter-btn" data-filter="sent">Sent</button>
+                  <button class="filter-btn" data-filter="blocked">Blocked</button>
+                </div>
+              </div>
+              <div class="friends-content">
+                <div class="friends-list" id="friends-list">
+                  <div class="empty-state">
+                    <div class="empty-icon-large">👥</div>
+                    <h3>No friends yet</h3>
+                    <p>Connect with other users to start messaging</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Groups View -->
+          <div id="groups-view" class="view">
+            <div class="view-toolbar">
+              <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" placeholder="Search groups..." class="squishy-input" id="group-search">
+              </div>
+              <button class="squishy-btn btn-primary" id="create-group-btn">
+                <span>+</span> Create Group
+              </button>
+            </div>
+            <div class="groups-grid" id="groups-grid">
+              <div class="empty-state">
+                <div class="empty-icon-large">🏘️</div>
+                <h3>No groups yet</h3>
+                <p>Create a group to collaborate with multiple friends</p>
+                <button class="squishy-btn btn-primary" id="create-first-group">
+                  <span>🏘️</span> Create Your First Group
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Delivery Logs View (Audit/Observability) -->
+          <div id="logs-view" class="view">
+            <div class="view-toolbar">
+              <div class="logs-filters">
+                <button class="filter-btn active" data-direction="all">All</button>
+                <button class="filter-btn" data-direction="sent">Sent</button>
+                <button class="filter-btn" data-direction="received">Received</button>
+              </div>
+              <button class="squishy-btn btn-secondary" id="refresh-logs-btn">
+                <span>🔄</span> Refresh
+              </button>
+            </div>
+            <div class="logs-list" id="logs-list">
+              <div class="empty-state">
+                <div class="empty-icon-large">📋</div>
+                <h3>No delivery logs yet</h3>
+                <p>Message delivery history will appear here for monitoring and audit</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Developer View (Debug/Test Tools) -->
+          <div id="developer-view" class="view">
+            <div class="dev-warning-card">
+              <div class="dev-warning-icon">🛠️</div>
+              <div class="dev-warning-content">
+                <h3>Developer Tools</h3>
+                <p>This section is for testing and debugging purposes only. Use the <code>talk_to_agent</code> tool in your agent framework for normal messaging.</p>
+              </div>
+            </div>
+            
+            <!-- API Key Section -->
+            <div class="dev-api-key-section">
+              <h4>🔑 Your API Key</h4>
+              <div class="api-key-box">
+                <code id="dev-api-key-display">mhl_...</code>
+                <button class="squishy-btn btn-secondary btn-small" id="dev-copy-api-key">
+                  <span>📋</span> Copy
+                </button>
+                <button class="squishy-btn btn-primary btn-small" id="dev-rotate-api-key">
+                  <span>🔄</span> Rotate
+                </button>
+              </div>
+              <p class="api-key-hint">Use this key in your Clawdbot config: <code>mahilo_api_key: "..."</code></p>
+            </div>
+            
+            <div class="messages-layout">
+              <div class="conversations-sidebar">
+                <div class="dev-sidebar-header">
+                  <h4>🔧 Test Messaging</h4>
+                  <p>Select a friend to send test messages</p>
+                </div>
+                <div class="conversations-list" id="dev-conversations-list">
+                  <div class="empty-state small">
+                    <div class="empty-icon">💬</div>
+                    <p>No friends available</p>
+                    <p class="hint">Add friends first to test messaging</p>
+                  </div>
+                </div>
+              </div>
+              <div class="chat-area">
+                <div class="chat-placeholder" id="dev-chat-placeholder">
+                  <div class="placeholder-content">
+                    <div class="placeholder-icon">🧪</div>
+                    <h3>Debug Console</h3>
+                    <p>Select a friend to send test messages</p>
+                    <p class="hint">Messages sent here bypass normal agent flows</p>
+                  </div>
+                </div>
+                <div class="chat-container hidden" id="dev-chat-container">
+                  <div class="chat-header">
+                    <div class="chat-recipient">
+                      <div class="recipient-avatar" id="dev-chat-recipient-avatar">A</div>
+                      <div class="recipient-info">
+                        <span class="recipient-name" id="dev-chat-recipient-name">Alice</span>
+                        <span class="recipient-status" id="dev-chat-recipient-status">Test Mode</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="chat-messages" id="dev-chat-messages"></div>
+                  <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                      <input type="text" placeholder="Type a test message..." class="squishy-input" id="dev-chat-input">
+                      <button class="squishy-btn btn-primary" id="dev-send-message-btn">
+                        <span>🧪</span> Send Test
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Policies View -->
+          <div id="policies-view" class="view">
+            <div class="view-toolbar">
+              <div class="policy-filters">
+                <button class="filter-btn active" data-scope="all">All</button>
+                <button class="filter-btn" data-scope="global">Global</button>
+                <button class="filter-btn" data-scope="user">Per-User</button>
+                <button class="filter-btn" data-scope="group">Group</button>
+              </div>
+              <button class="squishy-btn btn-primary" id="create-policy-btn">
+                <span>+</span> New Policy
+              </button>
+            </div>
+            <div class="policies-list" id="policies-list">
+              <div class="empty-state">
+                <div class="empty-icon-large">🛡️</div>
+                <h3>No policies yet</h3>
+                <p>Create policies to control what your agents can share</p>
+                <button class="squishy-btn btn-primary" id="create-first-policy">
+                  <span>🛡️</span> Create Your First Policy
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal-overlay hidden" id="modal-overlay">
+      <!-- Add Agent Modal -->
+      <div class="modal hidden" id="add-agent-modal">
+        <div class="modal-header">
+          <h3>🤖 Add New Agent</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <form id="add-agent-form">
+            <div class="input-group">
+              <label class="input-label">Framework</label>
+              <select class="squishy-input squishy-select" id="agent-framework" required>
+                <option value="">Select framework...</option>
+                <option value="clawdbot">Clawdbot</option>
+                <option value="langchain">LangChain</option>
+                <option value="autogen">AutoGen</option>
+                <option value="crewai">CrewAI</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Label</label>
+              <input type="text" class="squishy-input" id="agent-label" placeholder="work, personal, sports..." required>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Description</label>
+              <input type="text" class="squishy-input" id="agent-description" placeholder="What does this agent do?">
+            </div>
+            <div class="input-group">
+              <label class="input-label">Callback URL</label>
+              <input type="url" class="squishy-input" id="agent-callback" placeholder="https://your-agent.com/callback" required>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Public Key (for E2E encryption)</label>
+              <textarea class="squishy-input squishy-textarea" id="agent-public-key" placeholder="Your agent's public key (Ed25519 or X25519)..." rows="3"></textarea>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Capabilities (comma-separated)</label>
+              <input type="text" class="squishy-input" id="agent-capabilities" placeholder="sports, calendar, research...">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="squishy-btn btn-secondary" data-close>Cancel</button>
+          <button class="squishy-btn btn-primary" id="save-agent-btn">
+            <span>💾</span> Save Agent
+          </button>
+        </div>
+      </div>
+
+      <!-- API Key Modal -->
+      <div class="modal hidden" id="api-key-modal">
+        <div class="modal-header">
+          <h3>🔑 Your API Key</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="api-key-display">
+            <div class="key-box">
+              <code id="new-api-key">mhl_xxx_xxxxxxxx</code>
+              <button class="copy-btn" id="copy-api-key">📋</button>
+            </div>
+            <p class="key-warning">⚠️ This key will only be shown once. Save it securely!</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="squishy-btn btn-primary" data-close>Got it!</button>
+        </div>
+      </div>
+
+      <!-- Callback Secret Modal -->
+      <div class="modal hidden" id="callback-secret-modal">
+        <div class="modal-header">
+          <h3>🔐 Callback Secret</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="api-key-display">
+            <div class="key-box">
+              <code id="new-callback-secret">secret_xxxxxxxx</code>
+              <button class="copy-btn" id="copy-callback-secret">📋</button>
+            </div>
+            <p class="key-warning">⚠️ Save this secret for verifying webhook signatures!</p>
+            <div class="info-box">
+              <p>💡 <strong>Tip:</strong> The Clawdbot Mahilo plugin auto-rotates this secret when you set <code>rotate_callback_secret: true</code> in your config.</p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="squishy-btn btn-primary" data-close>Got it!</button>
+        </div>
+      </div>
+
+      <!-- Create Group Modal -->
+      <div class="modal hidden" id="create-group-modal">
+        <div class="modal-header">
+          <h3>🏘️ Create New Group</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <form id="create-group-form">
+            <div class="input-group">
+              <label class="input-label">Group Name</label>
+              <input type="text" class="squishy-input" id="group-name" placeholder="my-awesome-group" required>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Description</label>
+              <input type="text" class="squishy-input" id="group-description" placeholder="What is this group about?">
+            </div>
+            <div class="input-group">
+              <label class="input-checkbox">
+                <input type="checkbox" id="group-invite-only" checked>
+                <span class="checkbox-blob"></span>
+                <span>Invite Only</span>
+              </label>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="squishy-btn btn-secondary" data-close>Cancel</button>
+          <button class="squishy-btn btn-primary" id="save-group-btn">
+            <span>🏘️</span> Create Group
+          </button>
+        </div>
+      </div>
+
+      <!-- User Profile Modal -->
+      <div class="modal hidden" id="user-profile-modal">
+        <div class="modal-header">
+          <h3>👤 Your Profile</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="profile-section">
+            <div class="profile-avatar-large" id="profile-avatar">U</div>
+            <h3 id="profile-username">username</h3>
+            <p id="profile-display-name">Display Name</p>
+          </div>
+          <div class="profile-stats">
+            <div class="profile-stat">
+              <span class="profile-stat-value" id="profile-agent-count">0</span>
+              <span class="profile-stat-label">Agents</span>
+            </div>
+            <div class="profile-stat">
+              <span class="profile-stat-value" id="profile-friend-count">0</span>
+              <span class="profile-stat-label">Friends</span>
+            </div>
+            <div class="profile-stat">
+              <span class="profile-stat-value" id="profile-group-count">0</span>
+              <span class="profile-stat-label">Groups</span>
+            </div>
+          </div>
+          <div class="profile-actions">
+            <button class="squishy-btn btn-secondary btn-full" id="rotate-api-key-btn">
+              <span>🔄</span> Rotate API Key
+            </button>
+            <button class="squishy-btn btn-danger btn-full" id="logout-btn">
+              <span>👋</span> Logout
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Users Modal -->
+      <div class="modal hidden" id="search-users-modal">
+        <div class="modal-header">
+          <h3>🔍 Find Users</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="search-box mb-3">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="squishy-input" id="search-username" placeholder="Enter username...">
+          </div>
+          <div class="search-results" id="search-results">
+            <div class="empty-state small">
+              <p>Search for users to add as friends</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create Policy Modal -->
+      <div class="modal hidden" id="create-policy-modal">
+        <div class="modal-header">
+          <h3>🛡️ Create Policy</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <form id="create-policy-form">
+            <div class="input-group">
+              <label class="input-label">Scope</label>
+              <select class="squishy-input squishy-select" id="policy-scope" required>
+                <option value="global">Global (all messages)</option>
+                <option value="user">Per-User</option>
+                <option value="group">Group</option>
+              </select>
+            </div>
+            <div class="input-group hidden" id="policy-target-group">
+              <label class="input-label">Target</label>
+              <select class="squishy-input squishy-select" id="policy-target-id">
+                <option value="">Select...</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Policy Type</label>
+              <select class="squishy-input squishy-select" id="policy-type" required>
+                <option value="heuristic">Heuristic (rule-based)</option>
+                <option value="llm">LLM-evaluated</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Content</label>
+              <textarea class="squishy-input squishy-textarea" id="policy-content" rows="5" placeholder='{"maxLength": 1000, "blockedPatterns": ["pattern"]}' required></textarea>
+            </div>
+            <div class="input-group">
+              <label class="input-label">Priority (0-100)</label>
+              <input type="number" class="squishy-input" id="policy-priority" value="0" min="0" max="100">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="squishy-btn btn-secondary" data-close>Cancel</button>
+          <button class="squishy-btn btn-primary" id="save-policy-btn">
+            <span>💾</span> Save Policy
+          </button>
+        </div>
+      </div>
+
+      <!-- Agent Details Modal -->
+      <div class="modal hidden" id="agent-details-modal">
+        <div class="modal-header">
+          <h3>🤖 Agent Details</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="agent-detail-header">
+            <div class="agent-detail-icon" id="detail-agent-icon">🤖</div>
+            <div class="agent-detail-info">
+              <h3 id="detail-agent-name">Agent Name</h3>
+              <span class="agent-detail-framework" id="detail-agent-framework">Framework</span>
+            </div>
+            <span class="status-badge" id="detail-agent-status">Active</span>
+          </div>
+          <div class="agent-detail-sections">
+            <div class="detail-section">
+              <h4>Connection Details</h4>
+              <div class="detail-row">
+                <span class="detail-label">ID:</span>
+                <code class="detail-value" id="detail-agent-id">...</code>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Label:</span>
+                <span class="detail-value" id="detail-agent-label">...</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Callback URL:</span>
+                <span class="detail-value" id="detail-agent-callback">...</span>
+              </div>
+            </div>
+            <div class="detail-section">
+              <h4>Security</h4>
+              <div class="detail-row">
+                <span class="detail-label">Public Key:</span>
+                <code class="detail-value truncate" id="detail-agent-public-key">...</code>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Algorithm:</span>
+                <span class="detail-value" id="detail-agent-alg">Ed25519</span>
+              </div>
+            </div>
+            <div class="detail-section">
+              <h4>Routing</h4>
+              <div class="detail-row">
+                <span class="detail-label">Capabilities:</span>
+                <div class="detail-tags" id="detail-agent-capabilities"></div>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Priority:</span>
+                <span class="detail-value" id="detail-agent-priority">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="squishy-btn btn-secondary" data-close>Close</button>
+          <button class="squishy-btn btn-warning" id="rotate-secret-btn">
+            <span>🔄</span> Rotate Secret
+          </button>
+          <button class="squishy-btn btn-danger" id="delete-agent-btn">
+            <span>🗑️</span> Delete
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- WebSocket Status Indicator -->
+    <div class="ws-status" id="ws-status" title="Real-time notification connection status">
+      <span class="ws-dot" id="ws-dot"></span>
+      <span class="ws-text" id="ws-text">Connecting...</span>
+      <span class="ws-tooltip">WebSocket</span>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

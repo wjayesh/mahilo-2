@@ -249,6 +249,7 @@ friendRoutes.get("/", async (c) => {
       const friend = usersMap.get(friendId);
       return {
         id: f.id,
+        user_id: friendId,  // The actual user ID (needed for policies, etc.)
         username: friend?.username,
         display_name: friend?.displayName,
         status: f.status,
