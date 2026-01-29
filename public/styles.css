@@ -679,10 +679,10 @@ body {
 }
 
 .nav-divider {
-  height: 2px;
-  background: var(--color-card-border);
+  height: 0;
+  border-top: 2px dashed var(--color-card-border);
   margin: var(--space-md) 0;
-  border-radius: var(--radius-full);
+  flex-shrink: 0;
 }
 
 .nav-dev {
