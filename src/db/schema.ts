@@ -192,6 +192,33 @@ export const groups = sqliteTable(
   ]
 );
 
+// User preferences table (1:1 with users, stores user-level settings that sync across agents)
+export const userPreferences = sqliteTable(
+  "user_preferences",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Notification settings
+    preferredChannel: text("preferred_channel"), // 'last_active', 'whatsapp', 'telegram', etc.
+    urgentBehavior: text("urgent_behavior").notNull().default("preferred_only"), // 'all_channels', 'preferred_only'
+    quietHoursEnabled: integer("quiet_hours_enabled", { mode: "boolean" }).notNull().default(false),
+    quietHoursStart: text("quiet_hours_start").default("22:00"), // HH:MM format
+    quietHoursEnd: text("quiet_hours_end").default("07:00"), // HH:MM format
+    quietHoursTimezone: text("quiet_hours_timezone").default("UTC"),
+    // LLM policy defaults (can be overridden locally by agents)
+    defaultLlmProvider: text("default_llm_provider"), // 'anthropic', 'openai', etc.
+    defaultLlmModel: text("default_llm_model"), // model identifier
+    // Timestamps
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  }
+);
+
 // Group memberships table
 export const groupMemberships = sqliteTable(
   "group_memberships",
@@ -235,3 +262,5 @@ export type GroupMembership = typeof groupMemberships.$inferSelect;
 export type NewGroupMembership = typeof groupMemberships.$inferInsert;
 export type MessageDelivery = typeof messageDeliveries.$inferSelect;
 export type NewMessageDelivery = typeof messageDeliveries.$inferInsert;
+export type UserPreferences = typeof userPreferences.$inferSelect;
+export type NewUserPreferences = typeof userPreferences.$inferInsert;

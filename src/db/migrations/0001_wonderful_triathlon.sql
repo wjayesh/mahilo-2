@@ -28,5 +28,4 @@ CREATE TABLE `groups` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `groups_name_unique` ON `groups` (`name`);--> statement-breakpoint
 CREATE INDEX `idx_groups_name` ON `groups` (`name`);--> statement-breakpoint
-CREATE INDEX `idx_groups_owner` ON `groups` (`owner_user_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `idx_messages_idempotency_sender` ON `messages` (`sender_user_id`,`idempotency_key`);
+CREATE INDEX `idx_groups_owner` ON `groups` (`owner_user_id`);
