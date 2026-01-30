@@ -532,7 +532,7 @@ const UI = {
     // User type tabs (Human vs Agent)
     document.querySelectorAll('.type-tab').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const type = e.target.dataset.type;
+        const type = e.currentTarget.dataset.type;
         this.switchUserType(type);
       });
     });

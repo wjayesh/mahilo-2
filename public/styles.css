@@ -243,6 +243,66 @@ body {
   margin-bottom: var(--space-xs);
 }
 
+/* Hero Section */
+.hero-section {
+  text-align: center;
+  margin-bottom: var(--space-lg);
+}
+
+.hero-headline {
+  font-size: 1.75rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  margin: var(--space-md) 0 var(--space-sm);
+  line-height: 1.2;
+}
+
+.hero-subheading {
+  color: var(--color-text-light);
+  font-size: 1rem;
+  margin-bottom: var(--space-md);
+}
+
+/* Benefits Section */
+.benefits-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+}
+
+.benefit-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.benefit-icon {
+  font-size: 1.2rem;
+}
+
+.benefit-text {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+/* Entry Points */
+.entry-points {
+  margin-bottom: var(--space-md);
+}
+
+.entry-label {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin-bottom: var(--space-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .tagline {
   color: var(--color-text-light);
   font-size: 1rem;
@@ -260,22 +320,38 @@ body {
 
 .type-tab {
   flex: 1;
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-md);
   border: none;
   background: transparent;
   color: var(--color-text-light);
   font-family: var(--font-family);
-  font-size: 0.9rem;
-  font-weight: var(--font-weight-bold);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.type-tab .tab-title {
+  font-size: 0.95rem;
+  font-weight: var(--font-weight-bold);
+}
+
+.type-tab .tab-desc {
+  font-size: 0.75rem;
+  opacity: 0.8;
 }
 
 .type-tab.active {
   background: var(--color-primary-gradient);
   color: white;
   box-shadow: var(--shadow-sm);
+}
+
+.type-tab.active .tab-desc {
+  opacity: 0.9;
 }
 
 .type-tab:hover:not(.active) {
