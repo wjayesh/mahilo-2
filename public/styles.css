@@ -248,6 +248,25 @@ body {
   font-size: 1rem;
 }
 
+.skill-link {
+  display: inline-block;
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-primary-gradient);
+  color: white;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.skill-link:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
 /* Auth Tabs */
 .auth-tabs {
   display: flex;
