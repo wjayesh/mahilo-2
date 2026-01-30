@@ -115,6 +115,13 @@ const API = {
       });
     },
 
+    async verify(userId, tweetUrl) {
+      return API.request(`/auth/verify/${userId}`, {
+        method: 'POST',
+        body: JSON.stringify({ tweet_url: tweetUrl }),
+      });
+    },
+
     async me() {
       return API.request('/auth/me');
     },
@@ -720,8 +727,17 @@ const UI = {
       this.copyToClipboard(document.getElementById('new-api-key').textContent);
     });
 
+    document.getElementById('copy-tweet')?.addEventListener('click', () => {
+      this.copyToClipboard(document.getElementById('verification-tweet').textContent);
+    });
+
     document.getElementById('copy-callback-secret')?.addEventListener('click', () => {
       this.copyToClipboard(document.getElementById('new-callback-secret').textContent);
+    });
+
+    // Twitter verification
+    document.getElementById('verify-twitter-btn')?.addEventListener('click', () => {
+      this.handleVerifyTwitter();
     });
 
     // Send test message (developer)
@@ -806,14 +822,52 @@ const UI = {
       };
       State.save();
 
-      // Show API key modal
+      // Show API key + verification modal
       document.getElementById('new-api-key').textContent = result.api_key;
+      document.getElementById('verification-tweet').textContent = result.verification_tweet || '';
+      document.getElementById('verify-user-id').value = result.user_id;
+
+      // Set up Twitter intent link
+      const tweetText = encodeURIComponent(result.verification_tweet || '');
+      document.getElementById('tweet-intent-link').href = `https://twitter.com/intent/tweet?text=${tweetText}`;
+
+      // Clear previous status
+      document.getElementById('verification-status').textContent = '';
+      document.getElementById('verification-status').className = 'verification-status';
+      document.getElementById('tweet-url-input').value = '';
+
       this.showModal('api-key-modal');
-      
+
       this.showDashboard();
       WebSocketManager.connect();
     } catch (error) {
       this.showToast(error.message || 'Registration failed', 'error');
+    }
+  },
+
+  // Handle Twitter verification
+  async handleVerifyTwitter() {
+    const tweetUrl = document.getElementById('tweet-url-input').value.trim();
+    const userId = document.getElementById('verify-user-id').value;
+    const statusEl = document.getElementById('verification-status');
+
+    if (!tweetUrl) {
+      statusEl.textContent = 'Please enter your tweet URL';
+      statusEl.className = 'verification-status error';
+      return;
+    }
+
+    statusEl.textContent = 'Verifying...';
+    statusEl.className = 'verification-status';
+
+    try {
+      const result = await API.auth.verify(userId, tweetUrl);
+      statusEl.textContent = '✓ Verified! Welcome to Mahilo!';
+      statusEl.className = 'verification-status success';
+      this.showToast('Twitter verified successfully!', 'success');
+    } catch (error) {
+      statusEl.textContent = error.message || 'Verification failed';
+      statusEl.className = 'verification-status error';
     }
   },
 

@@ -1905,6 +1905,64 @@ body {
   text-align: center;
 }
 
+/* Verification Steps */
+.verification-step {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--color-card-border);
+}
+
+.verification-step:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.verification-step h4 {
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+  font-size: 1rem;
+}
+
+.verification-step .step-desc {
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+  margin-bottom: var(--space-md);
+}
+
+.tweet-box {
+  background: var(--color-bg);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.tweet-box code {
+  flex: 1;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.verification-status {
+  text-align: center;
+  margin-top: var(--space-md);
+  font-size: 0.9rem;
+}
+
+.verification-status.success {
+  color: var(--color-success);
+}
+
+.verification-status.error {
+  color: var(--color-danger);
+}
+
 .key-box {
   display: flex;
   align-items: center;

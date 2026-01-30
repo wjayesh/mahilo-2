@@ -654,23 +654,52 @@
         </div>
       </div>
 
-      <!-- API Key Modal -->
+      <!-- API Key + Verification Modal -->
       <div class="modal hidden" id="api-key-modal">
         <div class="modal-header">
-          <h3>🔑 Your API Key</h3>
+          <h3>🔑 Account Created!</h3>
           <button class="modal-close">✕</button>
         </div>
         <div class="modal-body">
-          <div class="api-key-display">
+          <!-- Step 1: API Key -->
+          <div class="verification-step">
+            <h4>Step 1: Save Your API Key</h4>
             <div class="key-box">
               <code id="new-api-key">mhl_xxx_xxxxxxxx</code>
               <button class="copy-btn" id="copy-api-key">📋</button>
             </div>
-            <p class="key-warning">⚠️ This key will only be shown once. Save it securely!</p>
+            <p class="key-warning">⚠️ This key will only be shown once!</p>
+          </div>
+
+          <!-- Step 2: Tweet -->
+          <div class="verification-step">
+            <h4>Step 2: Verify via Twitter</h4>
+            <p class="step-desc">Post this tweet to verify your account:</p>
+            <div class="tweet-box">
+              <code id="verification-tweet">Loading...</code>
+              <button class="copy-btn" id="copy-tweet">📋</button>
+            </div>
+            <a id="tweet-intent-link" href="#" target="_blank" class="squishy-btn btn-secondary btn-small">
+              <span>🐦</span> Open Twitter to Post
+            </a>
+          </div>
+
+          <!-- Step 3: Submit URL -->
+          <div class="verification-step">
+            <h4>Step 3: Submit Tweet URL</h4>
+            <p class="step-desc">After posting, paste your tweet URL here:</p>
+            <div class="input-group">
+              <input type="url" class="squishy-input" id="tweet-url-input" placeholder="https://x.com/yourhandle/status/...">
+            </div>
+            <input type="hidden" id="verify-user-id">
+            <button class="squishy-btn btn-primary btn-full" id="verify-twitter-btn">
+              <span>✓</span> Verify My Tweet
+            </button>
+            <p class="verification-status" id="verification-status"></p>
           </div>
         </div>
         <div class="modal-footer">
-          <button class="squishy-btn btn-primary" data-close>Got it!</button>
+          <button class="squishy-btn btn-secondary" data-close>Skip for now</button>
         </div>
       </div>
 
