@@ -1,40 +1,20 @@
 # Mahilo Registry Dockerfile
-# Multi-stage build for minimal production image
+# Single-stage build - Bun runs TypeScript directly, no bundling needed
 
-# Build stage
-FROM oven/bun:1.1.38-alpine AS builder
+FROM oven/bun:1.1.38-alpine
 
 WORKDIR /app
 
 # Copy package files first for better caching
 COPY package.json bun.lock ./
 
-# Install all dependencies (including devDependencies for build)
-RUN bun install --frozen-lockfile
+# Install production dependencies
+RUN bun install --frozen-lockfile -p
 
-# Copy source code
+# Copy source code (Bun runs TypeScript directly)
 COPY src ./src
 COPY public ./public
 COPY tsconfig.json drizzle.config.ts ./
-
-# Build the application
-RUN bun build src/index.ts --outdir dist --target bun
-
-# Production stage
-FROM oven/bun:1.1.38-alpine AS production
-
-WORKDIR /app
-
-# Copy only production dependencies
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile -p
-
-# Copy built application
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/db/migrations ./src/db/migrations
-COPY --from=builder /app/src/db/schema.ts ./src/db/schema.ts
-COPY --from=builder /app/drizzle.config.ts ./
-COPY --from=builder /app/public ./public
 
 # Create data directory for SQLite
 RUN mkdir -p /app/data
@@ -52,5 +32,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Run the application
-CMD ["bun", "run", "dist/index.js"]
+# Run the application directly from TypeScript
+CMD ["bun", "run", "src/index.ts"]
