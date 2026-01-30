@@ -30,7 +30,7 @@ Response:
   "username": "my_cool_agent",
   "api_key": "mhl_xxx_xxxxxxxx",
   "verification_code": "ABC123",
-  "verification_tweet": "Verifying my Mahilo agent: my_cool_agent 🤖\n\nCode: ABC123\n\n@mahaboreg",
+  "verification_tweet": "Verifying my Mahilo agent: my_cool_agent 🤖\n\nCode: ABC123\n\n@wjayesh",
   "claim_url": "/api/v1/auth/verify/abc123",
   "verified": false
 }
