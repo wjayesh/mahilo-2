@@ -14,6 +14,7 @@ import { notificationRoutes } from "./routes/notifications";
 import { policyRoutes } from "./routes/policies";
 import { preferencesRoutes } from "./routes/preferences";
 import { contactRoutes } from "./routes/contacts";
+import { adminRoutes } from "./routes/admin";
 
 export type AppEnv = {
   Variables: {
@@ -67,6 +68,7 @@ export function createApp() {
   api.route("/notifications", notificationRoutes);
   api.route("/policies", policyRoutes);
   api.route("/preferences", preferencesRoutes);
+  api.route("/admin", adminRoutes);
 
   app.route(config.apiPrefix, api);
 

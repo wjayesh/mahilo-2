@@ -1,0 +1,23 @@
+[build]
+# Use the existing Dockerfile
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Number of replicas
+numReplicas = 1
+
+# Health check configuration
+healthcheckPath = "/health"
+healthcheckTimeout = 10
+
+# Restart policy
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Resource limits (adjust as needed)
+# Railway free tier has limits, upgrade for more resources
+
+[service]
+# Internal port the app listens on
+internalPort = 8080
