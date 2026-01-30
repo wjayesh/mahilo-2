@@ -9,6 +9,10 @@ export const users = sqliteTable(
     displayName: text("display_name"),
     apiKeyHash: text("api_key_hash").notNull(),
     apiKeyId: text("api_key_id").notNull(), // For indexed lookup (mhl_<kid>_...)
+    // Twitter verification
+    twitterHandle: text("twitter_handle"),
+    twitterVerified: integer("twitter_verified", { mode: "boolean" }).default(false),
+    verificationCode: text("verification_code"), // Temporary code for Twitter verification
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -17,6 +21,7 @@ export const users = sqliteTable(
   (table) => [
     index("idx_users_username").on(table.username),
     index("idx_users_api_key_id").on(table.apiKeyId),
+    index("idx_users_twitter").on(table.twitterHandle),
   ]
 );
 
