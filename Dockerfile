@@ -9,8 +9,8 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package.json bun.lock ./
 
-# Install dependencies
-RUN bun install --frozen-lockfile --production=false
+# Install all dependencies (including devDependencies for build)
+RUN bun install --frozen-lockfile
 
 # Copy source code
 COPY src ./src
@@ -29,7 +29,7 @@ RUN addgroup -S mahilo && adduser -S mahilo -G mahilo
 
 # Copy only production dependencies
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN bun install --frozen-lockfile -p
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
