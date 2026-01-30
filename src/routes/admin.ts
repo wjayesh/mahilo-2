@@ -1,9 +1,13 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
+import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { AppError } from "../middleware/error";
 import { config } from "../config";
+import { generateApiKey } from "../services/auth";
 
 export const adminRoutes = new Hono<AppEnv>();
 
@@ -28,6 +32,53 @@ const requireAdmin = () => {
     await next();
   };
 };
+
+// Create a user (pre-verified, for testing)
+const createUserSchema = z.object({
+  username: z.string().min(3).max(30),
+  display_name: z.string().max(100).optional(),
+  twitter_handle: z.string().max(50).optional(),
+});
+
+adminRoutes.post("/users", requireAdmin(), zValidator("json", createUserSchema), async (c) => {
+  const { username, display_name, twitter_handle } = c.req.valid("json");
+
+  const db = getDb();
+
+  // Check if username already exists
+  const existing = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.username, username.toLowerCase()))
+    .limit(1);
+
+  if (existing.length > 0) {
+    throw new AppError("Username already taken", 409, "USERNAME_EXISTS");
+  }
+
+  // Generate API key
+  const { apiKey, keyId, hash } = await generateApiKey();
+
+  // Create user (pre-verified)
+  const userId = nanoid();
+  await db.insert(schema.users).values({
+    id: userId,
+    username: username.toLowerCase(),
+    displayName: display_name,
+    apiKeyHash: hash,
+    apiKeyId: keyId,
+    twitterHandle: twitter_handle?.toLowerCase(),
+    twitterVerified: true, // Pre-verified for admin-created users
+    verificationCode: null,
+  });
+
+  return c.json({
+    user_id: userId,
+    username: username.toLowerCase(),
+    api_key: apiKey, // Only shown once!
+    verified: true,
+  }, 201);
+});
 
 // Delete a user by username
 adminRoutes.delete("/users/:username", requireAdmin(), async (c) => {
