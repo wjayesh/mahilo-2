@@ -24,9 +24,6 @@ FROM oven/bun:1.1.38-alpine AS production
 
 WORKDIR /app
 
-# Create non-root user for security
-RUN addgroup -S mahilo && adduser -S mahilo -G mahilo
-
 # Copy only production dependencies
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile -p
@@ -38,10 +35,7 @@ COPY --from=builder /app/src/db/schema.ts ./src/db/schema.ts
 COPY --from=builder /app/drizzle.config.ts ./
 
 # Create data directory for SQLite
-RUN mkdir -p /app/data && chown -R mahilo:mahilo /app
-
-# Switch to non-root user
-USER mahilo
+RUN mkdir -p /app/data
 
 # Environment variables (override as needed)
 ENV PORT=8080
