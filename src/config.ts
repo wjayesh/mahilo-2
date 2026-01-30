@@ -22,6 +22,7 @@ export const config = {
 
   // Security
   allowPrivateIps: process.env.ALLOW_PRIVATE_IPS === "true", // For self-hosted
+  adminApiKey: process.env.ADMIN_API_KEY || "", // Required for admin endpoints
 } as const;
 
 export type Config = typeof config;

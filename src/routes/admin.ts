@@ -1,38 +1,35 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
 import { eq } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { AppError } from "../middleware/error";
-
-// Hardcoded admin token for demo purposes
-const ADMIN_TOKEN = "ADMIN_TOKEN_ZJ";
+import { config } from "../config";
 
 export const adminRoutes = new Hono<AppEnv>();
 
-// Middleware to check admin token
+// Middleware to check admin token (read from environment variable)
 const requireAdmin = () => {
   return async (c: any, next: any) => {
+    // Admin endpoints are disabled if ADMIN_API_KEY is not set
+    if (!config.adminApiKey) {
+      throw new AppError("Admin endpoints are disabled", 503, "ADMIN_DISABLED");
+    }
+
     const authHeader = c.req.header("Authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       throw new AppError("Missing authorization header", 401, "UNAUTHORIZED");
     }
-    
+
     const token = authHeader.slice(7);
-    if (token !== ADMIN_TOKEN) {
+    if (token !== config.adminApiKey) {
       throw new AppError("Invalid admin token", 403, "FORBIDDEN");
     }
-    
+
     await next();
   };
 };
 
 // Delete a user by username
-const deleteUserSchema = z.object({
-  username: z.string().min(1),
-});
-
 adminRoutes.delete("/users/:username", requireAdmin(), async (c) => {
   const username = c.req.param("username").toLowerCase();
   
