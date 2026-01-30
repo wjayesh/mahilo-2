@@ -84,13 +84,12 @@ authRoutes.post("/register", zValidator("json", registerSchema), async (c) => {
 
 // Verify Twitter - submit tweet URL for verification
 const verifySchema = z.object({
-  twitter_handle: z.string().min(1).max(50),
-  tweet_url: z.string().url().optional(), // Optional - for manual verification
+  tweet_url: z.string().url(),
 });
 
 authRoutes.post("/verify/:userId", zValidator("json", verifySchema), async (c) => {
   const userId = c.req.param("userId");
-  const { twitter_handle, tweet_url } = c.req.valid("json");
+  const { tweet_url } = c.req.valid("json");
 
   const db = getDb();
 
@@ -109,33 +108,80 @@ authRoutes.post("/verify/:userId", zValidator("json", verifySchema), async (c) =
     throw new AppError("Already verified", 400, "ALREADY_VERIFIED");
   }
 
+  if (!user.verificationCode) {
+    throw new AppError("No verification code found", 400, "NO_VERIFICATION_CODE");
+  }
+
+  // Validate tweet URL format (twitter.com or x.com)
+  const tweetUrlPattern = /^https?:\/\/(twitter\.com|x\.com)\/(\w+)\/status\/(\d+)/;
+  const match = tweet_url.match(tweetUrlPattern);
+  if (!match) {
+    throw new AppError("Invalid tweet URL format", 400, "INVALID_TWEET_URL");
+  }
+
+  const twitterHandle = match[2].toLowerCase();
+
   // Check if this Twitter handle is already claimed by another user
   const [existingTwitter] = await db
     .select()
     .from(schema.users)
-    .where(eq(schema.users.twitterHandle, twitter_handle.toLowerCase().replace("@", "")))
+    .where(eq(schema.users.twitterHandle, twitterHandle))
     .limit(1);
 
   if (existingTwitter && existingTwitter.id !== userId) {
     throw new AppError("Twitter handle already claimed by another user", 409, "TWITTER_CLAIMED");
   }
 
-  // Update user with Twitter handle (verification happens via admin or automated check)
-  // For MVP: we mark as verified when they submit - admin can revoke if fraudulent
-  await db
-    .update(schema.users)
-    .set({
-      twitterHandle: twitter_handle.toLowerCase().replace("@", ""),
-      twitterVerified: true,
-      verificationCode: null, // Clear the code
-    })
-    .where(eq(schema.users.id, userId));
+  // Fetch the tweet using Twitter's oembed API (no auth required)
+  try {
+    const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(tweet_url)}`;
+    const response = await fetch(oembedUrl, {
+      signal: AbortSignal.timeout(10000),
+    });
 
-  return c.json({
-    verified: true,
-    twitter_handle: twitter_handle.toLowerCase().replace("@", ""),
-    message: "Twitter verification complete!",
-  });
+    if (!response.ok) {
+      throw new AppError("Could not fetch tweet - make sure it's public", 400, "TWEET_FETCH_FAILED");
+    }
+
+    const data = await response.json() as { html: string; author_name: string };
+
+    // Check that the verification code is in the tweet
+    if (!data.html.includes(user.verificationCode)) {
+      throw new AppError(
+        `Tweet does not contain verification code: ${user.verificationCode}`,
+        400,
+        "CODE_NOT_FOUND"
+      );
+    }
+
+    // Verify the Twitter handle matches
+    const authorHandle = data.author_name?.toLowerCase() || twitterHandle;
+
+    // Update user as verified
+    await db
+      .update(schema.users)
+      .set({
+        twitterHandle: twitterHandle,
+        twitterVerified: true,
+        verificationCode: null, // Clear the code
+      })
+      .where(eq(schema.users.id, userId));
+
+    return c.json({
+      verified: true,
+      twitter_handle: twitterHandle,
+      message: "Twitter verification complete!",
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(
+      "Failed to verify tweet: " + (error instanceof Error ? error.message : "Unknown error"),
+      400,
+      "VERIFICATION_FAILED"
+    );
+  }
 });
 
 // Get verification status

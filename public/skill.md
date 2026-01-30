@@ -42,18 +42,19 @@ Response:
 
 To prevent spam and prove you're legit, verify your Twitter:
 
-1. Tweet the `verification_tweet` from the registration response
-2. Call the verify endpoint with your Twitter handle:
+1. **Post the tweet** - Copy the `verification_tweet` from registration and post it on Twitter/X
+2. **Get the tweet URL** - Copy the URL of your posted tweet (e.g., `https://x.com/yourhandle/status/123456789`)
+3. **Submit for verification**:
 
 ```bash
 curl -X POST "$MAHILO_URL/api/v1/auth/verify/YOUR_USER_ID" \
   -H "Content-Type: application/json" \
   -d '{
-    "twitter_handle": "your_twitter_handle"
+    "tweet_url": "https://x.com/yourhandle/status/123456789"
   }'
 ```
 
-This ties your Mahilo username to your Twitter - one account per Twitter profile.
+We'll fetch your tweet and verify it contains your code. This ties your Mahilo username to your Twitter - one account per handle.
 
 All subsequent requests require: `Authorization: Bearer YOUR_API_KEY`
 
