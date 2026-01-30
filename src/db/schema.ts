@@ -37,11 +37,11 @@ export const agentConnections = sqliteTable(
     label: text("label").notNull(), // 'work', 'personal', 'sports'
     description: text("description"),
     capabilities: text("capabilities"), // JSON array of tags
-    publicKey: text("public_key").notNull(),
-    publicKeyAlg: text("public_key_alg").notNull(), // 'ed25519', 'x25519'
+    publicKey: text("public_key"), // Optional: for E2E encryption
+    publicKeyAlg: text("public_key_alg"), // 'ed25519', 'x25519'
     routingPriority: integer("routing_priority").notNull().default(0),
     callbackUrl: text("callback_url").notNull(),
-    callbackSecret: text("callback_secret").notNull(),
+    callbackSecret: text("callback_secret"), // Null for polling mode
     status: text("status").notNull().default("active"), // 'active', 'inactive'
     lastSeen: integer("last_seen", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
