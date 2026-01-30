@@ -396,19 +396,24 @@ body {
 }
 
 .agent-steps {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-md);
   margin-bottom: var(--space-md);
+}
+
+.steps-label {
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+  margin-bottom: var(--space-xs);
 }
 
 .agent-step {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-bg);
-  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-sm);
   font-size: 0.85rem;
 }
 
@@ -423,6 +428,12 @@ body {
   font-weight: var(--font-weight-bold);
   font-size: 0.8rem;
   border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.step-icon {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-bold);
   flex-shrink: 0;
 }
 
