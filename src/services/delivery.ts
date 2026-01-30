@@ -47,9 +47,22 @@ export async function deliverMessage(
   connection: schema.AgentConnection,
   payload: DeliveryPayload
 ): Promise<DeliveryResult> {
+  // Handle polling mode - no HTTP delivery needed
+  if (connection.callbackUrl.startsWith("polling://")) {
+    const db = getDb();
+    await db
+      .update(schema.messages)
+      .set({
+        status: "delivered",
+        deliveredAt: new Date(),
+      })
+      .where(eq(schema.messages.id, payload.message_id));
+    return { success: true, status: "delivered" };
+  }
+
   const timestamp = Math.floor(Date.now() / 1000);
   const bodyString = JSON.stringify(payload);
-  const signature = generateCallbackSignature(bodyString, connection.callbackSecret, timestamp);
+  const signature = generateCallbackSignature(bodyString, connection.callbackSecret!, timestamp);
 
   try {
     const response = await fetch(connection.callbackUrl, {
@@ -108,9 +121,25 @@ export async function deliverToConnection(
   connection: schema.AgentConnection,
   payload: DeliveryPayload
 ): Promise<DeliveryResult> {
+  // Handle polling mode - no HTTP delivery needed
+  if (connection.callbackUrl.startsWith("polling://")) {
+    if (payload.delivery_id) {
+      const db = getDb();
+      await db
+        .update(schema.messageDeliveries)
+        .set({
+          status: "delivered",
+          deliveredAt: new Date(),
+        })
+        .where(eq(schema.messageDeliveries.id, payload.delivery_id));
+      await recomputeGroupMessageStatus(payload.message_id);
+    }
+    return { success: true, status: "delivered" };
+  }
+
   const timestamp = Math.floor(Date.now() / 1000);
   const bodyString = JSON.stringify(payload);
-  const signature = generateCallbackSignature(bodyString, connection.callbackSecret, timestamp);
+  const signature = generateCallbackSignature(bodyString, connection.callbackSecret!, timestamp);
 
   try {
     const response = await fetch(connection.callbackUrl, {

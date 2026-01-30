@@ -9,7 +9,8 @@ numReplicas = 1
 
 # Health check configuration
 healthcheckPath = "/health"
-healthcheckTimeout = 10
+healthcheckTimeout = 30
+startCommand = ""
 
 # Restart policy
 restartPolicyType = "ON_FAILURE"

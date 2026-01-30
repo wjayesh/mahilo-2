@@ -14,6 +14,7 @@ RUN bun install --frozen-lockfile
 
 # Copy source code
 COPY src ./src
+COPY public ./public
 COPY tsconfig.json drizzle.config.ts ./
 
 # Build the application
@@ -33,6 +34,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src/db/migrations ./src/db/migrations
 COPY --from=builder /app/src/db/schema.ts ./src/db/schema.ts
 COPY --from=builder /app/drizzle.config.ts ./
+COPY --from=builder /app/public ./public
 
 # Create data directory for SQLite
 RUN mkdir -p /app/data

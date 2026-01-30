@@ -22,21 +22,30 @@ const registerAgentSchema = z.object({
   description: z.string().max(500).optional(),
   capabilities: z.union([z.array(z.string()), z.string()]).optional(),
   routing_priority: z.number().int().min(0).max(100).optional().default(0),
-  callback_url: z.string().url(),
+  callback_url: z.string().url().optional(), // Optional for polling mode
   callback_secret: z.string().min(16).max(64).optional(),
-  public_key: z.string().min(1),
-  public_key_alg: z.enum(["ed25519", "x25519"]),
+  public_key: z.string().optional(), // Optional for polling mode
+  public_key_alg: z.enum(["ed25519", "x25519"]).optional(),
   rotate_secret: z.boolean().optional().default(false),
+  mode: z.enum(["webhook", "polling"]).optional().default("webhook"),
 });
 
 agentRoutes.post("/", zValidator("json", registerAgentSchema), async (c) => {
   const user = c.get("user")!;
   const data = c.req.valid("json");
 
-  // Validate callback URL
-  const urlValidation = await validateCallbackUrl(data.callback_url);
-  if (!urlValidation.valid) {
-    throw new AppError(urlValidation.error!, 400, "INVALID_CALLBACK_URL");
+  // Determine mode
+  const isPollingMode = data.mode === "polling" || !data.callback_url;
+
+  // Validate callback URL only for webhook mode
+  if (!isPollingMode) {
+    if (!data.callback_url) {
+      throw new AppError("callback_url required for webhook mode", 400, "MISSING_CALLBACK_URL");
+    }
+    const urlValidation = await validateCallbackUrl(data.callback_url);
+    if (!urlValidation.valid) {
+      throw new AppError(urlValidation.error!, 400, "INVALID_CALLBACK_URL");
+    }
   }
 
   const db = getDb();
@@ -92,7 +101,8 @@ agentRoutes.post("/", zValidator("json", registerAgentSchema), async (c) => {
 
   // Create new connection
   const connectionId = nanoid();
-  const callbackSecret = data.callback_secret || generateCallbackSecret();
+  const callbackSecret = isPollingMode ? null : (data.callback_secret || generateCallbackSecret());
+  const callbackUrl = isPollingMode ? "polling://inbox" : data.callback_url;
 
   await db.insert(schema.agentConnections).values({
     id: connectionId,
@@ -102,10 +112,10 @@ agentRoutes.post("/", zValidator("json", registerAgentSchema), async (c) => {
     description: data.description,
     capabilities,
     routingPriority: data.routing_priority || 0,
-    callbackUrl: data.callback_url,
+    callbackUrl: callbackUrl!,
     callbackSecret,
-    publicKey: data.public_key,
-    publicKeyAlg: data.public_key_alg,
+    publicKey: data.public_key || null,
+    publicKeyAlg: data.public_key_alg || null,
     status: "active",
     lastSeen: new Date(),
   });
@@ -113,7 +123,8 @@ agentRoutes.post("/", zValidator("json", registerAgentSchema), async (c) => {
   return c.json(
     {
       connection_id: connectionId,
-      callback_secret: callbackSecret, // Only shown once unless rotated
+      callback_secret: callbackSecret || undefined, // Only shown for webhook mode
+      mode: isPollingMode ? "polling" : "webhook",
     },
     201
   );

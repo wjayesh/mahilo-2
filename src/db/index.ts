@@ -40,10 +40,8 @@ export async function initializeDatabase() {
   // Create Drizzle instance
   db = drizzle(sqlite, { schema });
 
-  // Run migrations in development
-  if (config.nodeEnv === "development") {
-    await runMigrations();
-  }
+  // Run migrations (always run to ensure tables exist)
+  await runMigrations();
 
   return db;
 }
