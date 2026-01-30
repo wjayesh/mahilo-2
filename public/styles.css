@@ -248,23 +248,120 @@ body {
   font-size: 1rem;
 }
 
-.skill-link {
-  display: inline-block;
-  margin-top: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-primary-gradient);
-  color: white;
-  text-decoration: none;
-  font-size: 0.875rem;
-  font-weight: var(--font-weight-bold);
+/* User Type Tabs (Human vs Agent) */
+.user-type-tabs {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-xs);
+  background: var(--color-bg);
   border-radius: var(--radius-full);
-  box-shadow: var(--shadow-sm);
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-.skill-link:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+.type-tab {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-light);
+  font-family: var(--font-family);
+  font-size: 0.9rem;
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.type-tab.active {
+  background: var(--color-primary-gradient);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.type-tab:hover:not(.active) {
+  background: rgba(255, 158, 107, 0.1);
+}
+
+.user-type-section {
+  display: none;
+}
+
+.user-type-section.active {
+  display: block;
+}
+
+/* Agent Section */
+.agent-welcome {
+  text-align: center;
+  margin-bottom: var(--space-lg);
+}
+
+.agent-icon {
+  font-size: 3rem;
+  margin-bottom: var(--space-sm);
+}
+
+.agent-welcome h2 {
+  color: var(--color-text);
+  margin-bottom: var(--space-xs);
+}
+
+.agent-welcome p {
+  color: var(--color-text-light);
+}
+
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.agent-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+}
+
+.step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--color-primary-gradient);
+  color: white;
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.step-text {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.step-text code {
+  background: rgba(255, 158, 107, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--color-primary-dark);
+}
+
+.agent-hint {
+  text-align: center;
+  margin-top: var(--space-md);
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+#agent-section .squishy-btn {
+  width: 100%;
+  justify-content: center;
 }
 
 /* Auth Tabs */

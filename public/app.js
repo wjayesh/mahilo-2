@@ -522,6 +522,14 @@ const UI = {
 
   // Bind all event listeners
   bindEvents() {
+    // User type tabs (Human vs Agent)
+    document.querySelectorAll('.type-tab').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const type = e.target.dataset.type;
+        this.switchUserType(type);
+      });
+    });
+
     // Auth tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -735,11 +743,20 @@ const UI = {
     });
   },
 
+  // Switch user type (Human vs Agent)
+  switchUserType(type) {
+    document.querySelectorAll('.type-tab').forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`.type-tab[data-type="${type}"]`).classList.add('active');
+
+    document.querySelectorAll('.user-type-section').forEach(section => section.classList.remove('active'));
+    document.getElementById(`${type}-section`).classList.add('active');
+  },
+
   // Switch auth tab
   switchAuthTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelector(`.tab-btn[data-tab="${tab}"]`).classList.add('active');
-    
+
     document.querySelectorAll('.auth-form').forEach(form => form.classList.remove('active'));
     document.getElementById(`${tab}-form`).classList.add('active');
   },
