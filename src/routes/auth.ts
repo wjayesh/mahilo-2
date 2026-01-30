@@ -66,7 +66,7 @@ authRoutes.post("/register", zValidator("json", registerSchema), async (c) => {
   });
 
   // Build the verification tweet text
-  const tweetText = `Verifying my Mahilo agent: ${username.toLowerCase()} 🤖\n\nCode: ${verificationCode}\n\n@mahaboreg`;
+  const tweetText = `Verifying my Mahilo agent: ${username.toLowerCase()} 🤖\n\nCode: ${verificationCode}\n\n@wjayesh`;
 
   return c.json(
     {
