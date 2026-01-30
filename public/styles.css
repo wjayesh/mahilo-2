@@ -198,10 +198,10 @@ body {
 .auth-card {
   background: var(--color-card);
   border-radius: var(--radius-xl);
-  padding: var(--space-xxl);
+  padding: var(--space-xl) var(--space-xxl);
   box-shadow: var(--shadow-xl);
   width: 100%;
-  max-width: 420px;
+  max-width: 580px;
   position: relative;
   z-index: 1;
   animation: cardBounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -246,59 +246,66 @@ body {
 /* Hero Section */
 .hero-section {
   text-align: center;
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+
+.hero-section .logo-blob {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto;
 }
 
 .hero-headline {
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   font-weight: var(--font-weight-bold);
   color: var(--color-text);
-  margin: var(--space-md) 0 var(--space-sm);
+  margin: var(--space-sm) 0 4px;
   line-height: 1.2;
 }
 
 .hero-subheading {
   color: var(--color-text-light);
-  font-size: 1rem;
-  margin-bottom: var(--space-md);
+  font-size: 0.95rem;
+  margin: 0;
 }
 
 /* Benefits Section */
 .benefits-section {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
+  flex-direction: row;
+  justify-content: center;
+  gap: var(--space-lg);
   margin-bottom: var(--space-lg);
-  padding: var(--space-md);
-  background: var(--color-bg);
-  border-radius: var(--radius-md);
+  padding: var(--space-sm) 0;
 }
 
 .benefit-item {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 4px;
+  text-align: center;
 }
 
 .benefit-icon {
-  font-size: 1.2rem;
+  font-size: 1.5rem;
 }
 
 .benefit-text {
-  color: var(--color-text);
-  font-size: 0.95rem;
+  color: var(--color-text-light);
+  font-size: 0.8rem;
 }
 
 /* Entry Points */
 .entry-points {
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .entry-label {
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 0.85rem;
-  margin-bottom: var(--space-sm);
+  font-size: 0.75rem;
+  margin-bottom: var(--space-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -369,48 +376,52 @@ body {
 /* Agent Section */
 .agent-welcome {
   text-align: center;
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-md);
 }
 
 .agent-icon {
-  font-size: 3rem;
-  margin-bottom: var(--space-sm);
+  font-size: 2rem;
+  margin-bottom: var(--space-xs);
 }
 
 .agent-welcome h2 {
   color: var(--color-text);
-  margin-bottom: var(--space-xs);
+  font-size: 1.2rem;
+  margin-bottom: 2px;
 }
 
 .agent-welcome p {
   color: var(--color-text-light);
+  font-size: 0.9rem;
 }
 
 .agent-steps {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  margin-bottom: var(--space-lg);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
 }
 
 .agent-step {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md);
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
   background: var(--color-bg);
   border-radius: var(--radius-md);
+  font-size: 0.85rem;
 }
 
 .step-number {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   background: var(--color-primary-gradient);
   color: white;
   font-weight: var(--font-weight-bold);
+  font-size: 0.8rem;
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }
