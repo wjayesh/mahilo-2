@@ -1,8 +1,10 @@
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
+import { eq } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { verifyApiKey } from "../services/auth";
 import { config } from "../config";
+import { getDb, schema } from "../db";
 
 type RateLimitEntry = {
   count: number;
@@ -64,4 +66,31 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
 export function requireAuth() {
   return authMiddleware;
+}
+
+// Middleware that requires Twitter verification
+export const verifiedMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  const user = c.get("user");
+  if (!user) {
+    throw new HTTPException(401, { message: "Authentication required" });
+  }
+
+  const db = getDb();
+  const [fullUser] = await db
+    .select({ twitterVerified: schema.users.twitterVerified })
+    .from(schema.users)
+    .where(eq(schema.users.id, user.id))
+    .limit(1);
+
+  if (!fullUser?.twitterVerified) {
+    throw new HTTPException(403, {
+      message: "Twitter verification required. Verify your account at /api/v1/auth/verify/:userId"
+    });
+  }
+
+  await next();
+});
+
+export function requireVerified() {
+  return verifiedMiddleware;
 }

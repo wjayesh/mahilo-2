@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { eq, and, or, desc, gt, ne, inArray } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireVerified } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage, deliverToConnection } from "../services/delivery";
@@ -48,7 +48,7 @@ const sendMessageSchema = z.object({
   idempotency_key: z.string().optional(),
 });
 
-messageRoutes.post("/send", zValidator("json", sendMessageSchema), async (c) => {
+messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSchema), async (c) => {
   const user = c.get("user")!;
   const data = c.req.valid("json");
   const db = getDb();
