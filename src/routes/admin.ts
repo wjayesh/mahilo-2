@@ -143,6 +143,43 @@ adminRoutes.get("/users", requireAdmin(), async (c) => {
   });
 });
 
+// Reset API key for a user (generates new key, returns it)
+adminRoutes.post("/users/:username/reset-key", requireAdmin(), async (c) => {
+  const username = c.req.param("username").toLowerCase();
+
+  const db = getDb();
+
+  // Find the user
+  const [user] = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.username, username))
+    .limit(1);
+
+  if (!user) {
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
+  }
+
+  // Generate new API key
+  const { apiKey, keyId, hash } = await generateApiKey();
+
+  // Update user's API key
+  await db
+    .update(schema.users)
+    .set({
+      apiKeyHash: hash,
+      apiKeyId: keyId,
+    })
+    .where(eq(schema.users.id, user.id));
+
+  return c.json({
+    user_id: user.id,
+    username: user.username,
+    api_key: apiKey, // New key - only shown once!
+    message: "API key has been reset. The old key is now invalid.",
+  });
+});
+
 // Delete all users (nuclear option for demo reset)
 adminRoutes.delete("/users", requireAdmin(), async (c) => {
   const db = getDb();
