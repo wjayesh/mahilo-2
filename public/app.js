@@ -7,8 +7,9 @@
 // Configuration
 // ========================================
 const CONFIG = {
-  API_URL: 'http://localhost:8080/api/v1',
-  WS_URL: 'ws://localhost:8080/api/v1/notifications/ws',
+  // Dynamically determine API URL based on current host
+  API_URL: `${window.location.origin}/api/v1`,
+  WS_URL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/notifications/ws`,
   STORAGE_KEY: 'mahilo_session',
   PING_INTERVAL: 30000,
 };
