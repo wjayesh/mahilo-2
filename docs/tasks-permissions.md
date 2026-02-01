@@ -564,7 +564,7 @@ When User A sends a message to User B:
 
 #### 8.1 Unit Tests for Role Functions
 - **ID**: `PERM-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-003
 - **Notes**:
