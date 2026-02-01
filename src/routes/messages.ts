@@ -11,6 +11,8 @@ import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage, deliverToConnection } from "../services/delivery";
 import { evaluatePolicies, evaluateGroupPolicies } from "../services/policy";
 import { config } from "../config";
+import { getRolesForFriend } from "../services/roles";
+import { generatePolicySummary } from "../services/policySummary";
 
 export const messageRoutes = new Hono<AppEnv>();
 
@@ -641,19 +643,110 @@ messageRoutes.get("/", async (c) => {
 
   const usersMap = new Map(users.map((u) => [u.id, u.username]));
 
+  // For received messages, include applicable policies for each sender
+  // This helps the agent know what policies apply when replying
+  const senderPoliciesMap = new Map<string, {
+    roles: string[];
+    policies: Array<{
+      id: string;
+      scope: string;
+      target_id: string | null;
+      policy_type: string;
+      policy_content: string;
+      priority: number;
+    }>;
+    summary: string;
+  }>();
+
+  if (direction === "received") {
+    // Get unique sender IDs
+    const senderIds = [...new Set(messages.map((m) => m.senderUserId))];
+
+    for (const senderId of senderIds) {
+      // Get roles for this sender (from the recipient's perspective)
+      const roles = await getRolesForFriend(user.id, senderId);
+
+      // Build policy query conditions
+      const policyConditions = [
+        eq(schema.policies.scope, "global"),
+        and(
+          eq(schema.policies.scope, "user"),
+          eq(schema.policies.targetId, senderId)
+        ),
+      ];
+
+      // Add role-scoped policies if sender has roles
+      if (roles.length > 0) {
+        policyConditions.push(
+          and(
+            eq(schema.policies.scope, "role"),
+            inArray(schema.policies.targetId, roles)
+          )
+        );
+      }
+
+      // Get applicable policies
+      const policies = await db
+        .select()
+        .from(schema.policies)
+        .where(
+          and(
+            eq(schema.policies.userId, user.id),
+            eq(schema.policies.enabled, true),
+            or(...policyConditions)
+          )
+        )
+        .orderBy(desc(schema.policies.priority));
+
+      const policyInfos = policies.map((p) => ({
+        id: p.id,
+        scope: p.scope,
+        target_id: p.targetId,
+        policy_type: p.policyType,
+        policy_content: p.policyContent,
+        priority: p.priority,
+      }));
+
+      const summary = await generatePolicySummary(policyInfos, roles);
+
+      senderPoliciesMap.set(senderId, {
+        roles,
+        policies: policyInfos,
+        summary,
+      });
+    }
+  }
+
   return c.json(
-    messages.map((m) => ({
-      id: m.id,
-      correlation_id: m.correlationId,
-      sender: usersMap.get(m.senderUserId),
-      sender_agent: m.senderAgent,
-      recipient: usersMap.get(m.recipientId),
-      recipient_type: m.recipientType,
-      message: m.payload,
-      context: m.context,
-      status: m.status,
-      created_at: m.createdAt?.toISOString(),
-      delivered_at: m.deliveredAt?.toISOString(),
-    }))
+    messages.map((m) => {
+      const baseMessage = {
+        id: m.id,
+        correlation_id: m.correlationId,
+        sender: usersMap.get(m.senderUserId),
+        sender_agent: m.senderAgent,
+        recipient: usersMap.get(m.recipientId),
+        recipient_type: m.recipientType,
+        message: m.payload,
+        context: m.context,
+        status: m.status,
+        created_at: m.createdAt?.toISOString(),
+        delivered_at: m.deliveredAt?.toISOString(),
+      };
+
+      // Include policy context for received messages
+      if (direction === "received") {
+        const policyContext = senderPoliciesMap.get(m.senderUserId);
+        return {
+          ...baseMessage,
+          reply_policies: policyContext ? {
+            sender_roles: policyContext.roles,
+            applicable_policies: policyContext.policies,
+            summary: policyContext.summary,
+          } : null,
+        };
+      }
+
+      return baseMessage;
+    })
   );
 });

@@ -84,13 +84,27 @@ curl "$MAHILO_URL/api/v1/messages?direction=received&since=1706745600" \
 **Polling workflow:**
 1. Read last check timestamp from `~/.config/mahilo/last_check.txt`
 2. Fetch messages with `since=<last_check>`
-3. For each message, call `GET /policies/context/:sender_username` to get applicable policies before replying
+3. Each message includes `reply_policies` with applicable policies - use these when crafting your reply
 4. Process messages, reply using sender's username
 5. Write current timestamp to `~/.config/mahilo/last_check.txt`
 
 ```bash
 # Store timestamp after each check
 echo "$(date +%s)" > ~/.config/mahilo/last_check.txt
+```
+
+**Response includes policies for replying:**
+```json
+{
+  "id": "msg_abc",
+  "sender": "alice",
+  "message": "Can we meet tomorrow?",
+  "reply_policies": {
+    "sender_roles": ["close_friends"],
+    "applicable_policies": [...],
+    "summary": "Guidelines: calendar availability OK. Recipient has roles: close_friends."
+  }
+}
 ```
 
 ### List Friends & Groups
