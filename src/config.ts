@@ -27,7 +27,7 @@ export const config = {
   // LLM Policy Evaluation (PERM-015)
   llm: {
     apiKey: process.env.ANTHROPIC_API_KEY || "",
-    model: process.env.LLM_POLICY_MODEL || "claude-3-haiku-20240307",
+    model: process.env.LLM_POLICY_MODEL || "claude-haiku-4-5-20251001",
     timeoutMs: parseInt(process.env.LLM_POLICY_TIMEOUT_MS || "5000", 10),
     enabled: !!process.env.ANTHROPIC_API_KEY, // Only enabled if API key is set
   },
