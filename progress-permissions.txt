@@ -2,7 +2,7 @@
 
 ## Session 1 - 2026-02-01
 
-### Completed
+### Completed (All P0 Tasks)
 - PERM-001: Create user_roles table - DONE
 - PERM-002: Create friend_roles table - DONE
 - PERM-003: Seed system roles on startup - DONE
@@ -16,14 +16,29 @@
 - PERM-011: Update policy evaluation for roles - DONE
 - PERM-012: GET /policies/context/:username - DONE
 - PERM-014: Update SKILL.md documentation - DONE
+- PERM-022: Unit tests for role functions - DONE
+- PERM-023: Unit tests for policy evaluation with roles - DONE
 
 ### In Progress
-Working on unit tests (PERM-022, PERM-023)
+- PERM-024: Integration tests for policy context flow
+
+### Remaining (P1/P2)
+- PERM-013: Policy summary generation (P1)
+- PERM-015: LLM client configuration (P1)
+- PERM-016: LLM policy evaluation (P1)
+- PERM-017: Policy evaluation caching (P2)
+- PERM-018: Default policy templates (P1)
+- PERM-019: Create policies on registration (P1)
+- PERM-020: Interaction count (P2)
+- PERM-021: Past interactions in context (P2)
+- PERM-025: LLM evaluation tests (P1)
 
 ### Notes
 - Schema uses Drizzle ORM with SQLite
 - Migrations are generated via drizzle-kit
 - Database initialized in src/db/index.ts
 - System roles: close_friends, friends, acquaintances, work_contacts, family
+- All role endpoints use `/api/v1/roles` and `/api/v1/friends/:id/roles`
+- Policy context endpoint: GET /api/v1/policies/context/:username
 
 ---

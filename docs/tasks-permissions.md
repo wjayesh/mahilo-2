@@ -577,7 +577,7 @@ When User A sends a message to User B:
 
 #### 8.2 Unit Tests for Policy Evaluation with Roles
 - **ID**: `PERM-023`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-011
 - **Notes**:
