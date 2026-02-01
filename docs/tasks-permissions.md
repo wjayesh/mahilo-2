@@ -514,7 +514,7 @@ When User A sends a message to User B:
 
 #### 7.1 Add Interaction Count to Friends
 - **ID**: `PERM-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Depends on**: None
 - **Notes**:
@@ -529,7 +529,7 @@ When User A sends a message to User B:
 
 #### 7.2 Add Past Interactions to Context
 - **ID**: `PERM-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Depends on**: PERM-012
 - **Notes**:

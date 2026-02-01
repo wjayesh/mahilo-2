@@ -10,6 +10,7 @@ import { AppError } from "../middleware/error";
 import { validatePolicyContent } from "../services/policy";
 import { isValidRole, getRolesForFriend } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
+import { getInteractionCount, getRecentInteractions } from "../services/interactions";
 
 export const policyRoutes = new Hono<AppEnv>();
 
@@ -370,6 +371,12 @@ policyRoutes.get("/context/:username", async (c) => {
 
   const summary = await generatePolicySummary(policyInfos, roles);
 
+  // Get interaction count (PERM-020)
+  const interactionCount = await getInteractionCount(user.id, recipient.id);
+
+  // Get recent interactions (PERM-021)
+  const recentInteractions = await getRecentInteractions(user.id, recipient.id, 5);
+
   return c.json({
     recipient: {
       username: recipient.username,
@@ -378,8 +385,10 @@ policyRoutes.get("/context/:username", async (c) => {
       friendship_id: friendship.id,
       roles,
       connected_since: friendship.createdAt?.toISOString(),
+      interaction_count: interactionCount,
     },
     applicable_policies: policyInfos,
     summary,
+    recent_interactions: recentInteractions,
   });
 });

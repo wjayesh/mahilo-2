@@ -47,10 +47,18 @@ All P0 tasks implemented and tested!
   - Created src/services/policySummary.ts
   - Updated policies.ts context endpoint to include summary
 
+### Completed (P2 Tasks)
+- PERM-020: Interaction count - DONE
+  - Created src/services/interactions.ts
+  - Updated GET /friends to include interaction_count
+  - Updated GET /policies/context/:username to include interaction_count
+- PERM-021: Past interactions in context - DONE
+  - Added getRecentInteractions() to interactions service
+  - Updated GET /policies/context/:username to include recent_interactions (last 5 messages)
+  - Created tests/unit/interactions.test.ts
+
 ### Remaining (P2 Only)
-- PERM-017: Policy evaluation caching (P2)
-- PERM-020: Interaction count (P2)
-- PERM-021: Past interactions in context (P2)
+- PERM-017: Policy evaluation caching (P2) - Optional for later if LLM costs become an issue
 
 ### Notes
 - Schema uses Drizzle ORM with SQLite

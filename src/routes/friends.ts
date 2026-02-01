@@ -12,6 +12,7 @@ import {
   removeRoleFromFriendship,
   getFriendshipRoles,
 } from "../services/roles";
+import { getInteractionCountsForFriends } from "../services/interactions";
 
 export const friendRoutes = new Hono<AppEnv>();
 
@@ -263,6 +264,9 @@ friendRoutes.get("/", async (c) => {
     rolesMap.set(role.friendshipId, existing);
   }
 
+  // Get interaction counts for all friends (PERM-020)
+  const interactionCounts = await getInteractionCountsForFriends(user.id, friendIds);
+
   return c.json({
     friends: friendships.map((f) => {
       const friendId = f.requesterId === user.id ? f.addresseeId : f.requesterId;
@@ -276,6 +280,7 @@ friendRoutes.get("/", async (c) => {
         direction: f.requesterId === user.id ? "sent" : "received",
         since: f.createdAt?.toISOString(),
         roles: rolesMap.get(f.id) || [],
+        interaction_count: interactionCounts.get(friendId) || 0,
       };
     }),
   });
