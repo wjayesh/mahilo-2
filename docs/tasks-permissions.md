@@ -245,7 +245,7 @@ When User A sends a message to User B:
 
 #### 3.1 Update Policy Schema for Role Scope
 - **ID**: `PERM-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-001
 - **Notes**:
@@ -270,7 +270,7 @@ When User A sends a message to User B:
 
 #### 3.2 Update Policy Evaluation for Roles
 - **ID**: `PERM-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-010, PERM-002
 - **Notes**:
@@ -291,7 +291,7 @@ When User A sends a message to User B:
 
 #### 4.1 Create Policy Context Endpoint
 - **ID**: `PERM-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-011
 - **Endpoint**: `GET /api/v1/policies/context/:username`
