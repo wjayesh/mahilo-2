@@ -592,7 +592,7 @@ When User A sends a message to User B:
 
 #### 8.3 Integration Tests for Policy Context Flow
 - **ID**: `PERM-024`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-012
 - **Notes**:
