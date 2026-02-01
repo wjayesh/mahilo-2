@@ -1,6 +1,8 @@
 import { eq, and, or, desc, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { getRolesForFriend } from "./roles";
+import { evaluateLLMPolicy, isLLMEnabled } from "./llm";
+import { config } from "../config";
 
 interface HeuristicRules {
   maxLength?: number;
@@ -203,9 +205,33 @@ export async function evaluatePolicies(
         // Continue to next policy on error
       }
     } else if (policy.policyType === "llm") {
-      // LLM policy evaluation would go here
-      // For now, skip LLM policies (they're meant to run on the plugin side)
-      console.log(`Skipping LLM policy ${policy.id} (plugin-side evaluation)`);
+      // LLM policy evaluation (PERM-016)
+      // Only evaluate in trusted mode with LLM configured
+      if (config.trustedMode && isLLMEnabled()) {
+        try {
+          const llmResult = await evaluateLLMPolicy(
+            policy.policyContent,
+            message,
+            recipientUsername || "unknown",
+            context
+          );
+
+          if (!llmResult.passed) {
+            return {
+              allowed: false,
+              reason: llmResult.reasoning || "Message blocked by LLM policy",
+            };
+          }
+        } catch (e) {
+          console.error(`Error evaluating LLM policy ${policy.id}:`, e);
+          // Continue to next policy on error (default to PASS)
+        }
+      } else {
+        // Skip LLM policies when not in trusted mode or LLM not configured
+        console.log(
+          `Skipping LLM policy ${policy.id} (trustedMode=${config.trustedMode}, llmEnabled=${isLLMEnabled()})`
+        );
+      }
     }
   }
 
@@ -292,8 +318,31 @@ export async function evaluateGroupPolicies(
         // Continue to next policy on error
       }
     } else if (policy.policyType === "llm") {
-      // LLM policy evaluation would go here
-      console.log(`Skipping LLM policy ${policy.id} (plugin-side evaluation)`);
+      // LLM policy evaluation (PERM-016)
+      if (config.trustedMode && isLLMEnabled()) {
+        try {
+          const llmResult = await evaluateLLMPolicy(
+            policy.policyContent,
+            message,
+            group?.name || groupId,
+            context
+          );
+
+          if (!llmResult.passed) {
+            return {
+              allowed: false,
+              reason: `${llmResult.reasoning || "Message blocked by LLM policy"} (group policy)`,
+            };
+          }
+        } catch (e) {
+          console.error(`Error evaluating LLM group policy ${policy.id}:`, e);
+          // Continue to next policy on error (default to PASS)
+        }
+      } else {
+        console.log(
+          `Skipping LLM policy ${policy.id} (trustedMode=${config.trustedMode}, llmEnabled=${isLLMEnabled()})`
+        );
+      }
     }
   }
 

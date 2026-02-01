@@ -23,16 +23,34 @@
 All P0 tasks implemented and tested!
 - PERM-024: Integration tests for policy context flow - DONE
 
-### Remaining (P1/P2)
-- PERM-013: Policy summary generation (P1)
-- PERM-015: LLM client configuration (P1)
-- PERM-016: LLM policy evaluation (P1)
+---
+
+## Session 2 - 2026-02-01
+
+### Completed (P1 Tasks)
+- PERM-015: LLM client configuration - DONE
+  - Added llm config to src/config.ts (ANTHROPIC_API_KEY, LLM_POLICY_MODEL, LLM_POLICY_TIMEOUT_MS)
+  - Created src/services/llm.ts for Anthropic API integration
+- PERM-016: LLM policy evaluation - DONE
+  - Implemented evaluateLLMPolicy() with PASS/FAIL parsing
+  - Updated policy.ts to use LLM evaluation in trustedMode
+  - Graceful error/timeout handling (defaults to PASS)
+- PERM-018: Default policy templates - DONE
+  - Created src/services/defaultPolicies.ts
+  - Three default policies: sensitive data patterns, location privacy, calendar events
+- PERM-019: Create policies on registration - DONE
+  - Updated auth.ts to call createDefaultPoliciesForUser after registration
+- PERM-025: LLM evaluation tests - DONE
+  - Created tests/unit/llm.test.ts with mocked fetch
+  - Created tests/unit/defaultPolicies.test.ts
+- PERM-013: Policy summary generation - DONE
+  - Created src/services/policySummary.ts
+  - Updated policies.ts context endpoint to include summary
+
+### Remaining (P2 Only)
 - PERM-017: Policy evaluation caching (P2)
-- PERM-018: Default policy templates (P1)
-- PERM-019: Create policies on registration (P1)
 - PERM-020: Interaction count (P2)
 - PERM-021: Past interactions in context (P2)
-- PERM-025: LLM evaluation tests (P1)
 
 ### Notes
 - Schema uses Drizzle ORM with SQLite

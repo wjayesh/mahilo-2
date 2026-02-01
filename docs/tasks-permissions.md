@@ -339,7 +339,7 @@ When User A sends a message to User B:
 
 #### 4.2 Add Policy Summary Generation
 - **ID**: `PERM-013`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PERM-012
 - **Notes**:
@@ -383,7 +383,7 @@ When User A sends a message to User B:
 
 #### 5.1 Add LLM Client Configuration
 - **ID**: `PERM-015`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: None
 - **Notes**:
@@ -403,7 +403,7 @@ When User A sends a message to User B:
 
 #### 5.2 Implement LLM Policy Evaluation
 - **ID**: `PERM-016`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PERM-015
 - **Notes**:
@@ -449,7 +449,7 @@ When User A sends a message to User B:
 
 #### 6.1 Create Default Policy Templates
 - **ID**: `PERM-018`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PERM-016
 - **Notes**:
@@ -496,7 +496,7 @@ When User A sends a message to User B:
 
 #### 6.2 Create Policies on User Registration
 - **ID**: `PERM-019`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PERM-018
 - **Notes**:
@@ -604,7 +604,7 @@ When User A sends a message to User B:
 
 #### 8.4 Integration Tests for LLM Policy Evaluation
 - **ID**: `PERM-025`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PERM-016
 - **Notes**:

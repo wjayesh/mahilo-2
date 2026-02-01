@@ -8,6 +8,7 @@ import { getDb, schema } from "../db";
 import { generateApiKey, validateUsername } from "../services/auth";
 import { requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
+import { createDefaultPoliciesForUser } from "../services/defaultPolicies";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -63,6 +64,12 @@ authRoutes.post("/register", zValidator("json", registerSchema), async (c) => {
     apiKeyId: keyId,
     verificationCode,
     twitterVerified: false,
+  });
+
+  // Create default policies for the new user (PERM-019)
+  // This runs asynchronously and doesn't block registration
+  createDefaultPoliciesForUser(userId).catch((err) => {
+    console.error("Failed to create default policies:", err);
   });
 
   // Build the verification tweet text

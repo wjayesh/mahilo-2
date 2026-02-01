@@ -9,6 +9,7 @@ import { requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { validatePolicyContent } from "../services/policy";
 import { isValidRole, getRolesForFriend } from "../services/roles";
+import { generatePolicySummary } from "../services/policySummary";
 
 export const policyRoutes = new Hono<AppEnv>();
 
@@ -357,6 +358,18 @@ policyRoutes.get("/context/:username", async (c) => {
     )
     .orderBy(desc(schema.policies.priority));
 
+  // Generate policy summary (PERM-013)
+  const policyInfos = policies.map((p) => ({
+    id: p.id,
+    scope: p.scope,
+    target_id: p.targetId,
+    policy_type: p.policyType,
+    policy_content: p.policyContent,
+    priority: p.priority,
+  }));
+
+  const summary = await generatePolicySummary(policyInfos, roles);
+
   return c.json({
     recipient: {
       username: recipient.username,
@@ -366,14 +379,7 @@ policyRoutes.get("/context/:username", async (c) => {
       roles,
       connected_since: friendship.createdAt?.toISOString(),
     },
-    applicable_policies: policies.map((p) => ({
-      id: p.id,
-      scope: p.scope,
-      target_id: p.targetId,
-      policy_type: p.policyType,
-      policy_content: p.policyContent,
-      priority: p.priority,
-    })),
-    summary: "", // For MVP, leave empty. Could use LLM to generate a summary later.
+    applicable_policies: policyInfos,
+    summary,
   });
 });
