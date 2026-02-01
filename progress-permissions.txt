@@ -57,8 +57,22 @@ All P0 tasks implemented and tested!
   - Updated GET /policies/context/:username to include recent_interactions (last 5 messages)
   - Created tests/unit/interactions.test.ts
 
-### Remaining (P2 Only)
+### Remaining (P2 Only - Optional)
 - PERM-017: Policy evaluation caching (P2) - Optional for later if LLM costs become an issue
+
+---
+
+## Summary
+
+**All required tasks complete!**
+
+| Priority | Total | Done | Remaining |
+|----------|-------|------|-----------|
+| P0       | 16    | 16   | 0         |
+| P1       | 6     | 6    | 0         |
+| P2       | 3     | 2    | 1 (optional) |
+
+PERM-017 (caching) is explicitly optional and can be implemented later if needed.
 
 ### Notes
 - Schema uses Drizzle ORM with SQLite
