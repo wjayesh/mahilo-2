@@ -352,7 +352,7 @@ When User A sends a message to User B:
 
 #### 4.3 Update SKILL.md with Context Endpoint
 - **ID**: `PERM-014`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-012
 - **Notes**:

@@ -34,11 +34,15 @@ export async function setupTestDatabase() {
       display_name TEXT,
       api_key_hash TEXT NOT NULL,
       api_key_id TEXT NOT NULL,
+      twitter_handle TEXT,
+      twitter_verified INTEGER DEFAULT 0,
+      verification_code TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       deleted_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_users_api_key_id ON users(api_key_id);
+    CREATE INDEX IF NOT EXISTS idx_users_twitter ON users(twitter_handle);
 
     CREATE TABLE IF NOT EXISTS agent_connections (
       id TEXT PRIMARY KEY,
@@ -47,11 +51,11 @@ export async function setupTestDatabase() {
       label TEXT NOT NULL,
       description TEXT,
       capabilities TEXT,
-      public_key TEXT NOT NULL,
-      public_key_alg TEXT NOT NULL,
+      public_key TEXT,
+      public_key_alg TEXT,
       routing_priority INTEGER NOT NULL DEFAULT 0,
       callback_url TEXT NOT NULL,
-      callback_secret TEXT NOT NULL,
+      callback_secret TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       last_seen INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -111,6 +115,25 @@ export async function setupTestDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_policies_user ON policies(user_id);
     CREATE INDEX IF NOT EXISTS idx_policies_scope ON policies(scope, target_id);
+
+    CREATE TABLE IF NOT EXISTS user_roles (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      is_system INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      UNIQUE(user_id, name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
+
+    CREATE TABLE IF NOT EXISTS friend_roles (
+      friendship_id TEXT NOT NULL REFERENCES friendships(id) ON DELETE CASCADE,
+      role_name TEXT NOT NULL,
+      assigned_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (friendship_id, role_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_friend_roles_role ON friend_roles(role_name);
   `);
 
   return testDb;
@@ -216,4 +239,42 @@ export async function createAgentConnection(
     .limit(1);
 
   return created;
+}
+
+// Helper to seed system roles for tests
+export async function seedTestSystemRoles(): Promise<void> {
+  const db = getTestDb();
+
+  const systemRoles = [
+    { name: "close_friends", description: "Highest trust tier" },
+    { name: "friends", description: "Standard friends" },
+    { name: "acquaintances", description: "Casual contacts" },
+    { name: "work_contacts", description: "Professional context" },
+    { name: "family", description: "Family members" },
+  ];
+
+  for (const role of systemRoles) {
+    await db.insert(schema.userRoles).values({
+      id: `role_${nanoid(12)}`,
+      userId: null,
+      name: role.name,
+      description: role.description,
+      isSystem: true,
+      createdAt: new Date(),
+    });
+  }
+}
+
+// Helper to add a role to a friendship
+export async function addRoleToFriendship(
+  friendshipId: string,
+  roleName: string
+): Promise<void> {
+  const db = getTestDb();
+
+  await db.insert(schema.friendRoles).values({
+    friendshipId,
+    roleName,
+    assignedAt: new Date(),
+  });
 }

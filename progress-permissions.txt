@@ -12,11 +12,13 @@
 - PERM-007: DELETE /friends/:id/roles/:role_name - DONE
 - PERM-008: GET /friends/:id/roles - DONE
 - PERM-009: Update GET /friends to include roles - DONE
+- PERM-010: Update policy schema for role scope - DONE
+- PERM-011: Update policy evaluation for roles - DONE
+- PERM-012: GET /policies/context/:username - DONE
+- PERM-014: Update SKILL.md documentation - DONE
 
 ### In Progress
-Working on Sprint 3: Role Policies (P0)
-- PERM-010: Update policy schema for role scope
-- PERM-011: Update policy evaluation for roles
+Working on unit tests (PERM-022, PERM-023)
 
 ### Notes
 - Schema uses Drizzle ORM with SQLite
