@@ -37,7 +37,7 @@ When User A sends a message to User B:
 
 #### 1.1 Create User Roles Table
 - **ID**: `PERM-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Notes**:
@@ -63,7 +63,7 @@ When User A sends a message to User B:
 
 #### 1.2 Create Friend Roles Junction Table
 - **ID**: `PERM-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-001
 - **Notes**:
@@ -86,7 +86,7 @@ When User A sends a message to User B:
 
 #### 1.3 Seed System Roles on Startup
 - **ID**: `PERM-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-001
 - **Notes**:
@@ -113,7 +113,7 @@ When User A sends a message to User B:
 
 #### 2.1 List Available Roles
 - **ID**: `PERM-004`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-003
 - **Endpoint**: `GET /api/v1/roles`
@@ -136,7 +136,7 @@ When User A sends a message to User B:
 
 #### 2.2 Create Custom Role
 - **ID**: `PERM-005`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PERM-001
 - **Endpoint**: `POST /api/v1/roles`
@@ -159,7 +159,7 @@ When User A sends a message to User B:
 
 #### 2.3 Add Role to Friend
 - **ID**: `PERM-006`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-002
 - **Endpoint**: `POST /api/v1/friends/:friendship_id/roles`
@@ -181,7 +181,7 @@ When User A sends a message to User B:
 
 #### 2.4 Remove Role from Friend
 - **ID**: `PERM-007`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-002
 - **Endpoint**: `DELETE /api/v1/friends/:friendship_id/roles/:role_name`
@@ -195,7 +195,7 @@ When User A sends a message to User B:
 
 #### 2.5 Get Friend's Roles
 - **ID**: `PERM-008`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-002
 - **Endpoint**: `GET /api/v1/friends/:friendship_id/roles`
@@ -213,7 +213,7 @@ When User A sends a message to User B:
 
 #### 2.6 Update GET /friends to Include Roles
 - **ID**: `PERM-009`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PERM-008
 - **Notes**:

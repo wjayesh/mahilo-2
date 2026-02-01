@@ -2,12 +2,13 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, desc, sql } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { validatePolicyContent } from "../services/policy";
+import { isValidRole, getRolesForFriend } from "../services/roles";
 
 export const policyRoutes = new Hono<AppEnv>();
 
@@ -50,7 +51,7 @@ async function assertGroupPolicyAccess(userId: string, groupId: string, db: Retu
 
 // Create policy
 const createPolicySchema = z.object({
-  scope: z.enum(["global", "user", "group"]),
+  scope: z.enum(["global", "user", "group", "role"]),
   target_id: z.string().optional(),
   policy_type: z.enum(["heuristic", "llm"]),
   policy_content: z.string(),
@@ -68,7 +69,7 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     throw new AppError("Global policies cannot have a target_id", 400, "INVALID_POLICY");
   }
 
-  if ((data.scope === "user" || data.scope === "group") && !data.target_id) {
+  if ((data.scope === "user" || data.scope === "group" || data.scope === "role") && !data.target_id) {
     throw new AppError(`${data.scope} policies require a target_id`, 400, "INVALID_POLICY");
   }
 
@@ -122,6 +123,14 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
 
     if (membership.role !== "owner" && membership.role !== "admin") {
       throw new AppError("Only group owners and admins can manage group policies", 403, "FORBIDDEN");
+    }
+  }
+
+  // If scope is "role", verify the role exists (system or user's custom)
+  if (data.scope === "role" && data.target_id) {
+    const validRole = await isValidRole(user.id, data.target_id);
+    if (!validRole) {
+      throw new AppError(`Invalid role: ${data.target_id}`, 400, "INVALID_ROLE");
     }
   }
 
@@ -265,4 +274,106 @@ policyRoutes.delete("/:id", async (c) => {
   await db.delete(schema.policies).where(eq(schema.policies.id, policyId));
 
   return c.json({ success: true });
+});
+
+/**
+ * GET /api/v1/policies/context/:username
+ * Get policy context for a potential recipient
+ * Returns relationship info and applicable policies to help agent craft compliant messages
+ */
+policyRoutes.get("/context/:username", async (c) => {
+  const user = c.get("user")!;
+  const recipientUsername = c.req.param("username").toLowerCase();
+  const db = getDb();
+
+  // Find the recipient user
+  const [recipient] = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.username, recipientUsername))
+    .limit(1);
+
+  if (!recipient) {
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
+  }
+
+  // Find friendship between current user and recipient
+  const [friendship] = await db
+    .select()
+    .from(schema.friendships)
+    .where(
+      and(
+        eq(schema.friendships.status, "accepted"),
+        or(
+          and(
+            eq(schema.friendships.requesterId, user.id),
+            eq(schema.friendships.addresseeId, recipient.id)
+          ),
+          and(
+            eq(schema.friendships.requesterId, recipient.id),
+            eq(schema.friendships.addresseeId, user.id)
+          )
+        )
+      )
+    )
+    .limit(1);
+
+  if (!friendship) {
+    throw new AppError("Not friends with this user", 404, "NOT_FRIENDS");
+  }
+
+  // Get roles for this friendship
+  const roles = await getRolesForFriend(user.id, recipient.id);
+
+  // Build policy query conditions
+  const policyConditions = [
+    eq(schema.policies.scope, "global"),
+    and(
+      eq(schema.policies.scope, "user"),
+      eq(schema.policies.targetId, recipient.id)
+    ),
+  ];
+
+  // Add role-scoped policies if recipient has roles
+  if (roles.length > 0) {
+    policyConditions.push(
+      and(
+        eq(schema.policies.scope, "role"),
+        sql`${schema.policies.targetId} IN ${roles}`
+      )
+    );
+  }
+
+  // Get applicable policies
+  const policies = await db
+    .select()
+    .from(schema.policies)
+    .where(
+      and(
+        eq(schema.policies.userId, user.id),
+        eq(schema.policies.enabled, true),
+        or(...policyConditions)
+      )
+    )
+    .orderBy(desc(schema.policies.priority));
+
+  return c.json({
+    recipient: {
+      username: recipient.username,
+      display_name: recipient.displayName,
+      relationship: "friend",
+      friendship_id: friendship.id,
+      roles,
+      connected_since: friendship.createdAt?.toISOString(),
+    },
+    applicable_policies: policies.map((p) => ({
+      id: p.id,
+      scope: p.scope,
+      target_id: p.targetId,
+      policy_type: p.policyType,
+      policy_content: p.policyContent,
+      priority: p.priority,
+    })),
+    summary: "", // For MVP, leave empty. Could use LLM to generate a summary later.
+  });
 });

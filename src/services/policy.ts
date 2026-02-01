@@ -1,5 +1,6 @@
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "../db";
+import { getRolesForFriend } from "./roles";
 
 interface HeuristicRules {
   maxLength?: number;
@@ -132,6 +133,30 @@ export async function evaluatePolicies(
 ): Promise<PolicyResult> {
   const db = getDb();
 
+  // Get roles the sender has assigned to the recipient
+  const recipientRoles = await getRolesForFriend(senderUserId, recipientUserId);
+
+  // Build policy query conditions
+  const policyConditions = [
+    // Global policies
+    eq(schema.policies.scope, "global"),
+    // Per-user policies for this recipient
+    and(
+      eq(schema.policies.scope, "user"),
+      eq(schema.policies.targetId, recipientUserId)
+    ),
+  ];
+
+  // Add role-scoped policies if recipient has roles
+  if (recipientRoles.length > 0) {
+    policyConditions.push(
+      and(
+        eq(schema.policies.scope, "role"),
+        sql`${schema.policies.targetId} IN ${recipientRoles}`
+      )
+    );
+  }
+
   // Get sender's policies
   const policies = await db
     .select()
@@ -140,15 +165,7 @@ export async function evaluatePolicies(
       and(
         eq(schema.policies.userId, senderUserId),
         eq(schema.policies.enabled, true),
-        or(
-          // Global policies
-          eq(schema.policies.scope, "global"),
-          // Per-user policies for this recipient
-          and(
-            eq(schema.policies.scope, "user"),
-            eq(schema.policies.targetId, recipientUserId)
-          )
-        )
+        or(...policyConditions)
       )
     )
     .orderBy(desc(schema.policies.priority));

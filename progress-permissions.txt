@@ -2,17 +2,26 @@
 
 ## Session 1 - 2026-02-01
 
-### Started
-- PERM-001: Create user_roles table
-- PERM-002: Create friend_roles table
-- PERM-003: Seed system roles on startup
+### Completed
+- PERM-001: Create user_roles table - DONE
+- PERM-002: Create friend_roles table - DONE
+- PERM-003: Seed system roles on startup - DONE
+- PERM-004: GET /roles endpoint - DONE
+- PERM-005: POST /roles (create custom role) - DONE
+- PERM-006: POST /friends/:id/roles (add role) - DONE
+- PERM-007: DELETE /friends/:id/roles/:role_name - DONE
+- PERM-008: GET /friends/:id/roles - DONE
+- PERM-009: Update GET /friends to include roles - DONE
 
 ### In Progress
-Working on Sprint 1: Role Foundation (P0)
+Working on Sprint 3: Role Policies (P0)
+- PERM-010: Update policy schema for role scope
+- PERM-011: Update policy evaluation for roles
 
 ### Notes
 - Schema uses Drizzle ORM with SQLite
 - Migrations are generated via drizzle-kit
 - Database initialized in src/db/index.ts
+- System roles: close_friends, friends, acquaintances, work_contacts, family
 
 ---
