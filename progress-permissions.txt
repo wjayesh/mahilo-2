@@ -1,0 +1,18 @@
+# Permission System Implementation Progress
+
+## Session 1 - 2026-02-01
+
+### Started
+- PERM-001: Create user_roles table
+- PERM-002: Create friend_roles table
+- PERM-003: Seed system roles on startup
+
+### In Progress
+Working on Sprint 1: Role Foundation (P0)
+
+### Notes
+- Schema uses Drizzle ORM with SQLite
+- Migrations are generated via drizzle-kit
+- Database initialized in src/db/index.ts
+
+---

@@ -7,6 +7,11 @@ import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
+import {
+  addRoleToFriendship,
+  removeRoleFromFriendship,
+  getFriendshipRoles,
+} from "../services/roles";
 
 export const friendRoutes = new Hono<AppEnv>();
 
@@ -229,7 +234,7 @@ friendRoutes.get("/", async (c) => {
   );
 
   if (friendIds.length === 0) {
-    return c.json([]);
+    return c.json({ friends: [] });
   }
 
   const users = await db
@@ -243,21 +248,37 @@ friendRoutes.get("/", async (c) => {
 
   const usersMap = new Map(users.map((u) => [u.id, u]));
 
-  return c.json(
-    friendships.map((f) => {
+  // Get roles for all friendships
+  const friendshipIds = friendships.map((f) => f.id);
+  const allRoles = await db
+    .select()
+    .from(schema.friendRoles)
+    .where(sql`${schema.friendRoles.friendshipId} IN ${friendshipIds}`);
+
+  // Group roles by friendship
+  const rolesMap = new Map<string, string[]>();
+  for (const role of allRoles) {
+    const existing = rolesMap.get(role.friendshipId) || [];
+    existing.push(role.roleName);
+    rolesMap.set(role.friendshipId, existing);
+  }
+
+  return c.json({
+    friends: friendships.map((f) => {
       const friendId = f.requesterId === user.id ? f.addresseeId : f.requesterId;
       const friend = usersMap.get(friendId);
       return {
-        id: f.id,
-        user_id: friendId,  // The actual user ID (needed for policies, etc.)
+        friendship_id: f.id,
+        user_id: friendId,
         username: friend?.username,
         display_name: friend?.displayName,
         status: f.status,
         direction: f.requesterId === user.id ? "sent" : "received",
         since: f.createdAt?.toISOString(),
+        roles: rolesMap.get(f.id) || [],
       };
-    })
-  );
+    }),
+  });
 });
 
 // Delete friendship (unfriend)
@@ -289,4 +310,70 @@ friendRoutes.delete("/:id", async (c) => {
   await db.delete(schema.friendships).where(eq(schema.friendships.id, friendshipId));
 
   return c.json({ success: true });
+});
+
+// Add role to friend
+const addRoleSchema = z.object({
+  role: z.string().min(1).max(50),
+});
+
+friendRoutes.post("/:id/roles", zValidator("json", addRoleSchema), async (c) => {
+  const user = c.get("user")!;
+  const friendshipId = c.req.param("id");
+  const { role } = c.req.valid("json");
+
+  try {
+    await addRoleToFriendship(user.id, friendshipId, role);
+    return c.json({ success: true, role });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes("not found") || error.message.includes("access denied")) {
+        throw new AppError(error.message, 404, "NOT_FOUND");
+      }
+      if (error.message.includes("Invalid role")) {
+        throw new AppError(error.message, 400, "INVALID_ROLE");
+      }
+    }
+    throw error;
+  }
+});
+
+// Remove role from friend
+friendRoutes.delete("/:id/roles/:roleName", async (c) => {
+  const user = c.get("user")!;
+  const friendshipId = c.req.param("id");
+  const roleName = c.req.param("roleName");
+
+  try {
+    const removed = await removeRoleFromFriendship(user.id, friendshipId, roleName);
+    if (!removed) {
+      throw new AppError("Role not assigned to this friend", 404, "NOT_FOUND");
+    }
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes("not found") || error.message.includes("access denied")) {
+        throw new AppError(error.message, 404, "NOT_FOUND");
+      }
+    }
+    throw error;
+  }
+});
+
+// Get friend's roles
+friendRoutes.get("/:id/roles", async (c) => {
+  const user = c.get("user")!;
+  const friendshipId = c.req.param("id");
+
+  try {
+    const roles = await getFriendshipRoles(user.id, friendshipId);
+    return c.json({ roles });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes("not found") || error.message.includes("access denied")) {
+        throw new AppError(error.message, 404, "NOT_FOUND");
+      }
+    }
+    throw error;
+  }
 });

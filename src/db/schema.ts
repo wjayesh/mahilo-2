@@ -250,6 +250,43 @@ export const groupMemberships = sqliteTable(
   ]
 );
 
+// User roles table (system + user-defined roles)
+export const userRoles = sqliteTable(
+  "user_roles",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }), // NULL for system roles
+    name: text("name").notNull(),
+    description: text("description"),
+    isSystem: integer("is_system", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("idx_user_roles_user").on(table.userId),
+    unique("idx_user_roles_unique_name").on(table.userId, table.name),
+  ]
+);
+
+// Friend roles junction table (many-to-many: friendships can have multiple roles)
+export const friendRoles = sqliteTable(
+  "friend_roles",
+  {
+    friendshipId: text("friendship_id")
+      .notNull()
+      .references(() => friendships.id, { onDelete: "cascade" }),
+    roleName: text("role_name").notNull(),
+    assignedAt: integer("assigned_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("idx_friend_roles_role").on(table.roleName),
+    unique("idx_friend_roles_unique").on(table.friendshipId, table.roleName),
+  ]
+);
+
 // Type exports for use in services
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -269,3 +306,7 @@ export type MessageDelivery = typeof messageDeliveries.$inferSelect;
 export type NewMessageDelivery = typeof messageDeliveries.$inferInsert;
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type NewUserPreferences = typeof userPreferences.$inferInsert;
+export type UserRole = typeof userRoles.$inferSelect;
+export type NewUserRole = typeof userRoles.$inferInsert;
+export type FriendRole = typeof friendRoles.$inferSelect;
+export type NewFriendRole = typeof friendRoles.$inferInsert;

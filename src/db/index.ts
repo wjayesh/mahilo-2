@@ -5,6 +5,7 @@ import { config } from "../config";
 import * as schema from "./schema";
 import { existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
+import { seedSystemRoles } from "../services/roles";
 
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let sqlite: Database | null = null;
@@ -49,6 +50,9 @@ export async function initializeDatabase() {
 async function runMigrations() {
   console.log("Running database migrations...");
   migrate(db, { migrationsFolder: "./src/db/migrations" });
+
+  // Seed system roles after migrations
+  await seedSystemRoles();
 }
 
 export function setDbForTests(

@@ -43,6 +43,13 @@
       "when": 1769808064133,
       "tag": "0005_fixed_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1769941519390,
+      "tag": "0006_slimy_avengers",
+      "breakpoints": true
     }
   ]
 }
