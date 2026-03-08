@@ -334,16 +334,20 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 4.1 Context Endpoint v2
 - **ID**: `SRV-040`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-031
 - **Description**:
   - Evolve recipient context endpoint to include selector-aware policy context.
   - Include relationship, roles, recent interactions, relevant decisions, and summary.
 - **Acceptance Criteria**:
-  - [ ] Plugin can fetch compact prompt-ready context
-  - [ ] Response includes selectors and resolved guidance
-  - [ ] Context stays stable enough for plugin consumption
+  - [x] Plugin can fetch compact prompt-ready context
+  - [x] Response includes selectors and resolved guidance
+  - [x] Context stays stable enough for plugin consumption
+- **Notes**:
+  - 2026-03-08: Started SRV-040 by implementing a plugin-facing context v2 endpoint with selector-aware guidance and compact interaction decision context.
+  - 2026-03-08: Completed SRV-040 by adding `POST /api/v1/plugin/context` in `src/routes/plugin.ts`, wiring route registration in `src/server.ts`, and returning contract-versioned prompt context with sender/recipient relationship details, selector-aware policy guidance (`default_decision`, `reason_code`, `winning_policy_id`), relevant decisions, compact recent interactions, and suggested selectors.
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-context.test.ts`, `bun test tests/integration/policy-context.test.ts`, and `bun run build`.
 
 ### 4.2 Draft Resolution / Preflight Endpoint
 - **ID**: `SRV-041`

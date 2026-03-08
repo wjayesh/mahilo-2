@@ -12,6 +12,7 @@ import { groupRoutes } from "./routes/groups";
 import { messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
 import { policyRoutes } from "./routes/policies";
+import { pluginRoutes } from "./routes/plugin";
 import { preferencesRoutes } from "./routes/preferences";
 import { contactRoutes } from "./routes/contacts";
 import { adminRoutes } from "./routes/admin";
@@ -67,6 +68,7 @@ export function createApp() {
   api.route("/groups", groupRoutes);
   api.route("/messages", messageRoutes);
   api.route("/notifications", notificationRoutes);
+  api.route("/plugin", pluginRoutes);
   api.route("/policies", policyRoutes);
   api.route("/preferences", preferencesRoutes);
   api.route("/roles", rolesRoutes);
