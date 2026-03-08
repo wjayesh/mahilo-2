@@ -21,7 +21,7 @@ describe("openclaw.plugin.json", () => {
     expect(manifest.entry).toBe("./dist/index.js");
   });
 
-  it("loads config schema with required fields", async () => {
+  it("loads config schema with clear plugin-local boundaries", async () => {
     const manifest = (await Bun.file(manifestPath).json()) as unknown;
 
     expect(isRecord(manifest)).toBe(true);
@@ -37,6 +37,9 @@ describe("openclaw.plugin.json", () => {
     }
 
     expect(configSchema.type).toBe("object");
+    expect(configSchema.additionalProperties).toBe(false);
+    expect(configSchema.description).toContain("Plugin-local runtime configuration only");
+    expect(configSchema.description).toContain("source of truth");
 
     const required = configSchema.required;
     expect(Array.isArray(required)).toBe(true);
@@ -45,8 +48,7 @@ describe("openclaw.plugin.json", () => {
       return;
     }
 
-    expect(required).toContain("baseUrl");
-    expect(required).toContain("apiKey");
+    expect(required).toEqual(["baseUrl", "apiKey"]);
 
     const properties = configSchema.properties;
     expect(isRecord(properties)).toBe(true);
@@ -55,17 +57,32 @@ describe("openclaw.plugin.json", () => {
       return;
     }
 
+    expect(Object.keys(properties).sort()).toEqual([
+      "apiKey",
+      "baseUrl",
+      "cacheTtlSeconds",
+      "callbackPath",
+      "callbackUrl",
+      "reviewMode"
+    ]);
+
     const baseUrl = properties.baseUrl;
     const apiKey = properties.apiKey;
+    const callbackPath = properties.callbackPath;
 
     expect(isRecord(baseUrl)).toBe(true);
     expect(isRecord(apiKey)).toBe(true);
+    expect(isRecord(callbackPath)).toBe(true);
 
-    if (!isRecord(baseUrl) || !isRecord(apiKey)) {
+    if (!isRecord(baseUrl) || !isRecord(apiKey) || !isRecord(callbackPath)) {
       return;
     }
 
     expect(baseUrl.type).toBe("string");
     expect(apiKey.type).toBe("string");
+    expect(apiKey.format).toBe("password");
+    expect(apiKey.writeOnly).toBe(true);
+    expect(apiKey["x-sensitive"]).toBe(true);
+    expect(callbackPath.pattern).toBe("^\\/.*");
   });
 });

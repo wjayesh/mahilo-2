@@ -313,7 +313,7 @@ It is:
 
 ### 2.3 Manifest / Config Schema Cleanup
 - **ID**: `PLG2-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-020
 - **Description**:
@@ -326,9 +326,14 @@ It is:
     - local cache / UX knobs
     - optional review behavior
 - **Acceptance Criteria**:
-  - [ ] Config schema is clear and minimal
-  - [ ] Server-truth vs plugin-local config boundary is explicit
-  - [ ] Sensitive fields are marked clearly
+  - [x] Config schema is clear and minimal
+  - [x] Server-truth vs plugin-local config boundary is explicit
+  - [x] Sensitive fields are marked clearly
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-022 by auditing `openclaw.plugin.json` and runtime config parsing for stale or server-owned keys.
+  - 2026-03-08: Modernized manifest schema with explicit plugin-local boundary text, added callback path/url override support, and marked `apiKey` as sensitive (`format: password`, `writeOnly`, `x-sensitive`).
+  - 2026-03-08: Tightened runtime config parsing to reject unsupported/server-owned keys and removed legacy user-config overrides for `contractVersion`, `pluginVersion`, and `callbackSecret`.
+  - 2026-03-08: Added/updated config and manifest tests and validated with `bun run test` (83 passing), `bun run validate:manifest` (2 passing), and `bun run build`.
 
 ---
 

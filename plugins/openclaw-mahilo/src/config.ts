@@ -8,7 +8,7 @@ export interface MahiloPluginConfig {
   apiKey: string;
   baseUrl: string;
   cacheTtlSeconds: number;
-  callbackSecret?: string;
+  callbackPath?: string;
   callbackUrl?: string;
   contractVersion: string;
   pluginVersion: string;
@@ -23,6 +23,19 @@ const DEFAULT_CACHE_TTL_SECONDS = 60;
 const DEFAULT_PLUGIN_VERSION = "0.0.0";
 const DEFAULT_REVIEW_MODE: ReviewMode = "ask";
 const REVIEW_MODES = new Set<ReviewMode>(["auto", "ask", "manual"]);
+const ALLOWED_PLUGIN_CONFIG_KEYS = new Set<string>([
+  "apiKey",
+  "baseUrl",
+  "cacheTtlSeconds",
+  "callbackPath",
+  "callbackUrl",
+  "reviewMode"
+]);
+const LEGACY_SERVER_OWNED_KEYS = new Set<string>([
+  "callbackSecret",
+  "contractVersion",
+  "pluginVersion"
+]);
 
 export class MahiloConfigError extends Error {
   constructor(message: string) {
@@ -33,26 +46,27 @@ export class MahiloConfigError extends Error {
 
 export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfigOptions = {}): MahiloPluginConfig {
   const config = readObject(rawConfig);
+  assertSupportedConfigKeys(config);
   const defaults = options.defaults ?? {};
 
   const baseUrl = normalizeBaseUrl(readRequiredString(config, "baseUrl"));
   const apiKey = readRequiredString(config, "apiKey");
+  const callbackPath = readOptionalCallbackPath(config.callbackPath);
   const callbackUrl = readOptionalUrl(config.callbackUrl, "callbackUrl");
-  const callbackSecret = readOptionalString(config.callbackSecret);
 
   const cacheTtlSeconds = parseCacheTtlSeconds(
     config.cacheTtlSeconds,
     defaults.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS
   );
   const reviewMode = parseReviewMode(config.reviewMode, defaults.reviewMode ?? DEFAULT_REVIEW_MODE);
-  const contractVersion = readOptionalString(config.contractVersion) ?? defaults.contractVersion ?? MAHILO_CONTRACT_VERSION;
-  const pluginVersion = readOptionalString(config.pluginVersion) ?? defaults.pluginVersion ?? DEFAULT_PLUGIN_VERSION;
+  const contractVersion = defaults.contractVersion ?? MAHILO_CONTRACT_VERSION;
+  const pluginVersion = defaults.pluginVersion ?? DEFAULT_PLUGIN_VERSION;
 
   return {
     apiKey,
     baseUrl,
     cacheTtlSeconds,
-    callbackSecret,
+    callbackPath,
     callbackUrl,
     contractVersion,
     pluginVersion,
@@ -76,9 +90,29 @@ export function createMahiloClientFromConfig(config: MahiloPluginConfig): Mahilo
 export function redactSensitiveConfig(config: MahiloPluginConfig): Record<string, unknown> {
   return {
     ...config,
-    apiKey: maskSecret(config.apiKey),
-    callbackSecret: config.callbackSecret ? maskSecret(config.callbackSecret) : undefined
+    apiKey: maskSecret(config.apiKey)
   };
+}
+
+function assertSupportedConfigKeys(config: Record<string, unknown>): void {
+  const unsupportedKeys = Object.keys(config)
+    .filter((key) => !ALLOWED_PLUGIN_CONFIG_KEYS.has(key))
+    .sort();
+
+  if (unsupportedKeys.length === 0) {
+    return;
+  }
+
+  const legacyKeys = unsupportedKeys.filter((key) => LEGACY_SERVER_OWNED_KEYS.has(key));
+  const baseMessage = `unsupported plugin config key(s): ${unsupportedKeys.join(", ")}`;
+
+  if (legacyKeys.length > 0) {
+    throw new MahiloConfigError(
+      `${baseMessage}. Server-owned/deprecated keys are not allowed in plugin config: ${legacyKeys.join(", ")}`
+    );
+  }
+
+  throw new MahiloConfigError(baseMessage);
 }
 
 function readObject(value: unknown): Record<string, unknown> {
@@ -105,6 +139,23 @@ function readOptionalString(value: unknown): string | undefined {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function readOptionalCallbackPath(value: unknown): string | undefined {
+  const callbackPath = readOptionalString(value);
+  if (!callbackPath) {
+    return undefined;
+  }
+
+  if (!callbackPath.startsWith("/")) {
+    throw new MahiloConfigError("callbackPath must start with '/'");
+  }
+
+  if (/\s/.test(callbackPath)) {
+    throw new MahiloConfigError("callbackPath must not contain whitespace");
+  }
+
+  return callbackPath;
 }
 
 function parseCacheTtlSeconds(value: unknown, fallback: number): number {
