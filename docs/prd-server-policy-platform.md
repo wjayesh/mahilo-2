@@ -543,14 +543,40 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 7.3 Migration Notes
 - **ID**: `SRV-072`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-012
 - **Description**:
   - Document old → new policy model migration.
 - **Acceptance Criteria**:
-  - [ ] Migration path is explicit
-  - [ ] Breaking changes are called out clearly
+  - [x] Migration path is explicit
+  - [x] Breaking changes are called out clearly
+- **Migration Path (old → canonical)**:
+  1. Apply schema migrations first (`bun run db:migrate`), including `0007_breezy_hammer` (policy canonical columns) and `0008_heavy_storm` (message selector/outcome metadata).
+  2. Keep legacy rows readable during rollout: `dbPolicyToCanonical` normalizes old rows and backfills canonical defaults (`direction=outbound`, `resource=message.general`, `action=share`, `effect=deny`, `source=legacy_migrated`).
+  3. Shift writes to canonical format: policy create/update now persists `schema_version: canonical_policy_v1` payloads via `canonicalToStorage`, while still backfilling legacy storage columns for transition safety.
+  4. Migrate clients to canonical fields on policy APIs: `direction`, `resource`, `action`, `effect`, `evaluator`, lifecycle (`effective_from`, `expires_at`, `max_uses`, `remaining_uses`), and provenance (`source`, `derived_from_message_id`, `learning_provenance`).
+  5. Complete client payload migration for selector-aware flows by sending canonical selector objects (`declared_selectors` or route-specific selector payloads) instead of relying on legacy top-level selector fields.
+  6. Remove compatibility aliases only after all callers are updated and compatibility tests are no longer needed.
+- **Legacy → Canonical Mapping**:
+
+  | Legacy model/input | Canonical model/input | Notes |
+  |---|---|---|
+  | `policy_type` | `evaluator` | `policy_type` is a temporary write alias; when both are supplied they must match. |
+  | Mixed implicit rule intent (`resource_rule`, `resource_block`) | Explicit `effect` (`allow`/`ask`/`deny`) | Effect is now first-class and always resolved deterministically. |
+  | Flat/overlapping type matching (`applicable_types`) | Selector tuple (`direction`, `resource`, `action`) | Selectors are now normalized and validated. |
+  | No lifecycle controls | `effective_from`, `expires_at`, `max_uses`, `remaining_uses` | Enables temporary and one-time policies. |
+  | No explicit provenance | `source`, `derived_from_message_id`, `learning_provenance` | Supports audit lineage and learning history. |
+  | Legacy `policy_content` blobs | `policy_content` wrapped in `canonical_policy_v1` storage payload | Read-path compatibility preserves legacy content semantics. |
+- **Breaking Changes (explicit)**:
+  - Policy resolution semantics changed from additive fail-fast behavior to deterministic canonical resolution (`user > role > global`, same-scope tie break `deny > ask > allow`, with platform guardrails evaluated first).
+  - Policy API consumers must handle canonical response fields; relying only on legacy fields is no longer sufficient.
+  - Policy validation is stricter: `global` scope cannot set `target_id`, while `user`/`role`/`group` scopes require `target_id`.
+  - Supplying both `evaluator` and `policy_type` with different values now returns validation errors.
+  - Compatibility aliases remain temporary (`policy_type` aliasing and legacy top-level selector inputs); removing them will be a deliberate future breaking change after caller cutover.
+- **Notes**:
+  - 2026-03-08: Started SRV-072 by auditing SRV-001/SRV-010/SRV-012 implementation details (`policySchema`, policy routes, compatibility tests) and drafting explicit old→canonical migration guidance + breaking change callouts.
+  - 2026-03-08: Completed SRV-072 by documenting the explicit migration sequence, legacy→canonical mapping table, and concrete breaking-change list in this PRD section; validation run: `bun run build`.
 
 ---
 
