@@ -541,15 +541,36 @@ export function getHeadCommit(repoPath: string): string | null {
 }
 
 export function listUniqueCommits(repoPath: string, baseRef: string): string[] {
-  const result = runGit(["rev-list", "--reverse", `${baseRef}..HEAD`], repoPath);
-  if (result.status !== 0) {
-    throw new Error(`Failed to inspect task branch commits: ${gitError(result, "git rev-list failed")}`);
+  const cherryResult = runGit(["cherry", baseRef, "HEAD"], repoPath);
+  if (cherryResult.status !== 0) {
+    throw new Error(
+      `Failed to inspect task branch commit equivalence: ${gitError(cherryResult, "git cherry failed")}`,
+    );
   }
 
-  return result.stdout
+  const unapplied = new Set(
+    cherryResult.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("+ "))
+      .map((line) => line.slice(2).trim()),
+  );
+
+  if (unapplied.size === 0) {
+    return [];
+  }
+
+  const revListResult = runGit(["rev-list", "--reverse", `${baseRef}..HEAD`], repoPath);
+  if (revListResult.status !== 0) {
+    throw new Error(
+      `Failed to list task branch commits: ${gitError(revListResult, "git rev-list failed")}`,
+    );
+  }
+
+  return revListResult.stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((commit) => unapplied.has(commit));
 }
 
 export function commitPendingChanges(repoPath: string, message: string): RepoCommitResult {

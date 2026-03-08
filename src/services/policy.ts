@@ -1,4 +1,4 @@
-import { eq, and, or, desc, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql, isNull, lte, gt } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { getRolesForFriend } from "./roles";
 import { evaluateLLMPolicy, isLLMEnabled } from "./llm";
@@ -315,6 +315,7 @@ async function loadApplicablePolicies(
   groupId?: string
 ): Promise<CanonicalPolicy[]> {
   const db = getDb();
+  const now = new Date();
   const policyConditions = [eq(schema.policies.scope, "global")];
 
   if (recipientUserId) {
@@ -342,6 +343,9 @@ async function loadApplicablePolicies(
       and(
         eq(schema.policies.userId, senderUserId),
         eq(schema.policies.enabled, true),
+        or(isNull(schema.policies.effectiveFrom), lte(schema.policies.effectiveFrom, now)),
+        or(isNull(schema.policies.expiresAt), gt(schema.policies.expiresAt, now)),
+        or(isNull(schema.policies.remainingUses), gt(schema.policies.remainingUses, 0)),
         or(...policyConditions)
       )
     )

@@ -198,7 +198,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 2.1 Active Policy Filtering
 - **ID**: `SRV-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-010
 - **Description**:
@@ -207,9 +207,12 @@ These are strong starting points, but they need canonical policy semantics and s
     - effective time window
     - remaining uses > 0
 - **Acceptance Criteria**:
-  - [ ] Expired policies never participate
-  - [ ] Spent one-time overrides never participate
-  - [ ] Tests cover lifecycle boundaries
+  - [x] Expired policies never participate
+  - [x] Spent one-time overrides never participate
+  - [x] Tests cover lifecycle boundaries
+- **Notes**:
+  - 2026-03-08: Started SRV-020 implementation by wiring active-policy lifecycle filtering (`enabled`, effective window, remaining uses) into resolver lookups and adding lifecycle boundary coverage in policy tests.
+  - 2026-03-08: Completed active lifecycle filtering in `src/services/policy.ts` using DB-level constraints for `effective_from`, `expires_at`, and `remaining_uses`; added boundary tests in `tests/unit/policy.test.ts`; validated with `bun test tests/unit/policy.test.ts` and `bun test tests/integration/message-policies.test.ts`.
 
 ### 2.2 Deterministic Resolver
 - **ID**: `SRV-021`

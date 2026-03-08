@@ -1,24 +1,26 @@
 #!/usr/bin/env bun
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
   appendProgress,
   areAllTasksComplete,
   buildTaskPrompt,
+  cherryPickCommits,
   commitPendingChanges,
   ensureWorkspace,
   formatHistoryNote,
   getCurrentBranch,
+  listUniqueCommits,
   loadState,
   loadTasks,
   loadWorkflow,
   mergeTaskUniverses,
   previewWorkspacePath,
   pushBranch,
-  reconcileWorkspace,
   runAgentForTask,
   saveState,
   selectNextTask,
+  type Task,
 } from "../src/orchestrator";
 
 type CliOptions = {
@@ -106,13 +108,15 @@ function tryRemoveStaleLock(lockPath: string): boolean {
     return false;
   }
 
+  let staleByAge = false;
   try {
-    const ageMs = Date.now() - statSync(lockPath).mtimeMs;
-    if (!owner || ageMs >= STALE_LOCK_MS || (owner.pid !== null && !isProcessAlive(owner.pid))) {
-      rmSync(lockPath, { recursive: true, force: true });
-      return true;
-    }
+    const stats = statSync(lockPath);
+    staleByAge = Date.now() - stats.mtimeMs > STALE_LOCK_MS;
   } catch {
+    staleByAge = true;
+  }
+
+  if (!owner || staleByAge) {
     rmSync(lockPath, { recursive: true, force: true });
     return true;
   }
@@ -120,41 +124,29 @@ function tryRemoveStaleLock(lockPath: string): boolean {
   return false;
 }
 
-function acquireRepoLock(repoRoot: string, workflowName: string, taskId: string): string {
+function acquireRepoLock(repoRoot: string, workflow: string, taskId: string): string {
   const lockPath = getRepoLockPath(repoRoot);
-  const ownerPath = join(lockPath, "owner.json");
-  let lastReportedOwner = "";
+  mkdirSync(resolve(repoRoot, ".mahilo-orchestrator"), { recursive: true });
 
   while (true) {
     try {
-      mkdirSync(lockPath, { recursive: false });
+      mkdirSync(lockPath);
       const owner: RepoLockOwner = {
         pid: process.pid,
-        workflow: workflowName,
+        workflow,
         taskId,
         acquiredAt: new Date().toISOString(),
       };
-      writeFileSync(ownerPath, JSON.stringify(owner, null, 2) + "\n");
+      writeFileSync(join(lockPath, "owner.json"), JSON.stringify(owner, null, 2));
       return lockPath;
     } catch (error) {
-      const nodeError = error as NodeJS.ErrnoException;
-      if (nodeError.code !== "EEXIST") {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== "EEXIST") {
         throw error;
       }
-
-      if (tryRemoveStaleLock(lockPath)) {
-        continue;
+      if (!tryRemoveStaleLock(lockPath)) {
+        Bun.sleepSync(LOCK_POLL_MS);
       }
-
-      const owner = readLockOwner(lockPath);
-      const ownerSummary = owner
-        ? `${owner.workflow}:${owner.taskId}:${owner.pid ?? "unknown"}`
-        : "unknown-owner";
-      if (ownerSummary !== lastReportedOwner) {
-        console.log(`Waiting for repo lock held by ${ownerSummary}`);
-        lastReportedOwner = ownerSummary;
-      }
-      Bun.sleepSync(LOCK_POLL_MS);
     }
   }
 }
@@ -163,89 +155,196 @@ function releaseRepoLock(lockPath: string) {
   rmSync(lockPath, { recursive: true, force: true });
 }
 
-function main() {
-  const repoRoot = process.cwd();
+function loadActionableTasks(repoRoot: string, workflowPath: string) {
+  const workflow = loadWorkflow(repoRoot, workflowPath);
+  const actionable = loadTasks(repoRoot, workflow.taskSources);
+  const dependencies = loadTasks(repoRoot, workflow.dependencySources);
+  const taskUniverse = mergeTaskUniverses(actionable, dependencies);
+  return { workflow, actionable, taskUniverse };
+}
+
+function findTaskById(tasks: Task[], taskId: string): Task | null {
+  return tasks.find((task) => task.id === taskId) ?? null;
+}
+
+function didTaskComplete(task: Task, lastMessage: string): boolean {
+  return task.status === "done" || lastMessage.includes(`TASK_DONE ${task.id}`);
+}
+
+function didTaskBlock(task: Task, lastMessage: string): boolean {
+  return task.status === "blocked" || lastMessage.includes(`TASK_BLOCKED ${task.id}`);
+}
+
+function extractBlockedReason(taskId: string, lastMessage: string): string {
+  return (
+    lastMessage
+      .split("\n")
+      .find((line) => line.includes(`TASK_BLOCKED ${taskId}`)) ?? `${taskId} blocked.`
+  );
+}
+
+function maybePushBranch(repoRoot: string, branch: string, commitsSincePush: number, force = false) {
+  if (!force && commitsSincePush <= 0) {
+    return { pushed: false, error: null };
+  }
+  return pushBranch(repoRoot, branch);
+}
+
+function integrateTerminalTask(params: {
+  repoRoot: string;
+  workflow: ReturnType<typeof loadWorkflow>;
+  task: Task;
+  terminalStatus: "completed" | "blocked";
+  rootActionableTasks: Task[];
+  state: ReturnType<typeof loadState>;
+}): {
+  historyNote: string;
+  refreshedActionableTasks: Task[];
+} {
+  const { repoRoot, workflow, task, terminalStatus, rootActionableTasks, state } = params;
+  const integrationBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
+  if (!integrationBranch) {
+    throw new Error("Could not determine the integration branch for task integration.");
+  }
+
+  const workspace = ensureWorkspace(repoRoot, workflow, task);
+  const commitVerb = terminalStatus === "completed" ? "complete" : "block";
+  const commitMessage = `orchestrator: ${commitVerb} ${task.id} ${task.title}`;
+  const commitResult = commitPendingChanges(workspace.path, commitMessage);
+  if (commitResult.error) {
+    throw new Error(`${task.id} ${commitVerb} auto-commit failed in task branch: ${commitResult.error}`);
+  }
+
+  const lockPath = acquireRepoLock(repoRoot, workflow.name, task.id);
+  try {
+    const uniqueCommits = listUniqueCommits(workspace.path, integrationBranch);
+    if (uniqueCommits.length === 0) {
+      const rootTask = findTaskById(rootActionableTasks, task.id);
+      const rootAlreadyMatches =
+        (terminalStatus === "completed" && rootTask?.status === "done") ||
+        (terminalStatus === "blocked" && rootTask?.status === "blocked");
+      if (!rootAlreadyMatches) {
+        throw new Error(
+          `${task.id} reached ${terminalStatus} but produced no new task-branch commits to integrate.`,
+        );
+      }
+      return {
+        historyNote: `${task.id} already reflected on ${integrationBranch}; no new commits to integrate.`,
+        refreshedActionableTasks: rootActionableTasks,
+      };
+    }
+
+    const cherryPickResult = cherryPickCommits(repoRoot, uniqueCommits);
+    if (cherryPickResult.error) {
+      throw new Error(`${task.id} integration failed: ${cherryPickResult.error}`);
+    }
+
+    state.commitsSincePush += cherryPickResult.commitCount;
+    state.lastCommittedTaskId = task.id;
+    state.lastCommitSha = cherryPickResult.lastCommitSha;
+
+    const refreshedActionableTasks = loadTasks(repoRoot, workflow.taskSources);
+    const refreshedTask = findTaskById(refreshedActionableTasks, task.id);
+    const terminalLabel = terminalStatus === "completed" ? "completed" : "blocked";
+    let historyNote = `${task.id} ${terminalLabel} and integrated ${cherryPickResult.commitCount} commit${
+      cherryPickResult.commitCount === 1 ? "" : "s"
+    }${cherryPickResult.lastCommitSha ? ` as ${cherryPickResult.lastCommitSha}` : ""}.`;
+
+    const shouldPush =
+      workflow.autoPushEveryCommits > 0 &&
+      (state.commitsSincePush >= workflow.autoPushEveryCommits ||
+        areAllTasksComplete(refreshedActionableTasks));
+
+    if (shouldPush) {
+      const pushResult = maybePushBranch(repoRoot, integrationBranch, state.commitsSincePush, true);
+      if (pushResult.error) {
+        throw new Error(`${historyNote} Auto-push failed: ${pushResult.error}`);
+      }
+      state.commitsSincePush = 0;
+      historyNote = `${historyNote} Pushed ${integrationBranch}.`;
+    }
+
+    if (terminalStatus === "completed" && refreshedTask?.status !== "done") {
+      throw new Error(`${task.id} integrated successfully but root task status is not done.`);
+    }
+    if (terminalStatus === "blocked" && refreshedTask?.status !== "blocked") {
+      throw new Error(`${task.id} integrated successfully but root task status is not blocked.`);
+    }
+
+    return { historyNote, refreshedActionableTasks };
+  } finally {
+    releaseRepoLock(lockPath);
+  }
+}
+
+async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const repoRoot = process.cwd();
   const workflow = loadWorkflow(repoRoot, options.workflowFile);
-  const maxIterations = options.maxIterations ?? workflow.maxIterations;
+  const requiredBranch = workflow.requiredBranch;
+  const currentBranch = getCurrentBranch(repoRoot);
+
+  if (requiredBranch && currentBranch !== requiredBranch) {
+    console.error(
+      `Workflow ${workflow.name} requires branch ${requiredBranch}, but current branch is ${currentBranch ?? "(detached)"}.`,
+    );
+    process.exit(1);
+  }
+
   const state = loadState(repoRoot, workflow);
+  const maxIterations = options.maxIterations ?? workflow.maxIterations;
 
-  console.log(`Workflow: ${workflow.name}`);
-  console.log(`Workflow file: ${workflow.workflowPath}`);
-  console.log(`Task sources: ${workflow.taskSources.join(", ")}`);
-  if (workflow.dependencySources.length > 0) {
-    console.log(`Dependency sources: ${workflow.dependencySources.join(", ")}`);
-  }
-  console.log(`Workspace mode: ${workflow.workspaceMode}`);
-  if (workflow.requiredBranch) {
-    const currentBranch = getCurrentBranch(repoRoot);
-    if (currentBranch !== workflow.requiredBranch) {
-      console.error(
-        `Refusing to run workflow on branch ${currentBranch ?? "(detached HEAD)"}. Expected ${workflow.requiredBranch}.`,
-      );
-      process.exit(1);
-    }
-    console.log(`Required branch: ${workflow.requiredBranch}`);
-  }
-
-  for (let attempt = 0; attempt < maxIterations; attempt += 1) {
-    const actionableTasks = loadTasks(repoRoot, workflow.taskSources);
-    const dependencyTasks = loadTasks(repoRoot, workflow.dependencySources);
-    const taskUniverse = mergeTaskUniverses(actionableTasks, dependencyTasks);
-
-    if (areAllTasksComplete(actionableTasks)) {
-      appendProgress(repoRoot, workflow, [
-        formatHistoryNote(null, "completed", "All tracked tasks are complete."),
-      ]);
-      console.log(workflow.completionPhrase);
-      state.activeTaskId = null;
-      saveState(repoRoot, workflow, state);
-      return;
-    }
-
-    const task = selectNextTask(actionableTasks, state.activeTaskId, taskUniverse);
-    state.iteration += 1;
+  for (let loop = 0; loop < maxIterations; loop += 1) {
+    const { actionable, taskUniverse } = loadActionableTasks(repoRoot, options.workflowFile);
+    const task = selectNextTask(actionable, state.activeTaskId, taskUniverse);
 
     if (!task) {
-      const blockedOrWaiting = actionableTasks
-        .filter((candidate) => candidate.status !== "done")
-        .map((candidate) => `${candidate.id}:${candidate.status}`)
-        .join(", ");
-      appendProgress(repoRoot, workflow, [
-        `## Iteration ${state.iteration}`,
-        formatHistoryNote(
-          null,
-          "idle",
-          `No ready tasks found. Remaining tasks: ${blockedOrWaiting || "none"}`,
-        ),
-      ]);
+      state.activeTaskId = null;
+      appendProgress(repoRoot, workflow, [formatHistoryNote(null, "idle", "No ready tasks.")]);
       saveState(repoRoot, workflow, state);
-      console.log("No ready tasks found. Waiting for dependencies or review states to clear.");
-      return;
+
+      if (areAllTasksComplete(actionable)) {
+        const integrationBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
+        if (integrationBranch && workflow.autoCommitOnDone && state.commitsSincePush > 0) {
+          const pushResult = maybePushBranch(repoRoot, integrationBranch, state.commitsSincePush, true);
+          if (pushResult.error) {
+            console.error(`Final auto-push failed: ${pushResult.error}`);
+            process.exit(1);
+          }
+          state.commitsSincePush = 0;
+          saveState(repoRoot, workflow, state);
+        }
+        console.log(workflow.completionPhrase);
+        return;
+      }
+
+      if (options.once) {
+        return;
+      }
+
+      const waitMs = workflow.pollIntervalSeconds * 1000;
+      if (waitMs > 0) {
+        Bun.sleepSync(waitMs);
+      }
+      continue;
     }
 
-    const workspace = options.dryRun
-      ? {
-          path: previewWorkspacePath(repoRoot, workflow, task),
-          kind: workflow.workspaceMode === "shared" ? ("shared" as const) : ("git_worktree" as const),
-        }
-      : ensureWorkspace(repoRoot, workflow, task);
-    const prompt = buildTaskPrompt(workflow, task, workspace.path);
-    const taskWasActive = state.activeTaskId === task.id;
+    const workspacePreview = previewWorkspacePath(repoRoot, workflow, task);
+    const prompt = buildTaskPrompt(workflow, task, workspacePreview);
+
+    state.iteration += 1;
     state.activeTaskId = task.id;
     appendProgress(repoRoot, workflow, [
-      `## Iteration ${state.iteration}`,
       formatHistoryNote(
         task.id,
-        taskWasActive ? "continued" : "started",
-        `Dispatching ${task.id} from ${task.filePath} in ${relative(repoRoot, resolve(workspace.path)) || "."} (${workspace.kind}).`,
+        task.id === state.lastCommittedTaskId ? "continued" : "started",
+        `Selected ${task.id} in ${workspacePreview === repoRoot ? "." : workspacePreview}.`,
       ),
     ]);
     saveState(repoRoot, workflow, state);
 
     console.log(`\n=== Iteration ${state.iteration}: ${task.id} ${task.title} ===`);
-    console.log(`Workspace: ${workspace.path}`);
-    console.log(`Workspace kind: ${workspace.kind}`);
+    console.log(`Workspace: ${workspacePreview}`);
 
     if (options.dryRun) {
       console.log("Dry run selected task summary:");
@@ -257,77 +356,56 @@ function main() {
       return;
     }
 
-    const runResult = runAgentForTask(repoRoot, workflow, task, workspace.path, prompt);
+    const workspace = ensureWorkspace(repoRoot, workflow, task);
+    const runResult = runAgentForTask(repoRoot, workflow, task, workspace.path, buildTaskPrompt(workflow, task, workspace.path));
 
-    let refreshedActionableTasks = actionableTasks;
-    let refreshedTask = task;
+    let refreshedActionableTasks = actionable;
     let historyStatus: "completed" | "blocked" | "agent_error" | "continued" = "continued";
     let historyNote = `Agent exited with code ${runResult.exitCode}.`;
     let stopAfterIteration = false;
 
-    const lockPath = acquireRepoLock(repoRoot, workflow.name, task.id);
     try {
-      reconcileWorkspace(repoRoot, workspace);
-      refreshedActionableTasks = loadTasks(repoRoot, workflow.taskSources);
-      refreshedTask = refreshedActionableTasks.find((candidate) => candidate.id === task.id) ?? task;
+      const workspaceActionableTasks = loadTasks(workspace.path, workflow.taskSources);
+      const workspaceTask = findTaskById(workspaceActionableTasks, task.id) ?? task;
 
       if (runResult.exitCode !== 0) {
         historyStatus = "agent_error";
         historyNote = `Agent command failed: ${runResult.commandLine}`;
-      } else if (
-        refreshedTask.status === "done" ||
-        runResult.lastMessage.includes(`TASK_DONE ${task.id}`)
-      ) {
+        state.activeTaskId = null;
+        stopAfterIteration = true;
+      } else if (didTaskComplete(workspaceTask, runResult.lastMessage)) {
         historyStatus = "completed";
-        historyNote = `${task.id} completed.`;
         state.activeTaskId = null;
-
-        if (workflow.autoCommitOnDone) {
-          const commitMessage = `orchestrator: complete ${task.id} ${task.title}`;
-          const commitResult = commitPendingChanges(repoRoot, commitMessage);
-
-          if (commitResult.error) {
-            historyStatus = "agent_error";
-            historyNote = `${task.id} completed but auto-commit failed: ${commitResult.error}`;
-            stopAfterIteration = true;
-          } else if (commitResult.committed) {
-            state.commitsSincePush += 1;
-            state.lastCommittedTaskId = task.id;
-            state.lastCommitSha = commitResult.commitSha;
-            historyNote = `${task.id} completed and committed${commitResult.commitSha ? ` as ${commitResult.commitSha}` : ""}.`;
-
-            const currentBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
-            const shouldPush =
-              workflow.autoPushEveryCommits > 0 &&
-              (state.commitsSincePush >= workflow.autoPushEveryCommits ||
-                runResult.lastMessage.includes(workflow.completionPhrase) ||
-                areAllTasksComplete(refreshedActionableTasks));
-
-            if (shouldPush && currentBranch) {
-              const pushResult = pushBranch(repoRoot, currentBranch);
-              if (pushResult.error) {
-                historyStatus = "agent_error";
-                historyNote = `${historyNote} Auto-push failed: ${pushResult.error}`;
-                stopAfterIteration = true;
-              } else {
-                state.commitsSincePush = 0;
-                historyNote = `${historyNote} Pushed ${currentBranch}.`;
-              }
-            }
-          } else {
-            historyNote = `${task.id} completed with no repository changes to commit.`;
-          }
-        }
-      } else if (
-        refreshedTask.status === "blocked" ||
-        runResult.lastMessage.includes(`TASK_BLOCKED ${task.id}`)
-      ) {
+        const integrationResult = integrateTerminalTask({
+          repoRoot,
+          workflow,
+          task: workspaceTask,
+          terminalStatus: "completed",
+          rootActionableTasks: actionable,
+          state,
+        });
+        refreshedActionableTasks = integrationResult.refreshedActionableTasks;
+        historyNote = integrationResult.historyNote;
+      } else if (didTaskBlock(workspaceTask, runResult.lastMessage)) {
         historyStatus = "blocked";
-        historyNote =
-          runResult.lastMessage
-            .split("\n")
-            .find((line) => line.includes(`TASK_BLOCKED ${task.id}`)) ?? `${task.id} blocked.`;
         state.activeTaskId = null;
+        const integrationResult = integrateTerminalTask({
+          repoRoot,
+          workflow,
+          task: workspaceTask,
+          terminalStatus: "blocked",
+          rootActionableTasks: actionable,
+          state,
+        });
+        refreshedActionableTasks = integrationResult.refreshedActionableTasks;
+        historyNote = extractBlockedReason(task.id, runResult.lastMessage);
+        if (integrationResult.historyNote) {
+          historyNote = `${historyNote} ${integrationResult.historyNote}`;
+        }
+      } else {
+        historyStatus = "continued";
+        historyNote = `${task.id} remains ${workspaceTask.status}.`;
+        state.activeTaskId = task.id;
       }
 
       appendProgress(repoRoot, workflow, [formatHistoryNote(task.id, historyStatus, historyNote)]);
@@ -353,8 +431,6 @@ function main() {
       });
       saveState(repoRoot, workflow, state);
       stopAfterIteration = true;
-    } finally {
-      releaseRepoLock(lockPath);
     }
 
     if (stopAfterIteration) {
@@ -366,17 +442,15 @@ function main() {
       runResult.lastMessage.includes(workflow.completionPhrase) ||
       areAllTasksComplete(refreshedActionableTasks)
     ) {
-      if (workflow.autoCommitOnDone && state.commitsSincePush > 0) {
-        const currentBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
-        if (currentBranch) {
-          const pushResult = pushBranch(repoRoot, currentBranch);
-          if (pushResult.error) {
-            console.error(`Final auto-push failed: ${pushResult.error}`);
-            process.exit(1);
-          }
-          state.commitsSincePush = 0;
-          saveState(repoRoot, workflow, state);
+      const integrationBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
+      if (integrationBranch && workflow.autoCommitOnDone && state.commitsSincePush > 0) {
+        const pushResult = maybePushBranch(repoRoot, integrationBranch, state.commitsSincePush, true);
+        if (pushResult.error) {
+          console.error(`Final auto-push failed: ${pushResult.error}`);
+          process.exit(1);
         }
+        state.commitsSincePush = 0;
+        saveState(repoRoot, workflow, state);
       }
       console.log(workflow.completionPhrase);
       return;

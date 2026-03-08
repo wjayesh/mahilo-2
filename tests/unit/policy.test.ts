@@ -216,6 +216,331 @@ describe("Policy Service", () => {
       expect(result.resolver_layer).toBe("platform_guardrails");
       expect(result.reason).toContain("platform guardrail");
     });
+
+    it("should never evaluate expired policies", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("expired_sender");
+      const { user: recipient } = await createTestUser("expired_recipient");
+
+      const expiredDeny = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: new Date(Date.now() - 3_600_000).toISOString(),
+        expires_at: new Date(Date.now() - 60_000).toISOString(),
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 100,
+        enabled: true,
+      });
+      const activeAllow = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 1,
+        enabled: true,
+      });
+
+      const expiredPolicyId = nanoid();
+      const activePolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: expiredPolicyId,
+          userId: sender.id,
+          scope: "global",
+          policyType: expiredDeny.policyType,
+          policyContent: expiredDeny.policyContent,
+          direction: expiredDeny.direction,
+          resource: expiredDeny.resource,
+          action: expiredDeny.action,
+          effect: expiredDeny.effect,
+          evaluator: expiredDeny.evaluator,
+          effectiveFrom: expiredDeny.effectiveFrom,
+          expiresAt: expiredDeny.expiresAt,
+          maxUses: expiredDeny.maxUses,
+          remainingUses: expiredDeny.remainingUses,
+          source: expiredDeny.source,
+          derivedFromMessageId: expiredDeny.derivedFromMessageId,
+          priority: 100,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: activePolicyId,
+          userId: sender.id,
+          scope: "global",
+          policyType: activeAllow.policyType,
+          policyContent: activeAllow.policyContent,
+          direction: activeAllow.direction,
+          resource: activeAllow.resource,
+          action: activeAllow.action,
+          effect: activeAllow.effect,
+          evaluator: activeAllow.evaluator,
+          effectiveFrom: activeAllow.effectiveFrom,
+          expiresAt: activeAllow.expiresAt,
+          maxUses: activeAllow.maxUses,
+          remainingUses: activeAllow.remainingUses,
+          source: activeAllow.source,
+          derivedFromMessageId: activeAllow.derivedFromMessageId,
+          priority: 1,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+      expect(result.allowed).toBe(true);
+      expect(result.effect).toBe("allow");
+      expect(result.winning_policy_id).toBe(activePolicyId);
+      expect(result.matched_policy_ids).not.toContain(expiredPolicyId);
+    });
+
+    it("should never evaluate spent one-time overrides", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("spent_sender");
+      const { user: recipient } = await createTestUser("spent_recipient");
+
+      const spentDeny = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: 1,
+        remaining_uses: 0,
+        source: "override",
+        derived_from_message_id: null,
+        priority: 100,
+        enabled: true,
+      });
+      const activeAllow = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 1,
+        enabled: true,
+      });
+
+      const spentPolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: spentPolicyId,
+          userId: sender.id,
+          scope: "global",
+          policyType: spentDeny.policyType,
+          policyContent: spentDeny.policyContent,
+          direction: spentDeny.direction,
+          resource: spentDeny.resource,
+          action: spentDeny.action,
+          effect: spentDeny.effect,
+          evaluator: spentDeny.evaluator,
+          effectiveFrom: spentDeny.effectiveFrom,
+          expiresAt: spentDeny.expiresAt,
+          maxUses: spentDeny.maxUses,
+          remainingUses: spentDeny.remainingUses,
+          source: spentDeny.source,
+          derivedFromMessageId: spentDeny.derivedFromMessageId,
+          priority: 100,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: nanoid(),
+          userId: sender.id,
+          scope: "global",
+          policyType: activeAllow.policyType,
+          policyContent: activeAllow.policyContent,
+          direction: activeAllow.direction,
+          resource: activeAllow.resource,
+          action: activeAllow.action,
+          effect: activeAllow.effect,
+          evaluator: activeAllow.evaluator,
+          effectiveFrom: activeAllow.effectiveFrom,
+          expiresAt: activeAllow.expiresAt,
+          maxUses: activeAllow.maxUses,
+          remainingUses: activeAllow.remainingUses,
+          source: activeAllow.source,
+          derivedFromMessageId: activeAllow.derivedFromMessageId,
+          priority: 1,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+      expect(result.allowed).toBe(true);
+      expect(result.effect).toBe("allow");
+      expect(result.matched_policy_ids).not.toContain(spentPolicyId);
+    });
+
+    it("should enforce lifecycle boundaries around effective windows", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("lifecycle_sender");
+      const { user: recipient } = await createTestUser("lifecycle_recipient");
+
+      const now = Date.now();
+      const notYetEffectiveDeny = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: new Date(now + 60_000).toISOString(),
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 100,
+        enabled: true,
+      });
+      const activeAsk = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "ask",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: new Date(now - 60_000).toISOString(),
+        expires_at: new Date(now + 60_000).toISOString(),
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 50,
+        enabled: true,
+      });
+      const justExpiredDeny = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: new Date(now - 120_000).toISOString(),
+        expires_at: new Date(now - 60_000).toISOString(),
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 100,
+        enabled: true,
+      });
+
+      const activePolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: nanoid(),
+          userId: sender.id,
+          scope: "global",
+          policyType: notYetEffectiveDeny.policyType,
+          policyContent: notYetEffectiveDeny.policyContent,
+          direction: notYetEffectiveDeny.direction,
+          resource: notYetEffectiveDeny.resource,
+          action: notYetEffectiveDeny.action,
+          effect: notYetEffectiveDeny.effect,
+          evaluator: notYetEffectiveDeny.evaluator,
+          effectiveFrom: notYetEffectiveDeny.effectiveFrom,
+          expiresAt: notYetEffectiveDeny.expiresAt,
+          maxUses: notYetEffectiveDeny.maxUses,
+          remainingUses: notYetEffectiveDeny.remainingUses,
+          source: notYetEffectiveDeny.source,
+          derivedFromMessageId: notYetEffectiveDeny.derivedFromMessageId,
+          priority: 100,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: activePolicyId,
+          userId: sender.id,
+          scope: "global",
+          policyType: activeAsk.policyType,
+          policyContent: activeAsk.policyContent,
+          direction: activeAsk.direction,
+          resource: activeAsk.resource,
+          action: activeAsk.action,
+          effect: activeAsk.effect,
+          evaluator: activeAsk.evaluator,
+          effectiveFrom: activeAsk.effectiveFrom,
+          expiresAt: activeAsk.expiresAt,
+          maxUses: activeAsk.maxUses,
+          remainingUses: activeAsk.remainingUses,
+          source: activeAsk.source,
+          derivedFromMessageId: activeAsk.derivedFromMessageId,
+          priority: 50,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: nanoid(),
+          userId: sender.id,
+          scope: "global",
+          policyType: justExpiredDeny.policyType,
+          policyContent: justExpiredDeny.policyContent,
+          direction: justExpiredDeny.direction,
+          resource: justExpiredDeny.resource,
+          action: justExpiredDeny.action,
+          effect: justExpiredDeny.effect,
+          evaluator: justExpiredDeny.evaluator,
+          effectiveFrom: justExpiredDeny.effectiveFrom,
+          expiresAt: justExpiredDeny.expiresAt,
+          maxUses: justExpiredDeny.maxUses,
+          remainingUses: justExpiredDeny.remainingUses,
+          source: justExpiredDeny.source,
+          derivedFromMessageId: justExpiredDeny.derivedFromMessageId,
+          priority: 100,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+      expect(result.allowed).toBe(false);
+      expect(result.effect).toBe("ask");
+      expect(result.winning_policy_id).toBe(activePolicyId);
+      expect(result.matched_policy_ids).toEqual([activePolicyId]);
+    });
   });
 
   describe("evaluatePolicies with role-scoped policies", () => {
