@@ -163,15 +163,20 @@ It is:
 
 ### 0.2 Keep Package Extractable
 - **ID**: `PLG2-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001
 - **Description**:
   - Structure the plugin as an isolated package so it can later be published or extracted.
 - **Acceptance Criteria**:
-  - [ ] No hard dependency on repo-internal server source imports
-  - [ ] Plugin talks to Mahilo over HTTP / documented contracts only
-  - [ ] Build/test scripts are plugin-local
+  - [x] No hard dependency on repo-internal server source imports
+  - [x] Plugin talks to Mahilo over HTTP / documented contracts only
+  - [x] Build/test scripts are plugin-local
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-002 and audited plugin directory state against extractable package requirements.
+  - 2026-03-08: Added standalone package scaffold (`package.json`, `tsconfig.json`, `src/`, `tests/`) under `plugins/openclaw-mahilo/`.
+  - 2026-03-08: Implemented HTTP-only contract client targeting documented `/api/v1` Mahilo plugin endpoints with required auth/client headers.
+  - 2026-03-08: Validated plugin-local commands: `bun run build` and `bun run test` (4 passing tests) from `plugins/openclaw-mahilo/`.
 
 ### 0.3 Migration Strategy Decision
 - **ID**: `PLG2-003`
