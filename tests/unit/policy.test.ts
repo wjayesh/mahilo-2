@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { evaluatePolicies, validatePolicyContent } from "../../src/services/policy";
+import {
+  evaluatePolicies,
+  validatePolicyContent,
+  POLICY_RESOLVER_ORDER,
+} from "../../src/services/policy";
+import { canonicalToStorage } from "../../src/services/policySchema";
 import {
   cleanupTestDatabase,
   createTestUser,
@@ -126,6 +131,84 @@ describe("Policy Service", () => {
 
       const result = await evaluatePolicies(sender.id, recipient.id, "hello");
       expect(result.allowed).toBe(true);
+    });
+
+    it("should expose resolver order with platform guardrails first", () => {
+      expect(POLICY_RESOLVER_ORDER).toEqual(["platform_guardrails", "user_policies"]);
+    });
+
+    it("should apply platform guardrails before user policies", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("guardrail_sender_order");
+      const { user: recipient } = await createTestUser("guardrail_recipient_order");
+
+      await db.insert(schema.policies).values({
+        id: nanoid(),
+        userId: sender.id,
+        scope: "global",
+        policyType: "heuristic",
+        policyContent: JSON.stringify({ requireContext: true }),
+        priority: 100,
+        enabled: true,
+        createdAt: new Date(),
+      });
+
+      const result = await evaluatePolicies(
+        sender.id,
+        recipient.id,
+        "Bearer verySecretToken123456789"
+      );
+
+      expect(result.allowed).toBe(false);
+      expect(result.resolver_layer).toBe("platform_guardrails");
+      expect(result.reason).toContain("platform guardrail");
+      expect(result.reason).not.toContain("Context is required");
+    });
+
+    it("should not allow user allow policy to override a platform deny", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("guardrail_sender_allow");
+      const { user: recipient } = await createTestUser("guardrail_recipient_allow");
+
+      const allowStorage = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 1,
+        enabled: true,
+      });
+
+      await db.insert(schema.policies).values({
+        id: nanoid(),
+        userId: sender.id,
+        scope: "global",
+        policyType: allowStorage.policyType,
+        policyContent: allowStorage.policyContent,
+        priority: 1,
+        enabled: true,
+        createdAt: new Date(),
+      });
+
+      const result = await evaluatePolicies(
+        sender.id,
+        recipient.id,
+        "password: hunter2"
+      );
+
+      expect(result.allowed).toBe(false);
+      expect(result.resolver_layer).toBe("platform_guardrails");
+      expect(result.reason).toContain("platform guardrail");
     });
   });
 

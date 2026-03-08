@@ -4,6 +4,7 @@ import { getRolesForFriend } from "./roles";
 import { evaluateLLMPolicy, isLLMEnabled } from "./llm";
 import { config } from "../config";
 import { dbPolicyToCanonical } from "./policySchema";
+import { evaluatePlatformGuardrails } from "./policyGuardrails";
 
 interface HeuristicRules {
   maxLength?: number;
@@ -15,10 +16,24 @@ interface HeuristicRules {
   blockedRecipients?: string[];
 }
 
-interface PolicyResult {
+export type PolicyResolverLayer = "platform_guardrails" | "user_policies";
+
+export interface PolicyResult {
   allowed: boolean;
   reason?: string;
+  resolver_layer?: PolicyResolverLayer;
+  guardrail_id?: string;
 }
+
+/**
+ * SRV-002 resolver order:
+ * 1. `platform_guardrails` (non-overridable)
+ * 2. `user_policies`
+ */
+export const POLICY_RESOLVER_ORDER: PolicyResolverLayer[] = [
+  "platform_guardrails",
+  "user_policies",
+];
 
 function parseRules(content: unknown): { valid: boolean; rules?: HeuristicRules; error?: string } {
   if (typeof content === "string") {
@@ -150,6 +165,16 @@ export async function evaluatePolicies(
   message: string,
   context?: string
 ): Promise<PolicyResult> {
+  const guardrailResult = evaluatePlatformGuardrails(message);
+  if (guardrailResult.blocked) {
+    return {
+      allowed: false,
+      reason: guardrailResult.reason,
+      resolver_layer: "platform_guardrails",
+      guardrail_id: guardrailResult.guardrail_id,
+    };
+  }
+
   const db = getDb();
 
   // Get roles the sender has assigned to the recipient
@@ -216,12 +241,16 @@ export async function evaluatePolicies(
 
         // Check context requirement
         if (rules.requireContext && !context) {
-          return { allowed: false, reason: "Context is required for this message" };
+          return {
+            allowed: false,
+            reason: "Context is required for this message",
+            resolver_layer: "user_policies",
+          };
         }
 
         const result = evaluateHeuristicPolicy(rules, message, recipientUsername);
         if (!result.allowed) {
-          return result;
+          return { ...result, resolver_layer: "user_policies" };
         }
       } catch (e) {
         console.error(`Error evaluating policy ${policy.id}:`, e);
@@ -245,6 +274,7 @@ export async function evaluatePolicies(
             return {
               allowed: false,
               reason: llmResult.reasoning || "Message blocked by LLM policy",
+              resolver_layer: "user_policies",
             };
           }
         } catch (e) {
@@ -270,6 +300,16 @@ export async function evaluateGroupPolicies(
   message: string,
   context?: string
 ): Promise<PolicyResult> {
+  const guardrailResult = evaluatePlatformGuardrails(message);
+  if (guardrailResult.blocked) {
+    return {
+      allowed: false,
+      reason: guardrailResult.reason,
+      resolver_layer: "platform_guardrails",
+      guardrail_id: guardrailResult.guardrail_id,
+    };
+  }
+
   const db = getDb();
 
   // Evaluation order:
@@ -333,6 +373,7 @@ export async function evaluateGroupPolicies(
           return {
             allowed: false,
             reason: `Context is required for messages to group '${group?.name || groupId}'`,
+            resolver_layer: "user_policies",
           };
         }
 
@@ -342,6 +383,7 @@ export async function evaluateGroupPolicies(
           return {
             allowed: false,
             reason: `${result.reason} (group policy)`,
+            resolver_layer: "user_policies",
           };
         }
       } catch (e) {
@@ -365,6 +407,7 @@ export async function evaluateGroupPolicies(
             return {
               allowed: false,
               reason: `${llmResult.reasoning || "Message blocked by LLM policy"} (group policy)`,
+              resolver_layer: "user_policies",
             };
           }
         } catch (e) {

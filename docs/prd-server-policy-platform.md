@@ -108,7 +108,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 0.2 Separate Guardrails from User Policies
 - **ID**: `SRV-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001
 - **Description**:
@@ -116,9 +116,12 @@ These are strong starting points, but they need canonical policy semantics and s
   - Guardrails are non-overridable by user policy.
   - User policies resolve after guardrails.
 - **Acceptance Criteria**:
-  - [ ] Guardrails are represented separately from user policies
-  - [ ] Resolver order is documented and tested
-  - [ ] A user allow cannot override a platform deny
+  - [x] Guardrails are represented separately from user policies
+  - [x] Resolver order is documented and tested
+  - [x] A user allow cannot override a platform deny
+- **Notes**:
+  - 2026-03-08: Started implementation by splitting resolver responsibilities into a dedicated platform guardrail layer and user-policy layer in the policy service.
+  - 2026-03-08: Added `src/services/policyGuardrails.ts`, wired resolver order (`platform_guardrails` then `user_policies`) in `src/services/policy.ts`, and added unit coverage proving a canonical user `allow` policy cannot override a platform guardrail deny.
 
 ### 0.3 Resolution Semantics
 - **ID**: `SRV-003`
