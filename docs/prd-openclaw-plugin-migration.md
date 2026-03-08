@@ -526,14 +526,18 @@ It is:
 
 ### 6.2 Local Development Story
 - **ID**: `PLG2-061`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001, PLG2-020
 - **Description**:
   - Document how to use the plugin from this repo during development.
 - **Acceptance Criteria**:
-  - [ ] Devs know how to point OpenClaw at the local plugin package
-  - [ ] No one needs the old `myclawd` copy for active development
+  - [x] Devs know how to point OpenClaw at the local plugin package
+  - [x] No one needs the old `myclawd` copy for active development
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-061 by auditing current plugin docs and task contract requirements for local OpenClaw package development from this repo.
+  - 2026-03-08: Added repo-first local development instructions in `plugins/openclaw-mahilo/README.md`, including `openclaw.extensions` local path wiring, required runtime config keys, and explicit legacy `myclawd/extensions/mahilo/` reference-only policy.
+  - 2026-03-08: Validated plugin manifest contract checks with `bun run validate:manifest` from `plugins/openclaw-mahilo/` (2 passing tests).
 
 ### 6.3 Old Plugin Deprecation Plan
 - **ID**: `PLG2-062`
