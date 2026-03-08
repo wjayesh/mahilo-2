@@ -420,6 +420,328 @@ describe("Policy lifecycle on send", () => {
     expect(secondEvaluation.matched_policy_ids).not.toContain(denyPolicyId);
   });
 
+  it("consumes one-time ask overrides and falls back after depletion", async () => {
+    const db = getTestDb();
+    const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_ask_once");
+    const { user: recipient } = await createTestUser("lifecycle_recipient_ask_once");
+
+    await db
+      .update(schema.users)
+      .set({ twitterVerified: true, verificationCode: null })
+      .where(eq(schema.users.id, sender.id));
+
+    await createFriendship(sender.id, recipient.id, "accepted");
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://sender-ask-once",
+    });
+    const recipientConnection = await createAgentConnection(recipient.id, {
+      callbackUrl: "polling://recipient-ask-once",
+    });
+
+    const oneTimeAsk = canonicalToStorage({
+      scope: "user",
+      target_id: recipient.id,
+      direction: "outbound",
+      resource: "message.general",
+      action: "share",
+      effect: "ask",
+      evaluator: "structured",
+      policy_content: {},
+      effective_from: null,
+      expires_at: null,
+      max_uses: 1,
+      remaining_uses: 1,
+      source: "override",
+      derived_from_message_id: null,
+      priority: 1,
+      enabled: true,
+    });
+    const fallbackAllow = canonicalToStorage({
+      scope: "global",
+      target_id: null,
+      direction: "outbound",
+      resource: "message.general",
+      action: "share",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: {},
+      effective_from: null,
+      expires_at: null,
+      max_uses: null,
+      remaining_uses: null,
+      source: "user_created",
+      derived_from_message_id: null,
+      priority: 50,
+      enabled: true,
+    });
+
+    const askPolicyId = nanoid();
+    const allowPolicyId = nanoid();
+    await db.insert(schema.policies).values([
+      {
+        id: askPolicyId,
+        userId: sender.id,
+        scope: "user",
+        targetId: recipient.id,
+        policyType: oneTimeAsk.policyType,
+        policyContent: oneTimeAsk.policyContent,
+        direction: oneTimeAsk.direction,
+        resource: oneTimeAsk.resource,
+        action: oneTimeAsk.action,
+        effect: oneTimeAsk.effect,
+        evaluator: oneTimeAsk.evaluator,
+        effectiveFrom: oneTimeAsk.effectiveFrom,
+        expiresAt: oneTimeAsk.expiresAt,
+        maxUses: oneTimeAsk.maxUses,
+        remainingUses: oneTimeAsk.remainingUses,
+        source: oneTimeAsk.source,
+        derivedFromMessageId: oneTimeAsk.derivedFromMessageId,
+        priority: oneTimeAsk.priority,
+        enabled: true,
+        createdAt: new Date(),
+      },
+      {
+        id: allowPolicyId,
+        userId: sender.id,
+        scope: "global",
+        policyType: fallbackAllow.policyType,
+        policyContent: fallbackAllow.policyContent,
+        direction: fallbackAllow.direction,
+        resource: fallbackAllow.resource,
+        action: fallbackAllow.action,
+        effect: fallbackAllow.effect,
+        evaluator: fallbackAllow.evaluator,
+        effectiveFrom: fallbackAllow.effectiveFrom,
+        expiresAt: fallbackAllow.expiresAt,
+        maxUses: fallbackAllow.maxUses,
+        remainingUses: fallbackAllow.remainingUses,
+        source: fallbackAllow.source,
+        derivedFromMessageId: fallbackAllow.derivedFromMessageId,
+        priority: fallbackAllow.priority,
+        enabled: true,
+        createdAt: new Date(),
+      },
+    ]);
+
+    const firstSendRes = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${senderKey}`,
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        recipient_connection_id: recipientConnection.id,
+        sender_connection_id: senderConnection.id,
+        message: "ask once before sending",
+      }),
+    });
+
+    expect(firstSendRes.status).toBe(200);
+    const firstSendData = await firstSendRes.json();
+    expect(firstSendData.status).toBe("review_required");
+
+    const [askAfterFirstSend] = await db
+      .select({ remainingUses: schema.policies.remainingUses })
+      .from(schema.policies)
+      .where(eq(schema.policies.id, askPolicyId))
+      .limit(1);
+    expect(askAfterFirstSend?.remainingUses).toBe(0);
+
+    const [firstMessage] = await db
+      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, firstSendData.message_id))
+      .limit(1);
+    const firstEvaluation = JSON.parse(firstMessage?.policiesEvaluated || "{}");
+    expect(firstEvaluation.winning_policy_id).toBe(askPolicyId);
+
+    const secondSendRes = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${senderKey}`,
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        recipient_connection_id: recipientConnection.id,
+        sender_connection_id: senderConnection.id,
+        message: "second attempt after ask depletion",
+      }),
+    });
+
+    expect(secondSendRes.status).toBe(200);
+    const secondSendData = await secondSendRes.json();
+
+    const [secondMessage] = await db
+      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, secondSendData.message_id))
+      .limit(1);
+    const secondEvaluation = JSON.parse(secondMessage?.policiesEvaluated || "{}");
+    expect(secondEvaluation.winning_policy_id).toBe(allowPolicyId);
+    expect(secondEvaluation.matched_policy_ids).not.toContain(askPolicyId);
+  });
+
+  it("applies expiring overrides before expiry and skips them after expiry", async () => {
+    const db = getTestDb();
+    const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_expiry_boundary");
+    const { user: recipient } = await createTestUser("lifecycle_recipient_expiry_boundary");
+
+    await db
+      .update(schema.users)
+      .set({ twitterVerified: true, verificationCode: null })
+      .where(eq(schema.users.id, sender.id));
+
+    await createFriendship(sender.id, recipient.id, "accepted");
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://sender-expiry-boundary",
+    });
+    const recipientConnection = await createAgentConnection(recipient.id, {
+      callbackUrl: "polling://recipient-expiry-boundary",
+    });
+
+    const expiresAt = new Date(Date.now() + 1_200).toISOString();
+    const expiringDeny = canonicalToStorage({
+      scope: "user",
+      target_id: recipient.id,
+      direction: "outbound",
+      resource: "message.general",
+      action: "share",
+      effect: "deny",
+      evaluator: "structured",
+      policy_content: {},
+      effective_from: new Date(Date.now() - 60_000).toISOString(),
+      expires_at: expiresAt,
+      max_uses: null,
+      remaining_uses: null,
+      source: "override",
+      derived_from_message_id: null,
+      priority: 100,
+      enabled: true,
+    });
+    const fallbackAllow = canonicalToStorage({
+      scope: "global",
+      target_id: null,
+      direction: "outbound",
+      resource: "message.general",
+      action: "share",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: {},
+      effective_from: null,
+      expires_at: null,
+      max_uses: null,
+      remaining_uses: null,
+      source: "user_created",
+      derived_from_message_id: null,
+      priority: 1,
+      enabled: true,
+    });
+
+    const expiringPolicyId = nanoid();
+    const allowPolicyId = nanoid();
+    await db.insert(schema.policies).values([
+      {
+        id: expiringPolicyId,
+        userId: sender.id,
+        scope: "user",
+        targetId: recipient.id,
+        policyType: expiringDeny.policyType,
+        policyContent: expiringDeny.policyContent,
+        direction: expiringDeny.direction,
+        resource: expiringDeny.resource,
+        action: expiringDeny.action,
+        effect: expiringDeny.effect,
+        evaluator: expiringDeny.evaluator,
+        effectiveFrom: expiringDeny.effectiveFrom,
+        expiresAt: expiringDeny.expiresAt,
+        maxUses: expiringDeny.maxUses,
+        remainingUses: expiringDeny.remainingUses,
+        source: expiringDeny.source,
+        derivedFromMessageId: expiringDeny.derivedFromMessageId,
+        priority: expiringDeny.priority,
+        enabled: true,
+        createdAt: new Date(),
+      },
+      {
+        id: allowPolicyId,
+        userId: sender.id,
+        scope: "global",
+        policyType: fallbackAllow.policyType,
+        policyContent: fallbackAllow.policyContent,
+        direction: fallbackAllow.direction,
+        resource: fallbackAllow.resource,
+        action: fallbackAllow.action,
+        effect: fallbackAllow.effect,
+        evaluator: fallbackAllow.evaluator,
+        effectiveFrom: fallbackAllow.effectiveFrom,
+        expiresAt: fallbackAllow.expiresAt,
+        maxUses: fallbackAllow.maxUses,
+        remainingUses: fallbackAllow.remainingUses,
+        source: fallbackAllow.source,
+        derivedFromMessageId: fallbackAllow.derivedFromMessageId,
+        priority: fallbackAllow.priority,
+        enabled: true,
+        createdAt: new Date(),
+      },
+    ]);
+
+    const beforeExpiryRes = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${senderKey}`,
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        recipient_connection_id: recipientConnection.id,
+        sender_connection_id: senderConnection.id,
+        message: "should be blocked before expiry",
+      }),
+    });
+
+    expect(beforeExpiryRes.status).toBe(200);
+    const beforeExpiryData = await beforeExpiryRes.json();
+    expect(beforeExpiryData.status).toBe("rejected");
+
+    const [beforeExpiryMessage] = await db
+      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, beforeExpiryData.message_id))
+      .limit(1);
+    const beforeExpiryEvaluation = JSON.parse(beforeExpiryMessage?.policiesEvaluated || "{}");
+    expect(beforeExpiryEvaluation.winning_policy_id).toBe(expiringPolicyId);
+
+    await new Promise((resolve) => setTimeout(resolve, 1_400));
+
+    const afterExpiryRes = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${senderKey}`,
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        recipient_connection_id: recipientConnection.id,
+        sender_connection_id: senderConnection.id,
+        message: "should pass after expiry",
+      }),
+    });
+
+    expect(afterExpiryRes.status).toBe(200);
+    const afterExpiryData = await afterExpiryRes.json();
+
+    const [afterExpiryMessage] = await db
+      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, afterExpiryData.message_id))
+      .limit(1);
+    const afterExpiryEvaluation = JSON.parse(afterExpiryMessage?.policiesEvaluated || "{}");
+    expect(afterExpiryEvaluation.winning_policy_id).toBe(allowPolicyId);
+    expect(afterExpiryEvaluation.matched_policy_ids).not.toContain(expiringPolicyId);
+  });
+
   it("stops applying expired rules automatically", async () => {
     const db = getTestDb();
     const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_expired");

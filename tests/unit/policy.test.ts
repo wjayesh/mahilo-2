@@ -1076,6 +1076,105 @@ describe("Policy Service", () => {
       expect(first.matched_policy_ids.length).toBe(3);
     });
 
+    it("should prefer deny over allow for same-scope user conflicts regardless of priority", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("scope_conflict_sender");
+      const { user: recipient } = await createTestUser("scope_conflict_recipient");
+      await createFriendship(sender.id, recipient.id, "accepted");
+
+      const userAllow = canonicalToStorage({
+        scope: "user",
+        target_id: recipient.id,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 500,
+        enabled: true,
+      });
+      const userDeny = canonicalToStorage({
+        scope: "user",
+        target_id: recipient.id,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 1,
+        enabled: true,
+      });
+
+      const allowPolicyId = nanoid();
+      const denyPolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: allowPolicyId,
+          userId: sender.id,
+          scope: "user",
+          targetId: recipient.id,
+          policyType: userAllow.policyType,
+          policyContent: userAllow.policyContent,
+          direction: userAllow.direction,
+          resource: userAllow.resource,
+          action: userAllow.action,
+          effect: userAllow.effect,
+          evaluator: userAllow.evaluator,
+          effectiveFrom: userAllow.effectiveFrom,
+          expiresAt: userAllow.expiresAt,
+          maxUses: userAllow.maxUses,
+          remainingUses: userAllow.remainingUses,
+          source: userAllow.source,
+          derivedFromMessageId: userAllow.derivedFromMessageId,
+          priority: userAllow.priority,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: denyPolicyId,
+          userId: sender.id,
+          scope: "user",
+          targetId: recipient.id,
+          policyType: userDeny.policyType,
+          policyContent: userDeny.policyContent,
+          direction: userDeny.direction,
+          resource: userDeny.resource,
+          action: userDeny.action,
+          effect: userDeny.effect,
+          evaluator: userDeny.evaluator,
+          effectiveFrom: userDeny.effectiveFrom,
+          expiresAt: userDeny.expiresAt,
+          maxUses: userDeny.maxUses,
+          remainingUses: userDeny.remainingUses,
+          source: userDeny.source,
+          derivedFromMessageId: userDeny.derivedFromMessageId,
+          priority: userDeny.priority,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "same-scope conflict");
+      expect(result.effect).toBe("deny");
+      expect(result.winning_policy_id).toBe(denyPolicyId);
+      expect(result.matched_policy_ids).toEqual(expect.arrayContaining([allowPolicyId, denyPolicyId]));
+      expect(result.resolution_explanation).toContain("deny > ask > allow");
+    });
+
     it("should apply group overlay constraints when group context is provided", async () => {
       const db = getTestDb();
       const { user: sender } = await createTestUser("group_overlay_sender");

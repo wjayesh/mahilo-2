@@ -269,6 +269,137 @@ describe("Review / ask semantics (SRV-023)", () => {
     );
   });
 
+  it("resolves inbound ask/deny specificity conflicts using user > global", async () => {
+    setInboundAskMode("review_required");
+    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
+      await setupParticipants("inbound_specificity");
+
+    const globalDeny = canonicalToStorage({
+      scope: "global",
+      target_id: null,
+      direction: "inbound",
+      resource: "message.general",
+      action: "request",
+      effect: "deny",
+      evaluator: "structured",
+      policy_content: {},
+      effective_from: null,
+      expires_at: null,
+      max_uses: null,
+      remaining_uses: null,
+      source: "user_created",
+      derived_from_message_id: null,
+      priority: 500,
+      enabled: true,
+    });
+    const userAsk = canonicalToStorage({
+      scope: "user",
+      target_id: sender.id,
+      direction: "inbound",
+      resource: "message.general",
+      action: "request",
+      effect: "ask",
+      evaluator: "structured",
+      policy_content: {},
+      effective_from: null,
+      expires_at: null,
+      max_uses: null,
+      remaining_uses: null,
+      source: "user_created",
+      derived_from_message_id: null,
+      priority: 1,
+      enabled: true,
+    });
+
+    const globalDenyId = nanoid();
+    const userAskId = nanoid();
+    await db.insert(schema.policies).values([
+      {
+        id: globalDenyId,
+        userId: recipient.id,
+        scope: "global",
+        policyType: globalDeny.policyType,
+        policyContent: globalDeny.policyContent,
+        direction: globalDeny.direction,
+        resource: globalDeny.resource,
+        action: globalDeny.action,
+        effect: globalDeny.effect,
+        evaluator: globalDeny.evaluator,
+        effectiveFrom: globalDeny.effectiveFrom,
+        expiresAt: globalDeny.expiresAt,
+        maxUses: globalDeny.maxUses,
+        remainingUses: globalDeny.remainingUses,
+        source: globalDeny.source,
+        derivedFromMessageId: globalDeny.derivedFromMessageId,
+        priority: globalDeny.priority,
+        enabled: true,
+        createdAt: new Date(),
+      },
+      {
+        id: userAskId,
+        userId: recipient.id,
+        scope: "user",
+        targetId: sender.id,
+        policyType: userAsk.policyType,
+        policyContent: userAsk.policyContent,
+        direction: userAsk.direction,
+        resource: userAsk.resource,
+        action: userAsk.action,
+        effect: userAsk.effect,
+        evaluator: userAsk.evaluator,
+        effectiveFrom: userAsk.effectiveFrom,
+        expiresAt: userAsk.expiresAt,
+        maxUses: userAsk.maxUses,
+        remainingUses: userAsk.remainingUses,
+        source: userAsk.source,
+        derivedFromMessageId: userAsk.derivedFromMessageId,
+        priority: userAsk.priority,
+        enabled: true,
+        createdAt: new Date(),
+      },
+    ]);
+
+    const sendRes = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${senderKey}`,
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        recipient_connection_id: recipientConnection.id,
+        sender_connection_id: senderConnection.id,
+        message: "inbound conflict resolution",
+        declared_selectors: {
+          direction: "inbound",
+          resource: "message.general",
+          action: "request",
+        },
+      }),
+    });
+
+    expect(sendRes.status).toBe(200);
+    const sendData = await sendRes.json();
+    expect(sendData.status).toBe("review_required");
+    expect(sendData.delivery_status).toBe("delivered");
+    expect(sendData.resolution.decision).toBe("ask");
+    expect(sendData.resolution.delivery_mode).toBe("review_required");
+    expect(sendData.resolution.winning_policy_id).toBe(userAskId);
+
+    const [storedMessage] = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, sendData.message_id))
+      .limit(1);
+    expect(storedMessage?.status).toBe("delivered");
+    expect(storedMessage?.outcome).toBe("ask");
+
+    const evaluation = JSON.parse(storedMessage?.policiesEvaluated || "{}");
+    expect(evaluation.effect).toBe("ask");
+    expect(evaluation.winning_policy_id).toBe(userAskId);
+    expect(evaluation.matched_policy_ids).toEqual(expect.arrayContaining([globalDenyId, userAskId]));
+  });
+
   it("records audit fields that distinguish ask from deny", async () => {
     const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
       await setupParticipants("ask_vs_deny");

@@ -278,4 +278,171 @@ describe("Group fan-out per-recipient resolution (SRV-050)", () => {
       })
     );
   });
+
+  it("marks mixed allow/ask/deny fan-out as partial delivery with deterministic aggregate metadata", async () => {
+    const db = getTestDb();
+    const { user: sender, apiKey: senderKey } = await createTestUser("fanout_sender_mixed");
+    const { user: deniedRecipient } = await createTestUser("fanout_denied_mixed");
+    const { user: askRecipient } = await createTestUser("fanout_ask_mixed");
+    const { user: allowedRecipient } = await createTestUser("fanout_allowed_mixed");
+
+    await db
+      .update(schema.users)
+      .set({ twitterVerified: true, verificationCode: null })
+      .where(eq(schema.users.id, sender.id));
+
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "https://callback.test/sender-mixed",
+      label: "sender-mixed",
+    });
+    const deniedConnection = await createAgentConnection(deniedRecipient.id, {
+      callbackUrl: "https://callback.test/denied-mixed",
+      label: "denied-mixed",
+    });
+    const askConnection = await createAgentConnection(askRecipient.id, {
+      callbackUrl: "https://callback.test/ask-mixed",
+      label: "ask-mixed",
+    });
+    const allowedConnection = await createAgentConnection(allowedRecipient.id, {
+      callbackUrl: "https://callback.test/allowed-mixed",
+      label: "allowed-mixed",
+    });
+
+    const groupId = `grp_${nanoid(10)}`;
+    await db.insert(schema.groups).values({
+      id: groupId,
+      name: `fanout-group-mixed-${nanoid(6)}`,
+      ownerUserId: sender.id,
+      inviteOnly: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(schema.groupMemberships).values([
+      {
+        id: nanoid(),
+        groupId,
+        userId: sender.id,
+        role: "owner",
+        status: "active",
+        invitedByUserId: sender.id,
+        createdAt: new Date(),
+      },
+      {
+        id: nanoid(),
+        groupId,
+        userId: deniedRecipient.id,
+        role: "member",
+        status: "active",
+        invitedByUserId: sender.id,
+        createdAt: new Date(),
+      },
+      {
+        id: nanoid(),
+        groupId,
+        userId: askRecipient.id,
+        role: "member",
+        status: "active",
+        invitedByUserId: sender.id,
+        createdAt: new Date(),
+      },
+      {
+        id: nanoid(),
+        groupId,
+        userId: allowedRecipient.id,
+        role: "member",
+        status: "active",
+        invitedByUserId: sender.id,
+        createdAt: new Date(),
+      },
+    ]);
+
+    await insertCanonicalPolicy({
+      user_id: sender.id,
+      scope: "group",
+      target_id: groupId,
+      effect: "allow",
+      priority: 10,
+    });
+    await insertCanonicalPolicy({
+      user_id: sender.id,
+      scope: "user",
+      target_id: deniedRecipient.id,
+      effect: "deny",
+      priority: 100,
+    });
+    await insertCanonicalPolicy({
+      user_id: sender.id,
+      scope: "user",
+      target_id: askRecipient.id,
+      effect: "ask",
+      priority: 100,
+    });
+
+    const response = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        recipient: groupId,
+        recipient_type: "group",
+        sender_connection_id: senderConnection.id,
+        message: "Mixed team update",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(body.status).toBe("delivered");
+    expect(body.delivery_status).toBe("delivered");
+    expect(body.recipients).toBe(3);
+    expect(body.delivered).toBe(1);
+    expect(body.denied).toBe(1);
+    expect(body.review_required).toBe(1);
+    expect(body.resolution.reason_code).toBe("policy.partial.group_fanout");
+    expect(body.resolution.winning_policy_id).toBeNull();
+    expect(body.recipient_results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recipient: deniedRecipient.username,
+          decision: "deny",
+          delivery_status: "rejected",
+        }),
+        expect.objectContaining({
+          recipient: askRecipient.username,
+          decision: "ask",
+          delivery_status: "review_required",
+        }),
+        expect.objectContaining({
+          recipient: allowedRecipient.username,
+          decision: "allow",
+          delivery_status: "delivered",
+        }),
+      ])
+    );
+
+    expect(callbacks).toHaveLength(1);
+    expect(callbacks[0]?.body?.recipient_connection_id).toBe(allowedConnection.id);
+    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(deniedConnection.id);
+    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(askConnection.id);
+
+    const [storedMessage] = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, body.message_id))
+      .limit(1);
+    expect(storedMessage?.outcome).toBe("partial_sent");
+
+    const fanoutAudit = JSON.parse(storedMessage!.policiesEvaluated!);
+    expect(fanoutAudit.partial_delivery).toBe(true);
+    expect(fanoutAudit.decision_counts).toEqual(
+      expect.objectContaining({
+        allow: 1,
+        ask: 1,
+        deny: 1,
+      })
+    );
+  });
 });

@@ -483,7 +483,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 7.1 Resolver Test Matrix
 - **ID**: `SRV-070`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-022, SRV-032, SRV-050
 - **Description**:
@@ -494,8 +494,11 @@ These are strong starting points, but they need canonical policy semantics and s
     - inbound ask/deny
     - group partial delivery
 - **Acceptance Criteria**:
-  - [ ] High-risk policy semantics are covered by tests
-  - [ ] Regressions are easy to catch
+  - [x] High-risk policy semantics are covered by tests
+  - [x] Regressions are easy to catch
+- **Notes**:
+  - 2026-03-08: Started SRV-070 by auditing existing policy/resolver coverage and preparing matrix expansions for specificity conflicts, lifecycle overrides, inbound ask/deny, and group partial fan-out behavior.
+  - 2026-03-08: Completed SRV-070 by adding resolver conflict matrix coverage (`tests/unit/policy.test.ts`), lifecycle override expiry + one-time ask depletion coverage (`tests/integration/policy-lifecycle-send.test.ts`), inbound ask/deny specificity coverage (`tests/integration/review-ask-semantics.test.ts`), and mixed allow/ask/deny group partial-delivery coverage (`tests/integration/group-fanout-resolution.test.ts`); validation: `bun test tests/unit/policy.test.ts tests/integration/policy-lifecycle-send.test.ts tests/integration/review-ask-semantics.test.ts tests/integration/group-fanout-resolution.test.ts`.
 
 ### 7.2 Contract Documentation
 - **ID**: `SRV-071`
