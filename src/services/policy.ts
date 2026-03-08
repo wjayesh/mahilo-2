@@ -7,6 +7,7 @@ import {
   dbPolicyToCanonical,
   type CanonicalPolicy,
   type PolicyEffect,
+  type PolicyEvaluator,
   type PolicyScope,
 } from "./policySchema";
 import { evaluatePlatformGuardrails } from "./policyGuardrails";
@@ -22,13 +23,39 @@ interface HeuristicRules {
 }
 
 export type PolicyResolverLayer = "platform_guardrails" | "user_policies";
+export type PolicyEvaluationPhase = "deterministic" | "contextual_llm";
+
+export interface EvaluatedPolicy {
+  policy_id: string;
+  scope: PolicyScope;
+  evaluator: PolicyEvaluator;
+  effect: PolicyEffect;
+  priority: number;
+  phase: PolicyEvaluationPhase;
+  matched: boolean;
+  reason?: string;
+  skipped?: boolean;
+  skip_reason?: string;
+}
 
 interface PolicyMatch {
   policy_id: string;
   scope: PolicyScope;
+  evaluator: PolicyEvaluator;
   effect: PolicyEffect;
   reason: string;
   priority: number;
+  phase: PolicyEvaluationPhase;
+}
+
+export interface WinningPolicy {
+  policy_id: string;
+  scope: PolicyScope;
+  evaluator: PolicyEvaluator;
+  effect: PolicyEffect;
+  priority: number;
+  phase: PolicyEvaluationPhase;
+  reason: string;
 }
 
 interface ScopeResolution {
@@ -40,6 +67,8 @@ type SpecificityScope = "user" | "role" | "global";
 
 interface PolicyResolutionContext {
   all_matches: PolicyMatch[];
+  deterministic_evaluated: EvaluatedPolicy[];
+  llm_evaluated: EvaluatedPolicy[];
   base_resolution: (ScopeResolution & { scope: SpecificityScope }) | null;
   group_resolution: ScopeResolution | null;
   final_effect: PolicyEffect;
@@ -49,11 +78,14 @@ export interface PolicyResult {
   allowed: boolean;
   effect: PolicyEffect;
   reason?: string;
+  reason_code: string;
   resolution_explanation: string;
   resolver_layer?: PolicyResolverLayer;
   guardrail_id?: string;
   winning_policy_id?: string;
+  winning_policy?: WinningPolicy;
   matched_policy_ids: string[];
+  evaluated_policies: EvaluatedPolicy[];
 }
 
 /**
@@ -70,6 +102,11 @@ const EFFECT_PRECEDENCE: Record<PolicyEffect, number> = {
   allow: 0,
   ask: 1,
   deny: 2,
+};
+
+const PHASE_PRECEDENCE: Record<PolicyEvaluationPhase, number> = {
+  deterministic: 1,
+  contextual_llm: 0,
 };
 
 const SPECIFICITY_ORDER: SpecificityScope[] = ["user", "role", "global"];
@@ -233,6 +270,11 @@ function comparePolicyMatches(a: PolicyMatch, b: PolicyMatch): number {
     return b.priority - a.priority;
   }
 
+  const phaseDelta = PHASE_PRECEDENCE[b.phase] - PHASE_PRECEDENCE[a.phase];
+  if (phaseDelta !== 0) {
+    return phaseDelta;
+  }
+
   return a.policy_id.localeCompare(b.policy_id);
 }
 
@@ -252,9 +294,51 @@ function stricterEffect(a: PolicyEffect, b: PolicyEffect): PolicyEffect {
   return EFFECT_PRECEDENCE[a] >= EFFECT_PRECEDENCE[b] ? a : b;
 }
 
+function formatPolicyIds(policies: EvaluatedPolicy[]): string {
+  if (policies.length === 0) {
+    return "none";
+  }
+  return policies.map((policy) => policy.policy_id).join(", ");
+}
+
+function reasonCodeToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function buildPolicyReasonCode(
+  effect: PolicyEffect,
+  winner?: PolicyMatch,
+  fallback?: "no_applicable" | "no_match"
+): string {
+  if (fallback) {
+    return `policy.${effect}.${fallback}`;
+  }
+  if (!winner) {
+    return `policy.${effect}.resolved`;
+  }
+  return `policy.${effect}.${winner.scope}.${winner.evaluator}`;
+}
+
 function buildResolutionExplanation(context: PolicyResolutionContext): string {
   const explanation: string[] = [];
-  const { base_resolution: base, group_resolution: group, final_effect: finalEffect } = context;
+  const {
+    base_resolution: base,
+    group_resolution: group,
+    final_effect: finalEffect,
+    deterministic_evaluated: deterministicEvaluated,
+    llm_evaluated: llmEvaluated,
+  } = context;
+
+  const deterministicMatched = deterministicEvaluated.filter((policy) => policy.matched);
+  explanation.push(
+    `Deterministic phase evaluated ${deterministicEvaluated.length} policy/policies (matched: ${formatPolicyIds(deterministicMatched)}).`
+  );
+
+  const llmMatched = llmEvaluated.filter((policy) => policy.matched);
+  const llmSkipped = llmEvaluated.filter((policy) => policy.skipped);
+  explanation.push(
+    `Contextual LLM phase evaluated ${llmEvaluated.length} policy/policies (matched: ${formatPolicyIds(llmMatched)}; skipped: ${formatPolicyIds(llmSkipped)}).`
+  );
 
   if (base) {
     explanation.push(
@@ -289,22 +373,28 @@ function toResult(
   effect: PolicyEffect,
   options: {
     reason?: string;
+    reason_code?: string;
     explanation: string;
     winning_policy_id?: string;
+    winning_policy?: WinningPolicy;
     resolver_layer: PolicyResolverLayer;
     guardrail_id?: string;
     matched_policy_ids?: string[];
+    evaluated_policies?: EvaluatedPolicy[];
   }
 ): PolicyResult {
   return {
     allowed: effect === "allow",
     effect,
     reason: options.reason,
+    reason_code: options.reason_code || `policy.${effect}.resolved`,
     resolution_explanation: options.explanation,
     resolver_layer: options.resolver_layer,
     guardrail_id: options.guardrail_id,
     winning_policy_id: options.winning_policy_id,
+    winning_policy: options.winning_policy,
     matched_policy_ids: options.matched_policy_ids ?? [],
+    evaluated_policies: options.evaluated_policies ?? [],
   };
 }
 
@@ -354,75 +444,165 @@ async function loadApplicablePolicies(
   return policies.map((policy) => dbPolicyToCanonical(policy));
 }
 
-async function evaluatePolicyMatch(
+interface PolicyEvaluationResult {
+  evaluated_policy: EvaluatedPolicy;
+  match: PolicyMatch | null;
+}
+
+function buildEvaluatedPolicy(
+  policy: CanonicalPolicy,
+  phase: PolicyEvaluationPhase,
+  options: {
+    matched: boolean;
+    reason?: string;
+    skipped?: boolean;
+    skip_reason?: string;
+  }
+): EvaluatedPolicy {
+  return {
+    policy_id: policy.id,
+    scope: policy.scope,
+    evaluator: policy.evaluator,
+    effect: policy.effect,
+    priority: policy.priority,
+    phase,
+    matched: options.matched,
+    reason: options.reason,
+    skipped: options.skipped || false,
+    skip_reason: options.skip_reason,
+  };
+}
+
+function toPolicyMatch(
+  policy: CanonicalPolicy,
+  reason: string,
+  phase: PolicyEvaluationPhase
+): PolicyMatch {
+  return {
+    policy_id: policy.id,
+    scope: policy.scope,
+    evaluator: policy.evaluator,
+    effect: policy.effect,
+    reason,
+    priority: policy.priority,
+    phase,
+  };
+}
+
+async function evaluateDeterministicPolicyMatch(
+  policy: CanonicalPolicy,
+  message: string,
+  context?: string,
+  recipientUsername?: string
+): Promise<PolicyEvaluationResult> {
+  try {
+    const parsed = parseRules(policy.policy_content);
+    if (!parsed.valid) {
+      return {
+        evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+          matched: false,
+          skipped: true,
+          skip_reason: parsed.error || "Invalid deterministic policy content",
+        }),
+        match: null,
+      };
+    }
+
+    const heuristicMatch = evaluateHeuristicPolicyMatch(
+      parsed.rules!,
+      message,
+      context,
+      recipientUsername
+    );
+    if (!heuristicMatch.matched) {
+      return {
+        evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+          matched: false,
+        }),
+        match: null,
+      };
+    }
+
+    const matchReason = heuristicMatch.reason || "Message matched policy conditions";
+    return {
+      evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+        matched: true,
+        reason: matchReason,
+      }),
+      match: toPolicyMatch(policy, matchReason, "deterministic"),
+    };
+  } catch (error) {
+    console.error(`Error evaluating deterministic policy ${policy.id}:`, error);
+    return {
+      evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+        matched: false,
+        skipped: true,
+        skip_reason: "Deterministic evaluator failed",
+      }),
+      match: null,
+    };
+  }
+}
+
+async function evaluateContextualPolicyMatch(
   policy: CanonicalPolicy,
   message: string,
   llmSubject: string,
-  context?: string,
-  recipientUsername?: string
-): Promise<PolicyMatch | null> {
-  if (policy.evaluator === "heuristic" || policy.evaluator === "structured") {
-    try {
-      const parsed = parseRules(policy.policy_content);
-      if (!parsed.valid) {
-        return null;
-      }
-
-      const match = evaluateHeuristicPolicyMatch(
-        parsed.rules!,
-        message,
-        context,
-        recipientUsername
-      );
-      if (!match.matched) {
-        return null;
-      }
-
-      return {
-        policy_id: policy.id,
-        scope: policy.scope,
-        effect: policy.effect,
-        reason: match.reason || "Message matched policy conditions",
-        priority: policy.priority,
-      };
-    } catch (e) {
-      console.error(`Error evaluating policy ${policy.id}:`, e);
-      return null;
-    }
+  context?: string
+): Promise<PolicyEvaluationResult> {
+  const llmEnabled = isLLMEnabled();
+  if (!(config.trustedMode && llmEnabled)) {
+    const skipReason = `Skipping LLM policy ${policy.id} (trustedMode=${config.trustedMode}, llmEnabled=${llmEnabled})`;
+    console.log(skipReason);
+    return {
+      evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+        matched: false,
+        skipped: true,
+        skip_reason: skipReason,
+      }),
+      match: null,
+    };
   }
 
-  if (config.trustedMode && isLLMEnabled()) {
-    try {
-      const llmResult = await evaluateLLMPolicy(
-        typeof policy.policy_content === "string"
-          ? policy.policy_content
-          : JSON.stringify(policy.policy_content),
-        message,
-        llmSubject,
-        context
-      );
+  try {
+    const llmResult = await evaluateLLMPolicy(
+      typeof policy.policy_content === "string"
+        ? policy.policy_content
+        : JSON.stringify(policy.policy_content),
+      message,
+      llmSubject,
+      context
+    );
 
-      if (llmResult.passed) {
-        return null;
-      }
-
+    if (llmResult.passed) {
       return {
-        policy_id: policy.id,
-        scope: policy.scope,
-        effect: policy.effect,
-        reason: llmResult.reasoning || "Message blocked by LLM policy",
-        priority: policy.priority,
+        evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+          matched: false,
+          reason: llmResult.reasoning || "LLM policy passed",
+        }),
+        match: null,
       };
-    } catch (e) {
-      console.error(`Error evaluating LLM policy ${policy.id}:`, e);
-      return null;
     }
-  }
 
-  console.log(
-    `Skipping LLM policy ${policy.id} (trustedMode=${config.trustedMode}, llmEnabled=${isLLMEnabled()})`
-  );
-  return null;
+    const matchReason = llmResult.reasoning || "Message blocked by LLM policy";
+    return {
+      evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+        matched: true,
+        reason: matchReason,
+      }),
+      match: toPolicyMatch(policy, matchReason, "contextual_llm"),
+    };
+  } catch (error) {
+    console.error(`Error evaluating LLM policy ${policy.id}:`, error);
+    return {
+      evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+        matched: false,
+        skipped: true,
+        skip_reason: "Contextual LLM evaluation failed",
+      }),
+      match: null,
+    };
+  }
 }
 
 async function resolveUserPolicyLayer(
@@ -447,21 +627,45 @@ async function resolveUserPolicyLayer(
   if (applicablePolicies.length === 0) {
     return toResult("allow", {
       explanation: "No applicable policies matched. Final effect: 'allow'.",
+      reason_code: buildPolicyReasonCode("allow", undefined, "no_applicable"),
       resolver_layer: "user_policies",
     });
   }
 
   const allMatches: PolicyMatch[] = [];
-  for (const policy of applicablePolicies) {
-    const match = await evaluatePolicyMatch(
+  const evaluatedPolicies: EvaluatedPolicy[] = [];
+  const deterministicEvaluated: EvaluatedPolicy[] = [];
+  const llmEvaluated: EvaluatedPolicy[] = [];
+
+  const deterministicPolicies = applicablePolicies.filter(
+    (policy) => policy.evaluator === "heuristic" || policy.evaluator === "structured"
+  );
+  for (const policy of deterministicPolicies) {
+    const result = await evaluateDeterministicPolicyMatch(
       policy,
       message,
-      options.llmSubject,
       options.context,
       options.recipientUsername
     );
-    if (match) {
-      allMatches.push(match);
+    deterministicEvaluated.push(result.evaluated_policy);
+    evaluatedPolicies.push(result.evaluated_policy);
+    if (result.match) {
+      allMatches.push(result.match);
+    }
+  }
+
+  const llmPolicies = applicablePolicies.filter((policy) => policy.evaluator === "llm");
+  for (const policy of llmPolicies) {
+    const result = await evaluateContextualPolicyMatch(
+      policy,
+      message,
+      options.llmSubject,
+      options.context
+    );
+    llmEvaluated.push(result.evaluated_policy);
+    evaluatedPolicies.push(result.evaluated_policy);
+    if (result.match) {
+      allMatches.push(result.match);
     }
   }
 
@@ -469,8 +673,10 @@ async function resolveUserPolicyLayer(
     return toResult("allow", {
       explanation:
         "Applicable policies were evaluated but none matched current message conditions. Final effect: 'allow'.",
+      reason_code: buildPolicyReasonCode("allow", undefined, "no_match"),
       resolver_layer: "user_policies",
       matched_policy_ids: [],
+      evaluated_policies: evaluatedPolicies,
     });
   }
 
@@ -505,6 +711,8 @@ async function resolveUserPolicyLayer(
 
   const explanation = buildResolutionExplanation({
     all_matches: allMatches,
+    deterministic_evaluated: deterministicEvaluated,
+    llm_evaluated: llmEvaluated,
     base_resolution: baseResolution,
     group_resolution: groupResolution,
     final_effect: finalEffect,
@@ -521,10 +729,23 @@ async function resolveUserPolicyLayer(
 
   return toResult(finalEffect, {
     reason,
+    reason_code: buildPolicyReasonCode(finalEffect, winner),
     explanation,
     resolver_layer: "user_policies",
     winning_policy_id: winner?.policy_id,
+    winning_policy: winner
+      ? {
+          policy_id: winner.policy_id,
+          scope: winner.scope,
+          evaluator: winner.evaluator,
+          effect: winner.effect,
+          priority: winner.priority,
+          phase: winner.phase,
+          reason: winner.reason,
+        }
+      : undefined,
     matched_policy_ids: allMatches.map((m) => m.policy_id),
+    evaluated_policies: evaluatedPolicies,
   });
 }
 
@@ -538,11 +759,13 @@ export async function evaluatePolicies(
   if (guardrailResult.blocked) {
     return toResult("deny", {
       reason: guardrailResult.reason,
+      reason_code: `guardrail.${reasonCodeToken(guardrailResult.guardrail_id || "blocked")}`,
       explanation:
         "Platform guardrail matched before user policy evaluation. Final effect: 'deny'.",
       resolver_layer: "platform_guardrails",
       guardrail_id: guardrailResult.guardrail_id,
       matched_policy_ids: [],
+      evaluated_policies: [],
     });
   }
 
@@ -574,11 +797,13 @@ export async function evaluateGroupPolicies(
   if (guardrailResult.blocked) {
     return toResult("deny", {
       reason: guardrailResult.reason,
+      reason_code: `guardrail.${reasonCodeToken(guardrailResult.guardrail_id || "blocked")}`,
       explanation:
         "Platform guardrail matched before user policy evaluation. Final effect: 'deny'.",
       resolver_layer: "platform_guardrails",
       guardrail_id: guardrailResult.guardrail_id,
       matched_policy_ids: [],
+      evaluated_policies: [],
     });
   }
 

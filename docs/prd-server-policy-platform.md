@@ -216,7 +216,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 2.2 Deterministic Resolver
 - **ID**: `SRV-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-003, SRV-020
 - **Description**:
@@ -224,9 +224,12 @@ These are strong starting points, but they need canonical policy semantics and s
   - Evaluate contextual LLM policies second.
   - Merge into a single final effect.
 - **Acceptance Criteria**:
-  - [ ] Returns `allow` / `ask` / `deny`
-  - [ ] Returns winning policy and evaluated policies
-  - [ ] Returns minimal reason code + full audit explanation
+  - [x] Returns `allow` / `ask` / `deny`
+  - [x] Returns winning policy and evaluated policies
+  - [x] Returns minimal reason code + full audit explanation
+- **Notes**:
+  - 2026-03-08: Started SRV-021 implementation to introduce two-phase resolver evaluation (`structured`/`heuristic` first, `llm` second) with deterministic merge metadata and reason-code output.
+  - 2026-03-08: Completed SRV-021 by adding explicit resolver phases in `src/services/policy.ts`, returning `reason_code` + `evaluated_policies` alongside winning policy metadata, serializing enriched policy evaluation payloads in `src/routes/messages.ts`, and validating with `bun test tests/unit/policy.test.ts`, `bun test tests/integration/message-policies.test.ts`, `bun test tests/e2e/message-exchange.test.ts`, and `bun run build`.
 
 ### 2.3 One-Time Overrides and Expiring Rules
 - **ID**: `SRV-022`

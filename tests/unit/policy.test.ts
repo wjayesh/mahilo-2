@@ -113,6 +113,12 @@ describe("Policy Service", () => {
       const result = await evaluatePolicies(sender.id, recipient.id, "this is a secret");
       expect(result.allowed).toBe(false);
       expect(result.effect).toBe("deny");
+      expect(result.reason_code).toBe("policy.deny.global.heuristic");
+      expect(result.evaluated_policies).toHaveLength(1);
+      expect(result.evaluated_policies[0]?.phase).toBe("deterministic");
+      expect(result.evaluated_policies[0]?.matched).toBe(true);
+      expect(result.winning_policy?.policy_id).toBe(result.winning_policy_id);
+      expect(result.winning_policy?.evaluator).toBe("heuristic");
       expect(result.resolution_explanation.length).toBeGreaterThan(0);
     });
 
@@ -135,6 +141,119 @@ describe("Policy Service", () => {
       const result = await evaluatePolicies(sender.id, recipient.id, "hello");
       expect(result.allowed).toBe(true);
       expect(result.effect).toBe("allow");
+      expect(result.reason_code).toBe("policy.allow.no_match");
+      expect(result.evaluated_policies).toHaveLength(1);
+      expect(result.evaluated_policies[0]?.matched).toBe(false);
+    });
+
+    it("should evaluate deterministic policies before contextual llm policies", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("phase_sender");
+      const { user: recipient } = await createTestUser("phase_recipient");
+
+      const deterministicPolicy = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 10,
+        enabled: true,
+      });
+      const llmPolicy = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "ask",
+        evaluator: "llm",
+        policy_content: "Ask before sharing any message",
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 100,
+        enabled: true,
+      });
+
+      const deterministicPolicyId = nanoid();
+      const llmPolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: deterministicPolicyId,
+          userId: sender.id,
+          scope: "global",
+          policyType: deterministicPolicy.policyType,
+          policyContent: deterministicPolicy.policyContent,
+          direction: deterministicPolicy.direction,
+          resource: deterministicPolicy.resource,
+          action: deterministicPolicy.action,
+          effect: deterministicPolicy.effect,
+          evaluator: deterministicPolicy.evaluator,
+          effectiveFrom: deterministicPolicy.effectiveFrom,
+          expiresAt: deterministicPolicy.expiresAt,
+          maxUses: deterministicPolicy.maxUses,
+          remainingUses: deterministicPolicy.remainingUses,
+          source: deterministicPolicy.source,
+          derivedFromMessageId: deterministicPolicy.derivedFromMessageId,
+          priority: 10,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: llmPolicyId,
+          userId: sender.id,
+          scope: "global",
+          policyType: llmPolicy.policyType,
+          policyContent: llmPolicy.policyContent,
+          direction: llmPolicy.direction,
+          resource: llmPolicy.resource,
+          action: llmPolicy.action,
+          effect: llmPolicy.effect,
+          evaluator: llmPolicy.evaluator,
+          effectiveFrom: llmPolicy.effectiveFrom,
+          expiresAt: llmPolicy.expiresAt,
+          maxUses: llmPolicy.maxUses,
+          remainingUses: llmPolicy.remainingUses,
+          source: llmPolicy.source,
+          derivedFromMessageId: llmPolicy.derivedFromMessageId,
+          priority: 100,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+      expect(result.effect).toBe("deny");
+      expect(result.reason_code).toBe("policy.deny.global.structured");
+      expect(result.winning_policy_id).toBe(deterministicPolicyId);
+      expect(result.winning_policy).toEqual({
+        policy_id: deterministicPolicyId,
+        scope: "global",
+        evaluator: "structured",
+        effect: "deny",
+        priority: 10,
+        phase: "deterministic",
+        reason: "Policy has no constraints and applies to all messages",
+      });
+      expect(result.evaluated_policies.map((policy) => policy.policy_id)).toEqual([
+        deterministicPolicyId,
+        llmPolicyId,
+      ]);
+      expect(result.evaluated_policies[0]?.phase).toBe("deterministic");
+      expect(result.evaluated_policies[1]?.phase).toBe("contextual_llm");
     });
 
     it("should expose resolver order with platform guardrails first", () => {
@@ -167,6 +286,8 @@ describe("Policy Service", () => {
       expect(result.effect).toBe("deny");
       expect(result.resolver_layer).toBe("platform_guardrails");
       expect(result.reason).toContain("platform guardrail");
+      expect(result.reason_code).toMatch(/^guardrail\./);
+      expect(result.evaluated_policies).toHaveLength(0);
       expect(result.reason).not.toContain("Context is required");
     });
 
@@ -215,6 +336,7 @@ describe("Policy Service", () => {
       expect(result.effect).toBe("deny");
       expect(result.resolver_layer).toBe("platform_guardrails");
       expect(result.reason).toContain("platform guardrail");
+      expect(result.reason_code).toMatch(/^guardrail\./);
     });
 
     it("should never evaluate expired policies", async () => {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mahilo Loop Ops"
+  short_description: "Run and monitor Mahilo orchestrator loops"
+  default_prompt: "Use $mahilo-loop-ops to start, inspect, restart, or troubleshoot the Mahilo server and plugin orchestrator loops."

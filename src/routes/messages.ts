@@ -82,11 +82,14 @@ function serializePolicyEvaluation(result: PolicyResult): string {
   return JSON.stringify({
     effect: result.effect,
     reason: result.reason || null,
+    reason_code: result.reason_code,
     resolution_explanation: result.resolution_explanation,
     resolver_layer: result.resolver_layer || null,
     guardrail_id: result.guardrail_id || null,
     winning_policy_id: result.winning_policy_id || null,
+    winning_policy: result.winning_policy || null,
     matched_policy_ids: result.matched_policy_ids,
+    evaluated_policies: result.evaluated_policies,
   });
 }
 
