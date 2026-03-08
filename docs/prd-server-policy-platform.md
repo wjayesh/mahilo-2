@@ -250,7 +250,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 2.4 Review / Ask Semantics
 - **ID**: `SRV-023`
-- **Status**: `in-progress`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021
 - **Description**:
@@ -258,9 +258,12 @@ These are strong starting points, but they need canonical policy semantics and s
   - Outbound: do not send until escalated or explicitly overridden.
   - Inbound: either mark review-required or hold for approval depending on mode.
 - **Acceptance Criteria**:
-  - [ ] Server behavior is consistent across flows
-  - [ ] Plugin/server clients receive structured resolution
-  - [ ] Audit distinguishes `ask` from `deny`
+  - [x] Server behavior is consistent across flows
+  - [x] Plugin/server clients receive structured resolution
+  - [x] Audit distinguishes `ask` from `deny`
+- **Notes**:
+  - 2026-03-08: Started SRV-023 by reviewing current `ask` handling in `src/routes/messages.ts` across outbound and inbound send paths.
+  - 2026-03-08: Completed SRV-023 by adding explicit inbound ask mode config (`review_required` vs `hold_for_approval`), tightening stored-resolution fallback for review/approval states, and adding integration coverage for outbound/inbound ask behavior plus ask-vs-deny audit fields (`bun test tests/integration/review-ask-semantics.test.ts`).
 
 ---
 

@@ -273,7 +273,11 @@ function buildStoredMessageResolution(
   const decision =
     parseDecisionCandidate(evaluation?.effect) ||
     parseDecisionCandidate(message.outcome) ||
-    (message.status === "rejected" ? "deny" : "allow");
+    (message.status === "rejected"
+      ? "deny"
+      : message.status === "review_required" || message.status === "approval_pending"
+        ? "ask"
+        : "allow");
 
   const direction = parseDirectionCandidate(message.direction);
   const deliveryMode =

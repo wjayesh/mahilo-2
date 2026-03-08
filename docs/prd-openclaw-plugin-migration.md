@@ -316,25 +316,19 @@ It is:
 
 ### 2.2 Normalize Package Identity
 - **ID**: `PLG2-021`
-- **Status**: `done`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: PLG2-020
 - **Description**:
   - Decide package identity for long-term use.
-  - **Decision**: Keep package name as `@mahilo/openclaw-mahilo` to align with canonical repo path and avoid migration churn.
-  - **Decision**: Keep runtime plugin ID as `mahilo` and treat it as stable across manifest, OpenClaw registration, and runtime config.
-  - **Decision**: Treat `plugins.entries.mahilo.config` as the stable OpenClaw config key path for plugin runtime settings.
   - Example candidates:
     - `@mahilo/openclaw-plugin`
     - `@mahilo/openclaw-mahilo`
   - Keep runtime plugin ID stable (likely `mahilo`).
 - **Acceptance Criteria**:
-  - [x] Package name chosen
-  - [x] Plugin ID chosen and stable
-  - [x] Config key expectations documented
-- **Progress Notes**:
-  - 2026-03-08: Started PLG2-021 by auditing package metadata, manifest plugin ID, OpenClaw registration ID, and existing runtime config key documentation.
-  - 2026-03-08: Added shared identity constants and tests for package name / runtime plugin ID stability, documented config entry path and expected keys in plugin README, and validated with `bun run build`, `bun run test` (94 passing), and `bun run validate:manifest` (3 passing) from `plugins/openclaw-mahilo/`.
+  - [ ] Package name chosen
+  - [ ] Plugin ID chosen and stable
+  - [ ] Config key expectations documented
 
 ### 2.3 Manifest / Config Schema Cleanup
 - **ID**: `PLG2-022`

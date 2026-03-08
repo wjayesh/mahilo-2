@@ -11,23 +11,6 @@ Scope:
 - Plugin-specific code, config, tests, and packaging files only.
 - No Mahilo server implementation code.
 
-## Package and Runtime Identity
-
-Long-term identity decision (PLG2-021):
-
-- Package name: `@mahilo/openclaw-mahilo`
-- Runtime plugin ID: `mahilo` (stable)
-- OpenClaw config entry path: `plugins.entries.mahilo.config`
-
-Expected keys inside `plugins.entries.mahilo.config`:
-
-- `baseUrl` (required)
-- `apiKey` (required, sensitive)
-- `callbackUrl` (optional)
-- `callbackPath` (optional)
-- `reviewMode` (optional)
-- `cacheTtlSeconds` (optional)
-
 ## Extractable Package Boundaries
 
 The package is structured so it can be published or extracted later with minimal changes:
