@@ -1,12 +1,30 @@
 import { describe, expect, it } from "bun:test";
+import {
+  MAHILO_PLUGIN_CONFIG_KEYS,
+  MAHILO_PLUGIN_PACKAGE_NAME,
+  MAHILO_RUNTIME_PLUGIN_ID,
+  MAHILO_RUNTIME_PLUGIN_NAME
+} from "../src";
 
 const manifestPath = new URL("../openclaw.plugin.json", import.meta.url);
+const packageJsonPath = new URL("../package.json", import.meta.url);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
 describe("openclaw.plugin.json", () => {
+  it("loads package metadata with chosen package identity", async () => {
+    const packageJson = (await Bun.file(packageJsonPath).json()) as unknown;
+
+    expect(isRecord(packageJson)).toBe(true);
+    if (!isRecord(packageJson)) {
+      return;
+    }
+
+    expect(packageJson.name).toBe(MAHILO_PLUGIN_PACKAGE_NAME);
+  });
+
   it("loads manifest metadata", async () => {
     const manifest = (await Bun.file(manifestPath).json()) as unknown;
 
@@ -15,8 +33,8 @@ describe("openclaw.plugin.json", () => {
       return;
     }
 
-    expect(manifest.id).toBe("mahilo");
-    expect(manifest.name).toBe("Mahilo");
+    expect(manifest.id).toBe(MAHILO_RUNTIME_PLUGIN_ID);
+    expect(manifest.name).toBe(MAHILO_RUNTIME_PLUGIN_NAME);
     expect(manifest.version).toBe("0.0.0");
     expect(manifest.entry).toBe("./dist/index.js");
   });
@@ -57,14 +75,7 @@ describe("openclaw.plugin.json", () => {
       return;
     }
 
-    expect(Object.keys(properties).sort()).toEqual([
-      "apiKey",
-      "baseUrl",
-      "cacheTtlSeconds",
-      "callbackPath",
-      "callbackUrl",
-      "reviewMode"
-    ]);
+    expect(Object.keys(properties).sort()).toEqual([...MAHILO_PLUGIN_CONFIG_KEYS].sort());
 
     const baseUrl = properties.baseUrl;
     const apiKey = properties.apiKey;

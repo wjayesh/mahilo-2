@@ -267,14 +267,33 @@ It is:
 
 ### 1.4 Inventory Legacy Gaps
 - **ID**: `PLG2-013`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-011
 - **Description**:
   - Explicitly document which parts of the old plugin are legacy or need redesign.
 - **Acceptance Criteria**:
-  - [ ] Legacy assumptions are written down
-  - [ ] Redesign items are separated from straight migration work
+  - [x] Legacy assumptions are written down
+  - [x] Redesign items are separated from straight migration work
+- **Legacy Assumptions (Migration-Parity Carryovers)**:
+  - Tool inputs still accept both `camelCase` and `snake_case` aliases for core fields (for example `senderConnectionId` and `sender_connection_id`) to preserve legacy caller compatibility during cutover.
+  - Policy/send response parsing remains tolerant of multiple payload shapes for decision, resolution ID, and message ID extraction to avoid regressions from older response envelopes.
+  - Plugin state is still process-local and in-memory (`InMemoryPluginState`, `InMemoryDedupeState`), so context cache and inbound dedupe markers are not durable across restarts.
+  - Local policy guard heuristics remain as lightweight checks before send; they are secondary safety behavior rather than policy truth.
+  - Webhook callback trust still depends on plugin-provided callback secret sourcing (`callbackSecret` or `getCallbackSecret`) with no centralized secret lifecycle yet.
+- **Straight Migration Scope (Keep Stable for Porting)**:
+  - Preserve tool names and baseline semantics (`talk_to_agent`, `talk_to_group`, `list_mahilo_contacts`) while moving code into `plugins/openclaw-mahilo/`.
+  - Preserve webhook signature-first verification and retry dedupe semantics from the legacy implementation.
+  - Preserve compatibility parsing so existing callers are not forced into a same-day payload migration.
+- **Redesign Backlog (Not Straight Port Work)**:
+  - Shift send-time behavior fully to server-driven preflight/final enforcement flows and further demote/remove local policy influence (`PLG2-030`, `PLG2-042`).
+  - Add native prompt-context fetch/injection hooks instead of relying only on tool-time context handling (`PLG2-031`, `PLG2-040`).
+  - Introduce explicit override/review UX and diagnostics workflows rather than compatibility-era fallback behavior (`PLG2-033`, `PLG2-044`).
+  - Finalize long-term package/config identity and plan removal windows for compatibility aliases (`PLG2-021`, `PLG2-022` follow-on hardening).
+  - Evolve inbound delivery handling to true session-targeted routing continuity (`PLG2-052`).
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-013 by auditing migrated plugin modules to separate legacy compatibility assumptions from true redesign scope.
+  - 2026-03-08: Documented explicit legacy carryover assumptions and split redesign backlog from straight migration scope; cross-linked redesign items to planned Phase 2-5 tasks.
 
 ---
 
@@ -297,19 +316,25 @@ It is:
 
 ### 2.2 Normalize Package Identity
 - **ID**: `PLG2-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-020
 - **Description**:
   - Decide package identity for long-term use.
+  - **Decision**: Keep package name as `@mahilo/openclaw-mahilo` to align with canonical repo path and avoid migration churn.
+  - **Decision**: Keep runtime plugin ID as `mahilo` and treat it as stable across manifest, OpenClaw registration, and runtime config.
+  - **Decision**: Treat `plugins.entries.mahilo.config` as the stable OpenClaw config key path for plugin runtime settings.
   - Example candidates:
     - `@mahilo/openclaw-plugin`
     - `@mahilo/openclaw-mahilo`
   - Keep runtime plugin ID stable (likely `mahilo`).
 - **Acceptance Criteria**:
-  - [ ] Package name chosen
-  - [ ] Plugin ID chosen and stable
-  - [ ] Config key expectations documented
+  - [x] Package name chosen
+  - [x] Plugin ID chosen and stable
+  - [x] Config key expectations documented
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-021 by auditing package metadata, manifest plugin ID, OpenClaw registration ID, and existing runtime config key documentation.
+  - 2026-03-08: Added shared identity constants and tests for package name / runtime plugin ID stability, documented config entry path and expected keys in plugin README, and validated with `bun run build`, `bun run test` (94 passing), and `bun run validate:manifest` (3 passing) from `plugins/openclaw-mahilo/`.
 
 ### 2.3 Manifest / Config Schema Cleanup
 - **ID**: `PLG2-022`

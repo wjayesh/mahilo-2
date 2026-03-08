@@ -11,6 +11,7 @@ import {
   type ReviewMode
 } from "./config";
 import type { DeclaredSelectors } from "./policy-helpers";
+import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
   listMahiloContacts,
   talkToAgent,
@@ -40,8 +41,8 @@ export function createMahiloOpenClawPlugin(
 ): MahiloOpenClawPluginDefinition {
   return {
     description: "Mahilo policy-aware communication tools for OpenClaw.",
-    id: "mahilo",
-    name: "Mahilo",
+    id: MAHILO_RUNTIME_PLUGIN_ID,
+    name: MAHILO_RUNTIME_PLUGIN_NAME,
     register: (api: OpenClawPluginApi) => {
       registerMahiloOpenClawPlugin(api, options);
     }

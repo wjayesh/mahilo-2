@@ -250,7 +250,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 2.4 Review / Ask Semantics
 - **ID**: `SRV-023`
-- **Status**: `pending`
+- **Status**: `in-progress`
 - **Priority**: P0
 - **Depends on**: SRV-021
 - **Description**:

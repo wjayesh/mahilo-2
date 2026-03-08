@@ -1,4 +1,11 @@
 export { API_V1_BASE_PATH, CONTRACT_ENDPOINTS, MAHILO_CONTRACT_VERSION } from "./contract";
+export {
+  MAHILO_PLUGIN_CONFIG_ENTRY_KEY,
+  MAHILO_PLUGIN_CONFIG_KEYS,
+  MAHILO_PLUGIN_PACKAGE_NAME,
+  MAHILO_RUNTIME_PLUGIN_ID,
+  MAHILO_RUNTIME_PLUGIN_NAME
+} from "./identity";
 export { MahiloContractClient } from "./client";
 export type { MahiloClientOptions } from "./client";
 export { createClientOptionsFromConfig, createMahiloClientFromConfig, MahiloConfigError, parseMahiloPluginConfig, redactSensitiveConfig } from "./config";

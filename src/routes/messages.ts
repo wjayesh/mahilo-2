@@ -54,6 +54,37 @@ const selectorInputSchema = z.object({
 
 const outcomeDetailsSchema = z.union([z.string(), z.record(z.unknown()), z.array(z.unknown())]);
 
+type MessageDirection = (typeof messageSelectorDirections)[number];
+type PolicyDecision = PolicyResult["effect"];
+type DeliveryMode = "full_send" | "review_required" | "hold_for_approval" | "blocked";
+type MessageRecordStatus =
+  | "pending"
+  | "delivered"
+  | "failed"
+  | "rejected"
+  | "review_required"
+  | "approval_pending";
+
+interface StructuredResolution {
+  resolution_id: string;
+  decision: PolicyDecision;
+  delivery_mode: DeliveryMode;
+  summary: string;
+  reason: string | null;
+  reason_code: string;
+  resolver_layer: PolicyResult["resolver_layer"] | null;
+  guardrail_id: string | null;
+  winning_policy_id: string | null;
+  matched_policy_ids: string[];
+}
+
+interface RecipientResolutionResult {
+  recipient: string;
+  decision: PolicyDecision;
+  delivery_mode: DeliveryMode;
+  delivery_status: string;
+}
+
 function serializeOptionalDetails(value: unknown): string | null {
   if (value === undefined || value === null) {
     return null;
@@ -96,6 +127,185 @@ function serializePolicyEvaluation(result: PolicyResult): string {
     matched_policy_ids: result.matched_policy_ids,
     evaluated_policies: result.evaluated_policies,
   });
+}
+
+function isInboundDirection(direction: MessageDirection): boolean {
+  return direction === "inbound" || direction === "request";
+}
+
+function resolveDeliveryMode(decision: PolicyDecision, direction: MessageDirection): DeliveryMode {
+  if (decision === "deny") {
+    return "blocked";
+  }
+  if (decision === "ask") {
+    if (isInboundDirection(direction) && config.inboundAskMode === "hold_for_approval") {
+      return "hold_for_approval";
+    }
+    return "review_required";
+  }
+  return "full_send";
+}
+
+function shouldDeliverForDecision(
+  decision: PolicyDecision,
+  direction: MessageDirection,
+  deliveryMode: DeliveryMode
+): boolean {
+  if (decision === "allow") {
+    return true;
+  }
+  if (decision === "ask" && isInboundDirection(direction) && deliveryMode === "review_required") {
+    return true;
+  }
+  return false;
+}
+
+function blockedMessageStatusForDecision(
+  decision: PolicyDecision,
+  deliveryMode: DeliveryMode
+): Extract<MessageRecordStatus, "rejected" | "review_required" | "approval_pending"> {
+  if (decision === "deny") {
+    return "rejected";
+  }
+  if (deliveryMode === "hold_for_approval") {
+    return "approval_pending";
+  }
+  return "review_required";
+}
+
+function buildResolutionSummary(
+  decision: PolicyDecision,
+  deliveryMode: DeliveryMode,
+  policyResult: PolicyResult | null
+): string {
+  if (policyResult?.reason) {
+    return policyResult.reason;
+  }
+  if (policyResult?.resolution_explanation) {
+    return policyResult.resolution_explanation;
+  }
+  if (decision === "ask") {
+    return deliveryMode === "hold_for_approval"
+      ? "Message held for approval before delivery."
+      : "Message requires review before delivery.";
+  }
+  if (decision === "deny") {
+    return "Message blocked by policy.";
+  }
+  return "Message allowed by policy.";
+}
+
+function defaultReasonCode(decision: PolicyDecision): string {
+  if (decision === "ask") {
+    return "policy.ask.resolved";
+  }
+  if (decision === "deny") {
+    return "policy.deny.resolved";
+  }
+  return "policy.allow.resolved";
+}
+
+function buildStructuredResolution(
+  resolutionId: string,
+  direction: MessageDirection,
+  policyResult: PolicyResult | null
+): StructuredResolution {
+  const decision: PolicyDecision = policyResult?.effect ?? "allow";
+  const deliveryMode = resolveDeliveryMode(decision, direction);
+  return {
+    resolution_id: resolutionId,
+    decision,
+    delivery_mode: deliveryMode,
+    summary: buildResolutionSummary(decision, deliveryMode, policyResult),
+    reason: policyResult?.reason || null,
+    reason_code: policyResult?.reason_code || defaultReasonCode(decision),
+    resolver_layer: policyResult?.resolver_layer || null,
+    guardrail_id: policyResult?.guardrail_id || null,
+    winning_policy_id: policyResult?.winning_policy_id || null,
+    matched_policy_ids: policyResult?.matched_policy_ids || [],
+  };
+}
+
+function buildRecipientResult(
+  recipient: string,
+  resolution: StructuredResolution,
+  deliveryStatus: string
+): RecipientResolutionResult {
+  return {
+    recipient,
+    decision: resolution.decision,
+    delivery_mode: resolution.delivery_mode,
+    delivery_status: deliveryStatus,
+  };
+}
+
+function parseDecisionCandidate(value: unknown): PolicyDecision | null {
+  if (value === "allow" || value === "ask" || value === "deny") {
+    return value;
+  }
+  return null;
+}
+
+function parseDirectionCandidate(value: unknown): MessageDirection {
+  if (
+    value === "outbound" ||
+    value === "inbound" ||
+    value === "request" ||
+    value === "response" ||
+    value === "notification" ||
+    value === "error"
+  ) {
+    return value;
+  }
+  return defaultMessageSelectors.direction;
+}
+
+function buildStoredMessageResolution(
+  message: schema.Message,
+  requestedResolutionId?: string
+): StructuredResolution {
+  const parsed = parseOptionalJsonText(message.policiesEvaluated);
+  const evaluation =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+
+  const decision =
+    parseDecisionCandidate(evaluation?.effect) ||
+    parseDecisionCandidate(message.outcome) ||
+    (message.status === "rejected" ? "deny" : "allow");
+
+  const direction = parseDirectionCandidate(message.direction);
+  const deliveryMode =
+    message.status === "review_required"
+      ? "review_required"
+      : message.status === "approval_pending"
+        ? "hold_for_approval"
+        : resolveDeliveryMode(decision, direction);
+
+  return {
+    resolution_id: requestedResolutionId || `res_${message.id}`,
+    decision,
+    delivery_mode: deliveryMode,
+    summary:
+      (typeof evaluation?.reason === "string" && evaluation.reason) ||
+      (typeof evaluation?.resolution_explanation === "string" && evaluation.resolution_explanation) ||
+      buildResolutionSummary(decision, deliveryMode, null),
+    reason: typeof evaluation?.reason === "string" ? evaluation.reason : null,
+    reason_code:
+      (typeof evaluation?.reason_code === "string" && evaluation.reason_code) ||
+      defaultReasonCode(decision),
+    resolver_layer:
+      (typeof evaluation?.resolver_layer === "string"
+        ? (evaluation.resolver_layer as PolicyResult["resolver_layer"])
+        : null) || null,
+    guardrail_id: typeof evaluation?.guardrail_id === "string" ? evaluation.guardrail_id : null,
+    winning_policy_id:
+      typeof evaluation?.winning_policy_id === "string" ? evaluation.winning_policy_id : null,
+    matched_policy_ids: Array.isArray(evaluation?.matched_policy_ids)
+      ? evaluation!.matched_policy_ids.filter((value): value is string => typeof value === "string")
+      : [],
+  };
 }
 
 // Send message
@@ -141,6 +351,7 @@ const sendMessageSchema = z.object({
     .optional(),
   correlation_id: z.string().optional(),
   idempotency_key: z.string().optional(),
+  resolution_id: z.string().optional(),
 });
 
 type SendMessageInput = z.infer<typeof sendMessageSchema>;
@@ -197,10 +408,15 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       .limit(1);
 
     if (existing) {
+      const resolution = buildStoredMessageResolution(existing, data.resolution_id);
       return c.json({
         message_id: existing.id,
         status: existing.status,
         deduplicated: true,
+        resolution,
+        recipient_results: [
+          buildRecipientResult(existing.recipientId, resolution, existing.status),
+        ],
       });
     }
   }
@@ -208,6 +424,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
   const messageSelectors = resolveMessageSelectors(data);
   const requestedOutcome = resolveOutcomeMetadata(data);
   const inResponseTo = data.in_response_to || null;
+  const resolutionId = data.resolution_id || `res_${nanoid(18)}`;
 
   let senderConnectionId: string | null = null;
   if (data.sender_connection_id) {
@@ -378,65 +595,79 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       .limit(1);
 
     let groupPolicyEvaluation: string | null = null;
+    let groupPolicyResult: PolicyResult | null = null;
     let groupOutcome = requestedOutcome.outcome;
     let groupOutcomeDetails = requestedOutcome.outcomeDetails;
 
     // Group policy evaluation in trusted mode (REG-044)
     const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
     if (!isEncrypted && config.trustedMode) {
-      const policyResult = await evaluateGroupPolicies(
+      groupPolicyResult = await evaluateGroupPolicies(
         user.id,
         groupId,
         data.message,
         data.context
       );
-      await consumeWinningPolicyUse(user.id, policyResult);
-      groupPolicyEvaluation = serializePolicyEvaluation(policyResult);
-      groupOutcome = groupOutcome || policyResult.effect;
+      await consumeWinningPolicyUse(user.id, groupPolicyResult);
+      groupPolicyEvaluation = serializePolicyEvaluation(groupPolicyResult);
+      groupOutcome = groupOutcome || groupPolicyResult.effect;
       groupOutcomeDetails =
-        groupOutcomeDetails || policyResult.reason || policyResult.resolution_explanation;
-
-      if (!policyResult.allowed) {
-        // Create message record for audit with rejected status
-        const messageId = nanoid();
-        await db.insert(schema.messages).values({
-          id: messageId,
-          correlationId: data.correlation_id,
-          direction: messageSelectors.direction,
-          resource: messageSelectors.resource,
-          action: messageSelectors.action,
-          inResponseTo,
-          outcome: groupOutcome,
-          outcomeDetails: groupOutcomeDetails,
-          policiesEvaluated: groupPolicyEvaluation,
-          senderUserId: user.id,
-          senderConnectionId,
-          senderAgent,
-          recipientType: "group",
-          recipientId: groupId,
-          recipientConnectionId: null,
-          payload: data.message,
-          payloadType: data.payload_type,
-          encryption: data.encryption ? JSON.stringify(data.encryption) : null,
-          senderSignature: data.sender_signature
-            ? JSON.stringify(data.sender_signature)
-            : null,
-          context: data.context,
-          status: "rejected",
-          rejectionReason: policyResult.reason,
-          idempotencyKey: data.idempotency_key,
-        });
-
-        return c.json(
-          {
-            message_id: messageId,
-            status: "rejected",
-            rejection_reason: policyResult.reason,
-          },
-          403
-        );
-      }
+        groupOutcomeDetails || groupPolicyResult.reason || groupPolicyResult.resolution_explanation;
     }
+
+    const groupDirection = parseDirectionCandidate(messageSelectors.direction);
+    const groupResolution = buildStructuredResolution(resolutionId, groupDirection, groupPolicyResult);
+    const shouldDeliverGroup = shouldDeliverForDecision(
+      groupResolution.decision,
+      groupDirection,
+      groupResolution.delivery_mode
+    );
+
+    if (!shouldDeliverGroup) {
+      const blockedStatus = blockedMessageStatusForDecision(
+        groupResolution.decision,
+        groupResolution.delivery_mode
+      );
+      const messageId = nanoid();
+      await db.insert(schema.messages).values({
+        id: messageId,
+        correlationId: data.correlation_id,
+        direction: messageSelectors.direction,
+        resource: messageSelectors.resource,
+        action: messageSelectors.action,
+        inResponseTo,
+        outcome: groupOutcome,
+        outcomeDetails: groupOutcomeDetails,
+        policiesEvaluated: groupPolicyEvaluation,
+        senderUserId: user.id,
+        senderConnectionId,
+        senderAgent,
+        recipientType: "group",
+        recipientId: groupId,
+        recipientConnectionId: null,
+        payload: data.message,
+        payloadType: data.payload_type,
+        encryption: data.encryption ? JSON.stringify(data.encryption) : null,
+        senderSignature: data.sender_signature
+          ? JSON.stringify(data.sender_signature)
+          : null,
+        context: data.context,
+        status: blockedStatus,
+        rejectionReason: groupResolution.decision === "deny" ? groupPolicyResult?.reason || null : null,
+        idempotencyKey: data.idempotency_key,
+      });
+
+      return c.json({
+        message_id: messageId,
+        status: blockedStatus,
+        rejection_reason: groupResolution.decision === "deny" ? groupPolicyResult?.reason || null : null,
+        resolution: groupResolution,
+        recipient_results: [buildRecipientResult(groupId, groupResolution, blockedStatus)],
+      });
+    }
+
+    const reviewRequiredDelivery =
+      groupResolution.decision === "ask" && groupResolution.delivery_mode === "review_required";
 
     // Create the parent message record
     const messageId = nanoid();
@@ -488,10 +719,14 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         .set({ status: "delivered", deliveredAt: new Date() })
         .where(eq(schema.messages.id, messageId));
 
+      const noRecipientStatus = groupResolution.decision === "ask" ? "review_required" : "delivered";
       return c.json({
         message_id: messageId,
-        status: "delivered",
+        status: noRecipientStatus,
+        delivery_status: "delivered",
         recipients: 0,
+        resolution: groupResolution,
+        recipient_results: [buildRecipientResult(groupId, groupResolution, "delivered")],
       });
     }
 
@@ -571,12 +806,22 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
             correlation_id: data.correlation_id,
             recipient_connection_id: connection.id,
             sender: sender!.username,
+            sender_user_id: user.id,
+            sender_connection_id: senderConnectionId || undefined,
             sender_agent: senderAgent,
             message: data.message,
             payload_type: data.payload_type,
             encryption: data.encryption,
             sender_signature: data.sender_signature,
             context: data.context,
+            selectors: {
+              direction: messageSelectors.direction,
+              resource: messageSelectors.resource,
+              action: messageSelectors.action,
+            },
+            resolution_id: groupResolution.resolution_id,
+            review_required: reviewRequiredDelivery,
+            delivery_mode: groupResolution.delivery_mode,
             group_id: groupId,
             group_name: group.name,
             timestamp: new Date().toISOString(),
@@ -642,13 +887,17 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       })
       .where(eq(schema.messages.id, messageId));
 
+    const groupResponseStatus = groupResolution.decision === "ask" ? "review_required" : overallStatus;
     return c.json({
       message_id: messageId,
-      status: overallStatus,
+      status: groupResponseStatus,
+      delivery_status: overallStatus,
       recipients: members.length,
       delivered: memberDeliveredCount,
       pending: memberPendingCount,
       failed: memberFailedCount,
+      resolution: groupResolution,
+      recipient_results: [buildRecipientResult(groupId, groupResolution, overallStatus)],
     });
   }
 
@@ -657,65 +906,79 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
   const senderAgent = data.routing_hints?.labels?.[0] || "agent";
 
   let userPolicyEvaluation: string | null = null;
+  let userPolicyResult: PolicyResult | null = null;
   let userOutcome = requestedOutcome.outcome;
   let userOutcomeDetails = requestedOutcome.outcomeDetails;
 
   // Policy evaluation (only in trusted mode with plaintext)
   const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
   if (!isEncrypted && config.trustedMode) {
-    const policyResult = await evaluatePolicies(
+    userPolicyResult = await evaluatePolicies(
       user.id,
       recipientUserId,
       data.message,
       data.context
     );
-    await consumeWinningPolicyUse(user.id, policyResult);
-    userPolicyEvaluation = serializePolicyEvaluation(policyResult);
-    userOutcome = userOutcome || policyResult.effect;
+    await consumeWinningPolicyUse(user.id, userPolicyResult);
+    userPolicyEvaluation = serializePolicyEvaluation(userPolicyResult);
+    userOutcome = userOutcome || userPolicyResult.effect;
     userOutcomeDetails =
-      userOutcomeDetails || policyResult.reason || policyResult.resolution_explanation;
-
-    if (!policyResult.allowed) {
-      // Create message record for audit
-      const messageId = nanoid();
-      await db.insert(schema.messages).values({
-        id: messageId,
-        correlationId: data.correlation_id,
-        direction: messageSelectors.direction,
-        resource: messageSelectors.resource,
-        action: messageSelectors.action,
-        inResponseTo,
-        outcome: userOutcome,
-        outcomeDetails: userOutcomeDetails,
-        policiesEvaluated: userPolicyEvaluation,
-        senderUserId: user.id,
-        senderConnectionId,
-        senderAgent,
-        recipientType: data.recipient_type,
-        recipientId: recipientUserId,
-        recipientConnectionId: recipientConnection!.id,
-        payload: data.message,
-        payloadType: data.payload_type,
-        encryption: data.encryption ? JSON.stringify(data.encryption) : null,
-        senderSignature: data.sender_signature
-          ? JSON.stringify(data.sender_signature)
-          : null,
-        context: data.context,
-        status: "rejected",
-        rejectionReason: policyResult.reason,
-        idempotencyKey: data.idempotency_key,
-      });
-
-      return c.json(
-        {
-          message_id: messageId,
-          status: "rejected",
-          rejection_reason: policyResult.reason,
-        },
-        403
-      );
-    }
+      userOutcomeDetails || userPolicyResult.reason || userPolicyResult.resolution_explanation;
   }
+
+  const userDirection = parseDirectionCandidate(messageSelectors.direction);
+  const userResolution = buildStructuredResolution(resolutionId, userDirection, userPolicyResult);
+  const shouldDeliverUser = shouldDeliverForDecision(
+    userResolution.decision,
+    userDirection,
+    userResolution.delivery_mode
+  );
+
+  if (!shouldDeliverUser) {
+    const blockedStatus = blockedMessageStatusForDecision(
+      userResolution.decision,
+      userResolution.delivery_mode
+    );
+    const messageId = nanoid();
+    await db.insert(schema.messages).values({
+      id: messageId,
+      correlationId: data.correlation_id,
+      direction: messageSelectors.direction,
+      resource: messageSelectors.resource,
+      action: messageSelectors.action,
+      inResponseTo,
+      outcome: userOutcome,
+      outcomeDetails: userOutcomeDetails,
+      policiesEvaluated: userPolicyEvaluation,
+      senderUserId: user.id,
+      senderConnectionId,
+      senderAgent,
+      recipientType: data.recipient_type,
+      recipientId: recipientUserId,
+      recipientConnectionId: recipientConnection!.id,
+      payload: data.message,
+      payloadType: data.payload_type,
+      encryption: data.encryption ? JSON.stringify(data.encryption) : null,
+      senderSignature: data.sender_signature
+        ? JSON.stringify(data.sender_signature)
+        : null,
+      context: data.context,
+      status: blockedStatus,
+      rejectionReason: userResolution.decision === "deny" ? userPolicyResult?.reason || null : null,
+      idempotencyKey: data.idempotency_key,
+    });
+
+    return c.json({
+      message_id: messageId,
+      status: blockedStatus,
+      rejection_reason: userResolution.decision === "deny" ? userPolicyResult?.reason || null : null,
+      resolution: userResolution,
+      recipient_results: [buildRecipientResult(data.recipient, userResolution, blockedStatus)],
+    });
+  }
+
+  const reviewRequiredDelivery =
+    userResolution.decision === "ask" && userResolution.delivery_mode === "review_required";
 
   // Create message record
   const messageId = nanoid();
@@ -759,18 +1022,32 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     correlation_id: data.correlation_id,
     recipient_connection_id: recipientConnection!.id,
     sender: sender!.username,
+    sender_user_id: user.id,
+    sender_connection_id: senderConnectionId || undefined,
     sender_agent: senderAgent,
     message: data.message,
     payload_type: data.payload_type,
     encryption: data.encryption,
     sender_signature: data.sender_signature,
     context: data.context,
+    selectors: {
+      direction: messageSelectors.direction,
+      resource: messageSelectors.resource,
+      action: messageSelectors.action,
+    },
+    resolution_id: userResolution.resolution_id,
+    review_required: reviewRequiredDelivery,
+    delivery_mode: userResolution.delivery_mode,
     timestamp: new Date().toISOString(),
   });
 
+  const responseStatus = userResolution.decision === "ask" ? "review_required" : deliveryResult.status;
   return c.json({
     message_id: messageId,
-    status: deliveryResult.status,
+    status: responseStatus,
+    delivery_status: deliveryResult.status,
+    resolution: userResolution,
+    recipient_results: [buildRecipientResult(data.recipient, userResolution, deliveryResult.status)],
   });
 });
 
