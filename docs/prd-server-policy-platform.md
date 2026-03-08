@@ -413,16 +413,20 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 5.1 Per-Recipient Fan-Out Resolution
 - **ID**: `SRV-050`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-030, SRV-031
 - **Description**:
   - Group delivery must resolve policies per recipient.
   - Group policy acts as overlay, not sole decision-maker.
 - **Acceptance Criteria**:
-  - [ ] A group message can produce mixed per-recipient results
-  - [ ] Denied recipients do not receive the message
-  - [ ] Partial delivery is explicitly logged
+  - [x] A group message can produce mixed per-recipient results
+  - [x] Denied recipients do not receive the message
+  - [x] Partial delivery is explicitly logged
+- **Notes**:
+  - 2026-03-08: Started SRV-050 by replacing single group-level policy gating with per-recipient fan-out resolution so each group member is evaluated with recipient-specific policies plus group overlay constraints.
+  - 2026-03-08: Completed SRV-050 by switching `/api/v1/messages/send` group fan-out to recipient-specific policy resolution (`evaluatePolicies(..., groupId)`), blocking deny/ask recipients from delivery attempts, recording partial fan-out audit metadata in `messages.policies_evaluated`, and returning per-recipient outcomes in send responses.
+  - 2026-03-08: Validation run: `bun test tests/unit/policy.test.ts tests/integration/group-fanout-resolution.test.ts`, `bun test tests/integration/plugin-resolve.test.ts`, `bun test tests/integration/groups.test.ts`, and `bun run build`.
 
 ### 5.2 Per-Recipient Outcome Storage
 - **ID**: `SRV-051`

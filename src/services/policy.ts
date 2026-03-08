@@ -940,7 +940,8 @@ export async function evaluatePolicies(
   message: string,
   context?: string,
   authenticatedIdentity?: AuthenticatedSenderIdentity,
-  selectorContext?: PolicySelectorContext
+  selectorContext?: PolicySelectorContext,
+  groupId?: string
 ): Promise<PolicyResult> {
   const identityContext = buildIdentityContext(senderUserId, authenticatedIdentity);
   const db = getDb();
@@ -972,6 +973,7 @@ export async function evaluatePolicies(
     recipientUserId,
     recipientUsername: recipient?.username,
     recipientRoles,
+    groupId,
     selectors: selectorContext,
     llmSubject: recipient?.username || "unknown",
     context,

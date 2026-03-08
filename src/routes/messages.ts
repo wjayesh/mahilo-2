@@ -12,7 +12,6 @@ import { deliverMessage, deliverToConnection } from "../services/delivery";
 import {
   evaluatePolicies,
   evaluateInboundPolicies,
-  evaluateGroupPolicies,
   consumeWinningPolicyUse,
   type AuthenticatedSenderIdentity,
   type PolicyResult,
@@ -110,6 +109,21 @@ interface RecipientResolutionResult {
   decision: PolicyDecision;
   delivery_mode: DeliveryMode;
   delivery_status: string;
+}
+
+interface GroupRecipientPolicyAudit {
+  recipient_user_id: string;
+  recipient_username: string;
+  decision: PolicyDecision;
+  delivery_mode: DeliveryMode;
+  should_deliver: boolean;
+  delivery_status: string;
+  reason: string | null;
+  reason_code: string;
+  winning_policy_id: string | null;
+  matched_policy_ids: string[];
+  resolver_layer: PolicyResult["resolver_layer"] | null;
+  guardrail_id: string | null;
 }
 
 function serializeOptionalDetails(value: unknown): string | null {
@@ -304,6 +318,97 @@ function buildRecipientResult(
     delivery_mode: resolution.delivery_mode,
     delivery_status: deliveryStatus,
   };
+}
+
+function serializeGroupFanOutPolicyEvaluation(
+  entries: GroupRecipientPolicyAudit[],
+  metadata?: Record<string, unknown>
+): string | null {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const decisionCounts: Record<PolicyDecision, number> = {
+    allow: 0,
+    ask: 0,
+    deny: 0,
+  };
+  const deliveryStatusCounts: Record<string, number> = {};
+
+  for (const entry of entries) {
+    decisionCounts[entry.decision] += 1;
+    deliveryStatusCounts[entry.delivery_status] = (deliveryStatusCounts[entry.delivery_status] || 0) + 1;
+  }
+
+  const partialDelivery =
+    Object.values(decisionCounts).filter((count) => count > 0).length > 1 ||
+    Object.values(deliveryStatusCounts).filter((count) => count > 0).length > 1;
+
+  return JSON.stringify({
+    fanout_mode: "per_recipient",
+    partial_delivery: partialDelivery,
+    recipient_count: entries.length,
+    decision_counts: decisionCounts,
+    delivery_status_counts: deliveryStatusCounts,
+    recipients: entries,
+    ...(metadata || {}),
+  });
+}
+
+function deriveGroupAggregateDecision(entries: GroupRecipientPolicyAudit[]): PolicyDecision {
+  if (entries.length === 0) {
+    return "allow";
+  }
+
+  const decisions = new Set(entries.map((entry) => entry.decision));
+  if (decisions.size === 1) {
+    return entries[0].decision;
+  }
+
+  if (decisions.has("allow")) {
+    return "allow";
+  }
+  if (decisions.has("ask")) {
+    return "ask";
+  }
+  return "deny";
+}
+
+function deriveGroupOutcomeFromFanOut(
+  requestedOutcome: string | null,
+  entries: GroupRecipientPolicyAudit[]
+): string | null {
+  if (requestedOutcome) {
+    return requestedOutcome;
+  }
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const deliveredCount = entries.filter((entry) => entry.delivery_status === "delivered").length;
+  const constrainedCount = entries.filter(
+    (entry) =>
+      entry.delivery_status === "rejected" ||
+      entry.delivery_status === "review_required" ||
+      entry.delivery_status === "approval_pending"
+  ).length;
+  const failedCount = entries.filter((entry) => entry.delivery_status === "failed").length;
+
+  if (deliveredCount > 0 && (constrainedCount > 0 || failedCount > 0)) {
+    return "partial_sent";
+  }
+  if (deliveredCount > 0) {
+    return "allow";
+  }
+  if (constrainedCount > 0) {
+    return constrainedCount === entries.length ? "deny" : "ask";
+  }
+  if (failedCount > 0) {
+    return "failed";
+  }
+
+  return null;
 }
 
 function parseDecisionCandidate(value: unknown): PolicyDecision | null {
@@ -648,7 +753,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       }
     }
   } else {
-    // Group messaging (REG-045, REG-046)
+    // Group messaging (SRV-050 per-recipient fan-out resolution)
     const groupId = data.recipient;
 
     // Get the group
@@ -689,88 +794,127 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       .where(eq(schema.users.id, user.id))
       .limit(1);
 
-    let groupPolicyEvaluation: string | null = null;
-    let groupPolicyResult: PolicyResult | null = null;
-    let groupOutcome = requestedOutcome.outcome;
-    let groupOutcomeDetails = requestedOutcome.outcomeDetails;
     const groupDirection = parseDirectionCandidate(messageSelectors.direction);
-
-    // Group policy evaluation in trusted mode (REG-044)
+    const selectorContext = {
+      direction: groupDirection,
+      resource: messageSelectors.resource,
+      action: messageSelectors.action,
+    };
     const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
-    if (!isEncrypted && config.trustedMode) {
-      groupPolicyResult = await evaluateGroupPolicies(
-        user.id,
-        groupId,
-        data.message,
-        data.context,
-        authenticatedSenderIdentity,
-        {
-          direction: groupDirection,
-          resource: messageSelectors.resource,
-          action: messageSelectors.action,
-        }
+
+    // Get all active group members (excluding sender)
+    const members = await db
+      .select({
+        userId: schema.groupMemberships.userId,
+        username: schema.users.username,
+      })
+      .from(schema.groupMemberships)
+      .innerJoin(schema.users, eq(schema.groupMemberships.userId, schema.users.id))
+      .where(
+        and(
+          eq(schema.groupMemberships.groupId, groupId),
+          eq(schema.groupMemberships.status, "active"),
+          ne(schema.groupMemberships.userId, user.id)
+        )
       );
-      await consumeWinningPolicyUse(user.id, groupPolicyResult);
-      groupPolicyEvaluation = serializePolicyEvaluation(groupPolicyResult);
-      groupOutcome = groupOutcome || groupPolicyResult.effect;
-      groupOutcomeDetails =
-        groupOutcomeDetails || groupPolicyResult.reason || groupPolicyResult.resolution_explanation;
+
+    const memberUserIds = members.map((member) => member.userId);
+    const memberConnections =
+      memberUserIds.length > 0
+        ? await db
+            .select()
+            .from(schema.agentConnections)
+            .where(
+              and(
+                inArray(schema.agentConnections.userId, memberUserIds),
+                eq(schema.agentConnections.status, "active")
+              )
+            )
+            .orderBy(desc(schema.agentConnections.routingPriority))
+        : [];
+
+    const connectionsByUser = new Map<string, schema.AgentConnection[]>();
+    for (const connection of memberConnections) {
+      const connections = connectionsByUser.get(connection.userId) || [];
+      connections.push(connection);
+      connectionsByUser.set(connection.userId, connections);
     }
 
-    const groupResolution = buildStructuredResolution(resolutionId, groupDirection, groupPolicyResult);
-    const shouldDeliverGroup = shouldDeliverForDecision(
-      groupResolution.decision,
-      groupDirection,
-      groupResolution.delivery_mode
-    );
+    const recipientPolicyAudits: GroupRecipientPolicyAudit[] = [];
+    const recipientPolicyAuditByUser = new Map<string, GroupRecipientPolicyAudit>();
+    const deliveryEligibleMembers: Array<{
+      userId: string;
+      username: string;
+      resolution: StructuredResolution;
+      reviewRequiredDelivery: boolean;
+      connections: schema.AgentConnection[];
+    }> = [];
 
-    if (!shouldDeliverGroup) {
-      const blockedStatus = blockedMessageStatusForDecision(
-        groupResolution.decision,
-        groupResolution.delivery_mode
+    for (const member of members) {
+      let recipientPolicyResult: PolicyResult | null = null;
+      if (!isEncrypted && config.trustedMode) {
+        recipientPolicyResult = await evaluatePolicies(
+          user.id,
+          member.userId,
+          data.message,
+          data.context,
+          authenticatedSenderIdentity,
+          selectorContext,
+          groupId
+        );
+        await consumeWinningPolicyUse(user.id, recipientPolicyResult);
+      }
+
+      const recipientResolution = buildStructuredResolution(
+        `${resolutionId}_${member.userId}`,
+        groupDirection,
+        recipientPolicyResult
       );
-      const messageId = nanoid();
-      await db.insert(schema.messages).values({
-        id: messageId,
-        correlationId: data.correlation_id,
-        direction: messageSelectors.direction,
-        resource: messageSelectors.resource,
-        action: messageSelectors.action,
-        inResponseTo,
-        outcome: groupOutcome,
-        outcomeDetails: groupOutcomeDetails,
-        policiesEvaluated: groupPolicyEvaluation,
-        senderUserId: user.id,
-        senderConnectionId,
-        senderAgent,
-        recipientType: "group",
-        recipientId: groupId,
-        recipientConnectionId: null,
-        payload: data.message,
-        payloadType: data.payload_type,
-        encryption: data.encryption ? JSON.stringify(data.encryption) : null,
-        senderSignature: data.sender_signature
-          ? JSON.stringify(data.sender_signature)
-          : null,
-        context: data.context,
-        status: blockedStatus,
-        rejectionReason: groupResolution.decision === "deny" ? groupPolicyResult?.reason || null : null,
-        idempotencyKey: data.idempotency_key,
-      });
+      const shouldDeliverRecipient = shouldDeliverForDecision(
+        recipientResolution.decision,
+        groupDirection,
+        recipientResolution.delivery_mode
+      );
+      const deliveryStatus = shouldDeliverRecipient
+        ? "pending"
+        : blockedMessageStatusForDecision(
+            recipientResolution.decision,
+            recipientResolution.delivery_mode
+          );
 
-      return c.json({
-        message_id: messageId,
-        status: blockedStatus,
-        rejection_reason: groupResolution.decision === "deny" ? groupPolicyResult?.reason || null : null,
-        resolution: groupResolution,
-        recipient_results: [buildRecipientResult(groupId, groupResolution, blockedStatus)],
+      const policyAudit: GroupRecipientPolicyAudit = {
+        recipient_user_id: member.userId,
+        recipient_username: member.username,
+        decision: recipientResolution.decision,
+        delivery_mode: recipientResolution.delivery_mode,
+        should_deliver: shouldDeliverRecipient,
+        delivery_status: deliveryStatus,
+        reason: recipientResolution.reason,
+        reason_code: recipientResolution.reason_code,
+        winning_policy_id: recipientResolution.winning_policy_id,
+        matched_policy_ids: recipientResolution.matched_policy_ids,
+        resolver_layer: recipientResolution.resolver_layer,
+        guardrail_id: recipientResolution.guardrail_id,
+      };
+      recipientPolicyAudits.push(policyAudit);
+      recipientPolicyAuditByUser.set(member.userId, policyAudit);
+
+      if (!shouldDeliverRecipient) {
+        continue;
+      }
+
+      deliveryEligibleMembers.push({
+        userId: member.userId,
+        username: member.username,
+        resolution: recipientResolution,
+        reviewRequiredDelivery:
+          recipientResolution.decision === "ask" &&
+          recipientResolution.delivery_mode === "review_required",
+        connections: connectionsByUser.get(member.userId) || [],
       });
     }
 
-    const reviewRequiredDelivery =
-      groupResolution.decision === "ask" && groupResolution.delivery_mode === "review_required";
-
-    // Create the parent message record
+    // Create the parent message record. Final status/evaluation are set after fan-out completes.
     const messageId = nanoid();
     await db.insert(schema.messages).values({
       id: messageId,
@@ -779,9 +923,9 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       resource: messageSelectors.resource,
       action: messageSelectors.action,
       inResponseTo,
-      outcome: groupOutcome,
-      outcomeDetails: groupOutcomeDetails,
-      policiesEvaluated: groupPolicyEvaluation,
+      outcome: requestedOutcome.outcome,
+      outcomeDetails: requestedOutcome.outcomeDetails,
+      policiesEvaluated: null,
       senderUserId: user.id,
       senderConnectionId,
       senderAgent,
@@ -799,97 +943,56 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       idempotencyKey: data.idempotency_key,
     });
 
-    // Get all active group members (excluding sender)
-    const members = await db
-      .select({
-        userId: schema.groupMemberships.userId,
-      })
-      .from(schema.groupMemberships)
-      .where(
-        and(
-          eq(schema.groupMemberships.groupId, groupId),
-          eq(schema.groupMemberships.status, "active"),
-          ne(schema.groupMemberships.userId, user.id)
-        )
-      );
-
-    if (members.length === 0) {
-      // No other members - mark as delivered
-      await db
-        .update(schema.messages)
-        .set({ status: "delivered", deliveredAt: new Date() })
-        .where(eq(schema.messages.id, messageId));
-
-      const noRecipientStatus = groupResolution.decision === "ask" ? "review_required" : "delivered";
-      return c.json({
-        message_id: messageId,
-        status: noRecipientStatus,
-        delivery_status: "delivered",
-        recipients: 0,
-        resolution: groupResolution,
-        recipient_results: [buildRecipientResult(groupId, groupResolution, "delivered")],
-      });
+    // Log policy-constrained recipients explicitly in delivery records.
+    for (const policyAudit of recipientPolicyAudits) {
+      if (
+        policyAudit.delivery_status === "rejected" ||
+        policyAudit.delivery_status === "review_required" ||
+        policyAudit.delivery_status === "approval_pending"
+      ) {
+        await db.insert(schema.messageDeliveries).values({
+          id: nanoid(),
+          messageId,
+          recipientUserId: policyAudit.recipient_user_id,
+          recipientConnectionId: null,
+          status: "failed",
+          errorMessage: policyAudit.reason
+            ? `Policy ${policyAudit.decision}: ${policyAudit.reason}`
+            : `Policy ${policyAudit.decision}: ${policyAudit.reason_code}`,
+        });
+      }
     }
 
-    // Get active connections for each member
-    const memberUserIds = members.map((m) => m.userId);
-    const memberConnections = await db
-      .select()
-      .from(schema.agentConnections)
-      .where(
-        and(
-          inArray(schema.agentConnections.userId, memberUserIds),
-          eq(schema.agentConnections.status, "active")
-        )
-      );
-
-    // Group connections by user
-    const connectionsByUser = new Map<string, schema.AgentConnection[]>();
-    for (const conn of memberConnections) {
-      const list = connectionsByUser.get(conn.userId) || [];
-      list.push(conn);
-      connectionsByUser.set(conn.userId, list);
-    }
-
-    // Create delivery records and deliver to each recipient connection
+    // Deliver to recipients that passed per-recipient resolution.
     const deliveryPromises: Promise<void>[] = [];
-    const memberResults = new Map<
+    const memberDeliveryStats = new Map<
       string,
       { delivered: number; pending: number; failed: number }
     >();
-    let pendingCount = 0;
-    let failedCount = 0;
-    let deliveryTotal = 0;
 
-    for (const member of members) {
-      const connections = connectionsByUser.get(member.userId) || [];
-      const memberStats = memberResults.get(member.userId) || {
+    for (const member of deliveryEligibleMembers) {
+      const memberStats = memberDeliveryStats.get(member.userId) || {
         delivered: 0,
         pending: 0,
         failed: 0,
       };
 
-      if (connections.length === 0) {
-        // No active connection for this member - mark as failed
-        const deliveryId = nanoid();
+      if (member.connections.length === 0) {
         await db.insert(schema.messageDeliveries).values({
-          id: deliveryId,
+          id: nanoid(),
           messageId,
           recipientUserId: member.userId,
           recipientConnectionId: null,
           status: "failed",
           errorMessage: "No active connection",
         });
-        deliveryTotal++;
-        failedCount++;
         memberStats.failed++;
-        memberResults.set(member.userId, memberStats);
+        memberDeliveryStats.set(member.userId, memberStats);
         continue;
       }
 
-      for (const connection of connections) {
+      for (const connection of member.connections) {
         const deliveryId = nanoid();
-        // Create delivery record
         await db.insert(schema.messageDeliveries).values({
           id: deliveryId,
           messageId,
@@ -897,7 +1000,6 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
           recipientConnectionId: connection.id,
           status: "pending",
         });
-        deliveryTotal++;
 
         // Deliver asynchronously
         deliveryPromises.push(
@@ -920,14 +1022,14 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
               resource: messageSelectors.resource,
               action: messageSelectors.action,
             },
-            resolution_id: groupResolution.resolution_id,
-            review_required: reviewRequiredDelivery,
-            delivery_mode: groupResolution.delivery_mode,
+            resolution_id: member.resolution.resolution_id,
+            review_required: member.reviewRequiredDelivery,
+            delivery_mode: member.resolution.delivery_mode,
             group_id: groupId,
             group_name: group.name,
             timestamp: new Date().toISOString(),
           }).then((result) => {
-            const stats = memberResults.get(member.userId) || {
+            const stats = memberDeliveryStats.get(member.userId) || {
               delivered: 0,
               pending: 0,
               failed: 0,
@@ -936,69 +1038,174 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
             if (result.status === "delivered") {
               stats.delivered++;
             } else if (result.status === "pending") {
-              pendingCount++;
               stats.pending++;
             } else {
-              failedCount++;
               stats.failed++;
             }
 
-            memberResults.set(member.userId, stats);
+            memberDeliveryStats.set(member.userId, stats);
           })
         );
       }
     }
 
-    // Wait for all deliveries to complete
     await Promise.all(deliveryPromises);
 
-    // Aggregate per-member delivery status for response
+    for (const member of deliveryEligibleMembers) {
+      const stats = memberDeliveryStats.get(member.userId);
+      const policyAudit = recipientPolicyAuditByUser.get(member.userId);
+      if (!policyAudit) {
+        continue;
+      }
+
+      if (!stats) {
+        policyAudit.delivery_status = "failed";
+      } else if (stats.pending > 0) {
+        policyAudit.delivery_status = "pending";
+      } else if (stats.delivered > 0) {
+        policyAudit.delivery_status = "delivered";
+      } else {
+        policyAudit.delivery_status = "failed";
+      }
+    }
+
+    const recipientsTotal = recipientPolicyAudits.length;
     let memberDeliveredCount = 0;
     let memberPendingCount = 0;
     let memberFailedCount = 0;
+    let memberRejectedCount = 0;
+    let memberReviewRequiredCount = 0;
 
-    for (const member of members) {
-      const stats = memberResults.get(member.userId);
-      if (!stats) {
-        memberFailedCount++;
-        continue;
-      }
-      if (stats.pending > 0) {
-        memberPendingCount++;
-      } else if (stats.delivered > 0) {
+    for (const policyAudit of recipientPolicyAudits) {
+      if (policyAudit.delivery_status === "delivered") {
         memberDeliveredCount++;
+      } else if (policyAudit.delivery_status === "pending") {
+        memberPendingCount++;
+      } else if (
+        policyAudit.delivery_status === "review_required" ||
+        policyAudit.delivery_status === "approval_pending"
+      ) {
+        memberReviewRequiredCount++;
+      } else if (policyAudit.delivery_status === "rejected") {
+        memberRejectedCount++;
       } else {
         memberFailedCount++;
       }
     }
 
-    // Update parent message status based on delivery results
-    let overallStatus: "delivered" | "pending" | "failed" = "delivered";
-    if (pendingCount > 0) {
+    const aggregateDecision = deriveGroupAggregateDecision(recipientPolicyAudits);
+    const aggregateDeliveryMode = resolveDeliveryMode(aggregateDecision, groupDirection);
+    const distinctDecisions = new Set(recipientPolicyAudits.map((entry) => entry.decision));
+    const distinctStatuses = new Set(recipientPolicyAudits.map((entry) => entry.delivery_status));
+    const partialDelivery =
+      recipientsTotal > 0 &&
+      (distinctDecisions.size > 1 || distinctStatuses.size > 1);
+
+    const representativeAudit =
+      recipientPolicyAudits.find((entry) => entry.decision === aggregateDecision) ||
+      recipientPolicyAudits[0];
+    const aggregateReason = partialDelivery
+      ? "Group fan-out produced mixed per-recipient outcomes."
+      : representativeAudit?.reason || null;
+    const aggregateReasonCode = partialDelivery
+      ? "policy.partial.group_fanout"
+      : representativeAudit?.reason_code || defaultReasonCode(aggregateDecision);
+    const aggregateSummary =
+      recipientsTotal === 0
+        ? "No active recipients in group."
+        : partialDelivery
+          ? `Partial group delivery: ${memberDeliveredCount} delivered, ${memberPendingCount} pending, ${memberRejectedCount} denied, ${memberReviewRequiredCount} review-required, ${memberFailedCount} failed.`
+          : buildResolutionSummary(aggregateDecision, aggregateDeliveryMode, null);
+
+    const groupResolution: StructuredResolution = {
+      resolution_id: resolutionId,
+      decision: aggregateDecision,
+      delivery_mode: aggregateDeliveryMode,
+      summary: aggregateSummary,
+      reason: aggregateReason,
+      reason_code: aggregateReasonCode,
+      resolver_layer: partialDelivery ? null : representativeAudit?.resolver_layer || null,
+      guardrail_id: partialDelivery ? null : representativeAudit?.guardrail_id || null,
+      winning_policy_id: partialDelivery ? null : representativeAudit?.winning_policy_id || null,
+      matched_policy_ids: Array.from(
+        new Set(recipientPolicyAudits.flatMap((entry) => entry.matched_policy_ids))
+      ),
+    };
+
+    const groupPolicyEvaluation = serializeGroupFanOutPolicyEvaluation(recipientPolicyAudits, {
+      resolution_id: resolutionId,
+      group_id: groupId,
+      policy_evaluation_mode: "group_outbound_fanout",
+    });
+    const groupOutcome = deriveGroupOutcomeFromFanOut(
+      requestedOutcome.outcome,
+      recipientPolicyAudits
+    );
+    const groupOutcomeDetails = requestedOutcome.outcomeDetails || groupResolution.summary;
+
+    let overallStatus: MessageRecordStatus = "delivered";
+    if (memberPendingCount > 0) {
       overallStatus = "pending";
-    } else if (failedCount === deliveryTotal) {
+    } else if (memberDeliveredCount > 0) {
+      overallStatus = "delivered";
+    } else if (memberReviewRequiredCount > 0) {
+      overallStatus = "review_required";
+    } else if (memberRejectedCount > 0 && memberRejectedCount + memberFailedCount === recipientsTotal) {
+      overallStatus = "rejected";
+    } else if (memberFailedCount > 0) {
       overallStatus = "failed";
+    } else if (recipientsTotal === 0) {
+      overallStatus = "delivered";
     }
 
     await db
       .update(schema.messages)
       .set({
+        outcome: groupOutcome,
+        outcomeDetails: groupOutcomeDetails,
+        policiesEvaluated: groupPolicyEvaluation,
         status: overallStatus,
-        deliveredAt: overallStatus === "delivered" ? new Date() : undefined,
+        rejectionReason:
+          overallStatus === "rejected"
+            ? recipientPolicyAudits.find((entry) => entry.delivery_status === "rejected")?.reason ||
+              null
+            : null,
+        deliveredAt: overallStatus === "delivered" ? new Date() : null,
       })
       .where(eq(schema.messages.id, messageId));
 
-    const groupResponseStatus = groupResolution.decision === "ask" ? "review_required" : overallStatus;
+    let deliveryStatus: "delivered" | "pending" | "failed" = "delivered";
+    if (memberPendingCount > 0) {
+      deliveryStatus = "pending";
+    } else if (recipientsTotal > 0 && memberDeliveredCount === 0) {
+      deliveryStatus = "failed";
+    }
+
     return c.json({
       message_id: messageId,
-      status: groupResponseStatus,
-      delivery_status: overallStatus,
-      recipients: members.length,
+      status: overallStatus,
+      delivery_status: deliveryStatus,
+      recipients: recipientsTotal,
       delivered: memberDeliveredCount,
       pending: memberPendingCount,
       failed: memberFailedCount,
+      denied: memberRejectedCount,
+      review_required: memberReviewRequiredCount,
       resolution: groupResolution,
-      recipient_results: [buildRecipientResult(groupId, groupResolution, overallStatus)],
+      recipient_results: recipientPolicyAudits.map((entry) =>
+        buildRecipientResult(entry.recipient_username, {
+          resolution_id: resolutionId,
+          decision: entry.decision,
+          delivery_mode: entry.delivery_mode,
+          summary: entry.reason || aggregateSummary,
+          reason: entry.reason,
+          reason_code: entry.reason_code,
+          resolver_layer: entry.resolver_layer,
+          guardrail_id: entry.guardrail_id,
+          winning_policy_id: entry.winning_policy_id,
+          matched_policy_ids: entry.matched_policy_ids,
+        }, entry.delivery_status)
+      ),
     });
   }
 

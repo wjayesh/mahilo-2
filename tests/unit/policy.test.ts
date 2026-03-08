@@ -1075,6 +1075,119 @@ describe("Policy Service", () => {
       expect(first.resolution_explanation).toContain("deny > ask > allow");
       expect(first.matched_policy_ids.length).toBe(3);
     });
+
+    it("should apply group overlay constraints when group context is provided", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("group_overlay_sender");
+      const { user: recipient } = await createTestUser("group_overlay_recipient");
+
+      const userAllow = canonicalToStorage({
+        scope: "user",
+        target_id: recipient.id,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 50,
+        enabled: true,
+      });
+      const groupDeny = canonicalToStorage({
+        scope: "group",
+        target_id: "grp_fanout_overlay",
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 60,
+        enabled: true,
+      });
+
+      const userPolicyId = nanoid();
+      const groupPolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: userPolicyId,
+          userId: sender.id,
+          scope: "user",
+          targetId: recipient.id,
+          policyType: userAllow.policyType,
+          policyContent: userAllow.policyContent,
+          direction: userAllow.direction,
+          resource: userAllow.resource,
+          action: userAllow.action,
+          effect: userAllow.effect,
+          evaluator: userAllow.evaluator,
+          effectiveFrom: userAllow.effectiveFrom,
+          expiresAt: userAllow.expiresAt,
+          maxUses: userAllow.maxUses,
+          remainingUses: userAllow.remainingUses,
+          source: userAllow.source,
+          derivedFromMessageId: userAllow.derivedFromMessageId,
+          priority: userAllow.priority,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: groupPolicyId,
+          userId: sender.id,
+          scope: "group",
+          targetId: "grp_fanout_overlay",
+          policyType: groupDeny.policyType,
+          policyContent: groupDeny.policyContent,
+          direction: groupDeny.direction,
+          resource: groupDeny.resource,
+          action: groupDeny.action,
+          effect: groupDeny.effect,
+          evaluator: groupDeny.evaluator,
+          effectiveFrom: groupDeny.effectiveFrom,
+          expiresAt: groupDeny.expiresAt,
+          maxUses: groupDeny.maxUses,
+          remainingUses: groupDeny.remainingUses,
+          source: groupDeny.source,
+          derivedFromMessageId: groupDeny.derivedFromMessageId,
+          priority: groupDeny.priority,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const directResult = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+      expect(directResult.effect).toBe("allow");
+      expect(directResult.winning_policy_id).toBe(userPolicyId);
+
+      const groupResult = await evaluatePolicies(
+        sender.id,
+        recipient.id,
+        "neutral message",
+        undefined,
+        undefined,
+        {
+          direction: "outbound",
+          resource: "message.general",
+          action: "share",
+        },
+        "grp_fanout_overlay"
+      );
+      expect(groupResult.effect).toBe("deny");
+      expect(groupResult.winning_policy_id).toBe(groupPolicyId);
+      expect(groupResult.resolution_explanation).toContain("additional constraint");
+    });
   });
 
   describe("evaluateGroupPolicies", () => {

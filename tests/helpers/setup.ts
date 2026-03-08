@@ -117,6 +117,48 @@ export async function setupTestDatabase() {
     CREATE INDEX IF NOT EXISTS idx_messages_idempotency ON messages(idempotency_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_idempotency_sender ON messages(sender_user_id, idempotency_key);
 
+    CREATE TABLE IF NOT EXISTS message_deliveries (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      recipient_user_id TEXT NOT NULL REFERENCES users(id),
+      recipient_connection_id TEXT REFERENCES agent_connections(id),
+      status TEXT NOT NULL DEFAULT 'pending',
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      delivered_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_message ON message_deliveries(message_id);
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_recipient ON message_deliveries(recipient_user_id);
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_status ON message_deliveries(status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_message_deliveries_unique ON message_deliveries(message_id, recipient_connection_id);
+
+    CREATE TABLE IF NOT EXISTS groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invite_only INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name);
+    CREATE INDEX IF NOT EXISTS idx_groups_owner ON groups(owner_user_id);
+
+    CREATE TABLE IF NOT EXISTS group_memberships (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'member',
+      status TEXT NOT NULL DEFAULT 'pending',
+      invited_by_user_id TEXT REFERENCES users(id),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      UNIQUE(group_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_memberships_group ON group_memberships(group_id);
+    CREATE INDEX IF NOT EXISTS idx_group_memberships_user ON group_memberships(user_id);
+    CREATE INDEX IF NOT EXISTS idx_group_memberships_status ON group_memberships(status);
+
     CREATE TABLE IF NOT EXISTS policies (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
