@@ -42,6 +42,8 @@ export interface ProcessWebhookResult {
   status: "accepted" | "duplicate" | "invalid_payload" | "invalid_signature";
 }
 
+const MAX_MESSAGE_ID_LENGTH = 512;
+
 export function parseInboundWebhookPayload(rawBody: string): MahiloInboundWebhookPayload {
   let parsed: unknown;
   try {
@@ -55,7 +57,7 @@ export function parseInboundWebhookPayload(rawBody: string): MahiloInboundWebhoo
   }
 
   const payload = parsed as Record<string, unknown>;
-  const messageId = readRequiredString(payload.message_id, "message_id");
+  const messageId = readRequiredMessageId(payload.message_id, "message_id");
   const recipientConnectionId = readRequiredString(payload.recipient_connection_id, "recipient_connection_id");
   const sender = readRequiredString(payload.sender, "sender");
   const senderAgent = readRequiredString(payload.sender_agent, "sender_agent");
@@ -108,11 +110,22 @@ export function processWebhookDelivery(input: ProcessWebhookInput, options: Proc
   }
 
   const signatureHeaders = extractWebhookSignatureHeaders(input.headers);
-  const messageId = payload.message_id || signatureHeaders.messageId;
-  if (!messageId) {
+  let headerMessageId: string | undefined;
+  try {
+    headerMessageId = readOptionalMessageId(signatureHeaders.messageId, "x-mahilo-message-id");
+  } catch (error) {
     return {
       deduplicated: false,
-      error: "missing message_id in payload and headers",
+      error: error instanceof Error ? error.message : "invalid message id header",
+      status: "invalid_payload"
+    };
+  }
+
+  const messageId = payload.message_id;
+  if (headerMessageId && headerMessageId !== messageId) {
+    return {
+      deduplicated: false,
+      error: "x-mahilo-message-id must match payload message_id",
       status: "invalid_payload"
     };
   }
@@ -168,4 +181,34 @@ function normalizeSelectors(value: unknown): DeclaredSelectors | undefined {
 
   const selectors = value as Partial<DeclaredSelectors>;
   return normalizeDeclaredSelectors(selectors, "inbound");
+}
+
+function readRequiredMessageId(value: unknown, key: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${key} must be a non-empty string`);
+  }
+
+  const normalized = value.trim();
+  if (normalized.length > MAX_MESSAGE_ID_LENGTH) {
+    throw new Error(`${key} must be at most ${MAX_MESSAGE_ID_LENGTH} characters`);
+  }
+
+  return normalized;
+}
+
+function readOptionalMessageId(value: unknown, key: string): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  if (normalized.length > MAX_MESSAGE_ID_LENGTH) {
+    throw new Error(`${key} must be at most ${MAX_MESSAGE_ID_LENGTH} characters`);
+  }
+
+  return normalized;
 }

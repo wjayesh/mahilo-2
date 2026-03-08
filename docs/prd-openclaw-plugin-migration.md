@@ -484,14 +484,18 @@ It is:
 
 ### 5.2 Dedup / Idempotency
 - **ID**: `PLG2-051`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-050
 - **Description**:
   - Preserve and strengthen inbound dedup behavior.
 - **Acceptance Criteria**:
-  - [ ] Retries do not cause duplicate agent runs
-  - [ ] Message IDs are tracked safely
+  - [x] Retries do not cause duplicate agent runs
+  - [x] Message IDs are tracked safely
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-051 by auditing webhook delivery processing and route wiring; identified that route-level dedupe state was not wired and duplicate deliveries still invoked `onAcceptedDelivery`.
+  - 2026-03-08: Hardened inbound dedupe/idempotency by wiring handler-local dedupe state into webhook processing, preventing duplicate deliveries from triggering accepted-delivery callbacks, and validating/normalizing message IDs with payload/header consistency checks.
+  - 2026-03-08: Added regression coverage in `tests/webhook.test.ts` and `tests/webhook-route.test.ts`, then validated with `bun run test` (93 passing) and `bun run build` from `plugins/openclaw-mahilo/`.
 
 ### 5.3 Inbound Message Routing
 - **ID**: `PLG2-052`

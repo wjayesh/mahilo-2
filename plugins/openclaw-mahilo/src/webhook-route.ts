@@ -2,6 +2,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 
 import type { MahiloPluginConfig } from "./config";
 import type { HeaderBag } from "./keys";
+import { InMemoryDedupeState } from "./state";
 import type { MahiloInboundWebhookPayload, ProcessWebhookResult } from "./webhook";
 import { processWebhookDelivery } from "./webhook";
 
@@ -20,6 +21,8 @@ export interface MahiloWebhookLogger {
 export interface MahiloWebhookRouteOptions {
   authMode?: MahiloWebhookRouteAuthMode;
   callbackSecret?: string;
+  dedupeState?: InMemoryDedupeState;
+  dedupeTtlMs?: number;
   getCallbackSecret?: () => string | undefined | Promise<string | undefined>;
   logger?: MahiloWebhookLogger;
   maxSignatureAgeSeconds?: number;
@@ -62,6 +65,8 @@ export function registerMahiloWebhookRoute(
 }
 
 export function createMahiloWebhookRouteHandler(options: MahiloWebhookRouteOptions = {}) {
+  const dedupeState = options.dedupeState ?? new InMemoryDedupeState(options.dedupeTtlMs);
+
   return async (req: unknown, res: unknown): Promise<void> => {
     const request = req as HttpRequestLike;
     const response = res as HttpResponseLike;
@@ -104,6 +109,7 @@ export function createMahiloWebhookRouteHandler(options: MahiloWebhookRouteOptio
       },
       {
         callbackSecret,
+        dedupeState,
         maxSignatureAgeSeconds: options.maxSignatureAgeSeconds,
         nowSeconds: resolveNowSeconds(options.nowSeconds)
       }
@@ -128,7 +134,11 @@ export function createMahiloWebhookRouteHandler(options: MahiloWebhookRouteOptio
       return;
     }
 
-    if ((result.status === "accepted" || result.status === "duplicate") && result.payload && result.messageId) {
+    if (result.status === "duplicate") {
+      options.logger?.debug?.(`[Mahilo] Ignored duplicate webhook delivery for ${result.messageId ?? "unknown"}.`);
+    }
+
+    if (result.status === "accepted" && result.payload && result.messageId) {
       try {
         await options.onAcceptedDelivery?.({
           messageId: result.messageId,

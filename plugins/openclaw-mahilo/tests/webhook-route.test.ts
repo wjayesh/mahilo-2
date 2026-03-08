@@ -165,6 +165,56 @@ describe("createMahiloWebhookRouteHandler", () => {
     expect(acceptedMessageIds).toEqual(["msg_123"]);
   });
 
+  it("acknowledges duplicate retries without rerunning delivery callbacks", async () => {
+    const acceptedMessageIds: string[] = [];
+    const rawBody = buildRawPayload();
+    const timestamp = 1_700_000_000;
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const headers = {
+      "x-mahilo-message-id": "msg_123",
+      "x-mahilo-signature": `sha256=${signature}`,
+      "x-mahilo-timestamp": String(timestamp)
+    };
+    const handler = createMahiloWebhookRouteHandler({
+      callbackSecret: CALLBACK_SECRET,
+      dedupeTtlMs: 60_000,
+      maxSignatureAgeSeconds: 120,
+      nowSeconds: timestamp + 3,
+      onAcceptedDelivery: ({ messageId }) => {
+        acceptedMessageIds.push(messageId);
+      }
+    });
+
+    const firstReq = createMockRequest({
+      headers,
+      rawBody
+    });
+    const firstRes = createMockResponse();
+    await handler(firstReq, firstRes.response);
+
+    const retryReq = createMockRequest({
+      headers,
+      rawBody
+    });
+    const retryRes = createMockResponse();
+    await handler(retryReq, retryRes.response);
+
+    expect(firstRes.status()).toBe(200);
+    expect(firstRes.body()).toMatchObject({
+      deduplicated: false,
+      messageId: "msg_123",
+      status: "accepted"
+    });
+
+    expect(retryRes.status()).toBe(200);
+    expect(retryRes.body()).toMatchObject({
+      deduplicated: true,
+      messageId: "msg_123",
+      status: "duplicate"
+    });
+    expect(acceptedMessageIds).toEqual(["msg_123"]);
+  });
+
   it("verifies signatures using exact raw body bytes", async () => {
     const rawBody =
       '{"message_id":"msg_123", "recipient_connection_id":"conn_local","sender":"alice","sender_agent":"openclaw","message":"hello","timestamp":"2026-03-08T12:15:00.000Z"}';
