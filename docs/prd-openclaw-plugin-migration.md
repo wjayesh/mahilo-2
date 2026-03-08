@@ -282,15 +282,18 @@ It is:
 
 ### 2.1 Modernize SDK Imports
 - **ID**: `PLG2-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011
 - **Description**:
   - Move from older `clawdbot` / `Moltbot` import shapes to modern OpenClaw plugin SDK usage.
   - Prefer current OpenClaw plugin import paths.
 - **Acceptance Criteria**:
-  - [ ] Plugin builds against current OpenClaw SDK surface
-  - [ ] No legacy naming leaks remain in public-facing plugin code
+  - [x] Plugin builds against current OpenClaw SDK surface
+  - [x] No legacy naming leaks remain in public-facing plugin code
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-020 by auditing plugin exports and adding an OpenClaw SDK-facing plugin entry wired to current import paths (`openclaw/plugin-sdk/core`).
+  - 2026-03-08: Added plugin-local tests for OpenClaw SDK registration and public-surface legacy-name guards, then validated with `bun run build`, `bun run test` (79 passing), and targeted TypeScript SDK compatibility compile for `src/openclaw-plugin.ts`.
 
 ### 2.2 Normalize Package Identity
 - **ID**: `PLG2-021`

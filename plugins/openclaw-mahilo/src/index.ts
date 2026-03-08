@@ -26,6 +26,8 @@ export {
 export type { DeclaredSelectors, LocalPolicyGuardInput, LocalPolicyGuardResult, PolicyDecision, SelectorDirection } from "./policy-helpers";
 export { listMahiloContacts, talkToAgent, talkToGroup } from "./tools";
 export type { ContactsProvider, MahiloContact, MahiloSendToolInput, MahiloToolContext, MahiloToolResult, TalkToGroupInput, ToolExecutionOptions } from "./tools";
+export { createMahiloOpenClawPlugin, registerMahiloOpenClawPlugin } from "./openclaw-plugin";
+export type { MahiloOpenClawPluginOptions } from "./openclaw-plugin";
 export { parseInboundWebhookPayload, processWebhookDelivery } from "./webhook";
 export type {
   MahiloInboundWebhookPayload,
