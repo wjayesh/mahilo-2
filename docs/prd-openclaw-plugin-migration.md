@@ -576,17 +576,26 @@ It is:
 
 ### 6.3 Old Plugin Deprecation Plan
 - **ID**: `PLG2-062`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-011, PLG2-061
 - **Description**:
-  - Decide whether to:
-    - delete old plugin after migration
-    - leave a stub / README redirect
-    - or freeze it temporarily
+  - **Decision (2026-03-08)**: Use a **freeze + README redirect**, then delete legacy code after cutover confidence.
+  - **Source of truth after migration**:
+    - All active plugin development and reviews happen only in `plugins/openclaw-mahilo/`.
+    - `myclawd/extensions/mahilo/` is legacy and read-only for normal development.
+  - **Deprecation execution plan**:
+    - Immediately freeze legacy plugin code (no new feature work, no routine fixes).
+    - Keep a minimal legacy stub/README redirect that points contributors to `plugins/openclaw-mahilo/`.
+    - Allow legacy edits only for emergency backports, authored in `plugins/openclaw-mahilo/` first and backported explicitly.
+    - Remove the remaining legacy plugin directory once downstream consumers are fully cut over to this package.
 - **Acceptance Criteria**:
-  - [ ] There is one obvious source of truth after migration
-  - [ ] Team members are not confused about where to work
+  - [x] There is one obvious source of truth after migration
+  - [x] Team members are not confused about where to work
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-062 by reviewing migration guidance and current plugin docs to finalize a single long-term deprecation policy for `myclawd/extensions/mahilo/`.
+  - 2026-03-08: Recorded the deprecation decision as freeze + legacy redirect stub with one canonical source of truth (`plugins/openclaw-mahilo/`) and explicit emergency-backport-only exception rules.
+  - 2026-03-08: Updated `plugins/openclaw-mahilo/README.md` with the same effective deprecation policy and validated plugin-local health from `plugins/openclaw-mahilo/` via `bun run check` (build successful, 97 tests passing, manifest checks passing).
 
 ---
 

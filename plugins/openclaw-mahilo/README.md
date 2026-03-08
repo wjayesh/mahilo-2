@@ -117,11 +117,13 @@ When moving from repo-local package to published package, keep this sequence:
 3. Build before packaging so `openclaw.extensions` points to a present built entry (`./dist/index.js`).
 4. Run a dry package inspection (`npm pack --dry-run`) and verify `dist/`, `openclaw.plugin.json`, and `README.md` are included.
 
-Legacy path policy:
+Legacy path and deprecation policy (PLG2-062, effective 2026-03-08):
 
-- Do not implement active feature work in `myclawd/extensions/mahilo/`.
-- Treat `myclawd/extensions/mahilo/` as migration reference-only.
-- If a temporary legacy backport is unavoidable, author the fix in `plugins/openclaw-mahilo/` first, then backport explicitly.
+- `plugins/openclaw-mahilo/` is the only active development source of truth.
+- Freeze `myclawd/extensions/mahilo/` for normal development (no new feature work, no routine fixes).
+- Keep only a minimal legacy stub/README redirect in `myclawd/extensions/mahilo/` that points contributors to this package.
+- If an emergency legacy backport is unavoidable, author and validate the fix in `plugins/openclaw-mahilo/` first, then backport explicitly.
+- Remove the remaining legacy plugin directory after downstream users are fully cut over to this package path.
 
 ## Plugin Config Boundary
 
