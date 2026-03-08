@@ -245,9 +245,16 @@ describe("E2E: Two Users Exchange Messages", () => {
     const crossUserData = await crossUserRes.json();
     expect(crossUserData.message_id).not.toBe(sendData.message_id);
     expect(crossUserData.deduplicated).not.toBe(true);
+    const [crossUserStored] = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, crossUserData.message_id))
+      .limit(1);
+    expect(crossUserStored?.senderConnectionId).toBe(aliceAgent.connection_id);
 
     await waitForCallbacks(2);
     const bobCallback = findCallback(crossUserData.message_id);
     expect(bobCallback).toBeDefined();
+    expect(bobCallback?.body?.sender_connection_id).toBe(aliceAgent.connection_id);
   });
 });

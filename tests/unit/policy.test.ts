@@ -10,6 +10,7 @@ import {
   cleanupTestDatabase,
   createTestUser,
   createFriendship,
+  createAgentConnection,
   getTestDb,
   setupTestDatabase,
   seedTestSystemRoles,
@@ -268,6 +269,70 @@ describe("Policy Service", () => {
 
     it("should expose resolver order with platform guardrails first", () => {
       expect(POLICY_RESOLVER_ORDER).toEqual(["platform_guardrails", "user_policies"]);
+    });
+
+    it("should include authenticated identity context when provided", async () => {
+      const { user: sender } = await createTestUser("identity_sender_ok");
+      const { user: recipient } = await createTestUser("identity_recipient_ok");
+      const senderConnection = await createAgentConnection(sender.id, {
+        callbackUrl: "polling://identity-sender-ok",
+      });
+
+      const result = await evaluatePolicies(sender.id, recipient.id, "neutral message", undefined, {
+        sender_user_id: sender.id,
+        sender_connection_id: senderConnection.id,
+      });
+
+      expect(result.authenticated_identity).toEqual({
+        sender_user_id: sender.id,
+        sender_connection_id: senderConnection.id,
+      });
+    });
+
+    it("should reject invalid authenticated sender connections before policy evaluation", async () => {
+      const { user: sender } = await createTestUser("identity_sender_invalid");
+      const { user: recipient } = await createTestUser("identity_recipient_invalid");
+
+      const result = await evaluatePolicies(
+        sender.id,
+        recipient.id,
+        "neutral message",
+        undefined,
+        {
+          sender_user_id: sender.id,
+          sender_connection_id: "conn_missing_identity",
+        }
+      );
+
+      expect(result.effect).toBe("deny");
+      expect(result.reason_code).toBe("auth.sender_connection.invalid");
+      expect(result.resolver_layer).toBe("platform_guardrails");
+      expect(result.evaluated_policies).toHaveLength(0);
+    });
+
+    it("should reject authenticated identity mismatches before policy evaluation", async () => {
+      const { user: sender } = await createTestUser("identity_sender_mismatch");
+      const { user: recipient } = await createTestUser("identity_recipient_mismatch");
+      const { user: otherUser } = await createTestUser("identity_other_user");
+      const senderConnection = await createAgentConnection(sender.id, {
+        callbackUrl: "polling://identity-mismatch",
+      });
+
+      const result = await evaluatePolicies(
+        sender.id,
+        recipient.id,
+        "neutral message",
+        undefined,
+        {
+          sender_user_id: otherUser.id,
+          sender_connection_id: senderConnection.id,
+        }
+      );
+
+      expect(result.effect).toBe("deny");
+      expect(result.reason_code).toBe("auth.sender_identity.mismatch");
+      expect(result.resolver_layer).toBe("platform_guardrails");
+      expect(result.evaluated_policies).toHaveLength(0);
     });
 
     it("should apply platform guardrails before user policies", async () => {

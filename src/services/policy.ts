@@ -25,6 +25,11 @@ interface HeuristicRules {
 export type PolicyResolverLayer = "platform_guardrails" | "user_policies";
 export type PolicyEvaluationPhase = "deterministic" | "contextual_llm";
 
+export interface AuthenticatedSenderIdentity {
+  sender_user_id: string;
+  sender_connection_id: string;
+}
+
 interface PolicyLifecycleProvenance {
   created_by_user_id: string;
   source: CanonicalPolicy["source"];
@@ -91,6 +96,7 @@ export interface PolicyResult {
   reason?: string;
   reason_code: string;
   resolution_explanation: string;
+  authenticated_identity?: AuthenticatedSenderIdentity;
   resolver_layer?: PolicyResolverLayer;
   guardrail_id?: string;
   winning_policy_id?: string;
@@ -386,6 +392,7 @@ function toResult(
     reason?: string;
     reason_code?: string;
     explanation: string;
+    authenticated_identity?: AuthenticatedSenderIdentity;
     winning_policy_id?: string;
     winning_policy?: WinningPolicy;
     resolver_layer: PolicyResolverLayer;
@@ -400,6 +407,7 @@ function toResult(
     reason: options.reason,
     reason_code: options.reason_code || `policy.${effect}.resolved`,
     resolution_explanation: options.explanation,
+    authenticated_identity: options.authenticated_identity,
     resolver_layer: options.resolver_layer,
     guardrail_id: options.guardrail_id,
     winning_policy_id: options.winning_policy_id,
@@ -640,6 +648,7 @@ async function resolveUserPolicyLayer(
   senderUserId: string,
   message: string,
   options: {
+    authenticatedIdentity: AuthenticatedSenderIdentity;
     recipientUserId?: string;
     recipientUsername?: string;
     recipientRoles?: string[];
@@ -659,6 +668,7 @@ async function resolveUserPolicyLayer(
     return toResult("allow", {
       explanation: "No applicable policies matched. Final effect: 'allow'.",
       reason_code: buildPolicyReasonCode("allow", undefined, "no_applicable"),
+      authenticated_identity: options.authenticatedIdentity,
       resolver_layer: "user_policies",
     });
   }
@@ -707,6 +717,7 @@ async function resolveUserPolicyLayer(
       explanation:
         "Applicable policies were evaluated but none matched current message conditions. Final effect: 'allow'.",
       reason_code: buildPolicyReasonCode("allow", undefined, "no_match"),
+      authenticated_identity: options.authenticatedIdentity,
       resolver_layer: "user_policies",
       matched_policy_ids: [],
       evaluated_policies: evaluatedPolicies,
@@ -764,6 +775,7 @@ async function resolveUserPolicyLayer(
     reason,
     reason_code: buildPolicyReasonCode(finalEffect, winner),
     explanation,
+    authenticated_identity: options.authenticatedIdentity,
     resolver_layer: "user_policies",
     winning_policy_id: winner?.policy_id,
     winning_policy: winner
@@ -794,8 +806,56 @@ export async function evaluatePolicies(
   senderUserId: string,
   recipientUserId: string,
   message: string,
-  context?: string
+  context?: string,
+  authenticatedIdentity?: AuthenticatedSenderIdentity
 ): Promise<PolicyResult> {
+  const identityContext: AuthenticatedSenderIdentity = authenticatedIdentity || {
+    sender_user_id: senderUserId,
+    sender_connection_id: "unknown",
+  };
+  const db = getDb();
+
+  // Bind resolver input to authenticated sender identity + connection whenever available.
+  if (authenticatedIdentity) {
+    if (authenticatedIdentity.sender_user_id !== senderUserId) {
+      return toResult("deny", {
+        reason: "Authenticated sender identity does not match resolver sender",
+        reason_code: "auth.sender_identity.mismatch",
+        explanation:
+          "Authenticated sender identity validation failed before policy evaluation. Final effect: 'deny'.",
+        authenticated_identity: identityContext,
+        resolver_layer: "platform_guardrails",
+        matched_policy_ids: [],
+        evaluated_policies: [],
+      });
+    }
+
+    const [senderConnection] = await db
+      .select({ id: schema.agentConnections.id })
+      .from(schema.agentConnections)
+      .where(
+        and(
+          eq(schema.agentConnections.id, authenticatedIdentity.sender_connection_id),
+          eq(schema.agentConnections.userId, senderUserId),
+          eq(schema.agentConnections.status, "active")
+        )
+      )
+      .limit(1);
+
+    if (!senderConnection) {
+      return toResult("deny", {
+        reason: "Authenticated sender connection not found or inactive",
+        reason_code: "auth.sender_connection.invalid",
+        explanation:
+          "Authenticated sender connection validation failed before policy evaluation. Final effect: 'deny'.",
+        authenticated_identity: identityContext,
+        resolver_layer: "platform_guardrails",
+        matched_policy_ids: [],
+        evaluated_policies: [],
+      });
+    }
+  }
+
   const guardrailResult = evaluatePlatformGuardrails(message);
   if (guardrailResult.blocked) {
     return toResult("deny", {
@@ -803,6 +863,7 @@ export async function evaluatePolicies(
       reason_code: `guardrail.${reasonCodeToken(guardrailResult.guardrail_id || "blocked")}`,
       explanation:
         "Platform guardrail matched before user policy evaluation. Final effect: 'deny'.",
+      authenticated_identity: identityContext,
       resolver_layer: "platform_guardrails",
       guardrail_id: guardrailResult.guardrail_id,
       matched_policy_ids: [],
@@ -810,7 +871,6 @@ export async function evaluatePolicies(
     });
   }
 
-  const db = getDb();
   const recipientRoles = await getRolesForFriend(senderUserId, recipientUserId);
   const [recipient] = await db
     .select({ username: schema.users.username })
@@ -819,6 +879,7 @@ export async function evaluatePolicies(
     .limit(1);
 
   return resolveUserPolicyLayer(senderUserId, message, {
+    authenticatedIdentity: identityContext,
     recipientUserId,
     recipientUsername: recipient?.username,
     recipientRoles,
@@ -832,8 +893,56 @@ export async function evaluateGroupPolicies(
   senderUserId: string,
   groupId: string,
   message: string,
-  context?: string
+  context?: string,
+  authenticatedIdentity?: AuthenticatedSenderIdentity
 ): Promise<PolicyResult> {
+  const identityContext: AuthenticatedSenderIdentity = authenticatedIdentity || {
+    sender_user_id: senderUserId,
+    sender_connection_id: "unknown",
+  };
+  const db = getDb();
+
+  // Bind resolver input to authenticated sender identity + connection whenever available.
+  if (authenticatedIdentity) {
+    if (authenticatedIdentity.sender_user_id !== senderUserId) {
+      return toResult("deny", {
+        reason: "Authenticated sender identity does not match resolver sender",
+        reason_code: "auth.sender_identity.mismatch",
+        explanation:
+          "Authenticated sender identity validation failed before policy evaluation. Final effect: 'deny'.",
+        authenticated_identity: identityContext,
+        resolver_layer: "platform_guardrails",
+        matched_policy_ids: [],
+        evaluated_policies: [],
+      });
+    }
+
+    const [senderConnection] = await db
+      .select({ id: schema.agentConnections.id })
+      .from(schema.agentConnections)
+      .where(
+        and(
+          eq(schema.agentConnections.id, authenticatedIdentity.sender_connection_id),
+          eq(schema.agentConnections.userId, senderUserId),
+          eq(schema.agentConnections.status, "active")
+        )
+      )
+      .limit(1);
+
+    if (!senderConnection) {
+      return toResult("deny", {
+        reason: "Authenticated sender connection not found or inactive",
+        reason_code: "auth.sender_connection.invalid",
+        explanation:
+          "Authenticated sender connection validation failed before policy evaluation. Final effect: 'deny'.",
+        authenticated_identity: identityContext,
+        resolver_layer: "platform_guardrails",
+        matched_policy_ids: [],
+        evaluated_policies: [],
+      });
+    }
+  }
+
   const guardrailResult = evaluatePlatformGuardrails(message);
   if (guardrailResult.blocked) {
     return toResult("deny", {
@@ -841,6 +950,7 @@ export async function evaluateGroupPolicies(
       reason_code: `guardrail.${reasonCodeToken(guardrailResult.guardrail_id || "blocked")}`,
       explanation:
         "Platform guardrail matched before user policy evaluation. Final effect: 'deny'.",
+      authenticated_identity: identityContext,
       resolver_layer: "platform_guardrails",
       guardrail_id: guardrailResult.guardrail_id,
       matched_policy_ids: [],
@@ -849,6 +959,7 @@ export async function evaluateGroupPolicies(
   }
 
   return resolveUserPolicyLayer(senderUserId, message, {
+    authenticatedIdentity: identityContext,
     groupId,
     llmSubject: `group:${groupId}`,
     context,

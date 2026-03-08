@@ -13,6 +13,7 @@ import {
   evaluatePolicies,
   evaluateGroupPolicies,
   consumeWinningPolicyUse,
+  type AuthenticatedSenderIdentity,
   type PolicyResult,
 } from "../services/policy";
 import { config } from "../config";
@@ -116,6 +117,7 @@ function normalizeSelectorToken(value: string | undefined, fallback: string): st
 
 function serializePolicyEvaluation(result: PolicyResult): string {
   return JSON.stringify({
+    authenticated_identity: result.authenticated_identity || null,
     effect: result.effect,
     reason: result.reason || null,
     reason_code: result.reason_code,
@@ -430,7 +432,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
   const inResponseTo = data.in_response_to || null;
   const resolutionId = data.resolution_id || `res_${nanoid(18)}`;
 
-  let senderConnectionId: string | null = null;
+  let senderConnectionId: string;
   if (data.sender_connection_id) {
     const [senderConnection] = await db
       .select({ id: schema.agentConnections.id })
@@ -449,7 +451,30 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     }
 
     senderConnectionId = senderConnection.id;
+  } else {
+    const [senderConnection] = await db
+      .select({ id: schema.agentConnections.id })
+      .from(schema.agentConnections)
+      .where(
+        and(
+          eq(schema.agentConnections.userId, user.id),
+          eq(schema.agentConnections.status, "active")
+        )
+      )
+      .orderBy(desc(schema.agentConnections.routingPriority), desc(schema.agentConnections.createdAt))
+      .limit(1);
+
+    if (!senderConnection) {
+      throw new AppError("Sender connection not found or inactive", 404, "SENDER_CONNECTION_NOT_FOUND");
+    }
+
+    senderConnectionId = senderConnection.id;
   }
+
+  const authenticatedSenderIdentity: AuthenticatedSenderIdentity = {
+    sender_user_id: user.id,
+    sender_connection_id: senderConnectionId,
+  };
 
   // Resolve recipient
   let recipientUserId: string;
@@ -610,7 +635,8 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         user.id,
         groupId,
         data.message,
-        data.context
+        data.context,
+        authenticatedSenderIdentity
       );
       await consumeWinningPolicyUse(user.id, groupPolicyResult);
       groupPolicyEvaluation = serializePolicyEvaluation(groupPolicyResult);
@@ -811,7 +837,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
             recipient_connection_id: connection.id,
             sender: sender!.username,
             sender_user_id: user.id,
-            sender_connection_id: senderConnectionId || undefined,
+            sender_connection_id: senderConnectionId,
             sender_agent: senderAgent,
             message: data.message,
             payload_type: data.payload_type,
@@ -921,7 +947,8 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       user.id,
       recipientUserId,
       data.message,
-      data.context
+      data.context,
+      authenticatedSenderIdentity
     );
     await consumeWinningPolicyUse(user.id, userPolicyResult);
     userPolicyEvaluation = serializePolicyEvaluation(userPolicyResult);
@@ -1027,7 +1054,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     recipient_connection_id: recipientConnection!.id,
     sender: sender!.username,
     sender_user_id: user.id,
-    sender_connection_id: senderConnectionId || undefined,
+    sender_connection_id: senderConnectionId,
     sender_agent: senderAgent,
     message: data.message,
     payload_type: data.payload_type,

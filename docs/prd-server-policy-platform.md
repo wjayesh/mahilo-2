@@ -271,16 +271,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 3.1 Bind Messages to Authenticated Identity
 - **ID**: `SRV-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-011
 - **Description**:
   - Persist sender connection identity in the send path.
   - Ensure policy resolution uses authenticated sender identity + connection.
 - **Acceptance Criteria**:
-  - [ ] Every outbound message can reference sender user + connection
-  - [ ] Resolver input includes authenticated identity
-  - [ ] Signature / sender metadata are not the only identity source
+  - [x] Every outbound message can reference sender user + connection
+  - [x] Resolver input includes authenticated identity
+  - [x] Signature / sender metadata are not the only identity source
+- **Notes**:
+  - 2026-03-08: Started SRV-030 by binding `/api/v1/messages/send` to an authenticated sender connection and threading authenticated sender identity into policy resolution/audit payloads.
+  - 2026-03-08: Completed SRV-030 by auto-resolving/validating authenticated sender connections on send, passing authenticated sender identity into policy resolver inputs, persisting identity-bound policy evaluation metadata, and validating with `bun test tests/unit/policy.test.ts`, `bun test tests/integration/policy-lifecycle-send.test.ts`, `bun test tests/integration/review-ask-semantics.test.ts`, `bun test tests/e2e/message-exchange.test.ts`, and `bun run build`.
 
 ### 3.2 Selector-Aware Send API
 - **ID**: `SRV-031`

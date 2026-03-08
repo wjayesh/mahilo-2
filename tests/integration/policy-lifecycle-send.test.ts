@@ -178,12 +178,20 @@ describe("Policy lifecycle on send", () => {
     expect(overrideAfterFirstSend?.remainingUses).toBe(0);
 
     const [firstMessage] = await db
-      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .select({
+        policiesEvaluated: schema.messages.policiesEvaluated,
+        senderConnectionId: schema.messages.senderConnectionId,
+      })
       .from(schema.messages)
       .where(eq(schema.messages.id, firstSendData.message_id))
       .limit(1);
 
+    expect(firstMessage?.senderConnectionId).toBe(senderConnection.id);
     const firstEvaluation = JSON.parse(firstMessage?.policiesEvaluated || "{}");
+    expect(firstEvaluation.authenticated_identity).toEqual({
+      sender_user_id: sender.id,
+      sender_connection_id: senderConnection.id,
+    });
     expect(firstEvaluation.winning_policy_id).toBe(overridePolicyId);
     expect(firstEvaluation.winning_policy?.created_by_user_id).toBe(sender.id);
     expect(firstEvaluation.winning_policy?.source).toBe("override");
@@ -208,17 +216,25 @@ describe("Policy lifecycle on send", () => {
       }),
     });
 
-    expect(secondSendRes.status).toBe(403);
+    expect(secondSendRes.status).toBe(200);
     const secondSendData = await secondSendRes.json();
     expect(secondSendData.status).toBe("rejected");
 
     const [secondMessage] = await db
-      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .select({
+        policiesEvaluated: schema.messages.policiesEvaluated,
+        senderConnectionId: schema.messages.senderConnectionId,
+      })
       .from(schema.messages)
       .where(eq(schema.messages.id, secondSendData.message_id))
       .limit(1);
 
+    expect(secondMessage?.senderConnectionId).toBe(senderConnection.id);
     const secondEvaluation = JSON.parse(secondMessage?.policiesEvaluated || "{}");
+    expect(secondEvaluation.authenticated_identity).toEqual({
+      sender_user_id: sender.id,
+      sender_connection_id: senderConnection.id,
+    });
     expect(secondEvaluation.winning_policy_id).toBe(denyPolicyId);
     expect(secondEvaluation.matched_policy_ids).not.toContain(overridePolicyId);
   });
@@ -234,6 +250,9 @@ describe("Policy lifecycle on send", () => {
       .where(eq(schema.users.id, sender.id));
 
     await createFriendship(sender.id, recipient.id, "accepted");
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://sender-deny-once",
+    });
     const recipientConnection = await createAgentConnection(recipient.id, {
       callbackUrl: "polling://recipient-deny-once",
     });
@@ -336,8 +355,9 @@ describe("Policy lifecycle on send", () => {
       }),
     });
 
-    expect(firstSendRes.status).toBe(403);
+    expect(firstSendRes.status).toBe(200);
     const firstSendData = await firstSendRes.json();
+    expect(firstSendData.status).toBe("rejected");
 
     const [denyAfterFirstSend] = await db
       .select({ remainingUses: schema.policies.remainingUses })
@@ -347,12 +367,20 @@ describe("Policy lifecycle on send", () => {
     expect(denyAfterFirstSend?.remainingUses).toBe(0);
 
     const [firstMessage] = await db
-      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .select({
+        policiesEvaluated: schema.messages.policiesEvaluated,
+        senderConnectionId: schema.messages.senderConnectionId,
+      })
       .from(schema.messages)
       .where(eq(schema.messages.id, firstSendData.message_id))
       .limit(1);
 
+    expect(firstMessage?.senderConnectionId).toBe(senderConnection.id);
     const firstEvaluation = JSON.parse(firstMessage?.policiesEvaluated || "{}");
+    expect(firstEvaluation.authenticated_identity).toEqual({
+      sender_user_id: sender.id,
+      sender_connection_id: senderConnection.id,
+    });
     expect(firstEvaluation.winning_policy_id).toBe(denyPolicyId);
     expect(firstEvaluation.winning_policy?.source).toBe("override");
     expect(firstEvaluation.winning_policy?.created_by_user_id).toBe(sender.id);
@@ -374,12 +402,20 @@ describe("Policy lifecycle on send", () => {
     const secondSendData = await secondSendRes.json();
 
     const [secondMessage] = await db
-      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .select({
+        policiesEvaluated: schema.messages.policiesEvaluated,
+        senderConnectionId: schema.messages.senderConnectionId,
+      })
       .from(schema.messages)
       .where(eq(schema.messages.id, secondSendData.message_id))
       .limit(1);
 
+    expect(secondMessage?.senderConnectionId).toBe(senderConnection.id);
     const secondEvaluation = JSON.parse(secondMessage?.policiesEvaluated || "{}");
+    expect(secondEvaluation.authenticated_identity).toEqual({
+      sender_user_id: sender.id,
+      sender_connection_id: senderConnection.id,
+    });
     expect(secondEvaluation.winning_policy_id).toBe(allowPolicyId);
     expect(secondEvaluation.matched_policy_ids).not.toContain(denyPolicyId);
   });
@@ -395,6 +431,9 @@ describe("Policy lifecycle on send", () => {
       .where(eq(schema.users.id, sender.id));
 
     await createFriendship(sender.id, recipient.id, "accepted");
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://sender-expired",
+    });
     const recipientConnection = await createAgentConnection(recipient.id, {
       callbackUrl: "polling://recipient-expired",
     });
@@ -500,12 +539,20 @@ describe("Policy lifecycle on send", () => {
     expect(sendRes.status).toBe(200);
     const sendData = await sendRes.json();
     const [storedMessage] = await db
-      .select({ policiesEvaluated: schema.messages.policiesEvaluated })
+      .select({
+        policiesEvaluated: schema.messages.policiesEvaluated,
+        senderConnectionId: schema.messages.senderConnectionId,
+      })
       .from(schema.messages)
       .where(eq(schema.messages.id, sendData.message_id))
       .limit(1);
 
+    expect(storedMessage?.senderConnectionId).toBe(senderConnection.id);
     const evaluation = JSON.parse(storedMessage?.policiesEvaluated || "{}");
+    expect(evaluation.authenticated_identity).toEqual({
+      sender_user_id: sender.id,
+      sender_connection_id: senderConnection.id,
+    });
     expect(evaluation.winning_policy_id).toBe(activePolicyId);
     expect(evaluation.matched_policy_ids).toContain(activePolicyId);
     expect(evaluation.matched_policy_ids).not.toContain(expiredPolicyId);
