@@ -180,7 +180,7 @@ It is:
 
 ### 0.3 Migration Strategy Decision
 - **ID**: `PLG2-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001
 - **Description**:
@@ -189,9 +189,20 @@ It is:
     - temporary mirror
     - phased replacement
   - Recommended: **copy-and-port**, then deprecate old location.
+  - **Decision**: Use **copy-and-port**.
+  - **Source-of-Truth Rules During Migration**:
+    - Active development source of truth is `plugins/openclaw-mahilo/`.
+    - `myclawd/extensions/mahilo/` is a legacy reference baseline during migration and should not be used for new feature work.
+    - Do not run a temporary mirror or bidirectional sync between old and new locations.
+    - If a critical fix must land in legacy code before full cutover, it should be authored in `plugins/openclaw-mahilo/` first, then explicitly cherry-picked/backported.
+    - A migrated module is considered authoritative only after it is ported in `plugins/openclaw-mahilo/` and validated with plugin-local checks.
+    - After Phase 1 completion, mark `myclawd/extensions/mahilo/` as deprecated/read-only.
 - **Acceptance Criteria**:
-  - [ ] Migration approach is written down
-  - [ ] No ambiguity about source of truth during migration
+  - [x] Migration approach is written down
+  - [x] No ambiguity about source of truth during migration
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-003 and selected copy-and-port with explicit no-mirror source-of-truth rules for migration.
+  - 2026-03-08: Finalized migration policy: `plugins/openclaw-mahilo/` is authoritative for active development; legacy path is reference-only until deprecation.
 
 ---
 
