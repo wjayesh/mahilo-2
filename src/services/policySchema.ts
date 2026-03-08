@@ -1,7 +1,13 @@
 import type { Policy } from "../db/schema";
 
 export type PolicyScope = "global" | "user" | "role" | "group";
-export type PolicyDirection = "outbound" | "inbound" | "request" | "response" | "notification" | "error";
+export type PolicyDirection =
+  | "outbound"
+  | "inbound"
+  | "request"
+  | "response"
+  | "notification"
+  | "error";
 export type PolicyEffect = "allow" | "ask" | "deny";
 export type PolicyEvaluator = "structured" | "heuristic" | "llm";
 export type PolicySource =
@@ -56,11 +62,80 @@ const DEFAULT_ACTION = "share";
 const DEFAULT_EFFECT: PolicyEffect = "deny";
 const DEFAULT_SOURCE: PolicySource = "legacy_migrated";
 
-function coerceEvaluator(value: string): PolicyEvaluator {
-  if (value === "structured" || value === "heuristic" || value === "llm") {
-    return value;
+const VALID_DIRECTIONS: PolicyDirection[] = [
+  "outbound",
+  "inbound",
+  "request",
+  "response",
+  "notification",
+  "error",
+];
+const VALID_EFFECTS: PolicyEffect[] = ["allow", "ask", "deny"];
+const VALID_EVALUATORS: PolicyEvaluator[] = ["structured", "heuristic", "llm"];
+const VALID_SOURCES: PolicySource[] = [
+  "default",
+  "learned",
+  "user_confirmed",
+  "override",
+  "user_created",
+  "legacy_migrated",
+];
+
+function parseDirection(value: string | null | undefined): PolicyDirection | null {
+  if (!value) {
+    return null;
   }
-  return "llm";
+  return VALID_DIRECTIONS.includes(value as PolicyDirection) ? (value as PolicyDirection) : null;
+}
+
+function parseEffect(value: string | null | undefined): PolicyEffect | null {
+  if (!value) {
+    return null;
+  }
+  return VALID_EFFECTS.includes(value as PolicyEffect) ? (value as PolicyEffect) : null;
+}
+
+function parseEvaluator(value: string | null | undefined): PolicyEvaluator | null {
+  if (!value) {
+    return null;
+  }
+  return VALID_EVALUATORS.includes(value as PolicyEvaluator) ? (value as PolicyEvaluator) : null;
+}
+
+function parseSource(value: string | null | undefined): PolicySource | null {
+  if (!value) {
+    return null;
+  }
+  return VALID_SOURCES.includes(value as PolicySource) ? (value as PolicySource) : null;
+}
+
+function coerceEvaluator(value: string): PolicyEvaluator {
+  return parseEvaluator(value) || "llm";
+}
+
+function toNullableInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  return null;
+}
+
+function toIsoString(value: Date | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  return value.toISOString();
+}
+
+function toDbTimestamp(value: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
 }
 
 function parseStorage(policyContent: string): CanonicalPolicyStorageV1 | null {
@@ -72,23 +147,17 @@ function parseStorage(policyContent: string): CanonicalPolicyStorageV1 | null {
 
     return {
       schema_version: "canonical_policy_v1",
-      direction: (parsed.direction as PolicyDirection) || DEFAULT_DIRECTION,
+      direction: parseDirection(parsed.direction) || DEFAULT_DIRECTION,
       resource: parsed.resource || DEFAULT_RESOURCE,
       action: parsed.action || null,
-      effect: (parsed.effect as PolicyEffect) || DEFAULT_EFFECT,
+      effect: parseEffect(parsed.effect) || DEFAULT_EFFECT,
       evaluator: coerceEvaluator(String(parsed.evaluator || "llm")),
       policy_content: parsed.policy_content ?? "",
       effective_from: parsed.effective_from || null,
       expires_at: parsed.expires_at || null,
-      max_uses:
-        typeof parsed.max_uses === "number" && Number.isFinite(parsed.max_uses)
-          ? Math.trunc(parsed.max_uses)
-          : null,
-      remaining_uses:
-        typeof parsed.remaining_uses === "number" && Number.isFinite(parsed.remaining_uses)
-          ? Math.trunc(parsed.remaining_uses)
-          : null,
-      source: (parsed.source as PolicySource) || DEFAULT_SOURCE,
+      max_uses: toNullableInteger(parsed.max_uses),
+      remaining_uses: toNullableInteger(parsed.remaining_uses),
+      source: parseSource(parsed.source) || DEFAULT_SOURCE,
       derived_from_message_id: parsed.derived_from_message_id || null,
     };
   } catch {
@@ -110,6 +179,17 @@ function parseLegacyPolicyContent(evaluator: PolicyEvaluator, policyContent: str
 export function canonicalToStorage(policy: Omit<CanonicalPolicy, "id" | "created_at" | "updated_at">): {
   policyType: PolicyEvaluator;
   policyContent: string;
+  direction: PolicyDirection;
+  resource: string;
+  action: string | null;
+  effect: PolicyEffect;
+  evaluator: PolicyEvaluator;
+  effectiveFrom: Date | null;
+  expiresAt: Date | null;
+  maxUses: number | null;
+  remainingUses: number | null;
+  source: PolicySource;
+  derivedFromMessageId: string | null;
 } {
   const payload: CanonicalPolicyStorageV1 = {
     schema_version: "canonical_policy_v1",
@@ -130,32 +210,59 @@ export function canonicalToStorage(policy: Omit<CanonicalPolicy, "id" | "created
   return {
     policyType: policy.evaluator,
     policyContent: JSON.stringify(payload),
+    direction: policy.direction,
+    resource: policy.resource,
+    action: policy.action,
+    effect: policy.effect,
+    evaluator: policy.evaluator,
+    effectiveFrom: toDbTimestamp(policy.effective_from),
+    expiresAt: toDbTimestamp(policy.expires_at),
+    maxUses: policy.max_uses,
+    remainingUses: policy.remaining_uses,
+    source: policy.source,
+    derivedFromMessageId: policy.derived_from_message_id,
   };
 }
 
 export function dbPolicyToCanonical(policy: Policy): CanonicalPolicy {
   const payload = parseStorage(policy.policyContent);
-  const evaluator = payload ? payload.evaluator : coerceEvaluator(policy.policyType);
+
+  const evaluator =
+    parseEvaluator(policy.evaluator) ||
+    payload?.evaluator ||
+    parseEvaluator(policy.policyType) ||
+    "llm";
   const content = payload
     ? payload.policy_content
     : parseLegacyPolicyContent(evaluator, policy.policyContent);
+
+  const direction = parseDirection(policy.direction) || payload?.direction || DEFAULT_DIRECTION;
+  const resource = policy.resource || payload?.resource || DEFAULT_RESOURCE;
+  const action = policy.action ?? payload?.action ?? DEFAULT_ACTION;
+  const effect = parseEffect(policy.effect) || payload?.effect || DEFAULT_EFFECT;
+  const source = parseSource(policy.source) || payload?.source || DEFAULT_SOURCE;
+  const effectiveFrom = toIsoString(policy.effectiveFrom) || payload?.effective_from || null;
+  const expiresAt = toIsoString(policy.expiresAt) || payload?.expires_at || null;
+  const maxUses = toNullableInteger(policy.maxUses) ?? payload?.max_uses ?? null;
+  const remainingUses = toNullableInteger(policy.remainingUses) ?? payload?.remaining_uses ?? null;
 
   return {
     id: policy.id,
     scope: policy.scope as PolicyScope,
     target_id: policy.targetId,
-    direction: payload?.direction || DEFAULT_DIRECTION,
-    resource: payload?.resource || DEFAULT_RESOURCE,
-    action: payload?.action || DEFAULT_ACTION,
-    effect: payload?.effect || DEFAULT_EFFECT,
+    direction,
+    resource,
+    action,
+    effect,
     evaluator,
     policy_content: content,
-    effective_from: payload?.effective_from || null,
-    expires_at: payload?.expires_at || null,
-    max_uses: payload?.max_uses || null,
-    remaining_uses: payload?.remaining_uses || null,
-    source: payload?.source || DEFAULT_SOURCE,
-    derived_from_message_id: payload?.derived_from_message_id || null,
+    effective_from: effectiveFrom,
+    expires_at: expiresAt,
+    max_uses: maxUses,
+    remaining_uses: remainingUses,
+    source,
+    derived_from_message_id:
+      policy.derivedFromMessageId ?? payload?.derived_from_message_id ?? null,
     priority: policy.priority,
     enabled: policy.enabled,
     created_at: policy.createdAt ? policy.createdAt.toISOString() : null,

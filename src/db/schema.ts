@@ -129,6 +129,19 @@ export const policies = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope").notNull(), // 'global', 'user', 'group'
     targetId: text("target_id"), // null for global, user_id or group_id otherwise
+    // Canonical selector/evaluation/lifecycle/provenance columns (SRV-010)
+    direction: text("direction"), // 'outbound', 'inbound', ...
+    resource: text("resource"), // 'message.general', 'calendar.event', ...
+    action: text("action"), // 'share', 'request', ...
+    effect: text("effect"), // 'allow', 'ask', 'deny'
+    evaluator: text("evaluator"), // 'structured', 'heuristic', 'llm'
+    effectiveFrom: integer("effective_from", { mode: "timestamp" }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }),
+    maxUses: integer("max_uses"),
+    remainingUses: integer("remaining_uses"),
+    source: text("source"), // 'default', 'learned', ...
+    derivedFromMessageId: text("derived_from_message_id").references(() => messages.id),
+    // Legacy storage columns kept for migration compatibility
     policyType: text("policy_type").notNull(), // 'heuristic', 'llm'
     policyContent: text("policy_content").notNull(), // JSON for heuristic, prompt for llm
     priority: integer("priority").notNull().default(0),
@@ -140,6 +153,9 @@ export const policies = sqliteTable(
   (table) => [
     index("idx_policies_user").on(table.userId),
     index("idx_policies_scope").on(table.scope, table.targetId),
+    index("idx_policies_lookup").on(table.userId, table.enabled, table.scope, table.targetId),
+    index("idx_policies_selectors").on(table.direction, table.resource, table.action),
+    index("idx_policies_lifecycle").on(table.effectiveFrom, table.expiresAt, table.remainingUses),
   ]
 );
 

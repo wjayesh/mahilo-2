@@ -173,7 +173,7 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     }
   }
 
-  const { policyType, policyContent } = canonicalToStorage({
+  const storage = canonicalToStorage({
     scope: data.scope,
     target_id: targetId,
     direction: data.direction,
@@ -199,8 +199,19 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     userId: user.id,
     scope: data.scope,
     targetId: targetId,
-    policyType,
-    policyContent,
+    direction: storage.direction,
+    resource: storage.resource,
+    action: storage.action,
+    effect: storage.effect,
+    evaluator: storage.evaluator,
+    effectiveFrom: storage.effectiveFrom,
+    expiresAt: storage.expiresAt,
+    maxUses: storage.maxUses,
+    remainingUses: storage.remainingUses,
+    source: storage.source,
+    derivedFromMessageId: storage.derivedFromMessageId,
+    policyType: storage.policyType,
+    policyContent: storage.policyContent,
     priority: data.priority || 0,
     enabled: data.enabled ?? true,
   });
@@ -343,6 +354,17 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
     const storage = canonicalToStorage(canonical);
     updates.policyType = storage.policyType;
     updates.policyContent = storage.policyContent;
+    updates.direction = storage.direction;
+    updates.resource = storage.resource;
+    updates.action = storage.action;
+    updates.effect = storage.effect;
+    updates.evaluator = storage.evaluator;
+    updates.effectiveFrom = storage.effectiveFrom;
+    updates.expiresAt = storage.expiresAt;
+    updates.maxUses = storage.maxUses;
+    updates.remainingUses = storage.remainingUses;
+    updates.source = storage.source;
+    updates.derivedFromMessageId = storage.derivedFromMessageId;
   }
   if (data.priority !== undefined) updates.priority = data.priority;
   if (data.enabled !== undefined) updates.enabled = data.enabled;

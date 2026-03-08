@@ -149,16 +149,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 1.1 Policies Table Expansion
 - **ID**: `SRV-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001
 - **Description**:
   - Add selector, effect, evaluator, lifecycle, and provenance columns.
   - Preserve backward compatibility long enough for migration.
 - **Acceptance Criteria**:
-  - [ ] Migration adds all new columns
-  - [ ] Indexes exist for lookup and lifecycle queries
-  - [ ] Existing data remains readable during migration
+  - [x] Migration adds all new columns
+  - [x] Indexes exist for lookup and lifecycle queries
+  - [x] Existing data remains readable during migration
+- **Notes**:
+  - 2026-03-08: Started SRV-010 implementation; preparing policy table expansion migration and compatibility updates for legacy policy rows.
+  - 2026-03-08: Added migration `0007_breezy_hammer` for selector/effect/evaluator/lifecycle/provenance columns + lookup/selectors/lifecycle indexes, expanded policy schema and compatibility adapters, and validated with `bun test tests/unit/policy.test.ts tests/unit/defaultPolicies.test.ts tests/integration/policy-context.test.ts tests/integration/message-policies.test.ts`, `DATABASE_URL=/tmp/mahilo_srv010_migration_test.db bun run src/db/migrate.ts`, and `bun run build`.
 
 ### 1.2 Message Table Expansion
 - **ID**: `SRV-011`

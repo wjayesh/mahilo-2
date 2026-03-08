@@ -107,6 +107,17 @@ export async function setupTestDatabase() {
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       scope TEXT NOT NULL,
       target_id TEXT,
+      direction TEXT,
+      resource TEXT,
+      action TEXT,
+      effect TEXT,
+      evaluator TEXT,
+      effective_from INTEGER,
+      expires_at INTEGER,
+      max_uses INTEGER,
+      remaining_uses INTEGER,
+      source TEXT,
+      derived_from_message_id TEXT REFERENCES messages(id),
       policy_type TEXT NOT NULL,
       policy_content TEXT NOT NULL,
       priority INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +126,9 @@ export async function setupTestDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_policies_user ON policies(user_id);
     CREATE INDEX IF NOT EXISTS idx_policies_scope ON policies(scope, target_id);
+    CREATE INDEX IF NOT EXISTS idx_policies_lookup ON policies(user_id, enabled, scope, target_id);
+    CREATE INDEX IF NOT EXISTS idx_policies_selectors ON policies(direction, resource, action);
+    CREATE INDEX IF NOT EXISTS idx_policies_lifecycle ON policies(effective_from, expires_at, remaining_uses);
 
     CREATE TABLE IF NOT EXISTS user_roles (
       id TEXT PRIMARY KEY,
