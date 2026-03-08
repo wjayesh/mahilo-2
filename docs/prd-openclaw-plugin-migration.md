@@ -544,15 +544,20 @@ It is:
 
 ### 6.1 Publishable Package Readiness
 - **ID**: `PLG2-060`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-020, PLG2-022
 - **Description**:
   - Make the plugin package publishable later, even if not published immediately.
 - **Acceptance Criteria**:
-  - [ ] `package.json` includes correct `openclaw.extensions`
-  - [ ] Build/test story is clear
-  - [ ] README explains local development and future publish path
+  - [x] `package.json` includes correct `openclaw.extensions`
+  - [x] Build/test story is clear
+  - [x] README explains local development and future publish path
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-060 by auditing package metadata and OpenClaw plugin packaging conventions for `openclaw.extensions` publishability requirements.
+  - 2026-03-08: Added `openclaw.extensions` package metadata targeting `./dist/index.js`, introduced plugin-local `check` script (`build + test + manifest validation`), and added manifest tests asserting publish entrypoint wiring.
+  - 2026-03-08: Expanded `plugins/openclaw-mahilo/README.md` with explicit publish-ready build/test flow and a future publish checklist while preserving repo-first local development guidance.
+  - 2026-03-08: Validated from `plugins/openclaw-mahilo/` with `bun run check` (build successful, 97 tests passing, manifest validation passing).
 
 ### 6.2 Local Development Story
 - **ID**: `PLG2-061`

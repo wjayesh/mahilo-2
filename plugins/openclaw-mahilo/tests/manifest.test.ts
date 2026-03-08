@@ -23,6 +23,22 @@ describe("openclaw.plugin.json", () => {
     }
 
     expect(packageJson.name).toBe(MAHILO_PLUGIN_PACKAGE_NAME);
+
+    const openclaw = packageJson.openclaw;
+    expect(isRecord(openclaw)).toBe(true);
+
+    if (!isRecord(openclaw)) {
+      return;
+    }
+
+    const extensions = openclaw.extensions;
+    expect(Array.isArray(extensions)).toBe(true);
+
+    if (!Array.isArray(extensions)) {
+      return;
+    }
+
+    expect(extensions).toEqual(["./dist/index.js"]);
   });
 
   it("loads manifest metadata", async () => {

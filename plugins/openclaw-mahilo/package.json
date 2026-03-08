@@ -18,7 +18,8 @@
     "test:ci": "bun test --reporter=dot",
     "test:run": "bun test",
     "test:watch": "bun test --watch",
-    "validate:manifest": "bun test tests/manifest.test.ts"
+    "validate:manifest": "bun test tests/manifest.test.ts",
+    "check": "bun run build && bun run test:ci && bun run validate:manifest"
   },
   "keywords": [
     "mahilo",
@@ -28,5 +29,10 @@
   ],
   "engines": {
     "bun": ">=1.0.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
   }
 }

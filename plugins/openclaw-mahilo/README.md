@@ -46,6 +46,15 @@ Run from `plugins/openclaw-mahilo/`:
 - `bun run build`
 - `bun run test`
 - `bun run validate:manifest`
+- `bun run check`
+
+## Build/Test Story (Publish-Ready)
+
+This package stays `private: true` while migration is in progress, but publish readiness is maintained now:
+
+- Build output is produced at `dist/index.js`.
+- `package.json` declares `openclaw.extensions` as `["./dist/index.js"]` so package installs resolve the built plugin entry.
+- `bun run check` runs the release-gate flow: build, tests, and manifest/package metadata validation.
 
 ## Runtime Diagnostics Commands
 
@@ -98,6 +107,15 @@ bun run build
 ```
 
 4. Restart OpenClaw and confirm Mahilo tools register from the local package.
+
+## Future Publish Path
+
+When moving from repo-local package to published package, keep this sequence:
+
+1. Run `bun run check` and confirm all plugin-local checks pass.
+2. Update package release metadata (`version`, `private`) when publishing is approved.
+3. Build before packaging so `openclaw.extensions` points to a present built entry (`./dist/index.js`).
+4. Run a dry package inspection (`npm pack --dry-run`) and verify `dist/`, `openclaw.plugin.json`, and `README.md` are included.
 
 Legacy path policy:
 
