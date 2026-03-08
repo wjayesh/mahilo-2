@@ -181,16 +181,23 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 1.3 Backfill / Compatibility Layer
 - **ID**: `SRV-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-010, SRV-011
 - **Description**:
   - Support old policy rows while the server migrates.
   - Add read/write translation where necessary.
 - **Acceptance Criteria**:
-  - [ ] Old rows can still be listed/read
-  - [ ] New rows are written in the canonical format
-  - [ ] Compatibility strategy is documented
+  - [x] Old rows can still be listed/read
+  - [x] New rows are written in the canonical format
+  - [x] Compatibility strategy is documented
+- **Compatibility Strategy**:
+  - Legacy database rows (missing canonical selector/effect/evaluator columns) are normalized at read time via `dbPolicyToCanonical`, which backfills canonical defaults while preserving legacy `policy_content`.
+  - New writes persist canonical storage payloads (`schema_version: canonical_policy_v1`) through `canonicalToStorage`, while still populating legacy columns for transition safety.
+  - API writes accept both canonical `evaluator` and legacy `policy_type` inputs; legacy requests are translated to canonical evaluator semantics before validation and persistence.
+- **Notes**:
+  - 2026-03-08: Started SRV-012 implementation by auditing policy read/write paths and identifying remaining non-canonical writes + legacy request compatibility gaps.
+  - 2026-03-08: Completed SRV-012 by canonicalizing default-policy writes, adding `policy_type` write aliases on policy create/update, adding compatibility integration coverage (`tests/integration/policies-compatibility.test.ts`) plus canonical storage coverage in `tests/unit/defaultPolicies.test.ts`, and validating with `bun test tests/integration/policies-compatibility.test.ts tests/unit/defaultPolicies.test.ts tests/integration/policy-context.test.ts` and `bun run build`.
 
 ---
 

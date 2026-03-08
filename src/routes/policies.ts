@@ -117,7 +117,8 @@ const createPolicySchema = z.object({
   resource: z.string().min(1).optional().default("message.general"),
   action: z.string().min(1).nullable().optional().default("share"),
   effect: effectSchema.optional().default("deny"),
-  evaluator: evaluatorSchema,
+  evaluator: evaluatorSchema.optional(),
+  policy_type: evaluatorSchema.optional(),
   policy_content: z.unknown(),
   effective_from: isoDateSchema.nullable().optional(),
   expires_at: isoDateSchema.nullable().optional(),
@@ -127,6 +128,23 @@ const createPolicySchema = z.object({
   derived_from_message_id: z.string().min(1).nullable().optional(),
   priority: z.number().int().min(0).max(100).optional().default(0),
   enabled: z.boolean().optional().default(true),
+}).superRefine((data, ctx) => {
+  if (!data.evaluator && !data.policy_type) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["evaluator"],
+      message: "Either evaluator or policy_type is required",
+    });
+    return;
+  }
+
+  if (data.evaluator && data.policy_type && data.evaluator !== data.policy_type) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["policy_type"],
+      message: "policy_type must match evaluator when both are provided",
+    });
+  }
 });
 
 policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
@@ -135,6 +153,7 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
   const db = getDb();
 
   const targetId = data.target_id ?? null;
+  const evaluator = (data.evaluator ?? data.policy_type) as PolicyEvaluator;
   assertScopeTarget(data.scope, targetId);
   const uses = normalizeUses(data.max_uses, data.remaining_uses);
   const effectiveFrom = data.effective_from ?? null;
@@ -142,7 +161,7 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
   assertDateWindow(effectiveFrom, expiresAt);
 
   // Validate policy content format
-  const validation = validatePolicyContent(data.evaluator, data.policy_content);
+  const validation = validatePolicyContent(evaluator, data.policy_content);
   if (!validation.valid) {
     throw new AppError(validation.error!, 400, "INVALID_POLICY_CONTENT");
   }
@@ -180,7 +199,7 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     resource: data.resource,
     action: data.action ?? null,
     effect: data.effect,
-    evaluator: data.evaluator,
+    evaluator,
     policy_content: data.policy_content,
     effective_from: effectiveFrom,
     expires_at: expiresAt,
@@ -256,6 +275,7 @@ const updatePolicySchema = z.object({
   action: z.string().min(1).nullable().optional(),
   effect: effectSchema.optional(),
   evaluator: evaluatorSchema.optional(),
+  policy_type: evaluatorSchema.optional(),
   policy_content: z.unknown().optional(),
   effective_from: isoDateSchema.nullable().optional(),
   expires_at: isoDateSchema.nullable().optional(),
@@ -265,6 +285,14 @@ const updatePolicySchema = z.object({
   derived_from_message_id: z.string().min(1).nullable().optional(),
   priority: z.number().int().min(0).max(100).optional(),
   enabled: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  if (data.evaluator && data.policy_type && data.evaluator !== data.policy_type) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["policy_type"],
+      message: "policy_type must match evaluator when both are provided",
+    });
+  }
 });
 
 policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => {
@@ -294,7 +322,7 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
   }
 
   const current = dbPolicyToCanonical(policy);
-  const nextEvaluator = (data.evaluator || current.evaluator) as PolicyEvaluator;
+  const nextEvaluator = (data.evaluator || data.policy_type || current.evaluator) as PolicyEvaluator;
   const nextPolicyContent =
     data.policy_content !== undefined ? data.policy_content : current.policy_content;
 
@@ -342,6 +370,7 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
     data.action !== undefined ||
     data.effect !== undefined ||
     data.evaluator !== undefined ||
+    data.policy_type !== undefined ||
     data.policy_content !== undefined ||
     data.effective_from !== undefined ||
     data.expires_at !== undefined ||

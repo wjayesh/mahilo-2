@@ -7,6 +7,7 @@
 
 import { nanoid } from "nanoid";
 import { getDb, schema } from "../db";
+import { canonicalToStorage } from "./policySchema";
 
 export interface DefaultPolicyTemplate {
   scope: "global" | "role" | "user" | "group";
@@ -73,6 +74,18 @@ export const defaultPolicies: DefaultPolicyTemplate[] = [
   },
 ];
 
+function parseTemplatePolicyContent(template: DefaultPolicyTemplate): unknown {
+  if (template.policyType !== "heuristic") {
+    return template.policyContent;
+  }
+
+  try {
+    return JSON.parse(template.policyContent);
+  } catch {
+    return template.policyContent;
+  }
+}
+
 /**
  * Create default policies for a new user
  *
@@ -82,27 +95,48 @@ export const defaultPolicies: DefaultPolicyTemplate[] = [
 export async function createDefaultPoliciesForUser(userId: string): Promise<number> {
   const db = getDb();
 
-  const policiesToInsert = defaultPolicies.map((template) => ({
-    id: `pol_${nanoid()}`,
-    userId,
-    scope: template.scope,
-    targetId: template.targetId,
-    direction: "outbound" as const,
-    resource: "message.general",
-    action: "share",
-    effect: "deny" as const,
-    evaluator: template.policyType,
-    effectiveFrom: null,
-    expiresAt: null,
-    maxUses: null,
-    remainingUses: null,
-    source: "default" as const,
-    derivedFromMessageId: null,
-    policyType: template.policyType,
-    policyContent: template.policyContent,
-    priority: template.priority,
-    enabled: template.enabled,
-  }));
+  const policiesToInsert = defaultPolicies.map((template) => {
+    const storage = canonicalToStorage({
+      scope: template.scope,
+      target_id: template.targetId,
+      direction: "outbound",
+      resource: "message.general",
+      action: "share",
+      effect: "deny",
+      evaluator: template.policyType,
+      policy_content: parseTemplatePolicyContent(template),
+      effective_from: null,
+      expires_at: null,
+      max_uses: null,
+      remaining_uses: null,
+      source: "default",
+      derived_from_message_id: null,
+      priority: template.priority,
+      enabled: template.enabled,
+    });
+
+    return {
+      id: `pol_${nanoid()}`,
+      userId,
+      scope: template.scope,
+      targetId: template.targetId,
+      direction: storage.direction,
+      resource: storage.resource,
+      action: storage.action,
+      effect: storage.effect,
+      evaluator: storage.evaluator,
+      effectiveFrom: storage.effectiveFrom,
+      expiresAt: storage.expiresAt,
+      maxUses: storage.maxUses,
+      remainingUses: storage.remainingUses,
+      source: storage.source,
+      derivedFromMessageId: storage.derivedFromMessageId,
+      policyType: storage.policyType,
+      policyContent: storage.policyContent,
+      priority: template.priority,
+      enabled: template.enabled,
+    };
+  });
 
   try {
     await db.insert(schema.policies).values(policiesToInsert);
