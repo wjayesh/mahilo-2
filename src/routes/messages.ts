@@ -13,6 +13,7 @@ import { evaluatePolicies, evaluateGroupPolicies } from "../services/policy";
 import { config } from "../config";
 import { getRolesForFriend } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
+import { dbPolicyToCanonical, type CanonicalPolicy } from "../services/policySchema";
 
 export const messageRoutes = new Hono<AppEnv>();
 
@@ -645,18 +646,14 @@ messageRoutes.get("/", async (c) => {
 
   // For received messages, include applicable policies for each sender
   // This helps the agent know what policies apply when replying
-  const senderPoliciesMap = new Map<string, {
-    roles: string[];
-    policies: Array<{
-      id: string;
-      scope: string;
-      target_id: string | null;
-      policy_type: string;
-      policy_content: string;
-      priority: number;
-    }>;
-    summary: string;
-  }>();
+  const senderPoliciesMap = new Map<
+    string,
+    {
+      roles: string[];
+      policies: CanonicalPolicy[];
+      summary: string;
+    }
+  >();
 
   if (direction === "received") {
     // Get unique sender IDs
@@ -698,20 +695,12 @@ messageRoutes.get("/", async (c) => {
         )
         .orderBy(desc(schema.policies.priority));
 
-      const policyInfos = policies.map((p) => ({
-        id: p.id,
-        scope: p.scope,
-        target_id: p.targetId,
-        policy_type: p.policyType,
-        policy_content: p.policyContent,
-        priority: p.priority,
-      }));
-
-      const summary = await generatePolicySummary(policyInfos, roles);
+      const canonicalPolicies = policies.map((p) => dbPolicyToCanonical(p));
+      const summary = await generatePolicySummary(canonicalPolicies, roles);
 
       senderPoliciesMap.set(senderId, {
         roles,
-        policies: policyInfos,
+        policies: canonicalPolicies,
         summary,
       });
     }

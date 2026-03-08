@@ -79,7 +79,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 0.1 Canonical Policy Schema
 - **ID**: `SRV-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Description**:
@@ -100,9 +100,11 @@ These are strong starting points, but they need canonical policy semantics and s
     - `derived_from_message_id`
   - Keep `priority`, `enabled`, and timestamps.
 - **Acceptance Criteria**:
-  - [ ] Canonical TS type exists in server code
-  - [ ] Canonical schema documented in code and docs
-  - [ ] All new APIs use the new model
+  - [x] Canonical TS type exists in server code
+  - [x] Canonical schema documented in code and docs
+  - [x] All new APIs use the new model
+- **Notes**:
+  - 2026-03-08: Added `src/services/policySchema.ts` for the canonical schema + compatibility adapter, and migrated policy-facing APIs to canonical fields (`direction`, `resource`, `action`, `effect`, `evaluator`, lifecycle, and provenance).
 
 ### 0.2 Separate Guardrails from User Policies
 - **ID**: `SRV-002`

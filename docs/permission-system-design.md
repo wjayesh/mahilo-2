@@ -1750,32 +1750,38 @@ type PolicyScope = 'global' | 'user' | 'role' | 'group';
 type PolicyEffect = 'allow' | 'ask' | 'deny';
 type PolicyEvaluator = 'structured' | 'heuristic' | 'llm';
 
-type PolicySource = 'default' | 'learned' | 'user_confirmed' | 'override';
+type PolicySource =
+  | 'default'
+  | 'learned'
+  | 'user_confirmed'
+  | 'override'
+  | 'user_created'
+  | 'legacy_migrated';
 
-interface Policy {
+interface CanonicalPolicy {
   id: string;
-  userId: string;
   scope: PolicyScope;
-  targetId: string | null;
-  direction: 'request' | 'response' | 'notification' | 'error' | null;
-  resource: string | null;
+  target_id: string | null;
+  direction: 'outbound' | 'inbound' | 'request' | 'response' | 'notification' | 'error';
+  resource: string;
   action: string | null;
   effect: PolicyEffect;
   evaluator: PolicyEvaluator;
-  policyContent: string;
+  policy_content: unknown;
+  effective_from: string | null;
+  expires_at: string | null;
+  max_uses: number | null;
+  remaining_uses: number | null;
+  source: PolicySource;
+  derived_from_message_id: string | null;
   priority: number;
   enabled: boolean;
-  effectiveFrom: Date | null;
-  expiresAt: Date | null;
-  maxUses: number | null;
-  remainingUses: number | null;
-  source: PolicySource;
-  derivedFromMessageId: string | null;
-  createdAt: Date;
+  created_at: string | null;
+  updated_at: string | null;
 }
 ```
 
-`policyContent` can be:
+`policy_content` can be:
 
 - structured JSON for `structured`
 - structured JSON for `heuristic`

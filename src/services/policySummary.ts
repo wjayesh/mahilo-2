@@ -7,15 +7,7 @@
 
 import { config } from "../config";
 import { isLLMEnabled } from "./llm";
-
-interface PolicyInfo {
-  id: string;
-  scope: string;
-  target_id?: string | null;
-  policy_type: string;
-  policy_content: string;
-  priority: number;
-}
+import type { CanonicalPolicy } from "./policySchema";
 
 interface HeuristicRules {
   maxLength?: number;
@@ -35,7 +27,7 @@ interface HeuristicRules {
  * @returns A concise summary string
  */
 export async function generatePolicySummary(
-  policies: PolicyInfo[],
+  policies: CanonicalPolicy[],
   roles: string[]
 ): Promise<string> {
   if (policies.length === 0) {
@@ -46,9 +38,11 @@ export async function generatePolicySummary(
   // Later, this could use LLM for more natural summaries
   const summaryParts: string[] = [];
 
-  // Group policies by type
-  const heuristicPolicies = policies.filter((p) => p.policy_type === "heuristic");
-  const llmPolicies = policies.filter((p) => p.policy_type === "llm");
+  // Group policies by evaluator type
+  const heuristicPolicies = policies.filter(
+    (p) => p.evaluator === "heuristic" || p.evaluator === "structured"
+  );
+  const llmPolicies = policies.filter((p) => p.evaluator === "llm");
 
   // Summarize heuristic rules
   if (heuristicPolicies.length > 0) {
@@ -77,12 +71,15 @@ export async function generatePolicySummary(
 /**
  * Summarize heuristic policies into readable rules
  */
-function summarizeHeuristicPolicies(policies: PolicyInfo[]): string {
+function summarizeHeuristicPolicies(policies: CanonicalPolicy[]): string {
   const restrictions: string[] = [];
 
   for (const policy of policies) {
     try {
-      const rules = JSON.parse(policy.policy_content) as HeuristicRules;
+      const rules =
+        typeof policy.policy_content === "string"
+          ? (JSON.parse(policy.policy_content) as HeuristicRules)
+          : (policy.policy_content as HeuristicRules);
 
       if (rules.maxLength) {
         restrictions.push(`max ${rules.maxLength} characters`);
@@ -131,11 +128,14 @@ function summarizeHeuristicPolicies(policies: PolicyInfo[]): string {
 /**
  * Summarize LLM policies by extracting key topics
  */
-function summarizeLLMPolicies(policies: PolicyInfo[]): string {
+function summarizeLLMPolicies(policies: CanonicalPolicy[]): string {
   const topics: string[] = [];
 
   for (const policy of policies) {
-    const content = policy.policy_content.toLowerCase();
+    const content =
+      typeof policy.policy_content === "string"
+        ? policy.policy_content.toLowerCase()
+        : JSON.stringify(policy.policy_content).toLowerCase();
 
     // Extract common topics
     if (content.includes("address") || content.includes("location")) {
@@ -179,9 +179,9 @@ function summarizeLLMPolicies(policies: PolicyInfo[]): string {
  * This can be enabled in the future for higher-quality summaries.
  */
 export async function generateLLMSummary(
-  policies: PolicyInfo[],
-  roles: string[],
-  recipientName: string
+  _policies: CanonicalPolicy[],
+  _roles: string[],
+  _recipientName: string
 ): Promise<string | null> {
   if (!isLLMEnabled() || !config.trustedMode) {
     return null;

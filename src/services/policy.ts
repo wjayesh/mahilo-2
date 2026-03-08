@@ -1,8 +1,9 @@
-import { eq, and, or, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { getRolesForFriend } from "./roles";
 import { evaluateLLMPolicy, isLLMEnabled } from "./llm";
 import { config } from "../config";
+import { dbPolicyToCanonical } from "./policySchema";
 
 interface HeuristicRules {
   maxLength?: number;
@@ -19,56 +20,72 @@ interface PolicyResult {
   reason?: string;
 }
 
-export function validatePolicyContent(
-  policyType: string,
-  content: string
-): { valid: boolean; error?: string } {
-  if (policyType === "heuristic") {
+function parseRules(content: unknown): { valid: boolean; rules?: HeuristicRules; error?: string } {
+  if (typeof content === "string") {
     try {
-      const rules = JSON.parse(content) as HeuristicRules;
-
-      // Validate rule types
-      if (rules.maxLength !== undefined && typeof rules.maxLength !== "number") {
-        return { valid: false, error: "maxLength must be a number" };
-      }
-      if (rules.minLength !== undefined && typeof rules.minLength !== "number") {
-        return { valid: false, error: "minLength must be a number" };
-      }
-      if (rules.blockedPatterns !== undefined && !Array.isArray(rules.blockedPatterns)) {
-        return { valid: false, error: "blockedPatterns must be an array" };
-      }
-      if (rules.requiredPatterns !== undefined && !Array.isArray(rules.requiredPatterns)) {
-        return { valid: false, error: "requiredPatterns must be an array" };
-      }
-
-      // Validate regex patterns are valid
-      if (rules.blockedPatterns) {
-        for (const pattern of rules.blockedPatterns) {
-          try {
-            new RegExp(pattern);
-          } catch {
-            return { valid: false, error: `Invalid regex pattern: ${pattern}` };
-          }
-        }
-      }
-
-      if (rules.requiredPatterns) {
-        for (const pattern of rules.requiredPatterns) {
-          try {
-            new RegExp(pattern);
-          } catch {
-            return { valid: false, error: `Invalid regex pattern: ${pattern}` };
-          }
-        }
-      }
-
-      return { valid: true };
+      return { valid: true, rules: JSON.parse(content) as HeuristicRules };
     } catch {
       return { valid: false, error: "Policy content must be valid JSON" };
     }
   }
 
-  if (policyType === "llm") {
+  if (typeof content === "object" && content !== null && !Array.isArray(content)) {
+    return { valid: true, rules: content as HeuristicRules };
+  }
+
+  return { valid: false, error: "Heuristic/structured policy content must be a JSON object" };
+}
+
+export function validatePolicyContent(
+  evaluator: string,
+  content: unknown
+): { valid: boolean; error?: string } {
+  if (evaluator === "heuristic" || evaluator === "structured") {
+    const parsed = parseRules(content);
+    if (!parsed.valid) {
+      return { valid: false, error: parsed.error };
+    }
+    const rules = parsed.rules!;
+
+    // Validate rule types
+    if (rules.maxLength !== undefined && typeof rules.maxLength !== "number") {
+      return { valid: false, error: "maxLength must be a number" };
+    }
+    if (rules.minLength !== undefined && typeof rules.minLength !== "number") {
+      return { valid: false, error: "minLength must be a number" };
+    }
+    if (rules.blockedPatterns !== undefined && !Array.isArray(rules.blockedPatterns)) {
+      return { valid: false, error: "blockedPatterns must be an array" };
+    }
+    if (rules.requiredPatterns !== undefined && !Array.isArray(rules.requiredPatterns)) {
+      return { valid: false, error: "requiredPatterns must be an array" };
+    }
+
+    // Validate regex patterns are valid
+    if (rules.blockedPatterns) {
+      for (const pattern of rules.blockedPatterns) {
+        try {
+          new RegExp(pattern);
+        } catch {
+          return { valid: false, error: `Invalid regex pattern: ${pattern}` };
+        }
+      }
+    }
+
+    if (rules.requiredPatterns) {
+      for (const pattern of rules.requiredPatterns) {
+        try {
+          new RegExp(pattern);
+        } catch {
+          return { valid: false, error: `Invalid regex pattern: ${pattern}` };
+        }
+      }
+    }
+
+    return { valid: true };
+  }
+
+  if (evaluator === "llm") {
     // LLM policies are just prompts
     if (typeof content !== "string" || content.trim().length === 0) {
       return { valid: false, error: "LLM policy must have a non-empty prompt" };
@@ -76,7 +93,7 @@ export function validatePolicyContent(
     return { valid: true };
   }
 
-  return { valid: false, error: `Unknown policy type: ${policyType}` };
+  return { valid: false, error: `Unknown policy evaluator: ${evaluator}` };
 }
 
 function evaluateHeuristicPolicy(
@@ -172,7 +189,9 @@ export async function evaluatePolicies(
     )
     .orderBy(desc(schema.policies.priority));
 
-  if (policies.length === 0) {
+  const canonicalPolicies = policies.map((policy) => dbPolicyToCanonical(policy));
+
+  if (canonicalPolicies.length === 0) {
     return { allowed: true };
   }
 
@@ -186,10 +205,14 @@ export async function evaluatePolicies(
   const recipientUsername = recipient?.username;
 
   // Evaluate policies in priority order
-  for (const policy of policies) {
-    if (policy.policyType === "heuristic") {
+  for (const policy of canonicalPolicies) {
+    if (policy.evaluator === "heuristic" || policy.evaluator === "structured") {
       try {
-        const rules = JSON.parse(policy.policyContent) as HeuristicRules;
+        const parsed = parseRules(policy.policy_content);
+        if (!parsed.valid) {
+          continue;
+        }
+        const rules = parsed.rules!;
 
         // Check context requirement
         if (rules.requireContext && !context) {
@@ -204,13 +227,15 @@ export async function evaluatePolicies(
         console.error(`Error evaluating policy ${policy.id}:`, e);
         // Continue to next policy on error
       }
-    } else if (policy.policyType === "llm") {
+    } else if (policy.evaluator === "llm") {
       // LLM policy evaluation (PERM-016)
       // Only evaluate in trusted mode with LLM configured
       if (config.trustedMode && isLLMEnabled()) {
         try {
           const llmResult = await evaluateLLMPolicy(
-            policy.policyContent,
+            typeof policy.policy_content === "string"
+              ? policy.policy_content
+              : JSON.stringify(policy.policy_content),
             message,
             recipientUsername || "unknown",
             context
@@ -278,7 +303,9 @@ export async function evaluateGroupPolicies(
     .orderBy(desc(schema.policies.priority));
 
   // Combine policies: sender global first, then group policies
-  const allPolicies = [...senderPolicies, ...groupPolicies];
+  const allPolicies = [...senderPolicies, ...groupPolicies].map((policy) =>
+    dbPolicyToCanonical(policy)
+  );
 
   if (allPolicies.length === 0) {
     return { allowed: true };
@@ -293,9 +320,13 @@ export async function evaluateGroupPolicies(
 
   // Evaluate all policies
   for (const policy of allPolicies) {
-    if (policy.policyType === "heuristic") {
+    if (policy.evaluator === "heuristic" || policy.evaluator === "structured") {
       try {
-        const rules = JSON.parse(policy.policyContent) as HeuristicRules;
+        const parsed = parseRules(policy.policy_content);
+        if (!parsed.valid) {
+          continue;
+        }
+        const rules = parsed.rules!;
 
         // Check context requirement
         if (rules.requireContext && !context) {
@@ -317,12 +348,14 @@ export async function evaluateGroupPolicies(
         console.error(`Error evaluating group policy ${policy.id}:`, e);
         // Continue to next policy on error
       }
-    } else if (policy.policyType === "llm") {
+    } else if (policy.evaluator === "llm") {
       // LLM policy evaluation (PERM-016)
       if (config.trustedMode && isLLMEnabled()) {
         try {
           const llmResult = await evaluateLLMPolicy(
-            policy.policyContent,
+            typeof policy.policy_content === "string"
+              ? policy.policy_content
+              : JSON.stringify(policy.policy_content),
             message,
             group?.name || groupId,
             context

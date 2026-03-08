@@ -11,6 +11,13 @@ import { validatePolicyContent } from "../services/policy";
 import { isValidRole, getRolesForFriend } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
 import { getInteractionCount, getRecentInteractions } from "../services/interactions";
+import {
+  dbPolicyToCanonical,
+  canonicalToStorage,
+  type CanonicalPolicy,
+  type PolicyEvaluator,
+  type PolicyScope,
+} from "../services/policySchema";
 
 export const policyRoutes = new Hono<AppEnv>();
 
@@ -51,12 +58,73 @@ async function assertGroupPolicyAccess(userId: string, groupId: string, db: Retu
   }
 }
 
+const scopeSchema = z.enum(["global", "user", "group", "role"]);
+const directionSchema = z.enum(["outbound", "inbound", "request", "response", "notification", "error"]);
+const effectSchema = z.enum(["allow", "ask", "deny"]);
+const evaluatorSchema = z.enum(["structured", "heuristic", "llm"]);
+const sourceSchema = z.enum([
+  "default",
+  "learned",
+  "user_confirmed",
+  "override",
+  "user_created",
+  "legacy_migrated",
+]);
+const isoDateSchema = z
+  .string()
+  .refine((value) => !Number.isNaN(Date.parse(value)), { message: "Invalid ISO date" });
+
+function assertScopeTarget(scope: PolicyScope, targetId: string | null) {
+  if (scope === "global" && targetId) {
+    throw new AppError("Global policies cannot have a target_id", 400, "INVALID_POLICY");
+  }
+
+  if ((scope === "user" || scope === "group" || scope === "role") && !targetId) {
+    throw new AppError(`${scope} policies require a target_id`, 400, "INVALID_POLICY");
+  }
+}
+
+function normalizeUses(maxUses?: number | null, remainingUses?: number | null) {
+  const max_uses = maxUses ?? null;
+  const remaining_uses = remainingUses ?? (max_uses !== null ? max_uses : null);
+
+  if (max_uses !== null && max_uses < 1) {
+    throw new AppError("max_uses must be at least 1", 400, "INVALID_POLICY");
+  }
+
+  if (remaining_uses !== null && remaining_uses < 0) {
+    throw new AppError("remaining_uses must be >= 0", 400, "INVALID_POLICY");
+  }
+
+  if (max_uses !== null && remaining_uses !== null && remaining_uses > max_uses) {
+    throw new AppError("remaining_uses cannot exceed max_uses", 400, "INVALID_POLICY");
+  }
+
+  return { max_uses, remaining_uses };
+}
+
+function assertDateWindow(effectiveFrom: string | null, expiresAt: string | null) {
+  if (effectiveFrom && expiresAt && Date.parse(expiresAt) <= Date.parse(effectiveFrom)) {
+    throw new AppError("expires_at must be after effective_from", 400, "INVALID_POLICY");
+  }
+}
+
 // Create policy
 const createPolicySchema = z.object({
-  scope: z.enum(["global", "user", "group", "role"]),
-  target_id: z.string().optional(),
-  policy_type: z.enum(["heuristic", "llm"]),
-  policy_content: z.string(),
+  scope: scopeSchema,
+  target_id: z.string().min(1).nullable().optional(),
+  direction: directionSchema.optional().default("outbound"),
+  resource: z.string().min(1).optional().default("message.general"),
+  action: z.string().min(1).nullable().optional().default("share"),
+  effect: effectSchema.optional().default("deny"),
+  evaluator: evaluatorSchema,
+  policy_content: z.unknown(),
+  effective_from: isoDateSchema.nullable().optional(),
+  expires_at: isoDateSchema.nullable().optional(),
+  max_uses: z.number().int().positive().nullable().optional(),
+  remaining_uses: z.number().int().min(0).nullable().optional(),
+  source: sourceSchema.optional().default("user_created"),
+  derived_from_message_id: z.string().min(1).nullable().optional(),
   priority: z.number().int().min(0).max(100).optional().default(0),
   enabled: z.boolean().optional().default(true),
 });
@@ -66,27 +134,25 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
   const data = c.req.valid("json");
   const db = getDb();
 
-  // Validate scope and target_id consistency
-  if (data.scope === "global" && data.target_id) {
-    throw new AppError("Global policies cannot have a target_id", 400, "INVALID_POLICY");
-  }
-
-  if ((data.scope === "user" || data.scope === "group" || data.scope === "role") && !data.target_id) {
-    throw new AppError(`${data.scope} policies require a target_id`, 400, "INVALID_POLICY");
-  }
+  const targetId = data.target_id ?? null;
+  assertScopeTarget(data.scope, targetId);
+  const uses = normalizeUses(data.max_uses, data.remaining_uses);
+  const effectiveFrom = data.effective_from ?? null;
+  const expiresAt = data.expires_at ?? null;
+  assertDateWindow(effectiveFrom, expiresAt);
 
   // Validate policy content format
-  const validation = validatePolicyContent(data.policy_type, data.policy_content);
+  const validation = validatePolicyContent(data.evaluator, data.policy_content);
   if (!validation.valid) {
     throw new AppError(validation.error!, 400, "INVALID_POLICY_CONTENT");
   }
 
   // If scope is "user", verify the target exists
-  if (data.scope === "user" && data.target_id) {
+  if (data.scope === "user" && targetId) {
     const [targetUser] = await db
       .select()
       .from(schema.users)
-      .where(eq(schema.users.id, data.target_id))
+      .where(eq(schema.users.id, targetId))
       .limit(1);
 
     if (!targetUser) {
@@ -95,46 +161,36 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
   }
 
   // If scope is "group", verify the group exists and user is owner/admin (REG-043)
-  if (data.scope === "group" && data.target_id) {
-    const [group] = await db
-      .select()
-      .from(schema.groups)
-      .where(eq(schema.groups.id, data.target_id))
-      .limit(1);
-
-    if (!group) {
-      throw new AppError("Target group not found", 404, "GROUP_NOT_FOUND");
-    }
-
-    // Verify user is owner or admin of the group
-    const [membership] = await db
-      .select()
-      .from(schema.groupMemberships)
-      .where(
-        and(
-          eq(schema.groupMemberships.groupId, data.target_id),
-          eq(schema.groupMemberships.userId, user.id),
-          eq(schema.groupMemberships.status, "active")
-        )
-      )
-      .limit(1);
-
-    if (!membership) {
-      throw new AppError("Not a member of this group", 403, "NOT_MEMBER");
-    }
-
-    if (membership.role !== "owner" && membership.role !== "admin") {
-      throw new AppError("Only group owners and admins can manage group policies", 403, "FORBIDDEN");
-    }
+  if (data.scope === "group" && targetId) {
+    await assertGroupPolicyAccess(user.id, targetId, db);
   }
 
   // If scope is "role", verify the role exists (system or user's custom)
-  if (data.scope === "role" && data.target_id) {
-    const validRole = await isValidRole(user.id, data.target_id);
+  if (data.scope === "role" && targetId) {
+    const validRole = await isValidRole(user.id, targetId);
     if (!validRole) {
-      throw new AppError(`Invalid role: ${data.target_id}`, 400, "INVALID_ROLE");
+      throw new AppError(`Invalid role: ${targetId}`, 400, "INVALID_ROLE");
     }
   }
+
+  const { policyType, policyContent } = canonicalToStorage({
+    scope: data.scope,
+    target_id: targetId,
+    direction: data.direction,
+    resource: data.resource,
+    action: data.action ?? null,
+    effect: data.effect,
+    evaluator: data.evaluator,
+    policy_content: data.policy_content,
+    effective_from: effectiveFrom,
+    expires_at: expiresAt,
+    max_uses: uses.max_uses,
+    remaining_uses: uses.remaining_uses,
+    source: data.source,
+    derived_from_message_id: data.derived_from_message_id ?? null,
+    priority: data.priority,
+    enabled: data.enabled,
+  });
 
   // Create policy
   const policyId = nanoid();
@@ -142,9 +198,9 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     id: policyId,
     userId: user.id,
     scope: data.scope,
-    targetId: data.target_id,
-    policyType: data.policy_type,
-    policyContent: data.policy_content,
+    targetId: targetId,
+    policyType,
+    policyContent,
     priority: data.priority || 0,
     enabled: data.enabled ?? true,
   });
@@ -173,25 +229,29 @@ policyRoutes.get("/", async (c) => {
   }
 
   const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
-  const policies = await db.select().from(schema.policies).where(whereClause);
+  const policies = await db
+    .select()
+    .from(schema.policies)
+    .where(whereClause)
+    .orderBy(desc(schema.policies.priority));
 
-  return c.json(
-    policies.map((p) => ({
-      id: p.id,
-      scope: p.scope,
-      target_id: p.targetId,
-      policy_type: p.policyType,
-      policy_content: p.policyContent,
-      priority: p.priority,
-      enabled: p.enabled,
-      created_at: p.createdAt?.toISOString(),
-    }))
-  );
+  return c.json(policies.map((p) => dbPolicyToCanonical(p)));
 });
 
 // Update policy
 const updatePolicySchema = z.object({
-  policy_content: z.string().optional(),
+  direction: directionSchema.optional(),
+  resource: z.string().min(1).optional(),
+  action: z.string().min(1).nullable().optional(),
+  effect: effectSchema.optional(),
+  evaluator: evaluatorSchema.optional(),
+  policy_content: z.unknown().optional(),
+  effective_from: isoDateSchema.nullable().optional(),
+  expires_at: isoDateSchema.nullable().optional(),
+  max_uses: z.number().int().positive().nullable().optional(),
+  remaining_uses: z.number().int().min(0).nullable().optional(),
+  source: sourceSchema.optional(),
+  derived_from_message_id: z.string().min(1).nullable().optional(),
   priority: z.number().int().min(0).max(100).optional(),
   enabled: z.boolean().optional(),
 });
@@ -222,17 +282,68 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
     throw new AppError("Policy not found", 404, "NOT_FOUND");
   }
 
-  // Validate policy content if provided
-  if (data.policy_content !== undefined) {
-    const validation = validatePolicyContent(policy.policyType, data.policy_content);
-    if (!validation.valid) {
-      throw new AppError(validation.error!, 400, "INVALID_POLICY_CONTENT");
-    }
+  const current = dbPolicyToCanonical(policy);
+  const nextEvaluator = (data.evaluator || current.evaluator) as PolicyEvaluator;
+  const nextPolicyContent =
+    data.policy_content !== undefined ? data.policy_content : current.policy_content;
+
+  const validation = validatePolicyContent(nextEvaluator, nextPolicyContent);
+  if (!validation.valid) {
+    throw new AppError(validation.error!, 400, "INVALID_POLICY_CONTENT");
   }
 
+  const uses = normalizeUses(
+    data.max_uses !== undefined ? data.max_uses : current.max_uses,
+    data.remaining_uses !== undefined ? data.remaining_uses : current.remaining_uses
+  );
+  const effectiveFrom =
+    data.effective_from !== undefined ? data.effective_from : current.effective_from;
+  const expiresAt = data.expires_at !== undefined ? data.expires_at : current.expires_at;
+  assertDateWindow(effectiveFrom, expiresAt);
+
+  const canonical = {
+    scope: current.scope,
+    target_id: current.target_id,
+    direction: data.direction || current.direction,
+    resource: data.resource || current.resource,
+    action: data.action !== undefined ? data.action : current.action,
+    effect: data.effect || current.effect,
+    evaluator: nextEvaluator,
+    policy_content: nextPolicyContent,
+    effective_from: effectiveFrom,
+    expires_at: expiresAt,
+    max_uses: uses.max_uses,
+    remaining_uses: uses.remaining_uses,
+    source: data.source || current.source,
+    derived_from_message_id:
+      data.derived_from_message_id !== undefined
+        ? data.derived_from_message_id
+        : current.derived_from_message_id,
+    priority: data.priority !== undefined ? data.priority : current.priority,
+    enabled: data.enabled !== undefined ? data.enabled : current.enabled,
+  };
+
   // Update policy
-  const updates: Partial<schema.Policy> = {};
-  if (data.policy_content !== undefined) updates.policyContent = data.policy_content;
+  const updates: Partial<schema.NewPolicy> = {};
+  const canonicalTouched =
+    data.direction !== undefined ||
+    data.resource !== undefined ||
+    data.action !== undefined ||
+    data.effect !== undefined ||
+    data.evaluator !== undefined ||
+    data.policy_content !== undefined ||
+    data.effective_from !== undefined ||
+    data.expires_at !== undefined ||
+    data.max_uses !== undefined ||
+    data.remaining_uses !== undefined ||
+    data.source !== undefined ||
+    data.derived_from_message_id !== undefined;
+
+  if (canonicalTouched) {
+    const storage = canonicalToStorage(canonical);
+    updates.policyType = storage.policyType;
+    updates.policyContent = storage.policyContent;
+  }
   if (data.priority !== undefined) updates.priority = data.priority;
   if (data.enabled !== undefined) updates.enabled = data.enabled;
 
@@ -359,17 +470,8 @@ policyRoutes.get("/context/:username", async (c) => {
     )
     .orderBy(desc(schema.policies.priority));
 
-  // Generate policy summary (PERM-013)
-  const policyInfos = policies.map((p) => ({
-    id: p.id,
-    scope: p.scope,
-    target_id: p.targetId,
-    policy_type: p.policyType,
-    policy_content: p.policyContent,
-    priority: p.priority,
-  }));
-
-  const summary = await generatePolicySummary(policyInfos, roles);
+  const canonicalPolicies: CanonicalPolicy[] = policies.map((p) => dbPolicyToCanonical(p));
+  const summary = await generatePolicySummary(canonicalPolicies, roles);
 
   // Get interaction count (PERM-020)
   const interactionCount = await getInteractionCount(user.id, recipient.id);
@@ -387,7 +489,7 @@ policyRoutes.get("/context/:username", async (c) => {
       connected_since: friendship.createdAt?.toISOString(),
       interaction_count: interactionCount,
     },
-    applicable_policies: policyInfos,
+    applicable_policies: canonicalPolicies,
     summary,
     recent_interactions: recentInteractions,
   });

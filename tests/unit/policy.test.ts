@@ -74,7 +74,7 @@ describe("Policy Service", () => {
       it("should reject unknown policy types", () => {
         const result = validatePolicyContent("unknown", "content");
         expect(result.valid).toBe(false);
-        expect(result.error).toContain("Unknown policy type");
+        expect(result.error).toContain("Unknown policy evaluator");
       });
     });
   });

@@ -349,7 +349,11 @@ describe("Policy Context Integration", () => {
         body: JSON.stringify({
           scope: "role",
           target_id: "close_friends",
-          policy_type: "llm",
+          evaluator: "llm",
+          effect: "deny",
+          direction: "outbound",
+          resource: "calendar.event",
+          action: "share",
           policy_content: "With close friends, share detailed calendar info",
           priority: 70,
         }),
