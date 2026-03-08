@@ -351,7 +351,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 4.2 Draft Resolution / Preflight Endpoint
 - **ID**: `SRV-041`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-031
 - **Description**:
@@ -359,9 +359,13 @@ These are strong starting points, but they need canonical policy semantics and s
   - Input: recipient, selectors, content, context, routing info.
   - Output: `allow` / `ask` / `deny`, summary, applied policy info.
 - **Acceptance Criteria**:
-  - [ ] Can be called without creating final delivery
-  - [ ] Matches actual send-time resolution behavior
-  - [ ] Returns structured result for plugin UX
+  - [x] Can be called without creating final delivery
+  - [x] Matches actual send-time resolution behavior
+  - [x] Returns structured result for plugin UX
+- **Notes**:
+  - 2026-03-08: Started SRV-041 by mapping `/api/v1/messages/send` resolution steps (selector normalization, recipient routing, trusted-mode policy evaluation, and delivery-mode mapping) to reuse for preflight without creating a delivery record.
+  - 2026-03-08: Completed SRV-041 by adding `POST /api/v1/plugin/resolve` in `src/routes/plugin.ts` with verified-auth sender checks, selector-aware draft resolution, routing-aware recipient preflight, trusted-mode policy evaluation parity with send-time behavior, and structured plugin UX payloads (decision/delivery mode/summary/guidance/applied policy metadata) without message creation.
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-resolve.test.ts`, `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts`, and `bun run build`.
 
 ### 4.3 Outcome Reporting Endpoint
 - **ID**: `SRV-042`
