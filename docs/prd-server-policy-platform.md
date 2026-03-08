@@ -303,16 +303,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 3.3 Inbound Request Policy Engine
 - **ID**: `SRV-032`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-030, SRV-031
 - **Description**:
   - Add pre-delivery request evaluation.
   - Support inbound `allow` / `ask` / `deny` semantics.
 - **Acceptance Criteria**:
-  - [ ] Inbound deny blocks before delivery
-  - [ ] Inbound ask produces review-required behavior
-  - [ ] Inbound audit log exists
+  - [x] Inbound deny blocks before delivery
+  - [x] Inbound ask produces review-required behavior
+  - [x] Inbound audit log exists
+- **Notes**:
+  - 2026-03-08: Started SRV-032 by implementing recipient-owned inbound pre-delivery policy resolution in `/api/v1/messages/send`, plus integration coverage for inbound deny/ask audit behavior.
+  - 2026-03-08: Completed SRV-032 by adding recipient-owned inbound policy evaluation (`evaluateInboundPolicies`) with selector-aware policy retrieval, enforcing deny/ask decisions before delivery, persisting inbound audit metadata in `messages.policies_evaluated`, and validating via `bun test tests/unit/policy.test.ts tests/integration/review-ask-semantics.test.ts tests/integration/selector-aware-send.test.ts`, `bun test tests/e2e/message-exchange.test.ts`, and `bun run build`.
 
 ### 3.4 Selector Verification Hooks (Future-Friendly)
 - **ID**: `SRV-033`

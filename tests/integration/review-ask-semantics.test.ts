@@ -99,7 +99,7 @@ describe("Review / ask semantics (SRV-023)", () => {
     const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
       await setupParticipants("inbound_review");
 
-    await insertAlwaysMatchPolicy(sender.id, "ask", "inbound");
+    await insertAlwaysMatchPolicy(recipient.id, "ask", "inbound");
 
     const sendRes = await app.request("/api/v1/messages/send", {
       method: "POST",
@@ -155,7 +155,7 @@ describe("Review / ask semantics (SRV-023)", () => {
     const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
       await setupParticipants("inbound_hold");
 
-    await insertAlwaysMatchPolicy(sender.id, "ask", "inbound");
+    await insertAlwaysMatchPolicy(recipient.id, "ask", "inbound");
 
     const sendRes = await app.request("/api/v1/messages/send", {
       method: "POST",
@@ -203,6 +203,70 @@ describe("Review / ask semantics (SRV-023)", () => {
     const evaluation = JSON.parse(storedMessage?.policiesEvaluated || "{}");
     expect(evaluation.effect).toBe("ask");
     expect(String(evaluation.reason_code)).toContain("policy.ask");
+  });
+
+  it("blocks inbound deny before delivery and persists inbound audit metadata", async () => {
+    setInboundAskMode("review_required");
+    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
+      await setupParticipants("inbound_deny");
+
+    await insertAlwaysMatchPolicy(recipient.id, "deny", "inbound");
+
+    const sendRes = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${senderKey}`,
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        recipient_connection_id: recipientConnection.id,
+        sender_connection_id: senderConnection.id,
+        message: "block this inbound request",
+        declared_selectors: {
+          direction: "inbound",
+          resource: "message.general",
+          action: "request",
+        },
+      }),
+    });
+
+    expect(sendRes.status).toBe(200);
+    const sendData = await sendRes.json();
+    expect(sendData.status).toBe("rejected");
+    expect(sendData.resolution.decision).toBe("deny");
+    expect(sendData.resolution.delivery_mode).toBe("blocked");
+    expect(sendData.recipient_results[0]).toEqual(
+      expect.objectContaining({
+        recipient: recipient.username,
+        decision: "deny",
+        delivery_mode: "blocked",
+        delivery_status: "rejected",
+      })
+    );
+
+    const [storedMessage] = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, sendData.message_id))
+      .limit(1);
+    expect(storedMessage?.status).toBe("rejected");
+    expect(storedMessage?.outcome).toBe("deny");
+    expect(storedMessage?.rejectionReason).toBeTruthy();
+    expect(storedMessage?.deliveredAt).toBeNull();
+
+    const evaluation = JSON.parse(storedMessage?.policiesEvaluated || "{}");
+    expect(evaluation.effect).toBe("deny");
+    expect(String(evaluation.reason_code)).toContain("policy.deny");
+    expect(evaluation.policy_owner_user_id).toBe(recipient.id);
+    expect(evaluation.policy_evaluation_mode).toBe("inbound_pre_delivery");
+    expect(evaluation.selector_context).toEqual(
+      expect.objectContaining({
+        direction: "inbound",
+        resource: "message.general",
+        action: "request",
+      })
+    );
   });
 
   it("records audit fields that distinguish ask from deny", async () => {

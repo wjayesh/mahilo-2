@@ -11,6 +11,7 @@ import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage, deliverToConnection } from "../services/delivery";
 import {
   evaluatePolicies,
+  evaluateInboundPolicies,
   evaluateGroupPolicies,
   consumeWinningPolicyUse,
   type AuthenticatedSenderIdentity,
@@ -175,7 +176,10 @@ function validateMessageSelectors(selectors: {
   );
 }
 
-function serializePolicyEvaluation(result: PolicyResult): string {
+function serializePolicyEvaluation(
+  result: PolicyResult,
+  auditMetadata?: Record<string, unknown>
+): string {
   return JSON.stringify({
     authenticated_identity: result.authenticated_identity || null,
     effect: result.effect,
@@ -188,6 +192,7 @@ function serializePolicyEvaluation(result: PolicyResult): string {
     winning_policy: result.winning_policy || null,
     matched_policy_ids: result.matched_policy_ids,
     evaluated_policies: result.evaluated_policies,
+    ...(auditMetadata || {}),
   });
 }
 
@@ -688,6 +693,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     let groupPolicyResult: PolicyResult | null = null;
     let groupOutcome = requestedOutcome.outcome;
     let groupOutcomeDetails = requestedOutcome.outcomeDetails;
+    const groupDirection = parseDirectionCandidate(messageSelectors.direction);
 
     // Group policy evaluation in trusted mode (REG-044)
     const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
@@ -697,7 +703,12 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         groupId,
         data.message,
         data.context,
-        authenticatedSenderIdentity
+        authenticatedSenderIdentity,
+        {
+          direction: groupDirection,
+          resource: messageSelectors.resource,
+          action: messageSelectors.action,
+        }
       );
       await consumeWinningPolicyUse(user.id, groupPolicyResult);
       groupPolicyEvaluation = serializePolicyEvaluation(groupPolicyResult);
@@ -706,7 +717,6 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         groupOutcomeDetails || groupPolicyResult.reason || groupPolicyResult.resolution_explanation;
     }
 
-    const groupDirection = parseDirectionCandidate(messageSelectors.direction);
     const groupResolution = buildStructuredResolution(resolutionId, groupDirection, groupPolicyResult);
     const shouldDeliverGroup = shouldDeliverForDecision(
       groupResolution.decision,
@@ -1000,25 +1010,52 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
   let userPolicyResult: PolicyResult | null = null;
   let userOutcome = requestedOutcome.outcome;
   let userOutcomeDetails = requestedOutcome.outcomeDetails;
+  const userDirection = parseDirectionCandidate(messageSelectors.direction);
+  const inboundRequestEvaluation = isInboundDirection(userDirection);
 
   // Policy evaluation (only in trusted mode with plaintext)
   const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
   if (!isEncrypted && config.trustedMode) {
-    userPolicyResult = await evaluatePolicies(
-      user.id,
-      recipientUserId,
-      data.message,
-      data.context,
-      authenticatedSenderIdentity
-    );
-    await consumeWinningPolicyUse(user.id, userPolicyResult);
-    userPolicyEvaluation = serializePolicyEvaluation(userPolicyResult);
+    const selectorContext = {
+      direction: userDirection,
+      resource: messageSelectors.resource,
+      action: messageSelectors.action,
+    };
+
+    if (inboundRequestEvaluation) {
+      userPolicyResult = await evaluateInboundPolicies(
+        recipientUserId,
+        user.id,
+        data.message,
+        data.context,
+        authenticatedSenderIdentity,
+        selectorContext
+      );
+      await consumeWinningPolicyUse(recipientUserId, userPolicyResult);
+    } else {
+      userPolicyResult = await evaluatePolicies(
+        user.id,
+        recipientUserId,
+        data.message,
+        data.context,
+        authenticatedSenderIdentity,
+        selectorContext
+      );
+      await consumeWinningPolicyUse(user.id, userPolicyResult);
+    }
+
+    userPolicyEvaluation = serializePolicyEvaluation(userPolicyResult, {
+      policy_owner_user_id: inboundRequestEvaluation ? recipientUserId : user.id,
+      policy_evaluation_mode: inboundRequestEvaluation
+        ? "inbound_pre_delivery"
+        : "outbound_pre_delivery",
+      selector_context: selectorContext,
+    });
     userOutcome = userOutcome || userPolicyResult.effect;
     userOutcomeDetails =
       userOutcomeDetails || userPolicyResult.reason || userPolicyResult.resolution_explanation;
   }
 
-  const userDirection = parseDirectionCandidate(messageSelectors.direction);
   const userResolution = buildStructuredResolution(resolutionId, userDirection, userPolicyResult);
   const shouldDeliverUser = shouldDeliverForDecision(
     userResolution.decision,
