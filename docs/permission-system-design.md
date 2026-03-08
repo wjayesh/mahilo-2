@@ -1700,6 +1700,13 @@ Users should be able to inspect blocked events, but Mahilo should store **minima
 
 Full payload retention for blocked inbound messages should be opt-in or tightly redacted.
 
+Current server behavior (SRV-044):
+
+- `GET /api/v1/plugin/events/blocked` returns metadata-only blocked events by default.
+- Each event includes `payload_hash` for correlation.
+- `stored_payload_excerpt` is omitted unless `include_payload_excerpt=true` is requested.
+- Full message payloads may still exist in `messages` storage for delivery/audit compatibility during the current migration phase.
+
 ---
 
 ## Implementation Considerations

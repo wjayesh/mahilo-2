@@ -117,6 +117,8 @@ Verification requirements by route:
 - `POST /api/v1/plugin/resolve`: authenticated + verified user required.
 - `POST /api/v1/plugin/outcomes`: authenticated + verified user required.
 - `POST /api/v1/plugin/overrides`: authenticated + verified user required.
+- `GET /api/v1/plugin/reviews`: authenticated + verified user required.
+- `GET /api/v1/plugin/events/blocked`: authenticated + verified user required.
 - `POST /api/v1/messages/send`: authenticated + verified user required.
 
 Idempotency:
@@ -537,15 +539,120 @@ Success response (`201`):
 
 ---
 
+### 6) Query Review Queue
+
+Endpoint:
+
+```http
+GET /api/v1/plugin/reviews
+```
+
+Auth:
+
+- Requires authenticated + verified user.
+
+Query params:
+
+- `status` optional: `review_required`, `approval_pending`, or comma-separated list.
+- `direction` optional: `all` (default), `outbound`, `inbound`.
+- `limit` optional: max `100`, default `50`.
+
+Success response:
+
+```json
+{
+  "contract_version": "1.0.0",
+  "review_queue": {
+    "count": 2,
+    "direction": "all",
+    "statuses": ["review_required", "approval_pending"]
+  },
+  "reviews": [
+    {
+      "review_id": "rev_msg_123",
+      "message_id": "msg_123",
+      "status": "review_required",
+      "queue_direction": "outbound",
+      "decision": "ask",
+      "delivery_mode": "review_required",
+      "summary": "Message requires review before delivery.",
+      "reason_code": "policy.ask.resolved",
+      "message_preview": "Draft preview...",
+      "selectors": {
+        "direction": "outbound",
+        "resource": "location.current",
+        "action": "share"
+      },
+      "created_at": "2026-03-08T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+### 7) Query Blocked Events
+
+Endpoint:
+
+```http
+GET /api/v1/plugin/events/blocked
+```
+
+Auth:
+
+- Requires authenticated + verified user.
+
+Query params:
+
+- `direction` optional: `all` (default), `outbound`, `inbound`.
+- `limit` optional: max `100`, default `50`.
+- `include_payload_excerpt` optional: `false` by default.
+
+Success response:
+
+```json
+{
+  "contract_version": "1.0.0",
+  "retention": {
+    "blocked_event_log": "metadata_only",
+    "payload_excerpt_default": "omitted",
+    "payload_excerpt_included": false,
+    "payload_hash_algorithm": "sha256",
+    "source_message_payload": "messages table may retain full payload for delivery/audit compatibility"
+  },
+  "blocked_events": [
+    {
+      "id": "blocked_msg_123",
+      "message_id": "msg_123",
+      "queue_direction": "outbound",
+      "sender": "bob",
+      "reason_code": "policy.deny.user.structured",
+      "reason": "Message blocked by policy.",
+      "direction": "outbound",
+      "resource": "location.current",
+      "action": "share",
+      "stored_payload_excerpt": null,
+      "payload_hash": "sha256:...",
+      "timestamp": "2026-03-08T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+Retention behavior:
+
+- Blocked-event API responses are metadata-first by default (`stored_payload_excerpt` omitted).
+- Callers can request a short excerpt with `include_payload_excerpt=true`.
+- `payload_hash` is always included for correlation without exposing full payload content.
+
+---
+
 ## Not Implemented Yet (Do Not Integrate Against)
 
-These routes are not available in this repo yet:
+This route is not available in this repo yet:
 
-- `GET /api/v1/plugin/reviews`
 - `POST /api/v1/plugin/reviews/:review_id/decision`
-- `GET /api/v1/plugin/events/blocked`
 
-They are planned under SRV-044 and remain out of current contract scope.
+It remains out of current contract scope.
 
 ---
 
@@ -664,4 +771,5 @@ Current integration tests covering this contract:
 - `tests/integration/plugin-resolve.test.ts`
 - `tests/integration/plugin-outcomes.test.ts`
 - `tests/integration/plugin-overrides.test.ts`
+- `tests/integration/plugin-events-reviews.test.ts`
 - `tests/integration/selector-aware-send.test.ts`

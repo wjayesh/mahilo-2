@@ -408,15 +408,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 4.5 Blocked / Review Event APIs
 - **ID**: `SRV-044`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-023, SRV-032
 - **Description**:
   - Provide APIs to inspect blocked events and review-required events.
 - **Acceptance Criteria**:
-  - [ ] Minimal redacted blocked-event log exists
-  - [ ] Review queue can be queried
-  - [ ] Sensitive payload retention behavior is documented
+  - [x] Minimal redacted blocked-event log exists
+  - [x] Review queue can be queried
+  - [x] Sensitive payload retention behavior is documented
+- **Notes**:
+  - 2026-03-08: Started SRV-044 by adding plugin-facing blocked-event and review-queue read APIs plus retention/redaction documentation updates.
+  - 2026-03-08: Completed SRV-044 by adding `GET /api/v1/plugin/reviews` and `GET /api/v1/plugin/events/blocked` in `src/routes/plugin.ts` (verified-auth, query filters, metadata-first blocked-event responses with payload hashing, and review queue querying), adding integration coverage in `tests/integration/plugin-events-reviews.test.ts`, and updating retention/contract docs (`docs/openclaw-plugin-server-contract.md`, `docs/permission-system-design.md`).
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-events-reviews.test.ts`, `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-outcomes.test.ts tests/integration/plugin-overrides.test.ts`, and `bun run build`.
 
 ---
 

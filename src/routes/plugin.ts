@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { createHash } from "crypto";
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
@@ -166,6 +167,13 @@ type PluginReportedOutcome = (typeof pluginOutcomeValues)[number];
 type PluginOverrideKind = (typeof pluginOverrideKinds)[number];
 type ContextDecision = "allow" | "ask" | "deny";
 type DeliveryMode = "full_send" | "review_required" | "hold_for_approval" | "blocked";
+type ReviewQueueStatus = "review_required" | "approval_pending";
+type QueueDirectionFilter = "all" | "outbound" | "inbound";
+
+const reviewQueueStatuses: readonly ReviewQueueStatus[] = [
+  "review_required",
+  "approval_pending",
+];
 
 const policyEffectPriority: Record<ContextDecision, number> = {
   allow: 0,
@@ -803,6 +811,145 @@ function parseStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
+function parsePositiveLimit(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new AppError("limit must be a positive integer", 400, "INVALID_QUERY");
+  }
+  return Math.min(parsed, 100);
+}
+
+function parseQueueDirectionFilter(value: string | undefined): QueueDirectionFilter {
+  if (!value || value === "all") {
+    return "all";
+  }
+  if (value === "outbound" || value === "inbound") {
+    return value;
+  }
+  throw new AppError("direction must be one of: all, outbound, inbound", 400, "INVALID_QUERY");
+}
+
+function parseReviewStatusFilter(value: string | undefined): ReviewQueueStatus[] {
+  if (!value) {
+    return [...reviewQueueStatuses];
+  }
+
+  const tokens = value
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+
+  if (tokens.length === 0) {
+    throw new AppError("status must include at least one value", 400, "INVALID_QUERY");
+  }
+
+  const statuses = new Set<ReviewQueueStatus>();
+  for (const token of tokens) {
+    if (token === "review_required" || token === "approval_pending") {
+      statuses.add(token);
+      continue;
+    }
+    throw new AppError(
+      "status must be one of: review_required, approval_pending",
+      400,
+      "INVALID_QUERY"
+    );
+  }
+
+  return [...statuses];
+}
+
+function parseBooleanQueryFlag(
+  value: string | undefined,
+  fieldName: string,
+  fallback: boolean
+): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (value === "true" || value === "1") {
+    return true;
+  }
+
+  if (value === "false" || value === "0") {
+    return false;
+  }
+
+  throw new AppError(`${fieldName} must be true or false`, 400, "INVALID_QUERY");
+}
+
+function buildMessageVisibilityFilter(userId: string, direction: QueueDirectionFilter) {
+  const outboundFilter = eq(schema.messages.senderUserId, userId);
+  const inboundFilter = and(
+    eq(schema.messages.recipientType, "user"),
+    eq(schema.messages.recipientId, userId)
+  );
+
+  if (direction === "outbound") {
+    return outboundFilter;
+  }
+
+  if (direction === "inbound") {
+    return inboundFilter;
+  }
+
+  return or(outboundFilter, inboundFilter);
+}
+
+function resolveQueueDirection(
+  userId: string,
+  message: { senderUserId: string; recipientType: string; recipientId: string }
+): "outbound" | "inbound" {
+  if (message.senderUserId === userId) {
+    return "outbound";
+  }
+  if (message.recipientType === "user" && message.recipientId === userId) {
+    return "inbound";
+  }
+  return "outbound";
+}
+
+function hashPayload(payload: string): string {
+  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+function parseReasonSummary(
+  evaluation: Record<string, unknown> | null,
+  fallback: string
+): string {
+  if (typeof evaluation?.reason === "string" && evaluation.reason.length > 0) {
+    return evaluation.reason;
+  }
+
+  if (
+    typeof evaluation?.resolution_explanation === "string" &&
+    evaluation.resolution_explanation.length > 0
+  ) {
+    return evaluation.resolution_explanation;
+  }
+
+  return fallback;
+}
+
+async function loadUsernames(userIds: string[]): Promise<Map<string, string>> {
+  const uniqueUserIds = [...new Set(userIds)];
+  if (uniqueUserIds.length === 0) {
+    return new Map();
+  }
+
+  const db = getDb();
+  const users = await db
+    .select({ id: schema.users.id, username: schema.users.username })
+    .from(schema.users)
+    .where(inArray(schema.users.id, uniqueUserIds));
+
+  return new Map(users.map((entry) => [entry.id, entry.username]));
+}
+
 function comparePolicies(a: CanonicalPolicy, b: CanonicalPolicy): number {
   const effectDelta = policyEffectPriority[b.effect] - policyEffectPriority[a.effect];
   if (effectDelta !== 0) {
@@ -898,6 +1045,199 @@ async function loadContextPolicies(
 
   return policies.map((policy) => dbPolicyToCanonical(policy));
 }
+
+pluginRoutes.get("/reviews", requireVerified(), async (c) => {
+  const user = c.get("user")!;
+  const db = getDb();
+  const statusFilter = parseReviewStatusFilter(c.req.query("status"));
+  const directionFilter = parseQueueDirectionFilter(c.req.query("direction"));
+  const limit = parsePositiveLimit(c.req.query("limit"), 50);
+  const visibilityFilter = buildMessageVisibilityFilter(user.id, directionFilter);
+
+  const reviewMessages = await db
+    .select({
+      action: schema.messages.action,
+      context: schema.messages.context,
+      correlationId: schema.messages.correlationId,
+      createdAt: schema.messages.createdAt,
+      direction: schema.messages.direction,
+      id: schema.messages.id,
+      inResponseTo: schema.messages.inResponseTo,
+      payload: schema.messages.payload,
+      payloadType: schema.messages.payloadType,
+      policiesEvaluated: schema.messages.policiesEvaluated,
+      recipientConnectionId: schema.messages.recipientConnectionId,
+      recipientId: schema.messages.recipientId,
+      recipientType: schema.messages.recipientType,
+      senderAgent: schema.messages.senderAgent,
+      senderConnectionId: schema.messages.senderConnectionId,
+      senderUserId: schema.messages.senderUserId,
+      status: schema.messages.status,
+      resource: schema.messages.resource,
+    })
+    .from(schema.messages)
+    .where(and(visibilityFilter, inArray(schema.messages.status, statusFilter)))
+    .orderBy(desc(schema.messages.createdAt))
+    .limit(limit);
+
+  const usernamesById = await loadUsernames(
+    reviewMessages.flatMap((message) => {
+      const ids = [message.senderUserId];
+      if (message.recipientType === "user") {
+        ids.push(message.recipientId);
+      }
+      return ids;
+    })
+  );
+
+  const reviews = reviewMessages.map((message) => {
+    const evaluation = parseJsonObject(message.policiesEvaluated);
+    const decision = parseDecision(evaluation?.effect) || "ask";
+    const reasonCode = parseReasonCode(evaluation?.reason_code) || "policy.ask.resolved";
+    const summary = parseReasonSummary(evaluation, "Message requires review before delivery.");
+    const queueDirection = resolveQueueDirection(user.id, message);
+    const deliveryMode =
+      message.status === "approval_pending" ? "hold_for_approval" : "review_required";
+
+    return {
+      review_id: `rev_${message.id}`,
+      message_id: message.id,
+      status: message.status,
+      queue_direction: queueDirection,
+      decision,
+      delivery_mode: deliveryMode,
+      summary,
+      reason_code: reasonCode,
+      created_at: message.createdAt?.toISOString() || new Date().toISOString(),
+      correlation_id: message.correlationId,
+      in_response_to: message.inResponseTo,
+      payload_type: message.payloadType,
+      message_preview: summarizeMessage(message.payload, 240),
+      context_preview: message.context ? summarizeMessage(message.context, 200) : null,
+      selectors: {
+        direction: message.direction,
+        resource: message.resource,
+        action: message.action,
+      },
+      sender: {
+        user_id: message.senderUserId,
+        username: usernamesById.get(message.senderUserId) || null,
+        connection_id: message.senderConnectionId,
+        agent: message.senderAgent,
+      },
+      recipient: {
+        id: message.recipientId,
+        type: message.recipientType,
+        username:
+          message.recipientType === "user"
+            ? (usernamesById.get(message.recipientId) ?? null)
+            : null,
+        connection_id: message.recipientConnectionId,
+      },
+      applied_policy: {
+        matched_policy_ids: parseStringArray(evaluation?.matched_policy_ids),
+        winning_policy_id:
+          typeof evaluation?.winning_policy_id === "string" ? evaluation.winning_policy_id : null,
+      },
+    };
+  });
+
+  return c.json({
+    contract_version: CONTRACT_VERSION,
+    review_queue: {
+      count: reviews.length,
+      direction: directionFilter,
+      statuses: statusFilter,
+    },
+    reviews,
+  });
+});
+
+pluginRoutes.get("/events/blocked", requireVerified(), async (c) => {
+  const user = c.get("user")!;
+  const db = getDb();
+  const directionFilter = parseQueueDirectionFilter(c.req.query("direction"));
+  const includePayloadExcerpt = parseBooleanQueryFlag(
+    c.req.query("include_payload_excerpt"),
+    "include_payload_excerpt",
+    false
+  );
+  const limit = parsePositiveLimit(c.req.query("limit"), 50);
+  const visibilityFilter = buildMessageVisibilityFilter(user.id, directionFilter);
+
+  const blockedMessages = await db
+    .select({
+      action: schema.messages.action,
+      createdAt: schema.messages.createdAt,
+      direction: schema.messages.direction,
+      id: schema.messages.id,
+      payload: schema.messages.payload,
+      policiesEvaluated: schema.messages.policiesEvaluated,
+      recipientId: schema.messages.recipientId,
+      recipientType: schema.messages.recipientType,
+      rejectionReason: schema.messages.rejectionReason,
+      resource: schema.messages.resource,
+      senderUserId: schema.messages.senderUserId,
+      status: schema.messages.status,
+    })
+    .from(schema.messages)
+    .where(and(visibilityFilter, eq(schema.messages.status, "rejected")))
+    .orderBy(desc(schema.messages.createdAt))
+    .limit(limit);
+
+  const usernamesById = await loadUsernames(
+    blockedMessages.flatMap((message) => {
+      const ids = [message.senderUserId];
+      if (message.recipientType === "user") {
+        ids.push(message.recipientId);
+      }
+      return ids;
+    })
+  );
+
+  const blockedEvents = blockedMessages.map((message) => {
+    const evaluation = parseJsonObject(message.policiesEvaluated);
+    const reasonCode = parseReasonCode(evaluation?.reason_code) || "policy.deny.resolved";
+    const reason = parseReasonSummary(evaluation, message.rejectionReason || "Message blocked by policy.");
+
+    return {
+      id: `blocked_${message.id}`,
+      message_id: message.id,
+      queue_direction: resolveQueueDirection(user.id, message),
+      sender: usernamesById.get(message.senderUserId) || null,
+      reason_code: reasonCode,
+      reason,
+      direction: message.direction,
+      resource: message.resource,
+      action: message.action,
+      stored_payload_excerpt: includePayloadExcerpt ? summarizeMessage(message.payload, 120) : null,
+      payload_hash: hashPayload(message.payload),
+      timestamp: message.createdAt?.toISOString() || new Date().toISOString(),
+      status: message.status,
+      recipient: {
+        id: message.recipientId,
+        type: message.recipientType,
+        username:
+          message.recipientType === "user"
+            ? (usernamesById.get(message.recipientId) ?? null)
+            : null,
+      },
+    };
+  });
+
+  return c.json({
+    contract_version: CONTRACT_VERSION,
+    retention: {
+      blocked_event_log: "metadata_only",
+      payload_excerpt_default: "omitted",
+      payload_excerpt_included: includePayloadExcerpt,
+      payload_hash_algorithm: "sha256",
+      source_message_payload:
+        "messages table may retain full payload for delivery/audit compatibility",
+    },
+    blocked_events: blockedEvents,
+  });
+});
 
 pluginRoutes.post("/context", zValidator("json", pluginContextRequestSchema), async (c) => {
   const user = c.get("user")!;
