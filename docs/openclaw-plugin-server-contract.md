@@ -174,7 +174,6 @@ Response example:
       {
         "decision": "ask",
         "direction": "outbound",
-        "matched_policy_ids": ["pol_ask_1"],
         "message_id": "msg_1",
         "reason_code": "policy.ask.role.structured",
         "selectors": {
@@ -183,27 +182,18 @@ Response example:
           "resource": "location.current"
         },
         "status": "review_required",
-        "timestamp": "2026-03-08T10:00:00.000Z",
-        "winning_policy_id": "pol_ask_1"
-      }
-    ],
-    "relevant_policies": [
-      {
-        "effect": "ask",
-        "evaluator": "structured",
-        "id": "pol_ask_1",
-        "priority": 80,
-        "scope": "role",
-        "selectors": {
-          "action": "share",
-          "direction": "outbound",
-          "resource": "location.current"
-        },
-        "target_id": "close_friends"
+        "timestamp": "2026-03-08T10:00:00.000Z"
       }
     ],
     "summary": "...",
-    "winning_policy_id": "pol_ask_1"
+    "policy_signal": {
+      "applicable_policy_count": 1,
+      "scope_counts": {
+        "global": 0,
+        "role": 1,
+        "user": 0
+      }
+    }
   },
   "recipient": {
     "connected_since": "2026-03-08T09:00:00.000Z",
@@ -275,6 +265,7 @@ Request notes:
 - `sender_connection_id` is optional; when omitted, server picks the highest-priority active connection for the authenticated user.
 - `declared_selectors` takes precedence over top-level `direction/resource/action`.
 - Policy preflight runs only when `trustedMode=true` and `payload_type != application/mahilo+ciphertext`; otherwise decision defaults to `allow`.
+- Agent-facing preflight responses intentionally expose only outcome-safe explanation fields (`decision`, `delivery_mode`, `reason_code`, summary) and omit detailed policy internals.
 - No message or delivery record is created.
 
 Response example:
@@ -292,22 +283,6 @@ Response example:
     "action": "share",
     "direction": "outbound",
     "resource": "location.current"
-  },
-  "matched_policies": [
-    {
-      "effect": "ask",
-      "evaluator": "structured",
-      "id": "pol_ask_1",
-      "phase": "structured",
-      "priority": 90,
-      "scope": "global"
-    }
-  ],
-  "applied_policy": {
-    "guardrail_id": null,
-    "matched_policy_ids": ["pol_ask_1"],
-    "resolver_layer": "user_policies",
-    "winning_policy_id": "pol_ask_1"
   },
   "resolved_recipient": {
     "recipient": "alice",
@@ -381,12 +356,7 @@ Response example (policy blocked / ask case is still HTTP `200`):
     "decision": "ask",
     "delivery_mode": "review_required",
     "summary": "Message requires review before delivery.",
-    "reason": null,
-    "reason_code": "policy.ask.resolved",
-    "resolver_layer": "user_policies",
-    "guardrail_id": null,
-    "winning_policy_id": "pol_ask_1",
-    "matched_policy_ids": ["pol_ask_1"]
+    "reason_code": "policy.ask.resolved"
   },
   "recipient_results": [
     {
@@ -411,12 +381,7 @@ Idempotency replay example:
     "decision": "ask",
     "delivery_mode": "review_required",
     "summary": "Message requires review before delivery.",
-    "reason": null,
-    "reason_code": "policy.ask.resolved",
-    "resolver_layer": "user_policies",
-    "guardrail_id": null,
-    "winning_policy_id": "pol_ask_1",
-    "matched_policy_ids": ["pol_ask_1"]
+    "reason_code": "policy.ask.resolved"
   },
   "recipient_results": [
     {
@@ -556,6 +521,7 @@ Query params:
 - `status` optional: `review_required`, `approval_pending`, or comma-separated list.
 - `direction` optional: `all` (default), `outbound`, `inbound`.
 - `limit` optional: max `100`, default `50`.
+- Responses include a rich `audit` object for user/admin debugging (resolver layer, matched/winning policy IDs, evaluated policy trail, and explanation context when available).
 
 Success response:
 
@@ -577,6 +543,22 @@ Success response:
       "delivery_mode": "review_required",
       "summary": "Message requires review before delivery.",
       "reason_code": "policy.ask.resolved",
+      "audit": {
+        "resolver_layer": "user_policies",
+        "winning_policy_id": "pol_ask_1",
+        "matched_policy_ids": ["pol_ask_1"],
+        "resolution_explanation": "User-scoped ask policy requires review.",
+        "evaluated_policies": [
+          {
+            "policy_id": "pol_ask_1",
+            "effect": "ask",
+            "scope": "user",
+            "evaluator": "structured",
+            "phase": "deterministic",
+            "matched": true
+          }
+        ]
+      },
       "message_preview": "Draft preview...",
       "selectors": {
         "direction": "outbound",
@@ -630,6 +612,21 @@ Success response:
       "direction": "outbound",
       "resource": "location.current",
       "action": "share",
+      "audit": {
+        "resolver_layer": "user_policies",
+        "winning_policy_id": "pol_block_1",
+        "matched_policy_ids": ["pol_block_1"],
+        "evaluated_policies": [
+          {
+            "policy_id": "pol_block_1",
+            "effect": "deny",
+            "scope": "user",
+            "evaluator": "structured",
+            "phase": "deterministic",
+            "matched": true
+          }
+        ]
+      },
       "stored_payload_excerpt": null,
       "payload_hash": "sha256:...",
       "timestamp": "2026-03-08T12:00:00.000Z"

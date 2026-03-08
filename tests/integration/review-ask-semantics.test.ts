@@ -384,7 +384,7 @@ describe("Review / ask semantics (SRV-023)", () => {
     expect(sendData.delivery_status).toBe("delivered");
     expect(sendData.resolution.decision).toBe("ask");
     expect(sendData.resolution.delivery_mode).toBe("review_required");
-    expect(sendData.resolution.winning_policy_id).toBe(userAskId);
+    expect(sendData.resolution.winning_policy_id).toBeUndefined();
 
     const [storedMessage] = await db
       .select()

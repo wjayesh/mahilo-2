@@ -420,7 +420,7 @@ describe("Group fan-out per-recipient resolution and outcome storage (SRV-050/SR
     expect(body.denied).toBe(1);
     expect(body.review_required).toBe(1);
     expect(body.resolution.reason_code).toBe("policy.partial.group_fanout");
-    expect(body.resolution.winning_policy_id).toBeNull();
+    expect(body.resolution.winning_policy_id).toBeUndefined();
     expect(body.recipient_results).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

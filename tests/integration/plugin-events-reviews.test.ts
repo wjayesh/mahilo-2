@@ -61,6 +61,19 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
           winning_policy_id: "pol_review_outbound",
           matched_policy_ids: ["pol_review_outbound"],
           reason: "Needs user confirmation before sharing location.",
+          resolution_explanation: "User-scoped ask policy requires review.",
+          resolver_layer: "user_policies",
+          evaluated_policies: [
+            {
+              policy_id: "pol_review_outbound",
+              scope: "user",
+              evaluator: "structured",
+              effect: "ask",
+              priority: 90,
+              phase: "deterministic",
+              matched: true,
+            },
+          ],
         }),
         createdAt: new Date("2026-03-08T10:00:00.000Z"),
       },
@@ -100,6 +113,8 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
           reason_code: "policy.ask.inbound.request",
           matched_policy_ids: ["pol_review_inbound"],
           resolution_explanation: "Inbound sensitive request requires review.",
+          policy_owner_user_id: viewer.id,
+          policy_evaluation_mode: "inbound_pre_delivery",
         }),
         createdAt: new Date("2026-03-08T12:00:00.000Z"),
       },
@@ -157,6 +172,28 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         status: "review_required",
       })
     );
+    expect(body.reviews[2].audit).toEqual(
+      expect.objectContaining({
+        resolver_layer: "user_policies",
+        winning_policy_id: "pol_review_outbound",
+        matched_policy_ids: ["pol_review_outbound"],
+      })
+    );
+    expect(body.reviews[2].audit.evaluated_policies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          policy_id: "pol_review_outbound",
+          effect: "ask",
+          matched: true,
+        }),
+      ])
+    );
+    expect(body.reviews[0].audit).toEqual(
+      expect.objectContaining({
+        policy_owner_user_id: viewer.id,
+        policy_evaluation_mode: "inbound_pre_delivery",
+      })
+    );
 
     for (const review of body.reviews) {
       expect(typeof review.review_id).toBe("string");
@@ -211,6 +248,19 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
           effect: "deny",
           reason_code: "policy.deny.user.structured",
           matched_policy_ids: ["pol_block_outbound"],
+          resolver_layer: "user_policies",
+          winning_policy_id: "pol_block_outbound",
+          evaluated_policies: [
+            {
+              policy_id: "pol_block_outbound",
+              scope: "user",
+              evaluator: "structured",
+              effect: "deny",
+              priority: 100,
+              phase: "deterministic",
+              matched: true,
+            },
+          ],
         }),
         createdAt: new Date("2026-03-08T14:00:00.000Z"),
       },
@@ -279,6 +329,20 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         stored_payload_excerpt: null,
         queue_direction: "outbound",
       })
+    );
+    expect(outboundEvent.audit).toEqual(
+      expect.objectContaining({
+        resolver_layer: "user_policies",
+        winning_policy_id: "pol_block_outbound",
+      })
+    );
+    expect(outboundEvent.audit.evaluated_policies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          policy_id: "pol_block_outbound",
+          effect: "deny",
+        }),
+      ])
     );
     expect(outboundEvent.payload_hash).toMatch(/^sha256:[a-f0-9]{64}$/);
 

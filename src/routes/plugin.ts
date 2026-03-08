@@ -448,17 +448,7 @@ function defaultReasonCode(decision: ContextDecision): string {
   return "policy.allow.resolved";
 }
 
-function buildResolutionSummary(
-  decision: ContextDecision,
-  deliveryMode: DeliveryMode,
-  policyResult: PolicyResult | null
-): string {
-  if (policyResult?.reason) {
-    return policyResult.reason;
-  }
-  if (policyResult?.resolution_explanation) {
-    return policyResult.resolution_explanation;
-  }
+function buildAgentResolutionSummary(decision: ContextDecision, deliveryMode: DeliveryMode): string {
   if (decision === "ask") {
     return deliveryMode === "hold_for_approval"
       ? "Message held for approval before delivery."
@@ -483,27 +473,6 @@ function buildAgentGuidance(decision: ContextDecision, deliveryMode: DeliveryMod
   }
 
   return "This draft is blocked by policy. Adjust content or create an explicit override.";
-}
-
-function buildMatchedPolicies(policyResult: PolicyResult | null) {
-  if (!policyResult) {
-    return [];
-  }
-
-  return policyResult.evaluated_policies
-    .filter((entry) => entry.matched)
-    .map((entry) => ({
-      derived_from_message_id: entry.derived_from_message_id,
-      effect: entry.effect,
-      evaluator: entry.evaluator,
-      id: entry.policy_id,
-      phase: entry.phase,
-      priority: entry.priority,
-      promoted_from_policy_ids: entry.learning_provenance?.promoted_from_policy_ids || [],
-      scope: entry.scope,
-      source: entry.source,
-      source_interaction_id: entry.learning_provenance?.source_interaction_id || null,
-    }));
 }
 
 async function resolveSenderConnection(
@@ -939,6 +908,141 @@ function parseReasonSummary(
   return fallback;
 }
 
+function parseStringValue(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function parseNumberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseBooleanValue(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function parseObjectValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseSelectorContext(
+  value: unknown
+): { direction: string | null; resource: string | null; action: string | null } | null {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    direction: parseStringValue(parsed.direction),
+    resource: parseStringValue(parsed.resource),
+    action: parseStringValue(parsed.action),
+  };
+}
+
+function parseAuthenticatedIdentity(
+  value: unknown
+): { sender_user_id: string | null; sender_connection_id: string | null } | null {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    sender_user_id: parseStringValue(parsed.sender_user_id),
+    sender_connection_id: parseStringValue(parsed.sender_connection_id),
+  };
+}
+
+function parseLearningProvenance(
+  value: unknown
+): { source_interaction_id: string | null; promoted_from_policy_ids: string[] } | null {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    source_interaction_id: parseStringValue(parsed.source_interaction_id),
+    promoted_from_policy_ids: parseStringArray(parsed.promoted_from_policy_ids),
+  };
+}
+
+function parseWinningPolicyAudit(value: unknown): Record<string, unknown> | null {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    policy_id: parseStringValue(parsed.policy_id),
+    scope: parseStringValue(parsed.scope),
+    evaluator: parseStringValue(parsed.evaluator),
+    effect: parseStringValue(parsed.effect),
+    priority: parseNumberValue(parsed.priority),
+    phase: parseStringValue(parsed.phase),
+    reason: parseStringValue(parsed.reason),
+    source: parseStringValue(parsed.source),
+    created_by_user_id: parseStringValue(parsed.created_by_user_id),
+    derived_from_message_id: parseStringValue(parsed.derived_from_message_id),
+    effective_from: parseStringValue(parsed.effective_from),
+    expires_at: parseStringValue(parsed.expires_at),
+    max_uses: parseNumberValue(parsed.max_uses),
+    remaining_uses: parseNumberValue(parsed.remaining_uses),
+    created_at: parseStringValue(parsed.created_at),
+    learning_provenance: parseLearningProvenance(parsed.learning_provenance),
+  };
+}
+
+function parseEvaluatedPolicyAudit(evaluation: Record<string, unknown> | null) {
+  if (!Array.isArray(evaluation?.evaluated_policies)) {
+    return [];
+  }
+
+  return evaluation.evaluated_policies
+    .map((entry) => parseObjectValue(entry))
+    .filter((entry): entry is Record<string, unknown> => entry !== null)
+    .map((entry) => ({
+      policy_id: parseStringValue(entry.policy_id),
+      scope: parseStringValue(entry.scope),
+      evaluator: parseStringValue(entry.evaluator),
+      effect: parseStringValue(entry.effect),
+      priority: parseNumberValue(entry.priority),
+      phase: parseStringValue(entry.phase),
+      matched: parseBooleanValue(entry.matched),
+      skipped: parseBooleanValue(entry.skipped),
+      skip_reason: parseStringValue(entry.skip_reason),
+      reason: parseStringValue(entry.reason),
+      source: parseStringValue(entry.source),
+      created_by_user_id: parseStringValue(entry.created_by_user_id),
+      derived_from_message_id: parseStringValue(entry.derived_from_message_id),
+      effective_from: parseStringValue(entry.effective_from),
+      expires_at: parseStringValue(entry.expires_at),
+      max_uses: parseNumberValue(entry.max_uses),
+      remaining_uses: parseNumberValue(entry.remaining_uses),
+      created_at: parseStringValue(entry.created_at),
+      learning_provenance: parseLearningProvenance(entry.learning_provenance),
+    }));
+}
+
+function buildPolicyAuditDetails(evaluation: Record<string, unknown> | null) {
+  return {
+    reason: parseStringValue(evaluation?.reason),
+    resolution_explanation: parseStringValue(evaluation?.resolution_explanation),
+    resolver_layer: parseStringValue(evaluation?.resolver_layer),
+    guardrail_id: parseStringValue(evaluation?.guardrail_id),
+    authenticated_identity: parseAuthenticatedIdentity(evaluation?.authenticated_identity),
+    policy_owner_user_id: parseStringValue(evaluation?.policy_owner_user_id),
+    policy_evaluation_mode: parseStringValue(evaluation?.policy_evaluation_mode),
+    selector_context: parseSelectorContext(evaluation?.selector_context),
+    winning_policy_id: parseStringValue(evaluation?.winning_policy_id),
+    winning_policy: parseWinningPolicyAudit(evaluation?.winning_policy),
+    matched_policy_ids: parseStringArray(evaluation?.matched_policy_ids),
+    evaluated_policies: parseEvaluatedPolicyAudit(evaluation),
+  };
+}
+
 async function loadUsernames(userIds: string[]): Promise<Map<string, string>> {
   const uniqueUserIds = [...new Set(userIds)];
   if (uniqueUserIds.length === 0) {
@@ -1096,6 +1200,7 @@ pluginRoutes.get("/reviews", requireVerified(), async (c) => {
 
   const reviews = reviewMessages.map((message) => {
     const evaluation = parseJsonObject(message.policiesEvaluated);
+    const auditDetails = buildPolicyAuditDetails(evaluation);
     const decision = parseDecision(evaluation?.effect) || "ask";
     const reasonCode = parseReasonCode(evaluation?.reason_code) || "policy.ask.resolved";
     const summary = parseReasonSummary(evaluation, "Message requires review before delivery.");
@@ -1143,6 +1248,7 @@ pluginRoutes.get("/reviews", requireVerified(), async (c) => {
         winning_policy_id:
           typeof evaluation?.winning_policy_id === "string" ? evaluation.winning_policy_id : null,
       },
+      audit: auditDetails,
     };
   });
 
@@ -1201,6 +1307,7 @@ pluginRoutes.get("/events/blocked", requireVerified(), async (c) => {
 
   const blockedEvents = blockedMessages.map((message) => {
     const evaluation = parseJsonObject(message.policiesEvaluated);
+    const auditDetails = buildPolicyAuditDetails(evaluation);
     const reasonCode = parseReasonCode(evaluation?.reason_code) || "policy.deny.resolved";
     const reason = parseReasonSummary(evaluation, message.rejectionReason || "Message blocked by policy.");
 
@@ -1226,6 +1333,7 @@ pluginRoutes.get("/events/blocked", requireVerified(), async (c) => {
             ? (usernamesById.get(message.recipientId) ?? null)
             : null,
       },
+      audit: auditDetails,
     };
   });
 
@@ -1380,7 +1488,6 @@ pluginRoutes.post("/context", zValidator("json", pluginContextRequestSchema), as
       return {
         decision,
         direction: interaction.senderUserId === user.id ? "outbound" : "inbound",
-        matched_policy_ids: parseStringArray(evaluation?.matched_policy_ids),
         message_id: interaction.id,
         reason_code: parseReasonCode(evaluation?.reason_code),
         selectors: {
@@ -1390,11 +1497,19 @@ pluginRoutes.post("/context", zValidator("json", pluginContextRequestSchema), as
         },
         status: interaction.status,
         timestamp: interaction.createdAt?.toISOString() || new Date().toISOString(),
-        winning_policy_id:
-          typeof evaluation?.winning_policy_id === "string" ? evaluation.winning_policy_id : null,
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  const scopeCounts = applicablePolicies.reduce(
+    (acc, policy) => {
+      if (policy.scope === "user" || policy.scope === "role" || policy.scope === "global") {
+        acc[policy.scope] += 1;
+      }
+      return acc;
+    },
+    { global: 0, role: 0, user: 0 }
+  );
 
   return c.json({
     contract_version: CONTRACT_VERSION,
@@ -1402,21 +1517,11 @@ pluginRoutes.post("/context", zValidator("json", pluginContextRequestSchema), as
       default_decision: defaultDecision.decision,
       reason_code: defaultDecision.reasonCode,
       relevant_decisions: relevantDecisions,
-      relevant_policies: applicablePolicies.map((policy) => ({
-        effect: policy.effect,
-        evaluator: policy.evaluator,
-        id: policy.id,
-        priority: policy.priority,
-        scope: policy.scope,
-        selectors: {
-          action: policy.action || defaultSelectors.action,
-          direction: policy.direction,
-          resource: policy.resource,
-        },
-        target_id: policy.target_id,
-      })),
       summary,
-      winning_policy_id: defaultDecision.winningPolicy?.id || null,
+      policy_signal: {
+        applicable_policy_count: applicablePolicies.length,
+        scope_counts: scopeCounts,
+      },
     },
     recipient: {
       connected_since: friendship.createdAt?.toISOString() || null,
@@ -1505,7 +1610,7 @@ pluginRoutes.post(
 
     const decision: ContextDecision = policyResult?.effect ?? "allow";
     const deliveryMode = resolveDeliveryMode(decision, direction);
-    const resolutionSummary = buildResolutionSummary(decision, deliveryMode, policyResult);
+    const resolutionSummary = buildAgentResolutionSummary(decision, deliveryMode);
     const resolutionId = `res_${nanoid(18)}`;
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
@@ -1521,13 +1626,6 @@ pluginRoutes.post(
         action: selectors.action,
         direction,
         resource: selectors.resource,
-      },
-      matched_policies: buildMatchedPolicies(policyResult),
-      applied_policy: {
-        guardrail_id: policyResult?.guardrail_id || null,
-        matched_policy_ids: policyResult?.matched_policy_ids || [],
-        resolver_layer: policyResult?.resolver_layer || null,
-        winning_policy_id: policyResult?.winning_policy_id || null,
       },
       resolved_recipient: {
         recipient: data.recipient,

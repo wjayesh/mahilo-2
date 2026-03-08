@@ -173,20 +173,11 @@ describe("Plugin context endpoint v2 (SRV-040)", () => {
 
     expect(data.policy_guidance.default_decision).toBe("ask");
     expect(String(data.policy_guidance.reason_code)).toContain("context.ask.role");
-    expect(data.policy_guidance.winning_policy_id).toBe(askPolicyId);
-    expect(data.policy_guidance.relevant_policies).toHaveLength(1);
-    expect(data.policy_guidance.relevant_policies[0]).toEqual(
+    expect(data.policy_guidance.winning_policy_id).toBeUndefined();
+    expect(data.policy_guidance.relevant_policies).toBeUndefined();
+    expect(data.policy_guidance.policy_signal).toEqual(
       expect.objectContaining({
-        effect: "ask",
-        id: askPolicyId,
-        scope: "role",
-      })
-    );
-    expect(data.policy_guidance.relevant_policies[0].selectors).toEqual(
-      expect.objectContaining({
-        action: "share",
-        direction: "outbound",
-        resource: "location.current",
+        applicable_policy_count: 1,
       })
     );
 
@@ -214,9 +205,10 @@ describe("Plugin context endpoint v2 (SRV-040)", () => {
         decision: "ask",
         message_id: expect.any(String),
         reason_code: "policy.ask.role.structured",
-        winning_policy_id: askPolicyId,
       })
     );
+    expect(data.policy_guidance.relevant_decisions[1].matched_policy_ids).toBeUndefined();
+    expect(data.policy_guidance.relevant_decisions[1].winning_policy_id).toBeUndefined();
     expect(data.policy_guidance.summary.length).toBeGreaterThan(0);
   });
 

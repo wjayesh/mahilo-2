@@ -490,15 +490,18 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 6.3 Agent-Facing vs User-Facing Explanations
 - **ID**: `SRV-062`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-021, SRV-044
 - **Description**:
   - Minimal reason codes for agent clients
   - Rich detailed audit for users/admins
 - **Acceptance Criteria**:
-  - [ ] Agent-facing payload avoids oversharing policy details
-  - [ ] User-facing audit includes enough debugging context
+  - [x] Agent-facing payload avoids oversharing policy details
+  - [x] User-facing audit includes enough debugging context
+- **Notes**:
+  - 2026-03-08: Started SRV-062 by auditing plugin preflight/send/context payloads and review/blocked audit routes to separate agent-facing explanation payloads from user/admin debugging surfaces.
+  - 2026-03-08: Completed SRV-062 by redacting policy internals from agent-facing responses (`/api/v1/plugin/resolve`, `/api/v1/messages/send`, and plugin context guidance), adding rich `audit` diagnostics to `/api/v1/plugin/reviews` and `/api/v1/plugin/events/blocked`, updating contract docs, and validating via `bun test tests/integration/plugin-resolve.test.ts tests/integration/plugin-context.test.ts tests/integration/plugin-events-reviews.test.ts tests/integration/review-ask-semantics.test.ts tests/integration/group-fanout-resolution.test.ts` plus `bun run build`.
 
 ---
 

@@ -104,6 +104,14 @@ interface StructuredResolution {
   matched_policy_ids: string[];
 }
 
+interface AgentFacingResolution {
+  resolution_id: string;
+  decision: PolicyDecision;
+  delivery_mode: DeliveryMode;
+  summary: string;
+  reason_code: string;
+}
+
 interface RecipientResolutionResult {
   recipient: string;
   decision: PolicyDecision;
@@ -291,6 +299,18 @@ function buildResolutionSummary(
   return "Message allowed by policy.";
 }
 
+function buildAgentResolutionSummary(decision: PolicyDecision, deliveryMode: DeliveryMode): string {
+  if (decision === "ask") {
+    return deliveryMode === "hold_for_approval"
+      ? "Message held for approval before delivery."
+      : "Message requires review before delivery.";
+  }
+  if (decision === "deny") {
+    return "Message blocked by policy.";
+  }
+  return "Message allowed by policy.";
+}
+
 function defaultReasonCode(decision: PolicyDecision): string {
   if (decision === "ask") {
     return "policy.ask.resolved";
@@ -319,6 +339,16 @@ function buildStructuredResolution(
     guardrail_id: policyResult?.guardrail_id || null,
     winning_policy_id: policyResult?.winning_policy_id || null,
     matched_policy_ids: policyResult?.matched_policy_ids || [],
+  };
+}
+
+function toAgentFacingResolution(resolution: StructuredResolution): AgentFacingResolution {
+  return {
+    resolution_id: resolution.resolution_id,
+    decision: resolution.decision,
+    delivery_mode: resolution.delivery_mode,
+    summary: buildAgentResolutionSummary(resolution.decision, resolution.delivery_mode),
+    reason_code: resolution.reason_code,
   };
 }
 
@@ -604,7 +634,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         message_id: existing.id,
         status: existing.status,
         deduplicated: true,
-        resolution,
+        resolution: toAgentFacingResolution(resolution),
         recipient_results: [
           buildRecipientResult(existing.recipientId, resolution, existing.status),
         ],
@@ -1215,7 +1245,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       failed: memberFailedCount,
       denied: memberRejectedCount,
       review_required: memberReviewRequiredCount,
-      resolution: groupResolution,
+      resolution: toAgentFacingResolution(groupResolution),
       recipient_results: recipientPolicyAudits.map((entry) =>
         buildRecipientResult(entry.recipient_username, {
           resolution_id: resolutionId,
@@ -1331,8 +1361,9 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     return c.json({
       message_id: messageId,
       status: blockedStatus,
-      rejection_reason: userResolution.decision === "deny" ? userPolicyResult?.reason || null : null,
-      resolution: userResolution,
+      rejection_reason:
+        userResolution.decision === "deny" ? "Message blocked by policy." : null,
+      resolution: toAgentFacingResolution(userResolution),
       recipient_results: [buildRecipientResult(data.recipient, userResolution, blockedStatus)],
     });
   }
@@ -1406,7 +1437,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     message_id: messageId,
     status: responseStatus,
     delivery_status: deliveryResult.status,
-    resolution: userResolution,
+    resolution: toAgentFacingResolution(userResolution),
     recipient_results: [buildRecipientResult(data.recipient, userResolution, deliveryResult.status)],
   });
 });

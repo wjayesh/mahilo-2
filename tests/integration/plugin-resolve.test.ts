@@ -52,7 +52,7 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
     const { sender, senderKey, senderConnection, recipient, recipientConnection } =
       await setupParticipants("plugin_resolve_structured");
 
-    const askPolicyId = await insertCanonicalPolicy({
+    await insertCanonicalPolicy({
       action: "share",
       direction: "outbound",
       effect: "ask",
@@ -105,20 +105,9 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
       resource: "message.general",
       action: "share",
     });
-    expect(body.applied_policy).toEqual(
-      expect.objectContaining({
-        winning_policy_id: askPolicyId,
-      })
-    );
-    expect(body.matched_policies).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: askPolicyId,
-          effect: "ask",
-          scope: "global",
-        }),
-      ])
-    );
+    expect(body.reason_code).toContain("policy.ask");
+    expect(body.applied_policy).toBeUndefined();
+    expect(body.matched_policies).toBeUndefined();
     expect(body.recipient_results).toEqual([
       {
         recipient: recipient.username,
@@ -142,7 +131,7 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
     const { sender, senderKey, senderConnection, recipient, recipientConnection } =
       await setupParticipants("plugin_resolve_match_send");
 
-    const denyPolicyId = await insertCanonicalPolicy({
+    await insertCanonicalPolicy({
       action: "share",
       direction: "outbound",
       effect: "deny",
@@ -181,7 +170,8 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
     expect(preflightResponse.status).toBe(200);
     const preflight = await preflightResponse.json();
     expect(preflight.decision).toBe("deny");
-    expect(preflight.applied_policy.winning_policy_id).toBe(denyPolicyId);
+    expect(preflight.reason_code).toContain("policy.deny");
+    expect(preflight.applied_policy).toBeUndefined();
 
     const sendResponse = await app.request("/api/v1/messages/send", {
       method: "POST",
@@ -198,9 +188,8 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
     expect(preflight.decision).toBe(sendBody.resolution.decision);
     expect(preflight.delivery_mode).toBe(sendBody.resolution.delivery_mode);
     expect(preflight.reason_code).toBe(sendBody.resolution.reason_code);
-    expect(preflight.applied_policy.winning_policy_id).toBe(
-      sendBody.resolution.winning_policy_id
-    );
+    expect(sendBody.resolution.winning_policy_id).toBeUndefined();
+    expect(sendBody.resolution.matched_policy_ids).toBeUndefined();
     expect(sendBody.recipient_results[0]).toEqual(
       expect.objectContaining({
         recipient: recipient.username,
