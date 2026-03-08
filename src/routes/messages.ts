@@ -114,6 +114,7 @@ interface RecipientResolutionResult {
 interface GroupRecipientPolicyAudit {
   recipient_user_id: string;
   recipient_username: string;
+  resolution_id: string;
   decision: PolicyDecision;
   delivery_mode: DeliveryMode;
   should_deliver: boolean;
@@ -124,6 +125,20 @@ interface GroupRecipientPolicyAudit {
   matched_policy_ids: string[];
   resolver_layer: PolicyResult["resolver_layer"] | null;
   guardrail_id: string | null;
+}
+
+function buildDeliveryResolutionColumns(audit: GroupRecipientPolicyAudit) {
+  return {
+    policyDecision: audit.decision,
+    policyDeliveryMode: audit.delivery_mode,
+    policyReason: audit.reason,
+    policyReasonCode: audit.reason_code,
+    policyResolutionId: audit.resolution_id,
+    winningPolicyId: audit.winning_policy_id,
+    matchedPolicyIds: JSON.stringify(audit.matched_policy_ids),
+    resolverLayer: audit.resolver_layer,
+    guardrailId: audit.guardrail_id,
+  };
 }
 
 function serializeOptionalDetails(value: unknown): string | null {
@@ -885,6 +900,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       const policyAudit: GroupRecipientPolicyAudit = {
         recipient_user_id: member.userId,
         recipient_username: member.username,
+        resolution_id: recipientResolution.resolution_id,
         decision: recipientResolution.decision,
         delivery_mode: recipientResolution.delivery_mode,
         should_deliver: shouldDeliverRecipient,
@@ -955,6 +971,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
           messageId,
           recipientUserId: policyAudit.recipient_user_id,
           recipientConnectionId: null,
+          ...buildDeliveryResolutionColumns(policyAudit),
           status: "failed",
           errorMessage: policyAudit.reason
             ? `Policy ${policyAudit.decision}: ${policyAudit.reason}`
@@ -971,6 +988,11 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     >();
 
     for (const member of deliveryEligibleMembers) {
+      const memberPolicyAudit = recipientPolicyAuditByUser.get(member.userId);
+      if (!memberPolicyAudit) {
+        continue;
+      }
+
       const memberStats = memberDeliveryStats.get(member.userId) || {
         delivered: 0,
         pending: 0,
@@ -983,6 +1005,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
           messageId,
           recipientUserId: member.userId,
           recipientConnectionId: null,
+          ...buildDeliveryResolutionColumns(memberPolicyAudit),
           status: "failed",
           errorMessage: "No active connection",
         });
@@ -998,6 +1021,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
           messageId,
           recipientUserId: member.userId,
           recipientConnectionId: connection.id,
+          ...buildDeliveryResolutionColumns(memberPolicyAudit),
           status: "pending",
         });
 

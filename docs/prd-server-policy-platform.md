@@ -445,14 +445,18 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 5.2 Per-Recipient Outcome Storage
 - **ID**: `SRV-051`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-050
 - **Description**:
   - Persist allow/ask/deny result per delivery target.
 - **Acceptance Criteria**:
-  - [ ] Delivery table or equivalent stores resolution per member
-  - [ ] Group audit can explain who got what and why
+  - [x] Delivery table or equivalent stores resolution per member
+  - [x] Group audit can explain who got what and why
+- **Notes**:
+  - 2026-03-08: Started SRV-051 by adding structured per-recipient resolution persistence to delivery records for group fan-out and extending audit coverage.
+  - 2026-03-08: Completed SRV-051 by extending `message_deliveries` with per-recipient policy resolution metadata (`policy_decision`, delivery mode, reason/reason_code, winner/matched policy IDs, resolver layer, guardrail ID, and resolution ID), persisting those fields for allowed/ask/deny fan-out recipients in `POST /api/v1/messages/send`, and adding integration assertions proving group audit rows explain per-member outcomes.
+  - 2026-03-08: Validation run: `bun test tests/integration/group-fanout-resolution.test.ts`, `bun test tests/integration/groups.test.ts`, `bun test tests/integration/plugin-resolve.test.ts`, `DATABASE_URL=/tmp/mahilo_srv051_migration_test.db bun run src/db/migrate.ts`, and `bun run build`.
 
 ---
 

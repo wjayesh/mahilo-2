@@ -188,6 +188,15 @@ export const messageDeliveries = sqliteTable(
     recipientConnectionId: text("recipient_connection_id").references(
       () => agentConnections.id
     ),
+    policyDecision: text("policy_decision"), // 'allow', 'ask', 'deny'
+    policyDeliveryMode: text("policy_delivery_mode"), // 'full_send', 'review_required', ...
+    policyReason: text("policy_reason"),
+    policyReasonCode: text("policy_reason_code"),
+    policyResolutionId: text("policy_resolution_id"),
+    winningPolicyId: text("winning_policy_id"),
+    matchedPolicyIds: text("matched_policy_ids"), // JSON array of matched policy IDs
+    resolverLayer: text("resolver_layer"),
+    guardrailId: text("guardrail_id"),
     status: text("status").notNull().default("pending"), // 'pending', 'delivered', 'failed'
     retryCount: integer("retry_count").notNull().default(0),
     errorMessage: text("error_message"),
@@ -200,6 +209,7 @@ export const messageDeliveries = sqliteTable(
     index("idx_message_deliveries_message").on(table.messageId),
     index("idx_message_deliveries_recipient").on(table.recipientUserId),
     index("idx_message_deliveries_status").on(table.status),
+    index("idx_message_deliveries_policy_decision").on(table.policyDecision),
     unique("idx_message_deliveries_unique").on(table.messageId, table.recipientConnectionId),
   ]
 );

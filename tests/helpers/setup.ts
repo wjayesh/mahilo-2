@@ -122,6 +122,15 @@ export async function setupTestDatabase() {
       message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
       recipient_user_id TEXT NOT NULL REFERENCES users(id),
       recipient_connection_id TEXT REFERENCES agent_connections(id),
+      policy_decision TEXT,
+      policy_delivery_mode TEXT,
+      policy_reason TEXT,
+      policy_reason_code TEXT,
+      policy_resolution_id TEXT,
+      winning_policy_id TEXT,
+      matched_policy_ids TEXT,
+      resolver_layer TEXT,
+      guardrail_id TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       retry_count INTEGER NOT NULL DEFAULT 0,
       error_message TEXT,
@@ -131,6 +140,7 @@ export async function setupTestDatabase() {
     CREATE INDEX IF NOT EXISTS idx_message_deliveries_message ON message_deliveries(message_id);
     CREATE INDEX IF NOT EXISTS idx_message_deliveries_recipient ON message_deliveries(recipient_user_id);
     CREATE INDEX IF NOT EXISTS idx_message_deliveries_status ON message_deliveries(status);
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_policy_decision ON message_deliveries(policy_decision);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_message_deliveries_unique ON message_deliveries(message_id, recipient_connection_id);
 
     CREATE TABLE IF NOT EXISTS groups (

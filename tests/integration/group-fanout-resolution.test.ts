@@ -116,7 +116,7 @@ async function insertCanonicalPolicy(input: {
   return policyId;
 }
 
-describe("Group fan-out per-recipient resolution (SRV-050)", () => {
+describe("Group fan-out per-recipient resolution and outcome storage (SRV-050/SRV-051)", () => {
   beforeEach(async () => {
     await setupTestDatabase();
     originalTrustedMode = config.trustedMode;
@@ -194,14 +194,14 @@ describe("Group fan-out per-recipient resolution (SRV-050)", () => {
       },
     ]);
 
-    await insertCanonicalPolicy({
+    const groupAllowPolicyId = await insertCanonicalPolicy({
       user_id: sender.id,
       scope: "group",
       target_id: groupId,
       effect: "allow",
       priority: 10,
     });
-    await insertCanonicalPolicy({
+    const denyPolicyId = await insertCanonicalPolicy({
       user_id: sender.id,
       scope: "user",
       target_id: deniedRecipient.id,
@@ -260,6 +260,24 @@ describe("Group fan-out per-recipient resolution (SRV-050)", () => {
     expect(
       deliveries.some((delivery) => delivery.recipientConnectionId === allowedConnection.id)
     ).toBe(true);
+    const deniedDelivery = deliveries.find(
+      (delivery) => delivery.recipientUserId === deniedRecipient.id
+    );
+    const allowedDelivery = deliveries.find(
+      (delivery) => delivery.recipientUserId === allowedRecipient.id
+    );
+    expect(deniedDelivery?.policyDecision).toBe("deny");
+    expect(deniedDelivery?.policyDeliveryMode).toBe("blocked");
+    expect(deniedDelivery?.policyReasonCode).toBeTruthy();
+    expect(deniedDelivery?.winningPolicyId).toBe(denyPolicyId);
+    expect(
+      JSON.parse(deniedDelivery?.matchedPolicyIds || "[]")
+    ).toContain(denyPolicyId);
+    expect(deniedDelivery?.policyResolutionId).toContain(deniedRecipient.id);
+    expect(allowedDelivery?.policyDecision).toBe("allow");
+    expect(allowedDelivery?.policyDeliveryMode).toBe("full_send");
+    expect(allowedDelivery?.winningPolicyId).toBe(groupAllowPolicyId);
+    expect(allowedDelivery?.policyResolutionId).toContain(allowedRecipient.id);
 
     const [storedMessage] = await db
       .select()
@@ -356,21 +374,21 @@ describe("Group fan-out per-recipient resolution (SRV-050)", () => {
       },
     ]);
 
-    await insertCanonicalPolicy({
+    const groupAllowPolicyId = await insertCanonicalPolicy({
       user_id: sender.id,
       scope: "group",
       target_id: groupId,
       effect: "allow",
       priority: 10,
     });
-    await insertCanonicalPolicy({
+    const denyPolicyId = await insertCanonicalPolicy({
       user_id: sender.id,
       scope: "user",
       target_id: deniedRecipient.id,
       effect: "deny",
       priority: 100,
     });
-    await insertCanonicalPolicy({
+    const askPolicyId = await insertCanonicalPolicy({
       user_id: sender.id,
       scope: "user",
       target_id: askRecipient.id,
@@ -427,6 +445,26 @@ describe("Group fan-out per-recipient resolution (SRV-050)", () => {
     expect(callbacks[0]?.body?.recipient_connection_id).toBe(allowedConnection.id);
     expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(deniedConnection.id);
     expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(askConnection.id);
+
+    const deliveries = await db
+      .select()
+      .from(schema.messageDeliveries)
+      .where(eq(schema.messageDeliveries.messageId, body.message_id));
+    const deniedDelivery = deliveries.find(
+      (delivery) => delivery.recipientUserId === deniedRecipient.id
+    );
+    const askDelivery = deliveries.find((delivery) => delivery.recipientUserId === askRecipient.id);
+    const allowedDelivery = deliveries.find(
+      (delivery) => delivery.recipientUserId === allowedRecipient.id
+    );
+    expect(deniedDelivery?.policyDecision).toBe("deny");
+    expect(deniedDelivery?.winningPolicyId).toBe(denyPolicyId);
+    expect(askDelivery?.policyDecision).toBe("ask");
+    expect(askDelivery?.policyDeliveryMode).toBe("review_required");
+    expect(askDelivery?.winningPolicyId).toBe(askPolicyId);
+    expect(allowedDelivery?.policyDecision).toBe("allow");
+    expect(allowedDelivery?.policyDeliveryMode).toBe("full_send");
+    expect(allowedDelivery?.winningPolicyId).toBe(groupAllowPolicyId);
 
     const [storedMessage] = await db
       .select()
