@@ -287,16 +287,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 3.2 Selector-Aware Send API
 - **ID**: `SRV-031`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-011
 - **Description**:
   - Extend `POST /messages/send` to accept canonical selectors.
   - Treat declared selectors as hints from trusted clients.
 - **Acceptance Criteria**:
-  - [ ] `direction`, `resource`, `action` accepted and stored
-  - [ ] Validation exists for known resources/directions
-  - [ ] Backward compatibility exists for old clients during transition
+  - [x] `direction`, `resource`, `action` accepted and stored
+  - [x] Validation exists for known resources/directions
+  - [x] Backward compatibility exists for old clients during transition
+- **Notes**:
+  - 2026-03-08: Started SRV-031 by wiring selector registry-backed validation into the send API while preserving legacy top-level selector field compatibility.
+  - 2026-03-08: Completed SRV-031 by adding known selector direction/resource validation (with namespaced resource extension support), preserving dual input compatibility (`declared_selectors` + legacy top-level selector fields), and validating via `bun test tests/integration/selector-aware-send.test.ts tests/e2e/message-exchange.test.ts tests/integration/review-ask-semantics.test.ts` and `bun run build`.
 
 ### 3.3 Inbound Request Policy Engine
 - **ID**: `SRV-032`

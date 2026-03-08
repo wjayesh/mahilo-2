@@ -34,6 +34,31 @@ const messageSelectorDirections = [
   "notification",
   "error",
 ] as const;
+const knownMessageSelectorDirections = new Set<string>(messageSelectorDirections);
+
+const knownMessageSelectorResources = new Set<string>([
+  "message.general",
+  "profile.basic",
+  "contact.email",
+  "contact.phone",
+  "location.current",
+  "location.history",
+  "calendar.availability",
+  "calendar.event",
+  "financial.balance",
+  "financial.transaction",
+  "health.metric",
+  "health.summary",
+]);
+
+const legacyMessageSelectorResources = new Set<string>([
+  "calendar",
+  "location",
+  "document",
+  "contact",
+  "action",
+  "meta",
+]);
 
 const defaultMessageSelectors = {
   direction: "outbound" as const,
@@ -113,6 +138,41 @@ function normalizeSelectorToken(value: string | undefined, fallback: string): st
   }
   const normalized = value.trim().toLowerCase();
   return normalized.length > 0 ? normalized : fallback;
+}
+
+function isNamespacedSelectorToken(value: string): boolean {
+  return value.includes(".");
+}
+
+function isKnownMessageResource(value: string): boolean {
+  return (
+    knownMessageSelectorResources.has(value) ||
+    legacyMessageSelectorResources.has(value)
+  );
+}
+
+function validateMessageSelectors(selectors: {
+  direction: MessageDirection;
+  resource: string;
+  action: string;
+}) {
+  if (!knownMessageSelectorDirections.has(selectors.direction)) {
+    throw new AppError(
+      `Unknown direction selector '${selectors.direction}'`,
+      400,
+      "INVALID_SELECTOR"
+    );
+  }
+
+  if (isKnownMessageResource(selectors.resource) || isNamespacedSelectorToken(selectors.resource)) {
+    return;
+  }
+
+  throw new AppError(
+    `Unknown resource selector '${selectors.resource}'. Use a known resource or a namespaced selector like 'custom.preference'.`,
+    400,
+    "INVALID_SELECTOR"
+  );
 }
 
 function serializePolicyEvaluation(result: PolicyResult): string {
@@ -428,6 +488,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
   }
 
   const messageSelectors = resolveMessageSelectors(data);
+  validateMessageSelectors(messageSelectors);
   const requestedOutcome = resolveOutcomeMetadata(data);
   const inResponseTo = data.in_response_to || null;
   const resolutionId = data.resolution_id || `res_${nanoid(18)}`;
