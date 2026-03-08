@@ -1,85 +1,103 @@
 ---
 name: mahilo-loop-ops
-description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
+description: Use this skill when asked to start, stop, restart, inspect, or troubleshoot the Mahilo autonomous orchestrator loops, including the server and plugin workflows, `screen` sessions, workflow files, logs, progress files, and integration-branch safety checks.
 ---
 
 # Mahilo Loop Ops
 
 ## Overview
 
-[TODO: 1-2 sentences explaining what this skill enables]
+Use this skill for operating the Mahilo autonomous development loops in this repo. It covers the branch check, dry-run checks, detached `screen` startup, health checks, log inspection, and safe restart flow for the server and plugin orchestrators.
 
-## Structuring This Skill
+## Preconditions
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+- Run from the Mahilo repo root.
+- Confirm the current branch is `autonomous/server-integration` before starting any loop.
+- Treat `WORKFLOW.md` as the server workflow and `WORKFLOW.plugin.md` as the plugin workflow.
+- Use the integration branch, not `main`, for autonomous work.
 
-**1. Workflow-Based** (best for sequential processes)
-- Works well when there are clear step-by-step procedures
-- Example: DOCX skill with "Workflow Decision Tree" -> "Reading" -> "Creating" -> "Editing"
-- Structure: ## Overview -> ## Workflow Decision Tree -> ## Step 1 -> ## Step 2...
+## Quick Start
 
-**2. Task-Based** (best for tool collections)
-- Works well when the skill offers different operations/capabilities
-- Example: PDF skill with "Quick Start" -> "Merge PDFs" -> "Split PDFs" -> "Extract Text"
-- Structure: ## Overview -> ## Quick Start -> ## Task Category 1 -> ## Task Category 2...
+1. Verify the branch and basic task selection:
+   - `git branch --show-current`
+   - `bun run orchestrate:dry-run`
+   - `bun run orchestrate:plugin:dry-run`
+2. Start the server loop in detached `screen`:
+   - `screen -dmS mahilo-server-loop zsh -lc 'cd /Users/wjayesh/apps/mahilo-2 && bun run orchestrate >> .mahilo-orchestrator/server-loop.log 2>&1'`
+3. Start the plugin loop in detached `screen`:
+   - `screen -dmS mahilo-plugin-loop zsh -lc 'cd /Users/wjayesh/apps/mahilo-2 && bun run orchestrate:plugin >> .mahilo-orchestrator/plugin-loop.log 2>&1'`
+4. Confirm both sessions exist:
+   - `screen -ls`
 
-**3. Reference/Guidelines** (best for standards or specifications)
-- Works well for brand guidelines, coding standards, or requirements
-- Example: Brand styling with "Brand Guidelines" -> "Colors" -> "Typography" -> "Features"
-- Structure: ## Overview -> ## Guidelines -> ## Specifications -> ## Usage...
+## Health Checks
 
-**4. Capabilities-Based** (best for integrated systems)
-- Works well when the skill provides multiple interrelated features
-- Example: Product Management with "Core Capabilities" -> numbered capability list
-- Structure: ## Overview -> ## Core Capabilities -> ### 1. Feature -> ### 2. Feature...
+Use these commands to confirm the loops are healthy:
 
-Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
+- Active screen sessions:
+  - `screen -ls`
+- Server progress:
+  - `tail -n 40 .mahilo-orchestrator/progress.md`
+- Plugin progress:
+  - `tail -n 40 .mahilo-orchestrator/plugin-progress.md`
+- Server runtime log:
+  - `tail -n 80 .mahilo-orchestrator/server-loop.log`
+- Plugin runtime log:
+  - `tail -n 80 .mahilo-orchestrator/plugin-loop.log`
+- One-shot task selection checks:
+  - `bun run orchestrate:once`
+  - `bun run orchestrate:plugin:once`
 
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
+A healthy loop should keep its `screen` session alive, append progress lines, and either work the current task or sleep between iterations without repeated crashes.
 
-## [TODO: Replace with the first main section based on chosen structure]
+## Restart Flow
 
-[TODO: Add content here. See examples in existing skills:
-- Code samples for technical skills
-- Decision trees for complex workflows
-- Concrete examples with realistic user requests
-- References to scripts/templates/references as needed]
+Use this when the orchestrator, workflow files, or shared orchestration code changed.
 
-## Resources (optional)
+1. Stop existing sessions if present:
+   - `screen -S mahilo-server-loop -X quit`
+   - `screen -S mahilo-plugin-loop -X quit`
+2. Confirm they are gone:
+   - `screen -ls`
+3. Re-run the dry-run commands:
+   - `bun run orchestrate:dry-run`
+   - `bun run orchestrate:plugin:dry-run`
+4. Start both detached sessions again with the Quick Start commands.
 
-Create only the resource directories this skill actually needs. Delete this section if no resources are required.
+## Stop Flow
 
-### scripts/
-Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
+- Stop server loop:
+  - `screen -S mahilo-server-loop -X quit`
+- Stop plugin loop:
+  - `screen -S mahilo-plugin-loop -X quit`
+- Confirm shutdown:
+  - `screen -ls`
 
-**Examples from other skills:**
-- PDF skill: `fill_fillable_fields.py`, `extract_form_field_info.py` - utilities for PDF manipulation
-- DOCX skill: `document.py`, `utilities.py` - Python modules for document processing
+## Safety Rules
 
-**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
+- Do not start the loops from `main`.
+- Keep the server and plugin loops on the same integration branch unless the workflow model is intentionally changed.
+- If you need to edit orchestrator code or shared workflow files while loops are live, prefer a quick stop/restart or acquire the same repo lock used by the orchestrator before manual commit/push steps.
+- Prefer reading `docs/autonomous-orchestrator.md`, `WORKFLOW.md`, and `WORKFLOW.plugin.md` before changing loop behavior.
 
-**Note:** Scripts may be executed without loading into context, but can still be read by Codex for patching or environment adjustments.
+## Important Paths
 
-### references/
-Documentation and reference material intended to be loaded into context to inform Codex's process and thinking.
+- Server workflow: `WORKFLOW.md`
+- Plugin workflow: `WORKFLOW.plugin.md`
+- Orchestrator runtime: `scripts/orchestrator.ts`
+- Orchestrator core: `src/orchestrator.ts`
+- Server progress: `.mahilo-orchestrator/progress.md`
+- Plugin progress: `.mahilo-orchestrator/plugin-progress.md`
+- Server log: `.mahilo-orchestrator/server-loop.log`
+- Plugin log: `.mahilo-orchestrator/plugin-loop.log`
+- Orchestrator state: `.mahilo-orchestrator/state.json`
+- Plugin state: `.mahilo-orchestrator/plugin-state.json`
 
-**Examples from other skills:**
-- Product management: `communication.md`, `context_building.md` - detailed workflow guides
-- BigQuery: API reference documentation and query examples
-- Finance: Schema documentation, company policies
+## When To Escalate
 
-**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Codex should reference while working.
+Escalate when:
 
-### assets/
-Files not intended to be loaded into context, but rather used within the output Codex produces.
-
-**Examples from other skills:**
-- Brand styling: PowerPoint template files (.pptx), logo files
-- Frontend builder: HTML/React boilerplate project directories
-- Typography: Font files (.ttf, .woff2)
-
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
-
----
-
-**Not every skill requires all three types of resources.**
+- a loop repeatedly exits on the same task
+- `screen` sessions disappear immediately after startup
+- dry runs do not pick the expected ready task
+- the integration branch is wrong or dirty in a way that blocks safe restart
+- the plugin loop needs a server or contract change instead of a plugin-only change
