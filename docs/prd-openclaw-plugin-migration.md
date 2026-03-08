@@ -466,16 +466,21 @@ It is:
 
 ### 5.1 Port and Harden Webhook Route
 - **ID**: `PLG2-050`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011, PLG2-020
 - **Description**:
   - Port webhook route using current OpenClaw route registration patterns.
   - Re-check auth and signature handling.
 - **Acceptance Criteria**:
-  - [ ] Webhook route works in current OpenClaw plugin model
-  - [ ] Signature verification uses correct raw-body semantics
-  - [ ] Route auth mode is explicit
+  - [x] Webhook route works in current OpenClaw plugin model
+  - [x] Signature verification uses correct raw-body semantics
+  - [x] Route auth mode is explicit
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-050 by auditing current plugin SDK registration flow and legacy webhook route behavior to port webhook routing into the modern OpenClaw plugin entrypoint.
+  - 2026-03-08: Added `src/webhook-route.ts` and wired route registration into `registerMahiloOpenClawPlugin`, including explicit POST webhook route auth mode, raw-body request handling, and signature-first verification flow.
+  - 2026-03-08: Added route registration and handler tests (`tests/openclaw-plugin.test.ts`, `tests/webhook-route.test.ts`) covering explicit auth mode, callback-path registration, and exact raw-body signature semantics.
+  - 2026-03-08: Validated PLG2-050 with `bun run build` and `bun run test` from `plugins/openclaw-mahilo/` (90 passing tests).
 
 ### 5.2 Dedup / Idempotency
 - **ID**: `PLG2-051`

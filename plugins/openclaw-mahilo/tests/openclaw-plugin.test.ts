@@ -13,6 +13,15 @@ interface RegisteredTool {
   name: string;
 }
 
+interface RegisteredHttpRoute {
+  auth?: { mode?: string };
+  authMode?: string;
+  handler: (req: unknown, res: unknown) => Promise<void>;
+  method?: string;
+  path: string;
+  rawBody?: boolean;
+}
+
 function createMockContractClient() {
   const state: MockClientState = {
     outcomeCalls: [],
@@ -48,8 +57,9 @@ function createMockContractClient() {
 
 function createMockPluginApi(
   pluginConfig: Record<string, unknown>
-): { api: never; tools: RegisteredTool[] } {
+): { api: never; routes: RegisteredHttpRoute[]; tools: RegisteredTool[] } {
   const tools: RegisteredTool[] = [];
+  const routes: RegisteredHttpRoute[] = [];
 
   const api = {
     config: {},
@@ -69,7 +79,9 @@ function createMockPluginApi(
     registerContextEngine: () => {},
     registerGatewayMethod: () => {},
     registerHook: () => {},
-    registerHttpRoute: () => {},
+    registerHttpRoute: (route: RegisteredHttpRoute) => {
+      routes.push(route);
+    },
     registerProvider: () => {},
     registerService: () => {},
     registerTool: (tool: RegisteredTool) => {
@@ -83,6 +95,7 @@ function createMockPluginApi(
 
   return {
     api: api as never,
+    routes,
     tools
   };
 }
@@ -102,7 +115,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
     });
-    const { api, tools } = createMockPluginApi({
+    const { api, routes, tools } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example"
     });
@@ -114,6 +127,44 @@ describe("createMahiloOpenClawPlugin", () => {
       "talk_to_agent",
       "talk_to_group"
     ]);
+    expect(routes).toHaveLength(1);
+  });
+
+  it("registers webhook route with explicit auth mode and raw-body hints", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, routes } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.path).toBe("/mahilo/incoming");
+    expect(routes[0]?.method).toBe("POST");
+    expect(routes[0]?.authMode).toBe("none");
+    expect(routes[0]?.auth).toEqual({ mode: "none" });
+    expect(routes[0]?.rawBody).toBe(true);
+  });
+
+  it("uses callbackPath as webhook route path when configured", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, routes } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+      callbackPath: "/hooks/mahilo"
+    });
+
+    await plugin.register?.(api);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.path).toBe("/hooks/mahilo");
   });
 
   it("executes talk_to_agent with sender_connection_id alias", async () => {

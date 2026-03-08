@@ -20,10 +20,12 @@ import {
   type MahiloToolContext,
   type TalkToGroupInput
 } from "./tools";
+import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./webhook-route";
 
 export interface MahiloOpenClawPluginOptions {
   contactsProvider?: ContactsProvider;
   createClient?: (config: MahiloPluginConfig) => MahiloContractClient;
+  webhookRoute?: MahiloWebhookRouteOptions;
 }
 
 export interface MahiloOpenClawPluginDefinition {
@@ -62,6 +64,7 @@ export function registerMahiloOpenClawPlugin(
   api.registerTool(createTalkToAgentTool(client, config));
   api.registerTool(createTalkToGroupTool(client, config));
   api.registerTool(createListMahiloContactsTool(options.contactsProvider));
+  registerMahiloWebhookRoute(api, config, options.webhookRoute);
 }
 
 const defaultMahiloOpenClawPlugin = createMahiloOpenClawPlugin();
