@@ -392,15 +392,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 4.4 Temporary Override Creation Endpoint
 - **ID**: `SRV-043`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-022
 - **Description**:
   - Either extend policy create endpoint or add specialized helper behavior for one-time / expiring overrides.
 - **Acceptance Criteria**:
-  - [ ] One-time override creation is straightforward for plugin clients
-  - [ ] Override source/provenance is explicit
-  - [ ] Validation prevents malformed overrides
+  - [x] One-time override creation is straightforward for plugin clients
+  - [x] Override source/provenance is explicit
+  - [x] Validation prevents malformed overrides
+- **Notes**:
+  - 2026-03-08: Started SRV-043 by implementing a plugin-facing override creation helper endpoint and associated validation/provenance tests.
+  - 2026-03-08: Completed SRV-043 by adding `POST /api/v1/plugin/overrides` in `src/routes/plugin.ts` with verified sender-connection checks, one-time/temporary/persistent lifecycle validation, canonical override creation (`source: override`), and explicit provenance metadata (`source_resolution_id`, reason, sender connection, optional `derived_from_message_id`) embedded in canonical policy content.
+  - 2026-03-08: Added integration coverage in `tests/integration/plugin-overrides.test.ts` (auth, one-time creation, temporary TTL creation, malformed lifecycle rejection) and validated via `bun test tests/integration/plugin-overrides.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-outcomes.test.ts tests/integration/plugin-context.test.ts` and `bun run build`.
 
 ### 4.5 Blocked / Review Event APIs
 - **ID**: `SRV-044`

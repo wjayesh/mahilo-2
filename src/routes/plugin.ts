@@ -7,7 +7,7 @@ import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireAuth, requireVerified } from "../middleware/auth";
 import { AppError } from "../middleware/error";
-import { getRolesForFriend } from "../services/roles";
+import { getRolesForFriend, isValidRole } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
 import { config } from "../config";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
@@ -15,10 +15,18 @@ import {
   evaluateGroupPolicies,
   evaluateInboundPolicies,
   evaluatePolicies,
+  validatePolicyContent,
   type AuthenticatedSenderIdentity,
   type PolicyResult,
 } from "../services/policy";
-import { dbPolicyToCanonical, type CanonicalPolicy, type PolicyDirection } from "../services/policySchema";
+import {
+  canonicalToStorage,
+  dbPolicyToCanonical,
+  type CanonicalPolicy,
+  type PolicyDirection,
+  type PolicyEffect,
+  type PolicyScope,
+} from "../services/policySchema";
 
 const CONTRACT_VERSION = "1.0.0";
 
@@ -126,10 +134,36 @@ const pluginOutcomeRequestSchema = z.object({
   idempotency_key: z.string().min(1).max(255).optional(),
 });
 
+const pluginOverrideKinds = ["one_time", "temporary", "persistent"] as const;
+const policyScopeSchema = z.enum(["global", "user", "group", "role"]);
+const policyEffectSchema = z.enum(["allow", "ask", "deny"]);
+const isoDateSchema = z
+  .string()
+  .refine((value) => !Number.isNaN(Date.parse(value)), { message: "Invalid ISO date" });
+
+const pluginOverrideRequestSchema = z.object({
+  sender_connection_id: z.string().min(1),
+  source_resolution_id: z.string().min(1).max(120),
+  kind: z.enum(pluginOverrideKinds),
+  scope: policyScopeSchema,
+  target_id: z.string().min(1).nullable().optional(),
+  selectors: selectorInputSchema,
+  effect: policyEffectSchema.optional().default("allow"),
+  reason: z.string().min(1).max(2000),
+  max_uses: z.number().int().positive().nullable().optional(),
+  expires_at: isoDateSchema.optional(),
+  ttl_seconds: z.number().int().positive().max(60 * 60 * 24 * 30).optional(),
+  derived_from_message_id: z.string().min(1).optional(),
+  policy_content: z.record(z.unknown()).optional(),
+  priority: z.number().int().min(0).max(100).optional().default(90),
+});
+
 type PluginContextRequest = z.infer<typeof pluginContextRequestSchema>;
 type PluginResolveRequest = z.infer<typeof pluginResolveRequestSchema>;
 type PluginOutcomeRequest = z.infer<typeof pluginOutcomeRequestSchema>;
+type PluginOverrideRequest = z.infer<typeof pluginOverrideRequestSchema>;
 type PluginReportedOutcome = (typeof pluginOutcomeValues)[number];
+type PluginOverrideKind = (typeof pluginOverrideKinds)[number];
 type ContextDecision = "allow" | "ask" | "deny";
 type DeliveryMode = "full_send" | "review_required" | "hold_for_approval" | "blocked";
 
@@ -233,6 +267,136 @@ function resolveDraftSelectors(data: PluginResolveRequest) {
   };
   validateSelectors(selectors);
   return selectors;
+}
+
+function resolveOverrideSelectors(data: PluginOverrideRequest) {
+  const direction = data.selectors.direction || defaultSelectors.direction;
+  const resource = normalizeSelectorToken(data.selectors.resource, defaultSelectors.resource);
+  const action = normalizeSelectorToken(data.selectors.action, defaultSelectors.action);
+  const selectors = {
+    action,
+    direction,
+    resource,
+  };
+  validateSelectors(selectors);
+  return selectors;
+}
+
+function assertScopeTarget(scope: PolicyScope, targetId: string | null) {
+  if (scope === "global" && targetId) {
+    throw new AppError("Global overrides cannot include target_id", 400, "INVALID_OVERRIDE");
+  }
+
+  if ((scope === "user" || scope === "group" || scope === "role") && !targetId) {
+    throw new AppError(`${scope} overrides require target_id`, 400, "INVALID_OVERRIDE");
+  }
+}
+
+async function assertGroupPolicyAccess(userId: string, groupId: string) {
+  const db = getDb();
+  const [group] = await db
+    .select({ id: schema.groups.id })
+    .from(schema.groups)
+    .where(eq(schema.groups.id, groupId))
+    .limit(1);
+
+  if (!group) {
+    throw new AppError("Target group not found", 404, "GROUP_NOT_FOUND");
+  }
+
+  const [membership] = await db
+    .select({ role: schema.groupMemberships.role })
+    .from(schema.groupMemberships)
+    .where(
+      and(
+        eq(schema.groupMemberships.groupId, groupId),
+        eq(schema.groupMemberships.userId, userId),
+        eq(schema.groupMemberships.status, "active")
+      )
+    )
+    .limit(1);
+
+  if (!membership) {
+    throw new AppError("Not a member of this group", 403, "NOT_MEMBER");
+  }
+
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    throw new AppError(
+      "Only group owners and admins can create group-scoped overrides",
+      403,
+      "FORBIDDEN"
+    );
+  }
+}
+
+function resolveOverrideLifecycle(data: PluginOverrideRequest): {
+  expires_at: string | null;
+  max_uses: number | null;
+  remaining_uses: number | null;
+} {
+  if (data.expires_at && data.ttl_seconds !== undefined) {
+    throw new AppError(
+      "Provide either expires_at or ttl_seconds, not both",
+      400,
+      "INVALID_OVERRIDE"
+    );
+  }
+
+  let expiresAt: string | null = null;
+  if (data.expires_at) {
+    expiresAt = new Date(data.expires_at).toISOString();
+  } else if (data.ttl_seconds !== undefined) {
+    expiresAt = new Date(Date.now() + data.ttl_seconds * 1000).toISOString();
+  }
+
+  if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
+    throw new AppError("expires_at must be in the future", 400, "INVALID_OVERRIDE");
+  }
+
+  if (data.kind === "one_time") {
+    if (data.max_uses !== undefined && data.max_uses !== 1) {
+      throw new AppError("one_time overrides require max_uses = 1", 400, "INVALID_OVERRIDE");
+    }
+    return {
+      expires_at: expiresAt,
+      max_uses: 1,
+      remaining_uses: 1,
+    };
+  }
+
+  if (data.kind === "temporary") {
+    if (!expiresAt) {
+      throw new AppError(
+        "temporary overrides require expires_at or ttl_seconds",
+        400,
+        "INVALID_OVERRIDE"
+      );
+    }
+    const maxUses = data.max_uses ?? null;
+    return {
+      expires_at: expiresAt,
+      max_uses: maxUses,
+      remaining_uses: maxUses,
+    };
+  }
+
+  if (expiresAt) {
+    throw new AppError(
+      "persistent overrides cannot include expires_at or ttl_seconds",
+      400,
+      "INVALID_OVERRIDE"
+    );
+  }
+
+  if (data.max_uses !== undefined && data.max_uses !== null) {
+    throw new AppError("persistent overrides cannot include max_uses", 400, "INVALID_OVERRIDE");
+  }
+
+  return {
+    expires_at: null,
+    max_uses: null,
+    remaining_uses: null,
+  };
 }
 
 function parseDirectionCandidate(value: unknown): PolicyDirection {
@@ -1039,6 +1203,139 @@ pluginRoutes.post(
       ],
       expires_at: expiresAt,
     });
+  }
+);
+
+pluginRoutes.post(
+  "/overrides",
+  requireVerified(),
+  zValidator("json", pluginOverrideRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+    const db = getDb();
+    const senderConnection = await resolveSenderConnection(user.id, data.sender_connection_id);
+    const targetId = data.target_id ?? null;
+    assertScopeTarget(data.scope, targetId);
+
+    if (data.scope === "user" && targetId) {
+      const [targetUser] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.id, targetId))
+        .limit(1);
+
+      if (!targetUser) {
+        throw new AppError("Target user not found", 404, "USER_NOT_FOUND");
+      }
+    }
+
+    if (data.scope === "group" && targetId) {
+      await assertGroupPolicyAccess(user.id, targetId);
+    }
+
+    if (data.scope === "role" && targetId) {
+      const validRole = await isValidRole(user.id, targetId);
+      if (!validRole) {
+        throw new AppError(`Invalid role: ${targetId}`, 400, "INVALID_ROLE");
+      }
+    }
+
+    if (data.derived_from_message_id) {
+      const [sourceMessage] = await db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.id, data.derived_from_message_id),
+            or(
+              eq(schema.messages.senderUserId, user.id),
+              eq(schema.messages.recipientId, user.id)
+            )
+          )
+        )
+        .limit(1);
+
+      if (!sourceMessage) {
+        throw new AppError(
+          "derived_from_message_id must reference a message visible to this user",
+          404,
+          "SOURCE_MESSAGE_NOT_FOUND"
+        );
+      }
+    }
+
+    const selectors = resolveOverrideSelectors(data);
+    const lifecycle = resolveOverrideLifecycle(data);
+    const createdAt = new Date().toISOString();
+    const basePolicyContent = data.policy_content ? { ...data.policy_content } : {};
+    const policyContent = {
+      ...basePolicyContent,
+      _mahilo_override: {
+        kind: data.kind as PluginOverrideKind,
+        reason: data.reason,
+        sender_connection_id: senderConnection.id,
+        source_resolution_id: data.source_resolution_id,
+        created_via: "plugin.overrides",
+        created_at: createdAt,
+      },
+    };
+
+    const contentValidation = validatePolicyContent("structured", policyContent);
+    if (!contentValidation.valid) {
+      throw new AppError(contentValidation.error!, 400, "INVALID_POLICY_CONTENT");
+    }
+
+    const storage = canonicalToStorage({
+      scope: data.scope as PolicyScope,
+      target_id: targetId,
+      direction: selectors.direction,
+      resource: selectors.resource,
+      action: selectors.action,
+      effect: data.effect as PolicyEffect,
+      evaluator: "structured",
+      policy_content: policyContent,
+      effective_from: null,
+      expires_at: lifecycle.expires_at,
+      max_uses: lifecycle.max_uses,
+      remaining_uses: lifecycle.remaining_uses,
+      source: "override",
+      derived_from_message_id: data.derived_from_message_id ?? null,
+      priority: data.priority,
+      enabled: true,
+    });
+
+    const policyId = nanoid();
+    await db.insert(schema.policies).values({
+      id: policyId,
+      userId: user.id,
+      scope: data.scope,
+      targetId,
+      direction: storage.direction,
+      resource: storage.resource,
+      action: storage.action,
+      effect: storage.effect,
+      evaluator: storage.evaluator,
+      effectiveFrom: storage.effectiveFrom,
+      expiresAt: storage.expiresAt,
+      maxUses: storage.maxUses,
+      remainingUses: storage.remainingUses,
+      source: storage.source,
+      derivedFromMessageId: storage.derivedFromMessageId,
+      policyType: storage.policyType,
+      policyContent: storage.policyContent,
+      priority: data.priority,
+      enabled: true,
+    });
+
+    return c.json(
+      {
+        policy_id: policyId,
+        kind: data.kind,
+        created: true,
+      },
+      201
+    );
   }
 );
 
