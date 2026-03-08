@@ -29,6 +29,9 @@ export type WorkflowConfig = {
   maxIterations: number;
   pollIntervalSeconds: number;
   completionPhrase: string;
+  requiredBranch: string | null;
+  autoCommitOnDone: boolean;
+  autoPushEveryCommits: number;
   workflowBody: string;
   workflowPath: string;
 };
@@ -56,6 +59,9 @@ export type OrchestratorState = {
   workflowPath: string;
   iteration: number;
   activeTaskId: string | null;
+  commitsSincePush: number;
+  lastCommittedTaskId: string | null;
+  lastCommitSha: string | null;
   history: Array<{
     iteration: number;
     taskId: string | null;
@@ -81,6 +87,9 @@ const DEFAULT_WORKFLOW: Omit<WorkflowConfig, "workflowBody" | "workflowPath"> = 
   maxIterations: 50,
   pollIntervalSeconds: 3,
   completionPhrase: "COMPLETE",
+  requiredBranch: null,
+  autoCommitOnDone: true,
+  autoPushEveryCommits: 3,
 };
 
 const STATUS_VALUES = new Set<TaskStatus>(["pending", "in-progress", "blocked", "review", "done"]);
@@ -269,6 +278,18 @@ export function parseWorkflowFile(content: string, workflowPath = "WORKFLOW.md")
       typeof frontMatter.completion_phrase === "string"
         ? frontMatter.completion_phrase
         : DEFAULT_WORKFLOW.completionPhrase,
+    requiredBranch:
+      typeof frontMatter.required_branch === "string"
+        ? frontMatter.required_branch
+        : DEFAULT_WORKFLOW.requiredBranch,
+    autoCommitOnDone:
+      typeof frontMatter.auto_commit_on_done === "string"
+        ? frontMatter.auto_commit_on_done.toLowerCase() === "true"
+        : DEFAULT_WORKFLOW.autoCommitOnDone,
+    autoPushEveryCommits:
+      typeof frontMatter.auto_push_every_commits === "number"
+        ? frontMatter.auto_push_every_commits
+        : DEFAULT_WORKFLOW.autoPushEveryCommits,
     workflowBody,
     workflowPath,
   };
@@ -444,6 +465,9 @@ export function loadState(repoRoot: string, config: WorkflowConfig): Orchestrato
       workflowPath: config.workflowPath,
       iteration: 0,
       activeTaskId: null,
+      commitsSincePush: 0,
+      lastCommittedTaskId: null,
+      lastCommitSha: null,
       history: [],
     };
     writeFileSync(statePath, JSON.stringify(initialState, null, 2) + "\n");
@@ -455,6 +479,9 @@ export function loadState(repoRoot: string, config: WorkflowConfig): Orchestrato
     workflowPath: state.workflowPath ?? config.workflowPath,
     iteration: state.iteration ?? 0,
     activeTaskId: state.activeTaskId ?? null,
+    commitsSincePush: state.commitsSincePush ?? 0,
+    lastCommittedTaskId: state.lastCommittedTaskId ?? null,
+    lastCommitSha: state.lastCommitSha ?? null,
     history: Array.isArray(state.history) ? state.history : [],
   };
 }
@@ -470,6 +497,16 @@ export function appendProgress(repoRoot: string, config: WorkflowConfig, lines: 
   ensureDirectory(dirname(progressPath));
   const existing = existsSync(progressPath) ? readFileSync(progressPath, "utf8") : `# ${config.name} Progress\n\n`;
   writeFileSync(progressPath, existing + lines.join("\n") + "\n");
+}
+
+export function getCurrentBranch(repoRoot: string): string | null {
+  const result = runGit(["branch", "--show-current"], repoRoot);
+  if (result.status !== 0) {
+    return null;
+  }
+
+  const branch = result.stdout.trim();
+  return branch.length > 0 ? branch : null;
 }
 
 function sanitizeBranchName(taskId: string): string {
@@ -555,6 +592,54 @@ export type AgentRunResult = {
   lastMessage: string;
   commandLine: string;
 };
+
+export type RepoCommitResult = {
+  committed: boolean;
+  commitSha: string | null;
+  error: string | null;
+};
+
+export type RepoPushResult = {
+  pushed: boolean;
+  error: string | null;
+};
+
+export function commitPendingChanges(repoRoot: string, message: string): RepoCommitResult {
+  const addResult = runGit(["add", "-A"], repoRoot);
+  if (addResult.status !== 0) {
+    return { committed: false, commitSha: null, error: addResult.stderr || addResult.stdout || "git add failed" };
+  }
+
+  const statusResult = runGit(["status", "--porcelain"], repoRoot);
+  if (statusResult.status !== 0) {
+    return { committed: false, commitSha: null, error: statusResult.stderr || statusResult.stdout || "git status failed" };
+  }
+
+  if (!statusResult.stdout.trim()) {
+    return { committed: false, commitSha: null, error: null };
+  }
+
+  const commitResult = runGit(["commit", "-m", message], repoRoot);
+  if (commitResult.status !== 0) {
+    return { committed: false, commitSha: null, error: commitResult.stderr || commitResult.stdout || "git commit failed" };
+  }
+
+  const shaResult = runGit(["rev-parse", "--short", "HEAD"], repoRoot);
+  if (shaResult.status !== 0) {
+    return { committed: true, commitSha: null, error: null };
+  }
+
+  return { committed: true, commitSha: shaResult.stdout.trim() || null, error: null };
+}
+
+export function pushBranch(repoRoot: string, branch: string): RepoPushResult {
+  const pushResult = runGit(["push", "origin", branch], repoRoot);
+  if (pushResult.status !== 0) {
+    return { pushed: false, error: pushResult.stderr || pushResult.stdout || `git push failed for ${branch}` };
+  }
+
+  return { pushed: true, error: null };
+}
 
 export function runAgentForTask(
   repoRoot: string,

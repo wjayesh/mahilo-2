@@ -6,12 +6,15 @@ import {
   buildTaskPrompt,
   ensureWorkspace,
   formatHistoryNote,
+  getCurrentBranch,
   loadState,
   loadTasks,
   loadWorkflow,
   mergeTaskUniverses,
   previewWorkspacePath,
+  pushBranch,
   reconcileWorkspace,
+  commitPendingChanges,
   runAgentForTask,
   saveState,
   selectNextTask,
@@ -69,6 +72,14 @@ function main() {
     console.log(`Dependency sources: ${workflow.dependencySources.join(", ")}`);
   }
   console.log(`Workspace mode: ${workflow.workspaceMode}`);
+  if (workflow.requiredBranch) {
+    const currentBranch = getCurrentBranch(repoRoot);
+    if (currentBranch !== workflow.requiredBranch) {
+      console.error(`Refusing to run workflow on branch ${currentBranch ?? "(detached HEAD)"}. Expected ${workflow.requiredBranch}.`);
+      process.exit(1);
+    }
+    console.log(`Required branch: ${workflow.requiredBranch}`);
+  }
 
   for (let attempt = 0; attempt < maxIterations; attempt += 1) {
     const actionableTasks = loadTasks(repoRoot, workflow.taskSources);
@@ -133,6 +144,7 @@ function main() {
 
     let historyStatus: "completed" | "blocked" | "agent_error" | "continued" = "continued";
     let historyNote = `Agent exited with code ${runResult.exitCode}.`;
+    let stopAfterIteration = false;
 
     if (runResult.exitCode !== 0) {
       historyStatus = "agent_error";
@@ -141,6 +153,43 @@ function main() {
       historyStatus = "completed";
       historyNote = `${task.id} completed.`;
       state.activeTaskId = null;
+
+      if (workflow.autoCommitOnDone) {
+        const commitMessage = `orchestrator: complete ${task.id} ${task.title}`;
+        const commitResult = commitPendingChanges(repoRoot, commitMessage);
+
+        if (commitResult.error) {
+          historyStatus = "agent_error";
+          historyNote = `${task.id} completed but auto-commit failed: ${commitResult.error}`;
+          stopAfterIteration = true;
+        } else if (commitResult.committed) {
+          state.commitsSincePush += 1;
+          state.lastCommittedTaskId = task.id;
+          state.lastCommitSha = commitResult.commitSha;
+          historyNote = `${task.id} completed and committed${commitResult.commitSha ? ` as ${commitResult.commitSha}` : ""}.`;
+
+          const currentBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
+          const shouldPush = workflow.autoPushEveryCommits > 0 && (
+            state.commitsSincePush >= workflow.autoPushEveryCommits ||
+            runResult.lastMessage.includes(workflow.completionPhrase) ||
+            areAllTasksComplete(refreshedActionableTasks)
+          );
+
+          if (shouldPush && currentBranch) {
+            const pushResult = pushBranch(repoRoot, currentBranch);
+            if (pushResult.error) {
+              historyStatus = "agent_error";
+              historyNote = `${historyNote} Auto-push failed: ${pushResult.error}`;
+              stopAfterIteration = true;
+            } else {
+              state.commitsSincePush = 0;
+              historyNote = `${historyNote} Pushed ${currentBranch}.`;
+            }
+          }
+        } else {
+          historyNote = `${task.id} completed with no repository changes to commit.`;
+        }
+      }
     } else if (refreshedTask?.status === "blocked" || runResult.lastMessage.includes(`TASK_BLOCKED ${task.id}`)) {
       historyStatus = "blocked";
       historyNote = runResult.lastMessage.split("\n").find((line) => line.includes(`TASK_BLOCKED ${task.id}`)) ?? `${task.id} blocked.`;
@@ -157,7 +206,24 @@ function main() {
     });
     saveState(repoRoot, workflow, state);
 
+    if (stopAfterIteration) {
+      console.error(historyNote);
+      process.exit(1);
+    }
+
     if (runResult.lastMessage.includes(workflow.completionPhrase) || areAllTasksComplete(refreshedActionableTasks)) {
+      if (workflow.autoCommitOnDone && state.commitsSincePush > 0) {
+        const currentBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
+        if (currentBranch) {
+          const pushResult = pushBranch(repoRoot, currentBranch);
+          if (pushResult.error) {
+            console.error(`Final auto-push failed: ${pushResult.error}`);
+            process.exit(1);
+          }
+          state.commitsSincePush = 0;
+          saveState(repoRoot, workflow, state);
+        }
+      }
       console.log(workflow.completionPhrase);
       return;
     }

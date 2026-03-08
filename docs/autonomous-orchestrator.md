@@ -25,11 +25,13 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 3. Optionally parse separate dependency sources to gate tasks on external prerequisites
 4. Pick the next ready task
 5. Create or reuse a workspace
-6. Sync the current main-repo snapshot into the worktree so uncommitted docs and code are visible there
+6. Sync the current integration-branch snapshot into the worktree so current docs and code are visible there
 7. Run `codex exec` with the workflow prompt plus the assigned task section
-8. Sync changed files back from the worktree into the main working tree after the agent finishes
-9. Re-read the task docs to see whether the task moved to `done`, `blocked`, or remains active
-10. Repeat until all tracked tasks are complete or the loop limit is reached
+8. Sync changed files back from the worktree into the integration branch after the agent finishes
+9. Auto-commit each successfully completed task
+10. Auto-push after every configured commit threshold, and on final completion
+11. Re-read the task docs to see whether the task moved to `done`, `blocked`, or remains active
+12. Repeat until all tracked tasks are complete or the loop limit is reached
 
 ## Files
 
@@ -40,6 +42,13 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 - `.mahilo-orchestrator/progress.md` — server iteration log
 - `.mahilo-orchestrator/plugin-state.json` — persisted plugin runtime state
 - `.mahilo-orchestrator/plugin-progress.md` — plugin iteration log
+
+## Safety and Git Behavior
+
+- Workflows are branch-guarded and currently require `autonomous/server-integration`.
+- The loop is intended to reconcile into the integration branch, not `main`.
+- Each `TASK_DONE` result creates an automatic git commit.
+- The loop auto-pushes after every 3 completed task commits by default.
 
 ## Commands
 

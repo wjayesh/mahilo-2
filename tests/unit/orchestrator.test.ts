@@ -13,6 +13,9 @@ dependency_sources:
 instruction_files:
   - CLAUDE.md
 workspace_mode: shared
+auto_commit_on_done: true
+auto_push_every_commits: 5
+required_branch: autonomous/server-integration
 ---
 # Workflow\nBody here.\n`);
 
@@ -22,6 +25,9 @@ workspace_mode: shared
     expect(workflow.dependencySources).toEqual(["docs/b.md"]);
     expect(workflow.instructionFiles).toEqual(["CLAUDE.md"]);
     expect(workflow.workspaceMode).toBe("shared");
+    expect(workflow.autoCommitOnDone).toBe(true);
+    expect(workflow.autoPushEveryCommits).toBe(5);
+    expect(workflow.requiredBranch).toBe("autonomous/server-integration");
     expect(workflow.workflowBody).toContain("Body here");
   });
 });
