@@ -316,19 +316,25 @@ It is:
 
 ### 2.2 Normalize Package Identity
 - **ID**: `PLG2-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-020
 - **Description**:
   - Decide package identity for long-term use.
+  - **Decision**: Keep package name as `@mahilo/openclaw-mahilo` to align with canonical repo path and avoid migration churn.
+  - **Decision**: Keep runtime plugin ID as `mahilo` and treat it as stable across manifest, OpenClaw registration, and runtime config.
+  - **Decision**: Treat `plugins.entries.mahilo.config` as the stable OpenClaw config key path for plugin runtime settings.
   - Example candidates:
     - `@mahilo/openclaw-plugin`
     - `@mahilo/openclaw-mahilo`
   - Keep runtime plugin ID stable (likely `mahilo`).
 - **Acceptance Criteria**:
-  - [ ] Package name chosen
-  - [ ] Plugin ID chosen and stable
-  - [ ] Config key expectations documented
+  - [x] Package name chosen
+  - [x] Plugin ID chosen and stable
+  - [x] Config key expectations documented
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-021 by auditing package metadata, manifest plugin ID, OpenClaw registration ID, and existing runtime config key documentation.
+  - 2026-03-08: Added shared identity constants and tests for package name / runtime plugin ID stability, documented config entry path and expected keys in plugin README, and validated with `bun run build`, `bun run test` (94 passing), and `bun run validate:manifest` (3 passing) from `plugins/openclaw-mahilo/`.
 
 ### 2.3 Manifest / Config Schema Cleanup
 - **ID**: `PLG2-022`
@@ -466,7 +472,7 @@ It is:
 
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-020
 - **Description**:
@@ -476,8 +482,13 @@ It is:
     - `mahilo review`
     - `mahilo reconnect`
 - **Acceptance Criteria**:
-  - [ ] Operator can inspect plugin state quickly
-  - [ ] Debugging common failures is easy
+  - [x] Operator can inspect plugin state quickly
+  - [x] Debugging common failures is easy
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-044 by auditing plugin SDK registration points and existing contract client capabilities to design native diagnostics/management commands.
+  - 2026-03-08: Added plugin-native command registration for `mahilo status`, `mahilo review`, and `mahilo reconnect`, including structured diagnostics output, connectivity probes, retry/error hints, and plugin runtime state counters.
+  - 2026-03-08: Wired diagnostics commands into OpenClaw plugin registration and shared plugin-local state with webhook dedupe tracking for status visibility.
+  - 2026-03-08: Added/updated tests for command registration and behavior (`tests/commands.test.ts`, `tests/openclaw-plugin.test.ts`) and validated with `bun run test` (97 passing) plus `bun run build` from `plugins/openclaw-mahilo/`.
 
 ---
 

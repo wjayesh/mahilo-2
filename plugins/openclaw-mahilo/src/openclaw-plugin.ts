@@ -5,12 +5,17 @@ import type {
 
 import type { MahiloContractClient } from "./client";
 import {
+  registerMahiloDiagnosticsCommands,
+  type MahiloDiagnosticsCommandOptions
+} from "./commands";
+import {
   createMahiloClientFromConfig,
   parseMahiloPluginConfig,
   type MahiloPluginConfig,
   type ReviewMode
 } from "./config";
 import type { DeclaredSelectors } from "./policy-helpers";
+import { InMemoryPluginState } from "./state";
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
   listMahiloContacts,
@@ -26,6 +31,8 @@ import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./we
 export interface MahiloOpenClawPluginOptions {
   contactsProvider?: ContactsProvider;
   createClient?: (config: MahiloPluginConfig) => MahiloContractClient;
+  diagnosticsCommands?: MahiloDiagnosticsCommandOptions;
+  pluginState?: InMemoryPluginState;
   webhookRoute?: MahiloWebhookRouteOptions;
 }
 
@@ -61,11 +68,27 @@ export function registerMahiloOpenClawPlugin(
 
   const createClient = options.createClient ?? createMahiloClientFromConfig;
   const client = createClient(config);
+  const pluginState =
+    options.pluginState ??
+    new InMemoryPluginState({
+      contextCacheTtlSeconds: config.cacheTtlSeconds,
+      dedupeTtlMs: options.webhookRoute?.dedupeTtlMs
+    });
+  const webhookRouteOptions: MahiloWebhookRouteOptions = {
+    ...options.webhookRoute,
+    dedupeState: options.webhookRoute?.dedupeState ?? pluginState.dedupe
+  };
+  const diagnosticsCommandOptions: MahiloDiagnosticsCommandOptions = {
+    ...options.diagnosticsCommands,
+    logger: options.diagnosticsCommands?.logger ?? api.logger,
+    pluginState
+  };
 
   api.registerTool(createTalkToAgentTool(client, config));
   api.registerTool(createTalkToGroupTool(client, config));
   api.registerTool(createListMahiloContactsTool(options.contactsProvider));
-  registerMahiloWebhookRoute(api, config, options.webhookRoute);
+  registerMahiloWebhookRoute(api, config, webhookRouteOptions);
+  registerMahiloDiagnosticsCommands(api, config, client, diagnosticsCommandOptions);
 }
 
 const defaultMahiloOpenClawPlugin = createMahiloOpenClawPlugin();

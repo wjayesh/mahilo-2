@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import { createMahiloOpenClawPlugin } from "../src";
 
 interface MockClientState {
+  blockedEventCalls: number[];
+  listReviewCalls: Array<{ limit?: number; status?: string }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   resolveCalls: Array<Record<string, unknown>>;
   sendCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -10,6 +12,11 @@ interface MockClientState {
 
 interface RegisteredTool {
   execute: (toolCallId: string, input: unknown) => Promise<unknown>;
+  name: string;
+}
+
+interface RegisteredCommand {
+  execute: (input?: unknown) => Promise<unknown>;
   name: string;
 }
 
@@ -24,12 +31,26 @@ interface RegisteredHttpRoute {
 
 function createMockContractClient() {
   const state: MockClientState = {
+    blockedEventCalls: [],
+    listReviewCalls: [],
     outcomeCalls: [],
     resolveCalls: [],
     sendCalls: []
   };
 
   const client = {
+    listBlockedEvents: async (limit?: number) => {
+      state.blockedEventCalls.push(limit ?? 0);
+      return {
+        items: []
+      };
+    },
+    listReviews: async (params?: { limit?: number; status?: string }) => {
+      state.listReviewCalls.push(params ?? {});
+      return {
+        items: []
+      };
+    },
     reportOutcome: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.outcomeCalls.push({ idempotencyKey, payload });
       return { ok: true };
@@ -57,7 +78,8 @@ function createMockContractClient() {
 
 function createMockPluginApi(
   pluginConfig: Record<string, unknown>
-): { api: never; routes: RegisteredHttpRoute[]; tools: RegisteredTool[] } {
+): { api: never; commands: RegisteredCommand[]; routes: RegisteredHttpRoute[]; tools: RegisteredTool[] } {
+  const commands: RegisteredCommand[] = [];
   const tools: RegisteredTool[] = [];
   const routes: RegisteredHttpRoute[] = [];
 
@@ -75,7 +97,12 @@ function createMockPluginApi(
     pluginConfig,
     registerChannel: () => {},
     registerCli: () => {},
-    registerCommand: () => {},
+    registerCommand: (...args: unknown[]) => {
+      const command = parseRegisteredCommand(args);
+      if (command) {
+        commands.push(command);
+      }
+    },
     registerContextEngine: () => {},
     registerGatewayMethod: () => {},
     registerHook: () => {},
@@ -95,9 +122,68 @@ function createMockPluginApi(
 
   return {
     api: api as never,
+    commands,
     routes,
     tools
   };
+}
+
+function parseRegisteredCommand(args: unknown[]): RegisteredCommand | undefined {
+  if (args.length === 0) {
+    return undefined;
+  }
+
+  if (typeof args[0] === "string") {
+    const name = args[0];
+    const execute = args[1];
+    if (typeof execute !== "function") {
+      return undefined;
+    }
+
+    return {
+      execute: execute as RegisteredCommand["execute"],
+      name
+    };
+  }
+
+  const candidate = args[0];
+  if (!isRecord(candidate)) {
+    return undefined;
+  }
+
+  const name = typeof candidate.name === "string" ? candidate.name : undefined;
+  const execute = resolveCommandExecutor(candidate);
+  if (!name || !execute) {
+    return undefined;
+  }
+
+  return {
+    execute,
+    name
+  };
+}
+
+function resolveCommandExecutor(candidate: Record<string, unknown>): RegisteredCommand["execute"] | undefined {
+  const execute = candidate.execute;
+  if (typeof execute === "function") {
+    return execute as RegisteredCommand["execute"];
+  }
+
+  const handler = candidate.handler;
+  if (typeof handler === "function") {
+    return handler as RegisteredCommand["execute"];
+  }
+
+  const run = candidate.run;
+  if (typeof run === "function") {
+    return run as RegisteredCommand["execute"];
+  }
+
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function findTool(tools: RegisteredTool[], name: string): RegisteredTool {
@@ -109,13 +195,22 @@ function findTool(tools: RegisteredTool[], name: string): RegisteredTool {
   return tool;
 }
 
+function findCommand(commands: RegisteredCommand[], name: string): RegisteredCommand {
+  const command = commands.find((candidate) => candidate.name === name);
+  if (!command) {
+    throw new Error(`expected command ${name} to be registered`);
+  }
+
+  return command;
+}
+
 describe("createMahiloOpenClawPlugin", () => {
-  it("registers current OpenClaw tool names", async () => {
+  it("registers current OpenClaw tool names and diagnostics commands", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
     });
-    const { api, routes, tools } = createMockPluginApi({
+    const { api, commands, routes, tools } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example"
     });
@@ -126,6 +221,11 @@ describe("createMahiloOpenClawPlugin", () => {
       "list_mahilo_contacts",
       "talk_to_agent",
       "talk_to_group"
+    ]);
+    expect(commands.map((command) => command.name).sort()).toEqual([
+      "mahilo reconnect",
+      "mahilo review",
+      "mahilo status"
     ]);
     expect(routes).toHaveLength(1);
   });
@@ -251,5 +351,38 @@ describe("createMahiloOpenClawPlugin", () => {
         }
       ]
     });
+  });
+
+  it("returns diagnostics output for mahilo status", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, commands } = createMockPluginApi({
+      apiKey: "mhl_test_secret",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const command = findCommand(commands, "mahilo status");
+    const result = await command.execute();
+
+    expect(result).toMatchObject({
+      details: {
+        command: "mahilo status",
+        connected: true,
+        diagnostics: {
+          reconnectCount: 0
+        },
+        plugin: {
+          config: {
+            apiKey: "mh***et"
+          }
+        }
+      }
+    });
+    expect(state.listReviewCalls).toHaveLength(1);
+    expect(state.blockedEventCalls).toHaveLength(1);
   });
 });

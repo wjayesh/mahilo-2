@@ -8,6 +8,8 @@ export {
 } from "./identity";
 export { MahiloContractClient } from "./client";
 export type { MahiloClientOptions } from "./client";
+export { registerMahiloDiagnosticsCommands } from "./commands";
+export type { MahiloDiagnosticsCommandOptions, MahiloDiagnosticsLogger } from "./commands";
 export { createClientOptionsFromConfig, createMahiloClientFromConfig, MahiloConfigError, parseMahiloPluginConfig, redactSensitiveConfig } from "./config";
 export type { MahiloPluginConfig, ParseConfigOptions, ReviewMode } from "./config";
 export {
