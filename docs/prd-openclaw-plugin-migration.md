@@ -147,16 +147,19 @@ It is:
 
 ### 0.1 Create New Plugin Home in This Repo
 - **ID**: `PLG2-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Description**:
   - Create a new package directory in this repo for the OpenClaw plugin.
   - Recommended path: `plugins/openclaw-mahilo/`.
 - **Acceptance Criteria**:
-  - [ ] Plugin package directory exists in this repo
-  - [ ] Directory is clearly plugin-specific, not server code
-  - [ ] Path choice is documented
+  - [x] Plugin package directory exists in this repo
+  - [x] Directory is clearly plugin-specific, not server code
+  - [x] Path choice is documented
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-001 implementation in this workspace.
+  - 2026-03-08: Created `plugins/openclaw-mahilo/` with plugin-scoped README documenting the canonical path and scope.
 
 ### 0.2 Keep Package Extractable
 - **ID**: `PLG2-002`
