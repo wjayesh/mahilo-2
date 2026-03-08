@@ -228,7 +228,7 @@ It is:
 
 ### 1.2 Port Source Modules
 - **ID**: `PLG2-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-010
 - **Description**:
@@ -241,9 +241,14 @@ It is:
     - webhook
     - policy helpers
 - **Acceptance Criteria**:
-  - [ ] All current modules exist in new location
-  - [ ] Imports/build paths are fixed
-  - [ ] No leftover path coupling to `myclawd/extensions/mahilo`
+  - [x] All current modules exist in new location
+  - [x] Imports/build paths are fixed
+  - [x] No leftover path coupling to `myclawd/extensions/mahilo`
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-011 by auditing plugin module gaps and beginning source-module port into `plugins/openclaw-mahilo/src/`.
+  - 2026-03-08: Ported source modules into `plugins/openclaw-mahilo/src/` for `config`, `keys`, `state`, `tools`, `webhook`, and `policy-helpers`; updated `src/index.ts` exports and import wiring.
+  - 2026-03-08: Added plugin-local validation tests for ported modules (`tests/config.test.ts`, `tests/keys.test.ts`, `tests/state.test.ts`, `tests/policy-helpers.test.ts`, `tests/tools.test.ts`, `tests/webhook.test.ts`).
+  - 2026-03-08: Validated from `plugins/openclaw-mahilo/` with `bun run build` and `bun run test` (24 passing tests).
 
 ### 1.3 Port Tests
 - **ID**: `PLG2-012`
