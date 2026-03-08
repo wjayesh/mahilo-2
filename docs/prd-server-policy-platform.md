@@ -483,14 +483,18 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 6.2 Promotion Suggestions Model
 - **ID**: `SRV-061`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Depends on**: SRV-022, SRV-042, SRV-060
 - **Description**:
   - Support repeated temporary overrides leading to a suggestion to create a durable policy.
 - **Acceptance Criteria**:
-  - [ ] Server can detect repeated patterns
-  - [ ] Suggestion logic is separated from enforcement
+  - [x] Server can detect repeated patterns
+  - [x] Suggestion logic is separated from enforcement
+- **Notes**:
+  - 2026-03-08: Started SRV-061 by designing a learning-only promotion detector for temporary override repetition without changing policy enforcement behavior.
+  - 2026-03-08: Completed SRV-061 by adding `src/services/promotionSuggestions.ts` and `GET /api/v1/plugin/suggestions/promotions` in `src/routes/plugin.ts`; the endpoint groups repeated temporary overrides by scope/target/selectors/effect and returns durable policy suggestions with promotion provenance (`promoted_from_policy_ids`).
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-promotion-suggestions.test.ts tests/integration/plugin-overrides.test.ts tests/integration/plugin-outcomes.test.ts`, `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-events-reviews.test.ts`, and `bun run build`.
 
 ### 6.3 Agent-Facing vs User-Facing Explanations
 - **ID**: `SRV-062`

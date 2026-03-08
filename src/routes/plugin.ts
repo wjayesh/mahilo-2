@@ -12,6 +12,7 @@ import { getRolesForFriend, isValidRole } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
 import { config } from "../config";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
+import { detectPromotionSuggestions } from "../services/promotionSuggestions";
 import {
   evaluateGroupPolicies,
   evaluateInboundPolicies,
@@ -795,6 +796,29 @@ function parsePositiveLimit(value: string | undefined, fallback: number): number
   return Math.min(parsed, 100);
 }
 
+function parseBoundedIntegerQuery(
+  value: string | undefined,
+  fieldName: string,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    throw new AppError(`${fieldName} must be an integer`, 400, "INVALID_QUERY");
+  }
+
+  if (parsed < min || parsed > max) {
+    throw new AppError(`${fieldName} must be between ${min} and ${max}`, 400, "INVALID_QUERY");
+  }
+
+  return parsed;
+}
+
 function parseQueueDirectionFilter(value: string | undefined): QueueDirectionFilter {
   if (!value || value === "all") {
     return "all";
@@ -1376,6 +1400,41 @@ pluginRoutes.get("/events/blocked", requireVerified(), async (c) => {
         "messages table may retain full payload for delivery/audit compatibility",
     },
     blocked_events: blockedEvents,
+  });
+});
+
+pluginRoutes.get("/suggestions/promotions", requireVerified(), async (c) => {
+  const user = c.get("user")!;
+  const minRepetitions = parseBoundedIntegerQuery(
+    c.req.query("min_repetitions"),
+    "min_repetitions",
+    3,
+    2,
+    20
+  );
+  const lookbackDays = parseBoundedIntegerQuery(
+    c.req.query("lookback_days"),
+    "lookback_days",
+    30,
+    1,
+    365
+  );
+  const limit = parseBoundedIntegerQuery(c.req.query("limit"), "limit", 20, 1, 50);
+  const report = await detectPromotionSuggestions(user.id, {
+    min_repetitions: minRepetitions,
+    lookback_days: lookbackDays,
+    limit,
+  });
+
+  return c.json({
+    contract_version: CONTRACT_VERSION,
+    learning: {
+      min_repetitions: report.min_repetitions,
+      lookback_days: report.lookback_days,
+      evaluated_override_count: report.evaluated_override_count,
+      total_pattern_count: report.total_pattern_count,
+    },
+    promotion_suggestions: report.suggestions,
   });
 });
 
