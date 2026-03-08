@@ -464,14 +464,18 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 6.1 Learning Provenance
 - **ID**: `SRV-060`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-010, SRV-011, SRV-042
 - **Description**:
   - Track which interaction created or suggested a policy.
 - **Acceptance Criteria**:
-  - [ ] Policies can point to source message/interaction
-  - [ ] Audit can show override → promoted rule history
+  - [x] Policies can point to source message/interaction
+  - [x] Audit can show override → promoted rule history
+- **Notes**:
+  - 2026-03-08: Started SRV-060 by auditing current policy provenance fields and plugin outcome/override audit trails to wire interaction-level learning provenance and override-to-promotion history.
+  - 2026-03-08: Completed SRV-060 by wiring canonical learning provenance (`source_interaction_id`, `promoted_from_policy_ids`) through policy create/update/read flows, adding provenance audit endpoint `GET /api/v1/policies/audit/provenance/:id` with override→promotion lineage reconstruction, and ensuring plugin overrides stamp interaction-level provenance.
+  - 2026-03-08: Validation run: `bun test tests/integration/policy-learning-provenance.test.ts tests/integration/policies-compatibility.test.ts tests/integration/policy-context.test.ts tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-overrides.test.ts tests/integration/plugin-outcomes.test.ts` and `bun run build`.
 
 ### 6.2 Promotion Suggestions Model
 - **ID**: `SRV-061`

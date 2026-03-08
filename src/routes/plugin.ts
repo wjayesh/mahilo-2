@@ -493,12 +493,16 @@ function buildMatchedPolicies(policyResult: PolicyResult | null) {
   return policyResult.evaluated_policies
     .filter((entry) => entry.matched)
     .map((entry) => ({
+      derived_from_message_id: entry.derived_from_message_id,
       effect: entry.effect,
       evaluator: entry.evaluator,
       id: entry.policy_id,
       phase: entry.phase,
       priority: entry.priority,
+      promoted_from_policy_ids: entry.learning_provenance?.promoted_from_policy_ids || [],
       scope: entry.scope,
+      source: entry.source,
+      source_interaction_id: entry.learning_provenance?.source_interaction_id || null,
     }));
 }
 
@@ -1641,6 +1645,10 @@ pluginRoutes.post(
       remaining_uses: lifecycle.remaining_uses,
       source: "override",
       derived_from_message_id: data.derived_from_message_id ?? null,
+      learning_provenance: {
+        source_interaction_id: data.source_resolution_id,
+        promoted_from_policy_ids: [],
+      },
       priority: data.priority,
       enabled: true,
     });

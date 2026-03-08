@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq, and, or, desc, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireAuth } from "../middleware/auth";
@@ -15,6 +15,7 @@ import {
   dbPolicyToCanonical,
   canonicalToStorage,
   type CanonicalPolicy,
+  type PolicyLearningProvenance,
   type PolicyEvaluator,
   type PolicyScope,
 } from "../services/policySchema";
@@ -73,6 +74,14 @@ const sourceSchema = z.enum([
 const isoDateSchema = z
   .string()
   .refine((value) => !Number.isNaN(Date.parse(value)), { message: "Invalid ISO date" });
+const learningProvenanceSchema = z
+  .object({
+    source_interaction_id: z.string().min(1).max(255).nullable().optional(),
+    promoted_from_policy_ids: z.array(z.string().min(1).max(120)).max(50).optional(),
+  })
+  .optional();
+
+type LearningProvenanceInput = z.infer<typeof learningProvenanceSchema>;
 
 function assertScopeTarget(scope: PolicyScope, targetId: string | null) {
   if (scope === "global" && targetId) {
@@ -103,10 +112,154 @@ function normalizeUses(maxUses?: number | null, remainingUses?: number | null) {
   return { max_uses, remaining_uses };
 }
 
+function normalizeLearningProvenance(
+  input: LearningProvenanceInput
+): PolicyLearningProvenance | null {
+  if (!input) {
+    return null;
+  }
+
+  const sourceInteractionId =
+    typeof input.source_interaction_id === "string" &&
+    input.source_interaction_id.trim().length > 0
+      ? input.source_interaction_id.trim()
+      : null;
+
+  const promotedFromPolicyIds = Array.from(
+    new Set(
+      (input.promoted_from_policy_ids || [])
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+    )
+  );
+
+  if (!sourceInteractionId && promotedFromPolicyIds.length === 0) {
+    return null;
+  }
+
+  return {
+    source_interaction_id: sourceInteractionId,
+    promoted_from_policy_ids: promotedFromPolicyIds,
+  };
+}
+
+async function assertVisibleSourceMessage(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  messageId: string
+) {
+  const [sourceMessage] = await db
+    .select({ id: schema.messages.id })
+    .from(schema.messages)
+    .where(
+      and(
+        eq(schema.messages.id, messageId),
+        or(eq(schema.messages.senderUserId, userId), eq(schema.messages.recipientId, userId))
+      )
+    )
+    .limit(1);
+
+  if (!sourceMessage) {
+    throw new AppError(
+      "derived_from_message_id must reference a message visible to this user",
+      404,
+      "SOURCE_MESSAGE_NOT_FOUND"
+    );
+  }
+}
+
+async function assertPromotedPoliciesOwnedByUser(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  promotedFromPolicyIds: string[]
+) {
+  if (promotedFromPolicyIds.length === 0) {
+    return;
+  }
+
+  const promotedPolicies = await db
+    .select({ id: schema.policies.id })
+    .from(schema.policies)
+    .where(
+      and(
+        eq(schema.policies.userId, userId),
+        inArray(schema.policies.id, promotedFromPolicyIds)
+      )
+    );
+
+  const found = new Set(promotedPolicies.map((policy) => policy.id));
+  const missing = promotedFromPolicyIds.filter((policyId) => !found.has(policyId));
+  if (missing.length > 0) {
+    throw new AppError(
+      `promoted_from_policy_ids contains unknown policy ids: ${missing.join(", ")}`,
+      400,
+      "INVALID_POLICY"
+    );
+  }
+}
+
 function assertDateWindow(effectiveFrom: string | null, expiresAt: string | null) {
   if (effectiveFrom && expiresAt && Date.parse(expiresAt) <= Date.parse(effectiveFrom)) {
     throw new AppError("expires_at must be after effective_from", 400, "INVALID_POLICY");
   }
+}
+
+function toPolicyAuditRecord(policy: CanonicalPolicy) {
+  return {
+    policy_id: policy.id,
+    scope: policy.scope,
+    target_id: policy.target_id,
+    selectors: {
+      direction: policy.direction,
+      resource: policy.resource,
+      action: policy.action,
+    },
+    effect: policy.effect,
+    evaluator: policy.evaluator,
+    source: policy.source,
+    derived_from_message_id: policy.derived_from_message_id,
+    source_interaction_id: policy.learning_provenance?.source_interaction_id || null,
+    promoted_from_policy_ids: policy.learning_provenance?.promoted_from_policy_ids || [],
+    created_at: policy.created_at,
+  };
+}
+
+async function loadPromotedPolicyLineage(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  rootPolicy: CanonicalPolicy
+) {
+  const lineageById = new Map<string, CanonicalPolicy>();
+  const queue = [...(rootPolicy.learning_provenance?.promoted_from_policy_ids || [])];
+
+  while (queue.length > 0) {
+    const batchIds = Array.from(
+      new Set(queue.splice(0, queue.length).filter((policyId) => !lineageById.has(policyId)))
+    );
+    if (batchIds.length === 0) {
+      continue;
+    }
+
+    const rows = await db
+      .select()
+      .from(schema.policies)
+      .where(and(eq(schema.policies.userId, userId), inArray(schema.policies.id, batchIds)));
+
+    for (const row of rows) {
+      const canonical = dbPolicyToCanonical(row);
+      if (lineageById.has(canonical.id)) {
+        continue;
+      }
+      lineageById.set(canonical.id, canonical);
+      for (const promotedId of canonical.learning_provenance?.promoted_from_policy_ids || []) {
+        if (!lineageById.has(promotedId)) {
+          queue.push(promotedId);
+        }
+      }
+    }
+  }
+
+  return lineageById;
 }
 
 // Create policy
@@ -126,6 +279,7 @@ const createPolicySchema = z.object({
   remaining_uses: z.number().int().min(0).nullable().optional(),
   source: sourceSchema.optional().default("user_created"),
   derived_from_message_id: z.string().min(1).nullable().optional(),
+  learning_provenance: learningProvenanceSchema,
   priority: z.number().int().min(0).max(100).optional().default(0),
   enabled: z.boolean().optional().default(true),
 }).superRefine((data, ctx) => {
@@ -192,6 +346,17 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     }
   }
 
+  if (data.derived_from_message_id) {
+    await assertVisibleSourceMessage(db, user.id, data.derived_from_message_id);
+  }
+
+  const learningProvenance = normalizeLearningProvenance(data.learning_provenance);
+  await assertPromotedPoliciesOwnedByUser(
+    db,
+    user.id,
+    learningProvenance?.promoted_from_policy_ids || []
+  );
+
   const storage = canonicalToStorage({
     scope: data.scope,
     target_id: targetId,
@@ -207,6 +372,7 @@ policyRoutes.post("/", zValidator("json", createPolicySchema), async (c) => {
     remaining_uses: uses.remaining_uses,
     source: data.source,
     derived_from_message_id: data.derived_from_message_id ?? null,
+    learning_provenance: learningProvenance,
     priority: data.priority,
     enabled: data.enabled,
   });
@@ -268,6 +434,112 @@ policyRoutes.get("/", async (c) => {
   return c.json(policies.map((p) => dbPolicyToCanonical(p)));
 });
 
+policyRoutes.get("/audit/provenance/:id", async (c) => {
+  const user = c.get("user")!;
+  const policyId = c.req.param("id");
+  const db = getDb();
+
+  const [policy] = await db
+    .select()
+    .from(schema.policies)
+    .where(and(eq(schema.policies.id, policyId), eq(schema.policies.userId, user.id)))
+    .limit(1);
+
+  if (!policy) {
+    throw new AppError("Policy not found", 404, "NOT_FOUND");
+  }
+
+  const canonical = dbPolicyToCanonical(policy);
+  const lineageById = await loadPromotedPolicyLineage(db, user.id, canonical);
+  const lineagePolicies = Array.from(lineageById.values());
+  const auditPolicies = [canonical, ...lineagePolicies];
+  const policyById = new Map(auditPolicies.map((entry) => [entry.id, entry]));
+
+  const sourceMessageIds = Array.from(
+    new Set(
+      auditPolicies
+        .map((entry) => entry.derived_from_message_id)
+        .filter((entry): entry is string => Boolean(entry))
+    )
+  );
+
+  const sourceMessages =
+    sourceMessageIds.length > 0
+      ? await db
+          .select({
+            action: schema.messages.action,
+            createdAt: schema.messages.createdAt,
+            direction: schema.messages.direction,
+            id: schema.messages.id,
+            recipientId: schema.messages.recipientId,
+            recipientType: schema.messages.recipientType,
+            resource: schema.messages.resource,
+            senderUserId: schema.messages.senderUserId,
+          })
+          .from(schema.messages)
+          .where(
+            and(
+              inArray(schema.messages.id, sourceMessageIds),
+              or(
+                eq(schema.messages.senderUserId, user.id),
+                eq(schema.messages.recipientId, user.id)
+              )
+            )
+          )
+      : [];
+  const sourceMessageById = new Map(sourceMessages.map((entry) => [entry.id, entry]));
+
+  const promotionEdges = auditPolicies.flatMap((entry) =>
+    (entry.learning_provenance?.promoted_from_policy_ids || [])
+      .filter((fromPolicyId) => policyById.has(fromPolicyId))
+      .map((fromPolicyId) => ({
+        from_policy_id: fromPolicyId,
+        to_policy_id: entry.id,
+      }))
+  );
+
+  const overridePromotionHistory = promotionEdges
+    .map((edge) => {
+      const fromPolicy = policyById.get(edge.from_policy_id)!;
+      const toPolicy = policyById.get(edge.to_policy_id)!;
+      return {
+        from_policy_id: fromPolicy.id,
+        from_source: fromPolicy.source,
+        from_derived_from_message_id: fromPolicy.derived_from_message_id,
+        to_policy_id: toPolicy.id,
+        to_source: toPolicy.source,
+        to_derived_from_message_id: toPolicy.derived_from_message_id,
+        source_interaction_id: toPolicy.learning_provenance?.source_interaction_id || null,
+      };
+    })
+    .filter((entry) => entry.from_source === "override" || entry.to_source === "user_confirmed");
+
+  return c.json({
+    policy: toPolicyAuditRecord(canonical),
+    source_message:
+      canonical.derived_from_message_id &&
+      sourceMessageById.has(canonical.derived_from_message_id)
+        ? {
+            id: canonical.derived_from_message_id,
+            sender_user_id: sourceMessageById.get(canonical.derived_from_message_id)!.senderUserId,
+            recipient_id: sourceMessageById.get(canonical.derived_from_message_id)!.recipientId,
+            recipient_type:
+              sourceMessageById.get(canonical.derived_from_message_id)!.recipientType,
+            selectors: {
+              direction: sourceMessageById.get(canonical.derived_from_message_id)!.direction,
+              resource: sourceMessageById.get(canonical.derived_from_message_id)!.resource,
+              action: sourceMessageById.get(canonical.derived_from_message_id)!.action,
+            },
+            created_at:
+              sourceMessageById.get(canonical.derived_from_message_id)!.createdAt?.toISOString() ||
+              null,
+          }
+        : null,
+    lineage: lineagePolicies.map((entry) => toPolicyAuditRecord(entry)),
+    override_to_promoted_history: overridePromotionHistory,
+  });
+});
+
 // Update policy
 const updatePolicySchema = z.object({
   direction: directionSchema.optional(),
@@ -283,6 +555,7 @@ const updatePolicySchema = z.object({
   remaining_uses: z.number().int().min(0).nullable().optional(),
   source: sourceSchema.optional(),
   derived_from_message_id: z.string().min(1).nullable().optional(),
+  learning_provenance: learningProvenanceSchema,
   priority: z.number().int().min(0).max(100).optional(),
   enabled: z.boolean().optional(),
 }).superRefine((data, ctx) => {
@@ -340,6 +613,20 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
   const expiresAt = data.expires_at !== undefined ? data.expires_at : current.expires_at;
   assertDateWindow(effectiveFrom, expiresAt);
 
+  if (data.derived_from_message_id) {
+    await assertVisibleSourceMessage(db, user.id, data.derived_from_message_id);
+  }
+
+  const nextLearningProvenance =
+    data.learning_provenance !== undefined
+      ? normalizeLearningProvenance(data.learning_provenance)
+      : current.learning_provenance || null;
+  await assertPromotedPoliciesOwnedByUser(
+    db,
+    user.id,
+    nextLearningProvenance?.promoted_from_policy_ids || []
+  );
+
   const canonical = {
     scope: current.scope,
     target_id: current.target_id,
@@ -358,6 +645,7 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
       data.derived_from_message_id !== undefined
         ? data.derived_from_message_id
         : current.derived_from_message_id,
+    learning_provenance: nextLearningProvenance,
     priority: data.priority !== undefined ? data.priority : current.priority,
     enabled: data.enabled !== undefined ? data.enabled : current.enabled,
   };
@@ -377,7 +665,8 @@ policyRoutes.patch("/:id", zValidator("json", updatePolicySchema), async (c) => 
     data.max_uses !== undefined ||
     data.remaining_uses !== undefined ||
     data.source !== undefined ||
-    data.derived_from_message_id !== undefined;
+    data.derived_from_message_id !== undefined ||
+    data.learning_provenance !== undefined;
 
   if (canonicalTouched) {
     const storage = canonicalToStorage(canonical);

@@ -41,6 +41,7 @@ interface PolicyLifecycleProvenance {
   created_by_user_id: string;
   source: CanonicalPolicy["source"];
   derived_from_message_id: string | null;
+  learning_provenance: CanonicalPolicy["learning_provenance"] | null;
   effective_from: string | null;
   expires_at: string | null;
   max_uses: number | null;
@@ -534,6 +535,7 @@ function buildEvaluatedPolicy(
     created_by_user_id: ownerUserId,
     source: policy.source,
     derived_from_message_id: policy.derived_from_message_id,
+    learning_provenance: policy.learning_provenance || null,
     effective_from: policy.effective_from,
     expires_at: policy.expires_at,
     max_uses: policy.max_uses,
@@ -562,6 +564,7 @@ function toPolicyMatch(
     created_by_user_id: ownerUserId,
     source: policy.source,
     derived_from_message_id: policy.derived_from_message_id,
+    learning_provenance: policy.learning_provenance || null,
     effective_from: policy.effective_from,
     expires_at: policy.expires_at,
     max_uses: policy.max_uses,
@@ -836,6 +839,7 @@ async function resolveUserPolicyLayer(
             created_by_user_id: winner.created_by_user_id,
             source: winner.source,
             derived_from_message_id: winner.derived_from_message_id,
+            learning_provenance: winner.learning_provenance,
             effective_from: winner.effective_from,
             expires_at: winner.expires_at,
             max_uses: winner.max_uses,

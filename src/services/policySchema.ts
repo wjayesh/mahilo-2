@@ -18,6 +18,11 @@ export type PolicySource =
   | "user_created"
   | "legacy_migrated";
 
+export interface PolicyLearningProvenance {
+  source_interaction_id: string | null;
+  promoted_from_policy_ids: string[];
+}
+
 export interface CanonicalPolicy {
   id: string;
   scope: PolicyScope;
@@ -34,6 +39,7 @@ export interface CanonicalPolicy {
   remaining_uses: number | null;
   source: PolicySource;
   derived_from_message_id: string | null;
+  learning_provenance?: PolicyLearningProvenance | null;
   priority: number;
   enabled: boolean;
   created_at: string | null;
@@ -54,6 +60,7 @@ interface CanonicalPolicyStorageV1 {
   remaining_uses: number | null;
   source: PolicySource;
   derived_from_message_id: string | null;
+  learning_provenance?: PolicyLearningProvenance | null;
 }
 
 const DEFAULT_DIRECTION: PolicyDirection = "outbound";
@@ -127,6 +134,42 @@ function toIsoString(value: Date | null | undefined): string | null {
   return value.toISOString();
 }
 
+function normalizeLearningProvenance(
+  value: unknown
+): PolicyLearningProvenance | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const sourceInteractionId =
+    typeof record.source_interaction_id === "string" &&
+    record.source_interaction_id.trim().length > 0
+      ? record.source_interaction_id.trim()
+      : null;
+
+  const promotedFromRaw = Array.isArray(record.promoted_from_policy_ids)
+    ? record.promoted_from_policy_ids
+    : [];
+  const promotedFromPolicyIds = Array.from(
+    new Set(
+      promotedFromRaw
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    )
+  );
+
+  if (!sourceInteractionId && promotedFromPolicyIds.length === 0) {
+    return null;
+  }
+
+  return {
+    source_interaction_id: sourceInteractionId,
+    promoted_from_policy_ids: promotedFromPolicyIds,
+  };
+}
+
 function toDbTimestamp(value: string | null): Date | null {
   if (!value) {
     return null;
@@ -159,6 +202,7 @@ function parseStorage(policyContent: string): CanonicalPolicyStorageV1 | null {
       remaining_uses: toNullableInteger(parsed.remaining_uses),
       source: parseSource(parsed.source) || DEFAULT_SOURCE,
       derived_from_message_id: parsed.derived_from_message_id || null,
+      learning_provenance: normalizeLearningProvenance(parsed.learning_provenance),
     };
   } catch {
     return null;
@@ -174,6 +218,16 @@ function parseLegacyPolicyContent(evaluator: PolicyEvaluator, policyContent: str
     }
   }
   return policyContent;
+}
+
+function parseLegacyLearningProvenance(content: unknown): PolicyLearningProvenance | null {
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return null;
+  }
+
+  return normalizeLearningProvenance(
+    (content as Record<string, unknown>)._mahilo_learning_provenance
+  );
 }
 
 export function canonicalToStorage(policy: Omit<CanonicalPolicy, "id" | "created_at" | "updated_at">): {
@@ -205,6 +259,7 @@ export function canonicalToStorage(policy: Omit<CanonicalPolicy, "id" | "created
     remaining_uses: policy.remaining_uses,
     source: policy.source,
     derived_from_message_id: policy.derived_from_message_id,
+    learning_provenance: normalizeLearningProvenance(policy.learning_provenance),
   };
 
   return {
@@ -245,6 +300,9 @@ export function dbPolicyToCanonical(policy: Policy): CanonicalPolicy {
   const expiresAt = toIsoString(policy.expiresAt) || payload?.expires_at || null;
   const maxUses = toNullableInteger(policy.maxUses) ?? payload?.max_uses ?? null;
   const remainingUses = toNullableInteger(policy.remainingUses) ?? payload?.remaining_uses ?? null;
+  const learningProvenance =
+    normalizeLearningProvenance(payload?.learning_provenance) ||
+    parseLegacyLearningProvenance(content);
 
   return {
     id: policy.id,
@@ -263,6 +321,7 @@ export function dbPolicyToCanonical(policy: Policy): CanonicalPolicy {
     source,
     derived_from_message_id:
       policy.derivedFromMessageId ?? payload?.derived_from_message_id ?? null,
+    learning_provenance: learningProvenance,
     priority: policy.priority,
     enabled: policy.enabled,
     created_at: policy.createdAt ? policy.createdAt.toISOString() : null,
