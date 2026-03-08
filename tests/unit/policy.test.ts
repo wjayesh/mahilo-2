@@ -239,21 +239,31 @@ describe("Policy Service", () => {
       expect(result.effect).toBe("deny");
       expect(result.reason_code).toBe("policy.deny.global.structured");
       expect(result.winning_policy_id).toBe(deterministicPolicyId);
-      expect(result.winning_policy).toEqual({
-        policy_id: deterministicPolicyId,
-        scope: "global",
-        evaluator: "structured",
-        effect: "deny",
-        priority: 10,
-        phase: "deterministic",
-        reason: "Policy has no constraints and applies to all messages",
-      });
+      expect(result.winning_policy).toEqual(
+        expect.objectContaining({
+          policy_id: deterministicPolicyId,
+          scope: "global",
+          evaluator: "structured",
+          effect: "deny",
+          created_by_user_id: sender.id,
+          source: "user_created",
+          derived_from_message_id: null,
+          max_uses: null,
+          remaining_uses: null,
+          priority: 10,
+          phase: "deterministic",
+          reason: "Policy has no constraints and applies to all messages",
+        })
+      );
       expect(result.evaluated_policies.map((policy) => policy.policy_id)).toEqual([
         deterministicPolicyId,
         llmPolicyId,
       ]);
       expect(result.evaluated_policies[0]?.phase).toBe("deterministic");
       expect(result.evaluated_policies[1]?.phase).toBe("contextual_llm");
+      expect(result.evaluated_policies[0]?.created_by_user_id).toBe(sender.id);
+      expect(result.evaluated_policies[0]?.source).toBe("user_created");
+      expect(result.evaluated_policies[0]?.derived_from_message_id).toBeNull();
     });
 
     it("should expose resolver order with platform guardrails first", () => {

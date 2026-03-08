@@ -9,7 +9,12 @@ import { requireAuth, requireVerified } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage, deliverToConnection } from "../services/delivery";
-import { evaluatePolicies, evaluateGroupPolicies, type PolicyResult } from "../services/policy";
+import {
+  evaluatePolicies,
+  evaluateGroupPolicies,
+  consumeWinningPolicyUse,
+  type PolicyResult,
+} from "../services/policy";
 import { config } from "../config";
 import { getRolesForFriend } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
@@ -385,6 +390,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         data.message,
         data.context
       );
+      await consumeWinningPolicyUse(user.id, policyResult);
       groupPolicyEvaluation = serializePolicyEvaluation(policyResult);
       groupOutcome = groupOutcome || policyResult.effect;
       groupOutcomeDetails =
@@ -663,6 +669,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       data.message,
       data.context
     );
+    await consumeWinningPolicyUse(user.id, policyResult);
     userPolicyEvaluation = serializePolicyEvaluation(policyResult);
     userOutcome = userOutcome || policyResult.effect;
     userOutcomeDetails =

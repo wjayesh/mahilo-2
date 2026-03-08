@@ -233,7 +233,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 2.3 One-Time Overrides and Expiring Rules
 - **ID**: `SRV-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-020, SRV-021
 - **Description**:
@@ -241,9 +241,12 @@ These are strong starting points, but they need canonical policy semantics and s
   - Support `expires_at`
   - Support override provenance
 - **Acceptance Criteria**:
-  - [ ] One-time overrides are consumed after use
-  - [ ] Expiring rules stop applying automatically
-  - [ ] Audit shows who/what created them
+  - [x] One-time overrides are consumed after use
+  - [x] Expiring rules stop applying automatically
+  - [x] Audit shows who/what created them
+- **Notes**:
+  - 2026-03-08: Started SRV-022 implementation by auditing override lifecycle handling and provenance propagation across resolver, send flow, and policy audit payloads.
+  - 2026-03-08: Completed SRV-022 by adding winning-policy use consumption in `src/services/policy.ts` + `src/routes/messages.ts`, enriching policy audit payloads with lifecycle/provenance fields (`created_by_user_id`, `source`, `derived_from_message_id`, use/expiry metadata), and validating with `bun test tests/unit/policy.test.ts tests/integration/policy-lifecycle-send.test.ts` and `bun run build`.
 
 ### 2.4 Review / Ask Semantics
 - **ID**: `SRV-023`

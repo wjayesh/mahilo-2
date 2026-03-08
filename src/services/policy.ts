@@ -25,7 +25,18 @@ interface HeuristicRules {
 export type PolicyResolverLayer = "platform_guardrails" | "user_policies";
 export type PolicyEvaluationPhase = "deterministic" | "contextual_llm";
 
-export interface EvaluatedPolicy {
+interface PolicyLifecycleProvenance {
+  created_by_user_id: string;
+  source: CanonicalPolicy["source"];
+  derived_from_message_id: string | null;
+  effective_from: string | null;
+  expires_at: string | null;
+  max_uses: number | null;
+  remaining_uses: number | null;
+  created_at: string | null;
+}
+
+export interface EvaluatedPolicy extends PolicyLifecycleProvenance {
   policy_id: string;
   scope: PolicyScope;
   evaluator: PolicyEvaluator;
@@ -38,7 +49,7 @@ export interface EvaluatedPolicy {
   skip_reason?: string;
 }
 
-interface PolicyMatch {
+interface PolicyMatch extends PolicyLifecycleProvenance {
   policy_id: string;
   scope: PolicyScope;
   evaluator: PolicyEvaluator;
@@ -48,7 +59,7 @@ interface PolicyMatch {
   phase: PolicyEvaluationPhase;
 }
 
-export interface WinningPolicy {
+export interface WinningPolicy extends PolicyLifecycleProvenance {
   policy_id: string;
   scope: PolicyScope;
   evaluator: PolicyEvaluator;
@@ -451,6 +462,7 @@ interface PolicyEvaluationResult {
 
 function buildEvaluatedPolicy(
   policy: CanonicalPolicy,
+  ownerUserId: string,
   phase: PolicyEvaluationPhase,
   options: {
     matched: boolean;
@@ -464,6 +476,14 @@ function buildEvaluatedPolicy(
     scope: policy.scope,
     evaluator: policy.evaluator,
     effect: policy.effect,
+    created_by_user_id: ownerUserId,
+    source: policy.source,
+    derived_from_message_id: policy.derived_from_message_id,
+    effective_from: policy.effective_from,
+    expires_at: policy.expires_at,
+    max_uses: policy.max_uses,
+    remaining_uses: policy.remaining_uses,
+    created_at: policy.created_at,
     priority: policy.priority,
     phase,
     matched: options.matched,
@@ -475,6 +495,7 @@ function buildEvaluatedPolicy(
 
 function toPolicyMatch(
   policy: CanonicalPolicy,
+  ownerUserId: string,
   reason: string,
   phase: PolicyEvaluationPhase
 ): PolicyMatch {
@@ -483,6 +504,14 @@ function toPolicyMatch(
     scope: policy.scope,
     evaluator: policy.evaluator,
     effect: policy.effect,
+    created_by_user_id: ownerUserId,
+    source: policy.source,
+    derived_from_message_id: policy.derived_from_message_id,
+    effective_from: policy.effective_from,
+    expires_at: policy.expires_at,
+    max_uses: policy.max_uses,
+    remaining_uses: policy.remaining_uses,
+    created_at: policy.created_at,
     reason,
     priority: policy.priority,
     phase,
@@ -490,6 +519,7 @@ function toPolicyMatch(
 }
 
 async function evaluateDeterministicPolicyMatch(
+  ownerUserId: string,
   policy: CanonicalPolicy,
   message: string,
   context?: string,
@@ -499,7 +529,7 @@ async function evaluateDeterministicPolicyMatch(
     const parsed = parseRules(policy.policy_content);
     if (!parsed.valid) {
       return {
-        evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+        evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "deterministic", {
           matched: false,
           skipped: true,
           skip_reason: parsed.error || "Invalid deterministic policy content",
@@ -516,7 +546,7 @@ async function evaluateDeterministicPolicyMatch(
     );
     if (!heuristicMatch.matched) {
       return {
-        evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+        evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "deterministic", {
           matched: false,
         }),
         match: null,
@@ -525,16 +555,16 @@ async function evaluateDeterministicPolicyMatch(
 
     const matchReason = heuristicMatch.reason || "Message matched policy conditions";
     return {
-      evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+      evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "deterministic", {
         matched: true,
         reason: matchReason,
       }),
-      match: toPolicyMatch(policy, matchReason, "deterministic"),
+      match: toPolicyMatch(policy, ownerUserId, matchReason, "deterministic"),
     };
   } catch (error) {
     console.error(`Error evaluating deterministic policy ${policy.id}:`, error);
     return {
-      evaluated_policy: buildEvaluatedPolicy(policy, "deterministic", {
+      evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "deterministic", {
         matched: false,
         skipped: true,
         skip_reason: "Deterministic evaluator failed",
@@ -545,6 +575,7 @@ async function evaluateDeterministicPolicyMatch(
 }
 
 async function evaluateContextualPolicyMatch(
+  ownerUserId: string,
   policy: CanonicalPolicy,
   message: string,
   llmSubject: string,
@@ -555,7 +586,7 @@ async function evaluateContextualPolicyMatch(
     const skipReason = `Skipping LLM policy ${policy.id} (trustedMode=${config.trustedMode}, llmEnabled=${llmEnabled})`;
     console.log(skipReason);
     return {
-      evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+      evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
         matched: false,
         skipped: true,
         skip_reason: skipReason,
@@ -576,7 +607,7 @@ async function evaluateContextualPolicyMatch(
 
     if (llmResult.passed) {
       return {
-        evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+        evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
           matched: false,
           reason: llmResult.reasoning || "LLM policy passed",
         }),
@@ -586,16 +617,16 @@ async function evaluateContextualPolicyMatch(
 
     const matchReason = llmResult.reasoning || "Message blocked by LLM policy";
     return {
-      evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+      evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
         matched: true,
         reason: matchReason,
       }),
-      match: toPolicyMatch(policy, matchReason, "contextual_llm"),
+      match: toPolicyMatch(policy, ownerUserId, matchReason, "contextual_llm"),
     };
   } catch (error) {
     console.error(`Error evaluating LLM policy ${policy.id}:`, error);
     return {
-      evaluated_policy: buildEvaluatedPolicy(policy, "contextual_llm", {
+      evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
         matched: false,
         skipped: true,
         skip_reason: "Contextual LLM evaluation failed",
@@ -642,6 +673,7 @@ async function resolveUserPolicyLayer(
   );
   for (const policy of deterministicPolicies) {
     const result = await evaluateDeterministicPolicyMatch(
+      senderUserId,
       policy,
       message,
       options.context,
@@ -657,6 +689,7 @@ async function resolveUserPolicyLayer(
   const llmPolicies = applicablePolicies.filter((policy) => policy.evaluator === "llm");
   for (const policy of llmPolicies) {
     const result = await evaluateContextualPolicyMatch(
+      senderUserId,
       policy,
       message,
       options.llmSubject,
@@ -734,15 +767,23 @@ async function resolveUserPolicyLayer(
     resolver_layer: "user_policies",
     winning_policy_id: winner?.policy_id,
     winning_policy: winner
-      ? {
-          policy_id: winner.policy_id,
-          scope: winner.scope,
-          evaluator: winner.evaluator,
-          effect: winner.effect,
-          priority: winner.priority,
-          phase: winner.phase,
-          reason: winner.reason,
-        }
+        ? {
+            policy_id: winner.policy_id,
+            scope: winner.scope,
+            evaluator: winner.evaluator,
+            effect: winner.effect,
+            created_by_user_id: winner.created_by_user_id,
+            source: winner.source,
+            derived_from_message_id: winner.derived_from_message_id,
+            effective_from: winner.effective_from,
+            expires_at: winner.expires_at,
+            max_uses: winner.max_uses,
+            remaining_uses: winner.remaining_uses,
+            created_at: winner.created_at,
+            priority: winner.priority,
+            phase: winner.phase,
+            reason: winner.reason,
+          }
       : undefined,
     matched_policy_ids: allMatches.map((m) => m.policy_id),
     evaluated_policies: evaluatedPolicies,
@@ -812,4 +853,63 @@ export async function evaluateGroupPolicies(
     llmSubject: `group:${groupId}`,
     context,
   });
+}
+
+/**
+ * SRV-022 one-time overrides:
+ * Consume one use from the winning policy when it carries lifecycle limits.
+ */
+export async function consumeWinningPolicyUse(
+  senderUserId: string,
+  result: PolicyResult
+): Promise<void> {
+  const winningPolicy = result.winning_policy;
+  if (!winningPolicy) {
+    return;
+  }
+
+  const hasUsageLimit = winningPolicy.max_uses !== null || winningPolicy.remaining_uses !== null;
+  if (!hasUsageLimit) {
+    return;
+  }
+
+  const db = getDb();
+
+  if (winningPolicy.remaining_uses !== null) {
+    await db
+      .update(schema.policies)
+      .set({
+        remainingUses: sql`CASE
+          WHEN ${schema.policies.remainingUses} > 0
+            THEN ${schema.policies.remainingUses} - 1
+          ELSE ${schema.policies.remainingUses}
+        END`,
+      })
+      .where(
+        and(
+          eq(schema.policies.id, winningPolicy.policy_id),
+          eq(schema.policies.userId, senderUserId),
+          gt(schema.policies.remainingUses, 0)
+        )
+      );
+    return;
+  }
+
+  await db
+    .update(schema.policies)
+    .set({
+      remainingUses: sql`CASE
+        WHEN ${schema.policies.maxUses} > 0
+          THEN ${schema.policies.maxUses} - 1
+        ELSE 0
+      END`,
+    })
+    .where(
+      and(
+        eq(schema.policies.id, winningPolicy.policy_id),
+        eq(schema.policies.userId, senderUserId),
+        isNull(schema.policies.remainingUses),
+        gt(schema.policies.maxUses, 0)
+      )
+    );
 }
