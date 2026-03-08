@@ -99,8 +99,37 @@ const pluginResolveRequestSchema = z.object({
   idempotency_key: z.string().optional(),
 });
 
+const pluginOutcomeValues = [
+  "sent",
+  "partial_sent",
+  "blocked",
+  "review_requested",
+  "review_approved",
+  "review_rejected",
+  "withheld",
+  "send_failed",
+] as const;
+
+const pluginRecipientOutcomeSchema = z.object({
+  recipient: z.string().min(1),
+  outcome: z.enum(pluginOutcomeValues),
+});
+
+const pluginOutcomeRequestSchema = z.object({
+  sender_connection_id: z.string().min(1),
+  resolution_id: z.string().min(1).optional(),
+  message_id: z.string().min(1),
+  outcome: z.enum(pluginOutcomeValues),
+  user_action: z.string().min(1).max(120).optional(),
+  notes: z.string().min(1).max(2000).optional(),
+  recipient_results: z.array(pluginRecipientOutcomeSchema).max(100).optional(),
+  idempotency_key: z.string().min(1).max(255).optional(),
+});
+
 type PluginContextRequest = z.infer<typeof pluginContextRequestSchema>;
 type PluginResolveRequest = z.infer<typeof pluginResolveRequestSchema>;
+type PluginOutcomeRequest = z.infer<typeof pluginOutcomeRequestSchema>;
+type PluginReportedOutcome = (typeof pluginOutcomeValues)[number];
 type ContextDecision = "allow" | "ask" | "deny";
 type DeliveryMode = "full_send" | "review_required" | "hold_for_approval" | "blocked";
 
@@ -484,6 +513,101 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function parseJsonValue(value: string | null): unknown {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function parseOutcomeAuditContainer(
+  value: string | null
+): { container: Record<string, unknown>; reports: Record<string, unknown>[] } {
+  const parsed = parseJsonValue(value);
+  const container =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { ...(parsed as Record<string, unknown>) }
+      : value
+        ? { prior_outcome_details: parsed }
+        : {};
+
+  const reportEntries = Array.isArray(container.plugin_outcome_reports)
+    ? container.plugin_outcome_reports
+        .filter(
+          (entry): entry is Record<string, unknown> =>
+            typeof entry === "object" && entry !== null && !Array.isArray(entry)
+        )
+        .map((entry) => ({ ...entry }))
+    : [];
+
+  return { container, reports: reportEntries };
+}
+
+function findOutcomeEventByIdempotency(
+  value: string | null,
+  idempotencyKey: string
+): string | null {
+  const { reports } = parseOutcomeAuditContainer(value);
+  const existing = reports.find((report) => report.idempotency_key === idempotencyKey);
+  return typeof existing?.event_id === "string" ? existing.event_id : null;
+}
+
+function resolveOutcomeIdempotencyKey(
+  data: PluginOutcomeRequest,
+  idempotencyHeader: string | undefined
+): string | null {
+  const source = data.idempotency_key || idempotencyHeader;
+  if (!source) {
+    return null;
+  }
+  const normalized = source.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+interface PluginOutcomeAuditEntry {
+  event_id: string;
+  message_id: string;
+  resolution_id: string;
+  outcome: PluginReportedOutcome;
+  user_action: string | null;
+  notes: string | null;
+  recipient_results: Array<{
+    recipient: string;
+    outcome: PluginReportedOutcome;
+  }>;
+  idempotency_key: string | null;
+  reported_by_user_id: string;
+  sender_connection_id: string;
+  reported_at: string;
+  correlation: {
+    correlation_id: string | null;
+    in_response_to: string | null;
+    selectors: {
+      direction: string;
+      resource: string;
+      action: string;
+    };
+  };
+}
+
+function buildOutcomeAuditDetails(
+  existingValue: string | null,
+  reportEntry: PluginOutcomeAuditEntry
+): string {
+  const { container, reports } = parseOutcomeAuditContainer(existingValue);
+  const updatedReports = [...reports, reportEntry];
+  container.plugin_outcome_reports = updatedReports;
+  container.latest_plugin_outcome_event_id = reportEntry.event_id;
+  container.latest_plugin_outcome = reportEntry.outcome;
+  container.latest_plugin_outcome_at = reportEntry.reported_at;
+  return JSON.stringify(container);
 }
 
 function summarizeMessage(payload: string, maxLength = 140): string {
@@ -914,6 +1038,100 @@ pluginRoutes.post(
         },
       ],
       expires_at: expiresAt,
+    });
+  }
+);
+
+pluginRoutes.post(
+  "/outcomes",
+  requireVerified(),
+  zValidator("json", pluginOutcomeRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+    const db = getDb();
+    const senderConnection = await resolveSenderConnection(user.id, data.sender_connection_id);
+
+    const [message] = await db
+      .select({
+        action: schema.messages.action,
+        correlationId: schema.messages.correlationId,
+        direction: schema.messages.direction,
+        id: schema.messages.id,
+        inResponseTo: schema.messages.inResponseTo,
+        outcomeDetails: schema.messages.outcomeDetails,
+        resource: schema.messages.resource,
+        senderConnectionId: schema.messages.senderConnectionId,
+      })
+      .from(schema.messages)
+      .where(and(eq(schema.messages.id, data.message_id), eq(schema.messages.senderUserId, user.id)))
+      .limit(1);
+
+    if (!message) {
+      throw new AppError("Message not found", 404, "MESSAGE_NOT_FOUND");
+    }
+
+    if (message.senderConnectionId && message.senderConnectionId !== senderConnection.id) {
+      throw new AppError(
+        "Message sender connection does not match sender_connection_id",
+        403,
+        "MESSAGE_SENDER_MISMATCH"
+      );
+    }
+
+    const idempotencyKey = resolveOutcomeIdempotencyKey(
+      data,
+      c.req.header("Idempotency-Key")
+    );
+    if (idempotencyKey) {
+      const existingEventId = findOutcomeEventByIdempotency(message.outcomeDetails, idempotencyKey);
+      if (existingEventId) {
+        return c.json({
+          recorded: true,
+          event_id: existingEventId,
+          deduplicated: true,
+        });
+      }
+    }
+
+    const eventId = `evt_${nanoid(18)}`;
+    const reportedAt = new Date().toISOString();
+    const auditEntry: PluginOutcomeAuditEntry = {
+      event_id: eventId,
+      message_id: message.id,
+      resolution_id: data.resolution_id || `res_${message.id}`,
+      outcome: data.outcome,
+      user_action: data.user_action || null,
+      notes: data.notes || null,
+      recipient_results: data.recipient_results || [],
+      idempotency_key: idempotencyKey,
+      reported_by_user_id: user.id,
+      sender_connection_id: senderConnection.id,
+      reported_at: reportedAt,
+      correlation: {
+        correlation_id: message.correlationId,
+        in_response_to: message.inResponseTo,
+        selectors: {
+          direction: message.direction,
+          resource: message.resource,
+          action: message.action,
+        },
+      },
+    };
+
+    const nextOutcomeDetails = buildOutcomeAuditDetails(message.outcomeDetails, auditEntry);
+
+    await db
+      .update(schema.messages)
+      .set({
+        outcome: data.outcome,
+        outcomeDetails: nextOutcomeDetails,
+      })
+      .where(eq(schema.messages.id, message.id));
+
+    return c.json({
+      recorded: true,
+      event_id: eventId,
     });
   }
 );

@@ -369,15 +369,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 4.3 Outcome Reporting Endpoint
 - **ID**: `SRV-042`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-011
 - **Description**:
   - Endpoint to report whether a draft was shared, withheld, escalated, or partially sent.
 - **Acceptance Criteria**:
-  - [ ] Plugin can report outcomes after send or review
-  - [ ] Server stores outcome for learning/audit
-  - [ ] Correlates with original request/response pair
+  - [x] Plugin can report outcomes after send or review
+  - [x] Server stores outcome for learning/audit
+  - [x] Correlates with original request/response pair
+- **Notes**:
+  - 2026-03-08: Started SRV-042 implementation by designing `POST /api/v1/plugin/outcomes` correlation flow against message metadata (`message_id`, `resolution_id`, sender connection ownership) and outcome audit persistence.
+  - 2026-03-08: Completed SRV-042 by adding `POST /api/v1/plugin/outcomes` in `src/routes/plugin.ts` with verified auth, sender connection ownership checks, idempotent retry handling, and durable outcome audit entries embedded in `messages.outcome_details` while updating canonical message `outcome`.
+  - 2026-03-08: Added integration coverage in `tests/integration/plugin-outcomes.test.ts` (auth, success correlation/audit storage, idempotency dedupe, sender mismatch rejection) and validated via `bun test tests/integration/plugin-outcomes.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-context.test.ts` and `bun run build`.
 
 ### 4.4 Temporary Override Creation Endpoint
 - **ID**: `SRV-043`
