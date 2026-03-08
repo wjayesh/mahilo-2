@@ -125,7 +125,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 0.3 Resolution Semantics
 - **ID**: `SRV-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001, SRV-002
 - **Description**:
@@ -135,9 +135,13 @@ These are strong starting points, but they need canonical policy semantics and s
     - group overlay as additional constraint
     - same-level conflict resolution via `deny > ask > allow`
 - **Acceptance Criteria**:
-  - [ ] Resolver returns exactly one final effect
-  - [ ] Conflict behavior is deterministic
-  - [ ] Resolution explanation is preserved for audit
+  - [x] Resolver returns exactly one final effect
+  - [x] Conflict behavior is deterministic
+  - [x] Resolution explanation is preserved for audit
+- **Notes**:
+  - 2026-03-08: Replaced additive fail-fast evaluation in `src/services/policy.ts` with deterministic effect resolution (`allow`/`ask`/`deny`) using specificity order (`user > role > global`), same-scope conflict precedence (`deny > ask > allow`), and group overlay constraints.
+  - 2026-03-08: Added audit-friendly resolver metadata (`resolution_explanation`, `winning_policy_id`, `matched_policy_ids`) and expanded unit coverage for specificity, deterministic conflicts, and group overlay behavior.
+  - 2026-03-08: Validation run: `bun test tests/unit/policy.test.ts` and `bun test tests/integration/policy-context.test.ts`.
 
 ---
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import {
   evaluatePolicies,
+  evaluateGroupPolicies,
   validatePolicyContent,
   POLICY_RESOLVER_ORDER,
 } from "../../src/services/policy";
@@ -111,6 +112,8 @@ describe("Policy Service", () => {
 
       const result = await evaluatePolicies(sender.id, recipient.id, "this is a secret");
       expect(result.allowed).toBe(false);
+      expect(result.effect).toBe("deny");
+      expect(result.resolution_explanation.length).toBeGreaterThan(0);
     });
 
     it("should allow messages when policies pass", async () => {
@@ -131,6 +134,7 @@ describe("Policy Service", () => {
 
       const result = await evaluatePolicies(sender.id, recipient.id, "hello");
       expect(result.allowed).toBe(true);
+      expect(result.effect).toBe("allow");
     });
 
     it("should expose resolver order with platform guardrails first", () => {
@@ -160,6 +164,7 @@ describe("Policy Service", () => {
       );
 
       expect(result.allowed).toBe(false);
+      expect(result.effect).toBe("deny");
       expect(result.resolver_layer).toBe("platform_guardrails");
       expect(result.reason).toContain("platform guardrail");
       expect(result.reason).not.toContain("Context is required");
@@ -207,6 +212,7 @@ describe("Policy Service", () => {
       );
 
       expect(result.allowed).toBe(false);
+      expect(result.effect).toBe("deny");
       expect(result.resolver_layer).toBe("platform_guardrails");
       expect(result.reason).toContain("platform guardrail");
     });
@@ -330,44 +336,305 @@ describe("Policy Service", () => {
       expect(resultOk.allowed).toBe(true);
     });
 
-    it("should respect policy priority order (global > role > user)", async () => {
+    it("should resolve specificity by user > role > global regardless of numeric priority", async () => {
       const db = getTestDb();
       const { user: sender } = await createTestUser("role_sender4");
       const { user: recipient } = await createTestUser("role_recipient4");
       const friendship = await createFriendship(sender.id, recipient.id, "accepted");
       await addRoleToFriendship(friendship.id, "friends");
 
-      // Create global policy (highest priority)
+      const globalStorage = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 100,
+        enabled: true,
+      });
+
+      const roleStorage = canonicalToStorage({
+        scope: "role",
+        target_id: "friends",
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "ask",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 50,
+        enabled: true,
+      });
+
+      const userStorage = canonicalToStorage({
+        scope: "user",
+        target_id: recipient.id,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 1,
+        enabled: true,
+      });
+
       await db.insert(schema.policies).values({
         id: nanoid(),
         userId: sender.id,
         scope: "global",
-        policyType: "heuristic",
-        policyContent: JSON.stringify({ blockedPatterns: ["global_block"] }),
+        policyType: globalStorage.policyType,
+        policyContent: globalStorage.policyContent,
         priority: 100,
         enabled: true,
         createdAt: new Date(),
       });
 
-      // Create role policy (medium priority)
       await db.insert(schema.policies).values({
         id: nanoid(),
         userId: sender.id,
         scope: "role",
         targetId: "friends",
-        policyType: "heuristic",
-        policyContent: JSON.stringify({ blockedPatterns: ["role_block"] }),
+        policyType: roleStorage.policyType,
+        policyContent: roleStorage.policyContent,
         priority: 50,
         enabled: true,
         createdAt: new Date(),
       });
 
-      // Both should be evaluated (policies are additive)
-      const resultGlobal = await evaluatePolicies(sender.id, recipient.id, "has global_block");
-      expect(resultGlobal.allowed).toBe(false);
+      await db.insert(schema.policies).values({
+        id: nanoid(),
+        userId: sender.id,
+        scope: "user",
+        targetId: recipient.id,
+        policyType: userStorage.policyType,
+        policyContent: userStorage.policyContent,
+        priority: 1,
+        enabled: true,
+        createdAt: new Date(),
+      });
 
-      const resultRole = await evaluatePolicies(sender.id, recipient.id, "has role_block");
-      expect(resultRole.allowed).toBe(false);
+      const result = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+      expect(result.allowed).toBe(true);
+      expect(result.effect).toBe("allow");
+      expect(result.winning_policy_id).toBeDefined();
+      expect(result.resolution_explanation).toContain("Final effect: 'allow'");
+    });
+
+    it("should resolve same-scope conflicts deterministically via deny > ask > allow", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("role_sender5");
+      const { user: recipient } = await createTestUser("role_recipient5");
+      const friendship = await createFriendship(sender.id, recipient.id, "accepted");
+      await addRoleToFriendship(friendship.id, "close_friends");
+      await addRoleToFriendship(friendship.id, "friends");
+      await addRoleToFriendship(friendship.id, "work_contacts");
+
+      const allowRole = canonicalToStorage({
+        scope: "role",
+        target_id: "close_friends",
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 10,
+        enabled: true,
+      });
+      const askRole = canonicalToStorage({
+        scope: "role",
+        target_id: "friends",
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "ask",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 10,
+        enabled: true,
+      });
+      const denyRole = canonicalToStorage({
+        scope: "role",
+        target_id: "work_contacts",
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 10,
+        enabled: true,
+      });
+
+      const denyPolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: nanoid(),
+          userId: sender.id,
+          scope: "role",
+          targetId: "close_friends",
+          policyType: allowRole.policyType,
+          policyContent: allowRole.policyContent,
+          priority: 10,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: nanoid(),
+          userId: sender.id,
+          scope: "role",
+          targetId: "friends",
+          policyType: askRole.policyType,
+          policyContent: askRole.policyContent,
+          priority: 10,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: denyPolicyId,
+          userId: sender.id,
+          scope: "role",
+          targetId: "work_contacts",
+          policyType: denyRole.policyType,
+          policyContent: denyRole.policyContent,
+          priority: 10,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const first = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+      const second = await evaluatePolicies(sender.id, recipient.id, "neutral message");
+
+      expect(first.effect).toBe("deny");
+      expect(second.effect).toBe("deny");
+      expect(first.winning_policy_id).toBe(denyPolicyId);
+      expect(second.winning_policy_id).toBe(denyPolicyId);
+      expect(first.resolution_explanation).toContain("deny > ask > allow");
+      expect(first.matched_policy_ids.length).toBe(3);
+    });
+  });
+
+  describe("evaluateGroupPolicies", () => {
+    beforeAll(async () => {
+      await setupTestDatabase();
+    });
+
+    afterAll(() => {
+      cleanupTestDatabase();
+    });
+
+    it("should apply group overlay as an additional constraint", async () => {
+      const db = getTestDb();
+      const { user: sender } = await createTestUser("group_sender1");
+
+      const globalAllow = canonicalToStorage({
+        scope: "global",
+        target_id: null,
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 5,
+        enabled: true,
+      });
+      const groupDeny = canonicalToStorage({
+        scope: "group",
+        target_id: "grp_overlay",
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        effective_from: null,
+        expires_at: null,
+        max_uses: null,
+        remaining_uses: null,
+        source: "user_created",
+        derived_from_message_id: null,
+        priority: 5,
+        enabled: true,
+      });
+
+      const groupPolicyId = nanoid();
+      await db.insert(schema.policies).values([
+        {
+          id: nanoid(),
+          userId: sender.id,
+          scope: "global",
+          policyType: globalAllow.policyType,
+          policyContent: globalAllow.policyContent,
+          priority: 5,
+          enabled: true,
+          createdAt: new Date(),
+        },
+        {
+          id: groupPolicyId,
+          userId: sender.id,
+          scope: "group",
+          targetId: "grp_overlay",
+          policyType: groupDeny.policyType,
+          policyContent: groupDeny.policyContent,
+          priority: 5,
+          enabled: true,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await evaluateGroupPolicies(sender.id, "grp_overlay", "neutral message");
+      expect(result.allowed).toBe(false);
+      expect(result.effect).toBe("deny");
+      expect(result.winning_policy_id).toBe(groupPolicyId);
+      expect(result.resolution_explanation).toContain("additional constraint");
     });
   });
 });
