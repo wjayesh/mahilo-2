@@ -326,14 +326,18 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 3.4 Selector Verification Hooks (Future-Friendly)
 - **ID**: `SRV-033`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Depends on**: SRV-031
 - **Description**:
   - Lay groundwork for comparing declared selectors with Mahilo-side classification.
 - **Acceptance Criteria**:
-  - [ ] Classified fields or hook points exist
-  - [ ] Mismatch can be logged without blocking initial rollout
+  - [x] Classified fields or hook points exist
+  - [x] Mismatch can be logged without blocking initial rollout
+- **Notes**:
+  - 2026-03-08: Started SRV-033 by adding selector-classification verification hooks to compare declared selectors against lightweight Mahilo-side classification without blocking send/preflight behavior.
+  - 2026-03-08: Completed SRV-033 by adding `src/services/selectorVerification.ts` (heuristic classifier + mismatch detection hooks), wiring non-blocking mismatch warning logs and `selector_verification` audit metadata into `POST /api/v1/messages/send`, persisting `classified_direction/resource/action` on all send-path message writes, and extending tests (`tests/integration/selector-aware-send.test.ts`, `tests/unit/selectorVerification.test.ts`) for classified field persistence plus mismatch logging behavior.
+  - 2026-03-08: Validation run: `bun test tests/unit/selectorVerification.test.ts tests/integration/selector-aware-send.test.ts tests/integration/review-ask-semantics.test.ts`, `bun test tests/integration/plugin-events-reviews.test.ts`, and `bun run build`.
 
 ---
 

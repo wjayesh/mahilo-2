@@ -13,7 +13,7 @@ import * as schema from "../../src/db/schema";
 
 let app: ReturnType<typeof createApp>;
 
-describe("Selector-aware send API (SRV-031)", () => {
+describe("Selector-aware send API (SRV-031, SRV-033)", () => {
   beforeEach(async () => {
     await setupTestDatabase();
     app = createApp();
@@ -60,6 +60,58 @@ describe("Selector-aware send API (SRV-031)", () => {
     expect(storedMessage?.direction).toBe("outbound");
     expect(storedMessage?.resource).toBe("location.current");
     expect(storedMessage?.action).toBe("share");
+    expect(storedMessage?.classifiedDirection).toBe("outbound");
+    expect(storedMessage?.classifiedResource).toBe("location.current");
+    expect(storedMessage?.classifiedAction).toBe("share");
+  });
+
+  it("stores classified selector hooks and logs mismatches without blocking send", async () => {
+    const { db, senderKey, senderConnection, recipientConnection, recipient } =
+      await setupParticipants("selector_mismatch_non_blocking");
+
+    const originalWarn = console.warn;
+    const warningCalls: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warningCalls.push(args);
+    };
+
+    try {
+      const sendRes = await app.request("/api/v1/messages/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${senderKey}`,
+        },
+        body: JSON.stringify({
+          recipient: recipient.username,
+          recipient_connection_id: recipientConnection.id,
+          sender_connection_id: senderConnection.id,
+          message: "Can you share your calendar availability tomorrow?",
+          declared_selectors: {
+            direction: "outbound",
+            resource: "profile.basic",
+            action: "share",
+          },
+        }),
+      });
+
+      expect(sendRes.status).toBe(200);
+      const sendData = await sendRes.json();
+      const [storedMessage] = await db
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.id, sendData.message_id))
+        .limit(1);
+
+      expect(storedMessage?.classifiedDirection).toBe("request");
+      expect(storedMessage?.classifiedResource).toBe("calendar.availability");
+      expect(storedMessage?.classifiedAction).toBe("request");
+      expect(warningCalls.length).toBeGreaterThan(0);
+      expect(JSON.stringify(warningCalls[0])).toContain("selector-verification");
+      expect(JSON.stringify(warningCalls[0])).toContain("resource");
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   it("validates known directions/resources while allowing namespaced resource extensions", async () => {

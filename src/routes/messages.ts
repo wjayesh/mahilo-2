@@ -20,6 +20,11 @@ import { config } from "../config";
 import { getRolesForFriend } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
 import { dbPolicyToCanonical, type CanonicalPolicy } from "../services/policySchema";
+import {
+  buildSelectorVerificationAudit,
+  logSelectorVerificationMismatch,
+  verifySelectorsAgainstClassification,
+} from "../services/selectorVerification";
 
 export const messageRoutes = new Hono<AppEnv>();
 
@@ -644,6 +649,25 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
 
   const messageSelectors = resolveMessageSelectors(data);
   validateMessageSelectors(messageSelectors);
+  const selectorVerification = verifySelectorsAgainstClassification({
+    declaredSelectors: {
+      direction: messageSelectors.direction,
+      resource: messageSelectors.resource,
+      action: messageSelectors.action,
+    },
+    message: data.message,
+    context: data.context,
+    payloadType: data.payload_type,
+  });
+  const selectorVerificationAudit = buildSelectorVerificationAudit(selectorVerification);
+  logSelectorVerificationMismatch(selectorVerification, {
+    sender_user_id: user.id,
+    recipient: data.recipient,
+    recipient_type: data.recipient_type,
+    correlation_id: data.correlation_id || null,
+    route: "/api/v1/messages/send",
+  });
+  const classifiedSelectors = selectorVerification.classified_selectors;
   const requestedOutcome = resolveOutcomeMetadata(data);
   const inResponseTo = data.in_response_to || null;
   const resolutionId = data.resolution_id || `res_${nanoid(18)}`;
@@ -968,6 +992,9 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       direction: messageSelectors.direction,
       resource: messageSelectors.resource,
       action: messageSelectors.action,
+      classifiedDirection: classifiedSelectors?.direction || null,
+      classifiedResource: classifiedSelectors?.resource || null,
+      classifiedAction: classifiedSelectors?.action || null,
       inResponseTo,
       outcome: requestedOutcome.outcome,
       outcomeDetails: requestedOutcome.outcomeDetails,
@@ -1190,6 +1217,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       resolution_id: resolutionId,
       group_id: groupId,
       policy_evaluation_mode: "group_outbound_fanout",
+      selector_verification: selectorVerificationAudit,
     });
     const groupOutcome = deriveGroupOutcomeFromFanOut(
       requestedOutcome.outcome,
@@ -1311,6 +1339,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         ? "inbound_pre_delivery"
         : "outbound_pre_delivery",
       selector_context: selectorContext,
+      selector_verification: selectorVerificationAudit,
     });
     userOutcome = userOutcome || userPolicyResult.effect;
     userOutcomeDetails =
@@ -1336,6 +1365,9 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       direction: messageSelectors.direction,
       resource: messageSelectors.resource,
       action: messageSelectors.action,
+      classifiedDirection: classifiedSelectors?.direction || null,
+      classifiedResource: classifiedSelectors?.resource || null,
+      classifiedAction: classifiedSelectors?.action || null,
       inResponseTo,
       outcome: userOutcome,
       outcomeDetails: userOutcomeDetails,
@@ -1379,6 +1411,9 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     direction: messageSelectors.direction,
     resource: messageSelectors.resource,
     action: messageSelectors.action,
+    classifiedDirection: classifiedSelectors?.direction || null,
+    classifiedResource: classifiedSelectors?.resource || null,
+    classifiedAction: classifiedSelectors?.action || null,
     inResponseTo,
     outcome: userOutcome,
     outcomeDetails: userOutcomeDetails,

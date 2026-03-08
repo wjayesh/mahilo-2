@@ -941,6 +941,33 @@ function parseSelectorContext(
   };
 }
 
+function parseSelectorVerification(
+  value: unknown
+):
+  | {
+      classifier_version: string | null;
+      classification_status: string | null;
+      mismatch: boolean | null;
+      mismatch_fields: string[];
+      declared_selectors: { direction: string | null; resource: string | null; action: string | null } | null;
+      classified_selectors: { direction: string | null; resource: string | null; action: string | null } | null;
+    }
+  | null {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    classifier_version: parseStringValue(parsed.classifier_version),
+    classification_status: parseStringValue(parsed.classification_status),
+    mismatch: parseBooleanValue(parsed.mismatch),
+    mismatch_fields: parseStringArray(parsed.mismatch_fields),
+    declared_selectors: parseSelectorContext(parsed.declared_selectors),
+    classified_selectors: parseSelectorContext(parsed.classified_selectors),
+  };
+}
+
 function parseAuthenticatedIdentity(
   value: unknown
 ): { sender_user_id: string | null; sender_connection_id: string | null } | null {
@@ -1036,6 +1063,7 @@ function buildPolicyAuditDetails(evaluation: Record<string, unknown> | null) {
     policy_owner_user_id: parseStringValue(evaluation?.policy_owner_user_id),
     policy_evaluation_mode: parseStringValue(evaluation?.policy_evaluation_mode),
     selector_context: parseSelectorContext(evaluation?.selector_context),
+    selector_verification: parseSelectorVerification(evaluation?.selector_verification),
     winning_policy_id: parseStringValue(evaluation?.winning_policy_id),
     winning_policy: parseWinningPolicyAudit(evaluation?.winning_policy),
     matched_policy_ids: parseStringArray(evaluation?.matched_policy_ids),
