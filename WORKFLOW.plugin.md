@@ -52,3 +52,6 @@ Your job is to autonomously move the plugin task list forward using the task doc
 - Respect dependency ordering, including server-side `SRV-*` dependencies from the shared contract.
 - Prefer P0 work before lower priorities.
 - Use the assigned workspace only.
+- Prefer editing only `plugins/openclaw-mahilo/`, plugin-local tests/config, and `docs/prd-openclaw-plugin-migration.md`.
+- Do not edit server implementation files, `docs/prd-server-policy-platform.md`, or `docs/openclaw-plugin-server-contract.md` from the plugin workflow.
+- If plugin work requires a server or contract change, mark the task blocked and explain the dependency instead of editing shared files directly.

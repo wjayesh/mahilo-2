@@ -49,6 +49,8 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 - The loop is intended to reconcile into the integration branch, not `main`.
 - Each `TASK_DONE` result creates an automatic git commit.
 - The loop auto-pushes after every 3 completed task commits by default.
+- Concurrent workflows share a repo-level lock before reconcile/commit/push operations.
+- The plugin workflow is scoped away from server implementation files to reduce overlap.
 
 ## Commands
 
