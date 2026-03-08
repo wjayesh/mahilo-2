@@ -165,16 +165,19 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 1.2 Message Table Expansion
 - **ID**: `SRV-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001
 - **Description**:
   - Add `direction`, `resource`, `action`, `in_response_to`, `outcome`, `outcome_details`, `policies_evaluated`, `sender_connection_id`.
   - Optionally add `classified_*` fields for future selector verification.
 - **Acceptance Criteria**:
-  - [ ] Messages persist selectors and outcomes
-  - [ ] Sender connection can be tied to each message
-  - [ ] Existing send flow keeps working during migration
+  - [x] Messages persist selectors and outcomes
+  - [x] Sender connection can be tied to each message
+  - [x] Existing send flow keeps working during migration
+- **Notes**:
+  - 2026-03-08: Started SRV-011 implementation; expanding message schema/migration and wiring send-path persistence for selector, outcome, and sender connection metadata with backward compatibility.
+  - 2026-03-08: Added migration `0008_heavy_storm` for message selector/outcome/sender-connection columns and indexes, expanded message schema and send-route persistence (including optional declared selectors/outcome metadata and sender connection ownership checks), and validated via `bun test tests/e2e/message-exchange.test.ts tests/integration/message-policies.test.ts tests/unit/interactions.test.ts`, `DATABASE_URL=/tmp/mahilo_srv011_migration_test.db bun run src/db/migrate.ts`, and `bun run build`.
 
 ### 1.3 Backfill / Compatibility Layer
 - **ID**: `SRV-012`

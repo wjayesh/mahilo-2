@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { createHmac } from "crypto";
+import { eq } from "drizzle-orm";
 import { createApp } from "../../src/server";
-import { cleanupTestDatabase, setupTestDatabase } from "../helpers/setup";
+import * as schema from "../../src/db/schema";
+import { cleanupTestDatabase, getTestDb, setupTestDatabase } from "../helpers/setup";
 
 let app: ReturnType<typeof createApp>;
 let receivedCallbacks: Array<{
@@ -122,8 +124,17 @@ describe("E2E: Two Users Exchange Messages", () => {
 
     const bob = await registerUser("bob");
     const alice = await registerUser("alice");
+    const db = getTestDb();
+    await db
+      .update(schema.users)
+      .set({ twitterVerified: true, verificationCode: null })
+      .where(eq(schema.users.id, bob.user_id));
+    await db
+      .update(schema.users)
+      .set({ twitterVerified: true, verificationCode: null })
+      .where(eq(schema.users.id, alice.user_id));
 
-    await registerAgent(bob.api_key, "bob-agent");
+    const bobAgent = await registerAgent(bob.api_key, "bob-agent");
     const aliceAgent = await registerAgent(alice.api_key, "alice-agent");
 
     const requestRes = await app.request("/api/v1/friends/request", {
@@ -152,12 +163,42 @@ describe("E2E: Two Users Exchange Messages", () => {
       body: JSON.stringify({
         recipient: "alice",
         message: "Hello Alice",
+        sender_connection_id: bobAgent.connection_id,
+        declared_selectors: {
+          direction: "outbound",
+          resource: "Location.Current",
+          action: "Share",
+        },
+        in_response_to: "msg_request_001",
+        outcome_metadata: {
+          outcome: "shared",
+          outcome_details: {
+            mode: "availability",
+          },
+        },
         idempotency_key: "idempotency-1",
       }),
     });
 
     expect(sendRes.status).toBe(200);
     const sendData = await sendRes.json();
+    const [storedMessage] = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, sendData.message_id))
+      .limit(1);
+    expect(storedMessage).toBeDefined();
+    expect(storedMessage?.senderConnectionId).toBe(bobAgent.connection_id);
+    expect(storedMessage?.direction).toBe("outbound");
+    expect(storedMessage?.resource).toBe("location.current");
+    expect(storedMessage?.action).toBe("share");
+    expect(storedMessage?.inResponseTo).toBe("msg_request_001");
+    expect(storedMessage?.outcome).toBe("shared");
+    expect(storedMessage?.policiesEvaluated).toBeNull();
+    expect(storedMessage?.outcomeDetails).toBeTruthy();
+    expect(JSON.parse(storedMessage!.outcomeDetails!)).toEqual({
+      mode: "availability",
+    });
 
     await waitForCallbacks(1);
     const aliceCallback = findCallback(sendData.message_id);

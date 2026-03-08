@@ -9,7 +9,7 @@ import { requireAuth, requireVerified } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage, deliverToConnection } from "../services/delivery";
-import { evaluatePolicies, evaluateGroupPolicies } from "../services/policy";
+import { evaluatePolicies, evaluateGroupPolicies, type PolicyResult } from "../services/policy";
 import { config } from "../config";
 import { getRolesForFriend } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
@@ -20,10 +20,81 @@ export const messageRoutes = new Hono<AppEnv>();
 // Use auth middleware for all routes
 messageRoutes.use("*", requireAuth());
 
+const messageSelectorDirections = [
+  "outbound",
+  "inbound",
+  "request",
+  "response",
+  "notification",
+  "error",
+] as const;
+
+const defaultMessageSelectors = {
+  direction: "outbound" as const,
+  resource: "message.general",
+  action: "share",
+};
+
+const selectorTokenSchema = z
+  .string()
+  .min(1)
+  .max(120)
+  .regex(/^[a-z0-9._-]+$/i);
+
+const selectorInputSchema = z.object({
+  direction: z.enum(messageSelectorDirections).optional(),
+  resource: selectorTokenSchema.optional(),
+  action: selectorTokenSchema.optional(),
+});
+
+const outcomeDetailsSchema = z.union([z.string(), z.record(z.unknown()), z.array(z.unknown())]);
+
+function serializeOptionalDetails(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
+function parseOptionalJsonText(value: string | null): unknown {
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeSelectorToken(value: string | undefined, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function serializePolicyEvaluation(result: PolicyResult): string {
+  return JSON.stringify({
+    effect: result.effect,
+    reason: result.reason || null,
+    resolution_explanation: result.resolution_explanation,
+    resolver_layer: result.resolver_layer || null,
+    guardrail_id: result.guardrail_id || null,
+    winning_policy_id: result.winning_policy_id || null,
+    matched_policy_ids: result.matched_policy_ids,
+  });
+}
+
 // Send message
 const sendMessageSchema = z.object({
   recipient: z.string().min(1), // username or group_id
   recipient_type: z.enum(["user", "group"]).optional().default("user"),
+  sender_connection_id: z.string().optional(),
   recipient_connection_id: z.string().optional(),
   routing_hints: z
     .object({
@@ -47,9 +118,51 @@ const sendMessageSchema = z.object({
       signature: z.string(),
     })
     .optional(),
+  direction: z.enum(messageSelectorDirections).optional(),
+  resource: selectorTokenSchema.optional(),
+  action: selectorTokenSchema.optional(),
+  declared_selectors: selectorInputSchema.optional(),
+  in_response_to: z.string().optional(),
+  outcome: z.string().min(1).max(120).optional(),
+  outcome_details: outcomeDetailsSchema.optional(),
+  outcome_metadata: z
+    .object({
+      outcome: z.string().min(1).max(120),
+      outcome_details: outcomeDetailsSchema.optional(),
+    })
+    .optional(),
   correlation_id: z.string().optional(),
   idempotency_key: z.string().optional(),
 });
+
+type SendMessageInput = z.infer<typeof sendMessageSchema>;
+
+function resolveMessageSelectors(data: SendMessageInput) {
+  const selectorSource = data.declared_selectors;
+  return {
+    direction:
+      selectorSource?.direction ||
+      data.direction ||
+      defaultMessageSelectors.direction,
+    resource: normalizeSelectorToken(
+      selectorSource?.resource || data.resource,
+      defaultMessageSelectors.resource
+    ),
+    action: normalizeSelectorToken(
+      selectorSource?.action || data.action,
+      defaultMessageSelectors.action
+    ),
+  };
+}
+
+function resolveOutcomeMetadata(data: SendMessageInput) {
+  const outcome = data.outcome_metadata?.outcome || data.outcome || null;
+  const outcomeDetails = serializeOptionalDetails(
+    data.outcome_metadata?.outcome_details ?? data.outcome_details
+  );
+
+  return { outcome, outcomeDetails };
+}
 
 messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSchema), async (c) => {
   const user = c.get("user")!;
@@ -82,6 +195,31 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         deduplicated: true,
       });
     }
+  }
+
+  const messageSelectors = resolveMessageSelectors(data);
+  const requestedOutcome = resolveOutcomeMetadata(data);
+  const inResponseTo = data.in_response_to || null;
+
+  let senderConnectionId: string | null = null;
+  if (data.sender_connection_id) {
+    const [senderConnection] = await db
+      .select({ id: schema.agentConnections.id })
+      .from(schema.agentConnections)
+      .where(
+        and(
+          eq(schema.agentConnections.id, data.sender_connection_id),
+          eq(schema.agentConnections.userId, user.id),
+          eq(schema.agentConnections.status, "active")
+        )
+      )
+      .limit(1);
+
+    if (!senderConnection) {
+      throw new AppError("Sender connection not found or inactive", 404, "SENDER_CONNECTION_NOT_FOUND");
+    }
+
+    senderConnectionId = senderConnection.id;
   }
 
   // Resolve recipient
@@ -231,6 +369,10 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       .where(eq(schema.users.id, user.id))
       .limit(1);
 
+    let groupPolicyEvaluation: string | null = null;
+    let groupOutcome = requestedOutcome.outcome;
+    let groupOutcomeDetails = requestedOutcome.outcomeDetails;
+
     // Group policy evaluation in trusted mode (REG-044)
     const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
     if (!isEncrypted && config.trustedMode) {
@@ -240,13 +382,26 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
         data.message,
         data.context
       );
+      groupPolicyEvaluation = serializePolicyEvaluation(policyResult);
+      groupOutcome = groupOutcome || policyResult.effect;
+      groupOutcomeDetails =
+        groupOutcomeDetails || policyResult.reason || policyResult.resolution_explanation;
+
       if (!policyResult.allowed) {
         // Create message record for audit with rejected status
         const messageId = nanoid();
         await db.insert(schema.messages).values({
           id: messageId,
           correlationId: data.correlation_id,
+          direction: messageSelectors.direction,
+          resource: messageSelectors.resource,
+          action: messageSelectors.action,
+          inResponseTo,
+          outcome: groupOutcome,
+          outcomeDetails: groupOutcomeDetails,
+          policiesEvaluated: groupPolicyEvaluation,
           senderUserId: user.id,
+          senderConnectionId,
           senderAgent,
           recipientType: "group",
           recipientId: groupId,
@@ -279,7 +434,15 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     await db.insert(schema.messages).values({
       id: messageId,
       correlationId: data.correlation_id,
+      direction: messageSelectors.direction,
+      resource: messageSelectors.resource,
+      action: messageSelectors.action,
+      inResponseTo,
+      outcome: groupOutcome,
+      outcomeDetails: groupOutcomeDetails,
+      policiesEvaluated: groupPolicyEvaluation,
       senderUserId: user.id,
+      senderConnectionId,
       senderAgent,
       recipientType: "group",
       recipientId: groupId,
@@ -484,6 +647,10 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
   // For now, use the framework from routing hints or default to "unknown"
   const senderAgent = data.routing_hints?.labels?.[0] || "agent";
 
+  let userPolicyEvaluation: string | null = null;
+  let userOutcome = requestedOutcome.outcome;
+  let userOutcomeDetails = requestedOutcome.outcomeDetails;
+
   // Policy evaluation (only in trusted mode with plaintext)
   const isEncrypted = data.payload_type === "application/mahilo+ciphertext";
   if (!isEncrypted && config.trustedMode) {
@@ -493,13 +660,26 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       data.message,
       data.context
     );
+    userPolicyEvaluation = serializePolicyEvaluation(policyResult);
+    userOutcome = userOutcome || policyResult.effect;
+    userOutcomeDetails =
+      userOutcomeDetails || policyResult.reason || policyResult.resolution_explanation;
+
     if (!policyResult.allowed) {
       // Create message record for audit
       const messageId = nanoid();
       await db.insert(schema.messages).values({
         id: messageId,
         correlationId: data.correlation_id,
+        direction: messageSelectors.direction,
+        resource: messageSelectors.resource,
+        action: messageSelectors.action,
+        inResponseTo,
+        outcome: userOutcome,
+        outcomeDetails: userOutcomeDetails,
+        policiesEvaluated: userPolicyEvaluation,
         senderUserId: user.id,
+        senderConnectionId,
         senderAgent,
         recipientType: data.recipient_type,
         recipientId: recipientUserId,
@@ -532,7 +712,15 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
   await db.insert(schema.messages).values({
     id: messageId,
     correlationId: data.correlation_id,
+    direction: messageSelectors.direction,
+    resource: messageSelectors.resource,
+    action: messageSelectors.action,
+    inResponseTo,
+    outcome: userOutcome,
+    outcomeDetails: userOutcomeDetails,
+    policiesEvaluated: userPolicyEvaluation,
     senderUserId: user.id,
+    senderConnectionId,
     senderAgent,
     recipientType: data.recipient_type,
     recipientId: recipientUserId,
@@ -711,10 +899,21 @@ messageRoutes.get("/", async (c) => {
       const baseMessage = {
         id: m.id,
         correlation_id: m.correlationId,
+        direction: m.direction,
+        resource: m.resource,
+        action: m.action,
+        in_response_to: m.inResponseTo,
+        outcome: m.outcome,
+        outcome_details: parseOptionalJsonText(m.outcomeDetails),
+        policies_evaluated: parseOptionalJsonText(m.policiesEvaluated),
         sender: usersMap.get(m.senderUserId),
+        sender_connection_id: m.senderConnectionId,
         sender_agent: m.senderAgent,
         recipient: usersMap.get(m.recipientId),
         recipient_type: m.recipientType,
+        classified_direction: m.classifiedDirection,
+        classified_resource: m.classifiedResource,
+        classified_action: m.classifiedAction,
         message: m.payload,
         context: m.context,
         status: m.status,

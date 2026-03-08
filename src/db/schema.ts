@@ -85,9 +85,17 @@ export const messages = sqliteTable(
   {
     id: text("id").primaryKey(),
     correlationId: text("correlation_id"),
+    direction: text("direction").notNull().default("outbound"),
+    resource: text("resource").notNull().default("message.general"),
+    action: text("action").notNull().default("share"),
+    inResponseTo: text("in_response_to"),
+    outcome: text("outcome"),
+    outcomeDetails: text("outcome_details"),
+    policiesEvaluated: text("policies_evaluated"),
     senderUserId: text("sender_user_id")
       .notNull()
       .references(() => users.id),
+    senderConnectionId: text("sender_connection_id").references(() => agentConnections.id),
     senderAgent: text("sender_agent").notNull(),
     recipientType: text("recipient_type").notNull(), // 'user', 'group'
     recipientId: text("recipient_id").notNull(),
@@ -103,6 +111,9 @@ export const messages = sqliteTable(
     rejectionReason: text("rejection_reason"),
     retryCount: integer("retry_count").notNull().default(0),
     idempotencyKey: text("idempotency_key"),
+    classifiedDirection: text("classified_direction"),
+    classifiedResource: text("classified_resource"),
+    classifiedAction: text("classified_action"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -110,10 +121,14 @@ export const messages = sqliteTable(
   },
   (table) => [
     index("idx_messages_sender").on(table.senderUserId),
+    index("idx_messages_sender_connection").on(table.senderConnectionId),
     index("idx_messages_recipient").on(table.recipientType, table.recipientId),
     index("idx_messages_connection").on(table.recipientConnectionId),
     index("idx_messages_status").on(table.status),
     index("idx_messages_correlation").on(table.correlationId),
+    index("idx_messages_selectors").on(table.direction, table.resource, table.action),
+    index("idx_messages_in_response_to").on(table.inResponseTo),
+    index("idx_messages_resource_sender").on(table.resource, table.senderUserId),
     index("idx_messages_idempotency").on(table.idempotencyKey),
     unique("idx_messages_idempotency_sender").on(table.senderUserId, table.idempotencyKey),
   ]

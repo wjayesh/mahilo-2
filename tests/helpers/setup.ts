@@ -79,7 +79,15 @@ export async function setupTestDatabase() {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       correlation_id TEXT,
+      direction TEXT NOT NULL DEFAULT 'outbound',
+      resource TEXT NOT NULL DEFAULT 'message.general',
+      action TEXT NOT NULL DEFAULT 'share',
+      in_response_to TEXT,
+      outcome TEXT,
+      outcome_details TEXT,
+      policies_evaluated TEXT,
       sender_user_id TEXT NOT NULL REFERENCES users(id),
+      sender_connection_id TEXT REFERENCES agent_connections(id),
       sender_agent TEXT NOT NULL,
       recipient_type TEXT NOT NULL,
       recipient_id TEXT NOT NULL,
@@ -93,11 +101,18 @@ export async function setupTestDatabase() {
       rejection_reason TEXT,
       retry_count INTEGER NOT NULL DEFAULT 0,
       idempotency_key TEXT,
+      classified_direction TEXT,
+      classified_resource TEXT,
+      classified_action TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       delivered_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_user_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender_connection ON messages(sender_connection_id);
     CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_type, recipient_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_selectors ON messages(direction, resource, action);
+    CREATE INDEX IF NOT EXISTS idx_messages_in_response_to ON messages(in_response_to);
+    CREATE INDEX IF NOT EXISTS idx_messages_resource_sender ON messages(resource, sender_user_id);
     CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
     CREATE INDEX IF NOT EXISTS idx_messages_idempotency ON messages(idempotency_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_idempotency_sender ON messages(sender_user_id, idempotency_key);

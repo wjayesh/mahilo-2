@@ -57,6 +57,13 @@
       "when": 1772973570000,
       "tag": "0007_breezy_hammer",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1772973922000,
+      "tag": "0008_heavy_storm",
+      "breakpoints": true
     }
   ]
 }
