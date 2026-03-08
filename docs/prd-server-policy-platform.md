@@ -513,14 +513,18 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 7.2 Contract Documentation
 - **ID**: `SRV-071`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-040, SRV-041, SRV-042, SRV-043
 - **Description**:
   - Document plugin-facing APIs and payloads.
 - **Acceptance Criteria**:
-  - [ ] API examples match actual implementation
-  - [ ] Plugin/client teams can integrate without guessing
+  - [x] API examples match actual implementation
+  - [x] Plugin/client teams can integrate without guessing
+- **Notes**:
+  - 2026-03-08: Started SRV-071 by auditing `src/routes/plugin.ts` and plugin integration tests to reconcile contract docs with actual request/response payloads and auth semantics.
+  - 2026-03-08: Completed SRV-071 by rewriting `docs/openclaw-plugin-server-contract.md` to match implemented payloads for `/api/v1/plugin/context`, `/api/v1/plugin/resolve`, `/api/v1/plugin/outcomes`, `/api/v1/plugin/overrides`, and plugin-facing `/api/v1/messages/send` fields, including verification requirements, selector defaults, idempotency behavior, callback payload/header semantics, and actual error envelope/codes.
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-outcomes.test.ts tests/integration/plugin-overrides.test.ts tests/integration/selector-aware-send.test.ts`.
 
 ### 7.3 Migration Notes
 - **ID**: `SRV-072`

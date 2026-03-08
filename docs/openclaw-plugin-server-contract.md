@@ -1,103 +1,55 @@
-# Mahilo ↔ OpenClaw Plugin Contract
+# Mahilo <-> OpenClaw Plugin Contract
 
-> **Status**: Draft — frozen for implementation
+> **Status**: Active (implementation-aligned)
 > **Contract Version**: `1.0.0`
 > **Last Updated**: 2026-03-08
-> **Applies To**: Mahilo server in this repo and the OpenClaw plugin that will live in `plugins/openclaw-mahilo/`
+> **Applies To**: Mahilo server in this repo and the OpenClaw plugin in `plugins/openclaw-mahilo/`
 
 ---
 
 ## Purpose
 
-This document is the source of truth for the runtime contract between:
+This document is the runtime contract between:
 
-- the **Mahilo server**, which owns identity, policy resolution, audit, and final enforcement
-- the **OpenClaw plugin**, which owns native hooks, tools, prompt-time context, and UX inside OpenClaw
+- **Mahilo server**: identity, policy resolution, audit, and final enforcement.
+- **OpenClaw plugin**: native hooks, prompt-time context, send UX, and user-driven outcomes/overrides.
 
-The goal is to let the server and plugin move in parallel without re-negotiating request/response shapes every few days.
+The goal is to let plugin and server teams integrate without guessing payloads.
 
 ---
 
 ## Core Rules
 
-1. **Mahilo server is the source of truth**.
-   - Final `allow`, `ask`, or `deny` decisions are made on the server.
-   - The plugin may cache, summarize, or preflight, but it does not own policy truth.
+1. **Mahilo is policy truth**.
+   - Final `allow` / `ask` / `deny` decisions come from the server.
+   - Preflight helps UX, but does not bypass final send-time enforcement.
 
-2. **The plugin acts on behalf of an authenticated user and connection**.
-   - Every plugin-originated request must include the user API key.
-   - Every plugin-originated request that represents agent behavior must include `sender_connection_id`.
-   - The server must verify that the connection belongs to the authenticated user and is active.
+2. **Plugin requests are user-authenticated**.
+   - All plugin routes require `Authorization: Bearer <mahilo_api_key>`.
+   - Agent-behavior routes validate `sender_connection_id` ownership when provided.
 
-3. **Selectors are declared by the plugin and normalized by the server**.
-   - The plugin sends `direction`, `resource`, and `action` as declared selectors.
-   - The server may accept them as-is, normalize them, or reject invalid values.
-   - Future server-side selector verification/classification may override declared selectors.
+3. **Selectors are plugin-declared and server-normalized**.
+   - Server validates selector shape.
+   - Unknown resources are allowed only when namespaced (for example `custom.preference`).
 
-4. **Preflight and final send must remain aligned**.
-   - The plugin should call `resolve` before send for outbound messages.
-   - The server must still evaluate policies again at final send time.
-   - A preflight result never bypasses final enforcement.
-
-5. **Policy outcomes are not transport errors**.
-   - `allow`, `ask`, and `deny` are business outcomes.
-   - Auth, validation, and missing-resource failures remain HTTP errors.
-   - Policy decisions should be returned as structured JSON payloads.
-
-6. **Blocked content is redacted for the agent, detailed for audit**.
-   - The plugin gets short, actionable guidance.
-   - The server stores deeper explanations for human audit and debugging.
+4. **Policy outcomes are business outcomes**.
+   - `allow`, `ask`, and `deny` are returned in normal JSON payloads.
+   - Validation/auth/resource failures use HTTP `4xx`/`5xx`.
 
 ---
 
 ## Versioning and Compatibility
 
-- Contract version is `1.0.0`.
-- The path namespace is `api/v1`.
-- Non-breaking changes may:
-  - add optional request fields
-  - add optional response fields
-  - add new enum values when clients are expected to ignore unknown values safely
-- Breaking changes require either:
-  - a new major contract version
-  - or a new path namespace such as `api/v2`
-
-### Compatibility Rules
-
-- The plugin must ignore unknown response fields.
-- The server should tolerate missing optional plugin fields.
-- Required request fields must be explicit in this document.
-
----
-
-## Ownership Split
-
-### Server Owns
-
-- authenticated identity
-- connection ownership and status
-- friendships, roles, groups, and recipient resolution
-- policy storage and lifecycle
-- policy resolution and final enforcement
-- audit history, blocked events, and review queues
-- delivery callbacks to plugin webhook endpoints
-
-### Plugin Owns
-
-- OpenClaw-native hooks and tool registration
-- prompt-time context injection
-- native send-time UX
-- local review / override UX
-- outcome reporting back to Mahilo
-- local diagnostics and operator controls
+- Contract version: `1.0.0`
+- API namespace: `/api/v1`
+- Non-breaking changes may add optional fields.
+- Plugin clients must ignore unknown response fields.
 
 ---
 
 ## Shared Vocabulary
 
-### Selector Object
-
-Every policy-aware draft uses the canonical selector object:
+### Selector object
 
 ```json
 {
@@ -107,151 +59,84 @@ Every policy-aware draft uses the canonical selector object:
 }
 ```
 
-### Selector Rules
+### Selector rules
 
-- `direction` is required and currently supports:
+- `direction` supported values:
   - `outbound`
   - `inbound`
-- `resource` is required and is a lowercase dot-delimited string.
-- `action` is required and is a lowercase dot-delimited string.
-- Unknown `resource` or `action` values should be namespaced, for example:
-  - `custom.preference`
-  - `plugin.review`
+  - `request`
+  - `response`
+  - `notification`
+  - `error`
+- `resource` token pattern: `^[a-z0-9._-]+$` (case-insensitive), max `120` chars.
+- `action` token pattern: `^[a-z0-9._-]+$` (case-insensitive), max `120` chars.
+- Built-in resources:
+  - `message.general`
+  - `profile.basic`
+  - `contact.email`
+  - `contact.phone`
+  - `location.current`
+  - `location.history`
+  - `calendar.availability`
+  - `calendar.event`
+  - `financial.balance`
+  - `financial.transaction`
+  - `health.metric`
+  - `health.summary`
+- Legacy resources also accepted for compatibility:
+  - `calendar`
+  - `location`
+  - `document`
+  - `contact`
+  - `action`
+  - `meta`
 
-### Initial Shared Resource Vocabulary
+Defaults when selectors are omitted:
 
-The contract starts with these common resources:
-
-- `message.general`
-- `profile.basic`
-- `contact.email`
-- `contact.phone`
-- `location.current`
-- `location.history`
-- `calendar.availability`
-- `calendar.event`
-- `financial.balance`
-- `financial.transaction`
-- `health.metric`
-- `health.summary`
-
-### Initial Shared Action Vocabulary
-
-The contract starts with these common actions:
-
-- `share`
-- `request`
-- `reply`
-- `summarize`
-- `route`
-- `notify`
-
-These registries may expand later without breaking the contract.
+```json
+{
+  "direction": "outbound",
+  "resource": "message.general",
+  "action": "share"
+}
+```
 
 ---
 
-## Authentication and Headers
+## Authentication and Verification
 
-### Required Authentication
-
-All plugin → server requests must include:
+Required auth header for all routes:
 
 ```http
 Authorization: Bearer <mahilo_api_key>
 ```
 
-### Recommended Client Headers
+Verification requirements by route:
 
-The plugin should also send:
+- `POST /api/v1/plugin/context`: authenticated user required, Twitter verification not required.
+- `POST /api/v1/plugin/resolve`: authenticated + verified user required.
+- `POST /api/v1/plugin/outcomes`: authenticated + verified user required.
+- `POST /api/v1/plugin/overrides`: authenticated + verified user required.
+- `POST /api/v1/messages/send`: authenticated + verified user required.
 
-```http
-X-Mahilo-Client: openclaw-plugin
-X-Mahilo-Plugin-Version: <plugin_version>
-X-Mahilo-Contract-Version: 1.0.0
-```
+Idempotency:
 
-### Idempotency
-
-For send and outcome reporting, the plugin should provide either:
-
-- `Idempotency-Key` header
-- or `idempotency_key` in the JSON body
-
-The server may support both, but the plugin should be consistent.
+- `POST /api/v1/messages/send`: `idempotency_key` in body.
+- `POST /api/v1/plugin/outcomes`: `idempotency_key` in body or `Idempotency-Key` header.
 
 ---
 
-## Common Request Fragments
-
-### Sender Context
-
-```json
-{
-  "sender_connection_id": "conn_123",
-  "agent_session_id": "sess_456"
-}
-```
-
-- `sender_connection_id` is required for agent-authored requests.
-- `agent_session_id` is optional and plugin-local.
-
-### Recipient Reference
-
-```json
-{
-  "recipient": "alice",
-  "recipient_type": "user",
-  "recipient_connection_id": "conn_789",
-  "routing_hints": {
-    "labels": ["work"],
-    "tags": ["calendar"]
-  }
-}
-```
-
-Rules:
-
-- `recipient` is required.
-- `recipient_type` is required and supports:
-  - `user`
-  - `group`
-- `recipient_connection_id` is optional.
-- `routing_hints` is optional.
-
-### Draft Envelope
-
-```json
-{
-  "message": "Alice is at home right now.",
-  "context": "User asked whether Alice is available nearby.",
-  "payload_type": "text/plain",
-  "correlation_id": "corr_123",
-  "idempotency_key": "idem_123",
-  "declared_selectors": {
-    "direction": "outbound",
-    "resource": "location.current",
-    "action": "share"
-  }
-}
-```
-
----
-
-## Plugin → Server API
+## Plugin -> Server API
 
 ### 1) Get Prompt Context
 
-### Endpoint
+Endpoint:
 
 ```http
 POST /api/v1/plugin/context
 ```
 
-### Purpose
-
-Fetch compact, prompt-ready context for a draft interaction before the model decides what to say.
-
-### Request
+Request body:
 
 ```json
 {
@@ -268,78 +153,94 @@ Fetch compact, prompt-ready context for a draft interaction before the model dec
 }
 ```
 
-### Response
+Request notes:
+
+- `sender_connection_id` required.
+- `recipient_type` defaults to `user`.
+- `recipient_type=group` is currently rejected with `UNSUPPORTED_RECIPIENT_TYPE`.
+- `declared_selectors` is also accepted; `draft_selectors` takes precedence when both are set.
+
+Response example:
 
 ```json
 {
   "contract_version": "1.0.0",
-  "recipient": {
-    "id": "usr_alice",
-    "username": "alice",
-    "display_name": "Alice",
-    "relationship": "friend",
-    "roles": ["close_friend"],
-    "connected_since": "2026-01-12T08:30:00.000Z"
-  },
-  "sender_connection": {
-    "id": "conn_sender",
-    "framework": "openclaw",
-    "label": "default"
-  },
   "policy_guidance": {
     "default_decision": "ask",
-    "summary": "Alice is a close friend, but current location usually requires confirmation.",
+    "reason_code": "context.ask.role.structured",
+    "relevant_decisions": [
+      {
+        "decision": "ask",
+        "direction": "outbound",
+        "matched_policy_ids": ["pol_ask_1"],
+        "message_id": "msg_1",
+        "reason_code": "policy.ask.role.structured",
+        "selectors": {
+          "action": "share",
+          "direction": "outbound",
+          "resource": "location.current"
+        },
+        "status": "review_required",
+        "timestamp": "2026-03-08T10:00:00.000Z",
+        "winning_policy_id": "pol_ask_1"
+      }
+    ],
     "relevant_policies": [
       {
-        "id": "pol_1",
-        "scope": "role",
-        "target_id": "close_friend",
         "effect": "ask",
+        "evaluator": "structured",
+        "id": "pol_ask_1",
+        "priority": 80,
+        "scope": "role",
         "selectors": {
+          "action": "share",
           "direction": "outbound",
-          "resource": "location.current",
-          "action": "share"
-        }
+          "resource": "location.current"
+        },
+        "target_id": "close_friends"
       }
-    ]
+    ],
+    "summary": "...",
+    "winning_policy_id": "pol_ask_1"
+  },
+  "recipient": {
+    "connected_since": "2026-03-08T09:00:00.000Z",
+    "display_name": null,
+    "id": "usr_alice",
+    "relationship": "friend",
+    "roles": ["close_friends"],
+    "username": "alice"
   },
   "recent_interactions": [
     {
-      "message_id": "msg_1",
       "direction": "outbound",
-      "summary": "Shared calendar availability",
-      "timestamp": "2026-03-07T13:00:00.000Z"
+      "message_id": "msg_1",
+      "summary": "Shared a city-level location update...",
+      "timestamp": "2026-03-08T10:00:00.000Z"
     }
   ],
+  "sender_connection": {
+    "framework": "openclaw",
+    "id": "conn_sender",
+    "label": "default"
+  },
   "suggested_selectors": {
+    "action": "share",
     "direction": "outbound",
-    "resource": "location.current",
-    "action": "share"
+    "resource": "location.current"
   }
 }
 ```
 
-### Notes
+### 2) Resolve Draft (Preflight)
 
-- The response is designed for prompt injection and tool guidance.
-- `summary` should stay concise and safe for the model.
-- The server may omit heavy policy details if the plugin only needs the summary.
-
----
-
-### 2) Resolve a Draft Before Sending
-
-### Endpoint
+Endpoint:
 
 ```http
 POST /api/v1/plugin/resolve
 ```
 
-### Purpose
-
-Preview what Mahilo would do with a draft without creating final delivery.
-
-### Request
+Request body:
 
 ```json
 {
@@ -348,22 +249,33 @@ Preview what Mahilo would do with a draft without creating final delivery.
   "recipient_type": "user",
   "recipient_connection_id": "conn_alice",
   "routing_hints": {
-    "labels": ["work"]
+    "labels": ["work"],
+    "tags": ["calendar"]
   },
   "message": "Alice is at home right now.",
   "context": "User asked whether Alice is available nearby.",
   "payload_type": "text/plain",
-  "correlation_id": "corr_123",
-  "idempotency_key": "idem_123",
+  "direction": "outbound",
+  "resource": "location.current",
+  "action": "share",
   "declared_selectors": {
     "direction": "outbound",
     "resource": "location.current",
     "action": "share"
-  }
+  },
+  "correlation_id": "corr_123",
+  "idempotency_key": "idem_123"
 }
 ```
 
-### Response
+Request notes:
+
+- `sender_connection_id` is optional; when omitted, server picks the highest-priority active connection for the authenticated user.
+- `declared_selectors` takes precedence over top-level `direction/resource/action`.
+- Policy preflight runs only when `trustedMode=true` and `payload_type != application/mahilo+ciphertext`; otherwise decision defaults to `allow`.
+- No message or delivery record is created.
+
+Response example:
 
 ```json
 {
@@ -371,24 +283,38 @@ Preview what Mahilo would do with a draft without creating final delivery.
   "resolution_id": "res_123",
   "decision": "ask",
   "delivery_mode": "review_required",
-  "resolution_summary": "Current location needs confirmation for this recipient.",
-  "agent_guidance": "Ask for confirmation or create a temporary override before sending.",
+  "resolution_summary": "Message requires review before delivery.",
+  "agent_guidance": "This draft requires review before delivery. Ask for approval or create an override.",
+  "reason_code": "policy.ask.resolved",
   "server_selectors": {
+    "action": "share",
     "direction": "outbound",
-    "resource": "location.current",
-    "action": "share"
+    "resource": "location.current"
   },
   "matched_policies": [
     {
-      "id": "pol_1",
-      "scope": "role",
       "effect": "ask",
-      "priority": 100
+      "evaluator": "structured",
+      "id": "pol_ask_1",
+      "phase": "structured",
+      "priority": 90,
+      "scope": "global"
     }
   ],
+  "applied_policy": {
+    "guardrail_id": null,
+    "matched_policy_ids": ["pol_ask_1"],
+    "resolver_layer": "user_policies",
+    "winning_policy_id": "pol_ask_1"
+  },
+  "resolved_recipient": {
+    "recipient": "alice",
+    "recipient_connection_id": "conn_alice",
+    "recipient_type": "user"
+  },
   "review": {
     "required": true,
-    "review_id": "rev_123"
+    "review_id": null
   },
   "recipient_results": [
     {
@@ -401,100 +327,115 @@ Preview what Mahilo would do with a draft without creating final delivery.
 }
 ```
 
-### Decision Rules
+`delivery_mode` values:
 
-- `decision` is always one of:
-  - `allow`
-  - `ask`
-  - `deny`
-- `delivery_mode` communicates practical behavior and may be:
-  - `full_send`
-  - `review_required`
-  - `blocked`
-  - `partial_send`
-- Group sends must include `recipient_results` so the plugin can explain mixed outcomes.
+- `full_send`
+- `review_required`
+- `hold_for_approval`
+- `blocked`
 
-### HTTP Semantics
+Group preflight note:
 
-- Valid policy outcomes return `200`.
-- Auth, validation, or missing-resource failures return the appropriate `4xx`.
-- Retryable server failures return `5xx`.
-
----
+- For `recipient_type=group`, response currently returns a single aggregate `recipient_results` entry for the group target (not per-member fan-out rows).
 
 ### 3) Final Send
 
-### Endpoint
+Endpoint:
 
 ```http
 POST /api/v1/messages/send
 ```
 
-### Purpose
+This endpoint is not under `/plugin`, but plugin clients use it for final delivery after preflight.
+Policy enforcement follows the same trusted-mode/plaintext condition as `/api/v1/plugin/resolve`.
 
-Create the actual Mahilo message delivery after preflight or direct send.
-
-### Required Additions To Server Contract
-
-The existing send route must be extended to accept:
+Plugin-relevant request fragment:
 
 ```json
 {
   "sender_connection_id": "conn_sender",
-  "resolution_id": "res_123",
+  "recipient": "alice",
+  "recipient_type": "user",
+  "message": "Alice is at home right now.",
   "declared_selectors": {
     "direction": "outbound",
     "resource": "location.current",
     "action": "share"
-  }
+  },
+  "resolution_id": "res_123",
+  "idempotency_key": "idem_123"
 }
 ```
 
-### Structured Response Shape
+Response example (policy blocked / ask case is still HTTP `200`):
 
 ```json
 {
   "message_id": "msg_123",
-  "status": "rejected",
-  "deduplicated": false,
+  "status": "review_required",
+  "delivery_status": "pending",
   "resolution": {
     "resolution_id": "res_123",
-    "decision": "deny",
-    "delivery_mode": "blocked",
-    "summary": "Current location cannot be shared with this recipient."
+    "decision": "ask",
+    "delivery_mode": "review_required",
+    "summary": "Message requires review before delivery.",
+    "reason": null,
+    "reason_code": "policy.ask.resolved",
+    "resolver_layer": "user_policies",
+    "guardrail_id": null,
+    "winning_policy_id": "pol_ask_1",
+    "matched_policy_ids": ["pol_ask_1"]
   },
   "recipient_results": [
     {
       "recipient": "alice",
-      "decision": "deny",
-      "delivery_status": "rejected"
+      "decision": "ask",
+      "delivery_mode": "review_required",
+      "delivery_status": "pending"
     }
   ]
 }
 ```
 
-### Send Rules
+Idempotency replay example:
 
-- Final send must re-run policy evaluation.
-- `resolution_id` is advisory and used for correlation, not bypass.
-- A policy rejection should produce structured JSON rather than only an exception path.
-- Group sends may return `status = partial` if some recipients are blocked.
-
----
+```json
+{
+  "message_id": "msg_123",
+  "status": "review_required",
+  "deduplicated": true,
+  "resolution": {
+    "resolution_id": "res_123",
+    "decision": "ask",
+    "delivery_mode": "review_required",
+    "summary": "Message requires review before delivery.",
+    "reason": null,
+    "reason_code": "policy.ask.resolved",
+    "resolver_layer": "user_policies",
+    "guardrail_id": null,
+    "winning_policy_id": "pol_ask_1",
+    "matched_policy_ids": ["pol_ask_1"]
+  },
+  "recipient_results": [
+    {
+      "recipient": "usr_alice",
+      "decision": "ask",
+      "delivery_mode": "review_required",
+      "delivery_status": "review_required"
+    }
+  ]
+}
+```
 
 ### 4) Report Outcome
 
-### Endpoint
+Endpoint:
 
 ```http
 POST /api/v1/plugin/outcomes
 ```
 
-### Purpose
-
-Tell Mahilo what the plugin or user ultimately did with a decision.
-
-### Request
+Request body:
 
 ```json
 {
@@ -509,11 +450,12 @@ Tell Mahilo what the plugin or user ultimately did with a decision.
       "recipient": "alice",
       "outcome": "sent"
     }
-  ]
+  ],
+  "idempotency_key": "idem_plugin_outcomes_record_1"
 }
 ```
 
-### Allowed Outcome Values
+Allowed `outcome` values:
 
 - `sent`
 - `partial_sent`
@@ -524,7 +466,7 @@ Tell Mahilo what the plugin or user ultimately did with a decision.
 - `withheld`
 - `send_failed`
 
-### Response
+Success response:
 
 ```json
 {
@@ -533,21 +475,25 @@ Tell Mahilo what the plugin or user ultimately did with a decision.
 }
 ```
 
----
+Deduplicated retry response:
 
-### 5) Create Override or Learned Policy
+```json
+{
+  "recorded": true,
+  "event_id": "evt_123",
+  "deduplicated": true
+}
+```
 
-### Endpoint
+### 5) Create Override
+
+Endpoint:
 
 ```http
 POST /api/v1/plugin/overrides
 ```
 
-### Purpose
-
-Create a one-time, temporary, or persistent policy from a reviewed decision.
-
-### Request
+Request body:
 
 ```json
 {
@@ -562,22 +508,24 @@ Create a one-time, temporary, or persistent policy from a reviewed decision.
     "action": "share"
   },
   "effect": "allow",
-  "max_uses": 1,
-  "reason": "User approved sharing current location one time with Alice."
+  "reason": "User approved sharing current location one time with Alice.",
+  "derived_from_message_id": "msg_source",
+  "priority": 90
 }
 ```
 
-### Rules
+Validation rules:
 
-- `kind` must be one of:
-  - `one_time`
-  - `temporary`
-  - `persistent`
-- `one_time` requires `max_uses = 1`.
-- `temporary` requires `expires_at` or `ttl_seconds`.
-- `persistent` should be explicit and never inferred silently from a single review.
+- `kind` values: `one_time`, `temporary`, `persistent`.
+- `scope` values: `global`, `user`, `group`, `role`.
+- `scope=global` requires `target_id` absent/null.
+- `scope=user|group|role` requires `target_id`.
+- `kind=one_time` enforces `max_uses=1`.
+- `kind=temporary` requires `expires_at` or `ttl_seconds`.
+- `kind=persistent` forbids `expires_at`, `ttl_seconds`, and `max_uses`.
+- `expires_at` and `ttl_seconds` are mutually exclusive.
 
-### Response
+Success response (`201`):
 
 ```json
 {
@@ -589,126 +537,40 @@ Create a one-time, temporary, or persistent policy from a reviewed decision.
 
 ---
 
-### 6) Review Queue
+## Not Implemented Yet (Do Not Integrate Against)
 
-### List Review Items
+These routes are not available in this repo yet:
 
-```http
-GET /api/v1/plugin/reviews?status=open&limit=20
-```
+- `GET /api/v1/plugin/reviews`
+- `POST /api/v1/plugin/reviews/:review_id/decision`
+- `GET /api/v1/plugin/events/blocked`
 
-### Response
-
-```json
-{
-  "items": [
-    {
-      "review_id": "rev_123",
-      "created_at": "2026-03-08T12:10:00.000Z",
-      "recipient": "alice",
-      "selectors": {
-        "direction": "outbound",
-        "resource": "location.current",
-        "action": "share"
-      },
-      "summary": "Current location share requires confirmation.",
-      "decision": "ask"
-    }
-  ],
-  "next_cursor": null
-}
-```
-
-### Resolve Review Item
-
-```http
-POST /api/v1/plugin/reviews/rev_123/decision
-```
-
-```json
-{
-  "decision": "allow",
-  "notes": "Approved once by user.",
-  "create_override": {
-    "kind": "one_time",
-    "max_uses": 1
-  }
-}
-```
-
-### Response
-
-```json
-{
-  "review_id": "rev_123",
-  "resolved": true,
-  "result": "allow"
-}
-```
+They are planned under SRV-044 and remain out of current contract scope.
 
 ---
 
-### 7) Blocked Event Feed
+## Server -> Plugin Delivery Callback
 
-### Endpoint
+Mahilo delivers inbound messages to connection callback URLs.
 
-```http
-GET /api/v1/plugin/events/blocked?limit=20
-```
-
-### Purpose
-
-Expose a redacted feed of blocked or denied events for operator review.
-
-### Response
-
-```json
-{
-  "items": [
-    {
-      "event_id": "evt_123",
-      "created_at": "2026-03-08T12:00:00.000Z",
-      "recipient": "alice",
-      "selectors": {
-        "direction": "outbound",
-        "resource": "location.current",
-        "action": "share"
-      },
-      "summary": "Blocked by policy.",
-      "decision": "deny"
-    }
-  ]
-}
-```
-
----
-
-## Server → Plugin Delivery Callback
-
-Mahilo delivers inbound messages to the plugin using the callback URL registered for the sender connection.
-
-### Headers
+Headers:
 
 ```http
 Content-Type: application/json
 X-Mahilo-Signature: sha256=<hmac>
 X-Mahilo-Timestamp: <unix_seconds>
 X-Mahilo-Message-Id: <message_id>
-X-Mahilo-Delivery-Id: <delivery_id>        # optional
-X-Mahilo-Group-Id: <group_id>              # optional
+X-Mahilo-Delivery-Id: <delivery_id>   # group fan-out only
+X-Mahilo-Group-Id: <group_id>         # group fan-out only
 ```
 
-### Signature Rules
-
-The HMAC input is:
+HMAC input:
 
 ```text
 <timestamp>.<raw_request_body>
 ```
 
-The plugin must verify the signature with the registered callback secret.
-
-### Callback Body
+Callback payload example:
 
 ```json
 {
@@ -722,100 +584,84 @@ The plugin must verify the signature with the registered callback secret.
   "sender_agent": "openclaw",
   "message": "Can you share where Bob is?",
   "payload_type": "text/plain",
+  "encryption": {
+    "alg": "xchacha20poly1305",
+    "key_id": "key_1"
+  },
+  "sender_signature": {
+    "alg": "ed25519",
+    "key_id": "signing_key_1",
+    "signature": "base64sig"
+  },
   "context": "Urgent coordination request.",
   "selectors": {
     "direction": "inbound",
     "resource": "location.current",
     "action": "request"
   },
+  "resolution_id": "res_123",
+  "review_required": false,
+  "delivery_mode": "full_send",
   "group_id": null,
   "group_name": null,
   "timestamp": "2026-03-08T12:15:00.000Z"
 }
 ```
 
-### Callback Response Rules
+Callback response rules:
 
-- Any `2xx` means the plugin accepted the payload.
-- Non-`2xx` means Mahilo may retry delivery.
-- The plugin should return success only after the message is durably accepted for local processing.
+- Any `2xx` means accepted.
+- Non-`2xx` or timeout is queued for retry.
 
 ---
 
 ## Error Model
 
-For non-policy failures, the server should respond with:
+Server errors use this envelope:
 
 ```json
 {
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "recipient is required",
-    "retryable": false,
-    "details": null
-  }
+  "error": "Human-readable message",
+  "code": "MACHINE_CODE",
+  "details": []
 }
 ```
 
-### Recommended Error Codes
+`details` is included for validation failures and may be absent for other errors.
 
-- `AUTH_INVALID`
-- `AUTH_FORBIDDEN`
-- `CONNECTION_NOT_FOUND`
-- `CONNECTION_INACTIVE`
+Examples:
+
+- Validation (`400`): `{"error":"Validation Error","code":"VALIDATION_ERROR","details":[...]}`
+- App error (`4xx/5xx`): `{"error":"Sender connection not found or inactive","code":"SENDER_CONNECTION_NOT_FOUND"}`
+- HTTP middleware error (`401/403/429`): `{"error":"Missing Authorization header","code":"HTTP_ERROR"}`
+
+Common machine codes relevant to plugin integration:
+
+- `VALIDATION_ERROR`
+- `SENDER_CONNECTION_NOT_FOUND`
 - `USER_NOT_FOUND`
 - `GROUP_NOT_FOUND`
 - `NOT_FRIENDS`
-- `VALIDATION_ERROR`
-- `RATE_LIMITED`
-- `CONFLICT`
-- `INTERNAL_ERROR`
-
-Policy outcomes should stay in the normal JSON envelope whenever possible.
-
----
-
-## Contract Tests
-
-The server and plugin should share contract tests for:
-
-- auth and connection ownership validation
-- selector validation and normalization
-- preflight `allow` / `ask` / `deny`
-- final send disagreement with stale preflight
-- one-time override creation and consumption
-- temporary override expiry
-- group fan-out with mixed recipient outcomes
-- callback signature verification
-- blocked-event redaction
+- `NOT_MEMBER`
+- `CONNECTION_NOT_FOUND`
+- `NO_CONNECTIONS`
+- `INVALID_SELECTOR`
+- `INVALID_OVERRIDE`
+- `INVALID_ROLE`
+- `MESSAGE_NOT_FOUND`
+- `MESSAGE_SENDER_MISMATCH`
+- `SOURCE_MESSAGE_NOT_FOUND`
+- `UNSUPPORTED_RECIPIENT_TYPE`
+- `PAYLOAD_TOO_LARGE`
 
 ---
 
-## Immediate Implementation Notes
+## Contract Validation Coverage
 
-### Server Team
+Current integration tests covering this contract:
 
-Implement these items first:
-
-1. `POST /api/v1/plugin/context`
-2. `POST /api/v1/plugin/resolve`
-3. Extend `POST /api/v1/messages/send` with `sender_connection_id`, `resolution_id`, and `declared_selectors`
-4. `POST /api/v1/plugin/outcomes`
-5. `POST /api/v1/plugin/overrides`
-6. `GET /api/v1/plugin/reviews`
-7. `POST /api/v1/plugin/reviews/:review_id/decision`
-8. `GET /api/v1/plugin/events/blocked`
-9. Extend callback delivery payload with sender identity and selectors
-
-### Plugin Team
-
-Build against this contract only:
-
-1. fetch prompt context via `/api/v1/plugin/context`
-2. preflight outbound drafts via `/api/v1/plugin/resolve`
-3. send final messages via `/api/v1/messages/send`
-4. report outcomes via `/api/v1/plugin/outcomes`
-5. create overrides via `/api/v1/plugin/overrides`
-6. consume review queue and blocked feed
-7. verify callback signatures and parse callback payload v1
-
+- `tests/integration/plugin-context.test.ts`
+- `tests/integration/plugin-resolve.test.ts`
+- `tests/integration/plugin-outcomes.test.ts`
+- `tests/integration/plugin-overrides.test.ts`
+- `tests/integration/selector-aware-send.test.ts`
