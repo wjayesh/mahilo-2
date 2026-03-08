@@ -210,16 +210,21 @@ It is:
 
 ### 1.1 Port Package Metadata
 - **ID**: `PLG2-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001
 - **Description**:
   - Bring over `package.json`, plugin manifest, README, tsconfig, and test config.
   - Rename package appropriately if needed.
 - **Acceptance Criteria**:
-  - [ ] New plugin package has valid metadata
-  - [ ] Manifest/config schema load correctly
-  - [ ] Test runner can execute in isolation
+  - [x] New plugin package has valid metadata
+  - [x] Manifest/config schema load correctly
+  - [x] Test runner can execute in isolation
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-010 by auditing plugin metadata artifacts and identifying missing manifest/test-config files to port.
+  - 2026-03-08: Ported package metadata artifacts in `plugins/openclaw-mahilo/`, including `openclaw.plugin.json`, plugin-local `vitest.config.ts`, updated package scripts/fields, and README metadata notes.
+  - 2026-03-08: Added plugin-local manifest validation tests (`tests/manifest.test.ts`) covering manifest metadata and config schema loading.
+  - 2026-03-08: Validated in isolation from `plugins/openclaw-mahilo/` with `bun run build`, `bun run test` (6 passing), and `bun run validate:manifest` (2 passing).
 
 ### 1.2 Port Source Modules
 - **ID**: `PLG2-011`

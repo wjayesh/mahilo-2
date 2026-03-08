@@ -16,6 +16,8 @@ Scope:
 The package is structured so it can be published or extracted later with minimal changes:
 
 - Standalone `package.json` and `tsconfig.json` inside this directory.
+- Standalone `openclaw.plugin.json` with plugin metadata and config schema.
+- Standalone `vitest.config.ts` for plugin-local test configuration.
 - Plugin-local `build` and `test` scripts.
 - HTTP-only client for Mahilo contract endpoints under `src/`.
 - No imports from repo-internal server source paths.
@@ -26,3 +28,4 @@ Run from `plugins/openclaw-mahilo/`:
 
 - `bun run build`
 - `bun run test`
+- `bun run validate:manifest`

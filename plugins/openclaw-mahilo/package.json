@@ -2,15 +2,30 @@
   "name": "@mahilo/openclaw-mahilo",
   "version": "0.0.0",
   "private": true,
-  "description": "Standalone OpenClaw plugin package for Mahilo integration",
+  "description": "Mahilo plugin package for OpenClaw native integration",
   "type": "module",
   "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "pluginManifest": "./openclaw.plugin.json",
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
     "test": "bun test",
+    "test:ci": "bun test --reporter=dot",
     "test:run": "bun test",
-    "test:watch": "bun test --watch"
+    "test:watch": "bun test --watch",
+    "validate:manifest": "bun test tests/manifest.test.ts"
   },
+  "keywords": [
+    "mahilo",
+    "openclaw",
+    "plugin",
+    "policy"
+  ],
   "engines": {
     "bun": ">=1.0.0"
   }

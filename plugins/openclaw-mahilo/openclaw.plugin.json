@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "mahilo",
+  "name": "Mahilo",
+  "version": "0.0.0",
+  "description": "Mahilo policy-aware communication plugin for OpenClaw.",
+  "entry": "./dist/index.js",
+  "configSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "baseUrl",
+      "apiKey"
+    ],
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "format": "uri",
+        "description": "Mahilo server base URL, for example https://mahilo.example"
+      },
+      "apiKey": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Mahilo API key used for Authorization: Bearer <key>"
+      },
+      "callbackUrl": {
+        "type": "string",
+        "format": "uri",
+        "description": "Optional callback URL override for plugin webhooks"
+      },
+      "reviewMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "ask",
+          "manual"
+        ],
+        "default": "ask",
+        "description": "Local review behavior when Mahilo returns ask outcomes"
+      },
+      "cacheTtlSeconds": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 60,
+        "description": "TTL for local non-authoritative caches"
+      }
+    }
+  }
+}
