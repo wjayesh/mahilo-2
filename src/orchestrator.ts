@@ -1,13 +1,4 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -53,6 +44,7 @@ export type Task = {
 export type WorkspaceHandle = {
   path: string;
   kind: "shared" | "git_worktree";
+  branchName: string | null;
 };
 
 export type OrchestratorState = {
@@ -93,102 +85,27 @@ const DEFAULT_WORKFLOW: Omit<WorkflowConfig, "workflowBody" | "workflowPath"> = 
 };
 
 const STATUS_VALUES = new Set<TaskStatus>(["pending", "in-progress", "blocked", "review", "done"]);
-const SNAPSHOT_EXCLUDES = new Set([".git", ".mahilo-orchestrator", "node_modules", "dist", "coverage"]);
 
 function parseScalarValue(value: string): string | number {
   const trimmed = value.trim();
   if (/^-?\d+$/.test(trimmed)) {
     return Number(trimmed);
   }
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
 }
 
-function syncDirectory(sourceDir: string, targetDir: string, excludes: Set<string>, deleteMissing: boolean) {
-  ensureDirectory(targetDir);
-
-  const sourceEntries = readdirSync(sourceDir, { withFileTypes: true }).filter((entry) => !excludes.has(entry.name));
-  const sourceNames = new Set(sourceEntries.map((entry) => entry.name));
-
-  if (deleteMissing) {
-    const targetEntries = readdirSync(targetDir, { withFileTypes: true }).filter((entry) => !excludes.has(entry.name));
-    for (const targetEntry of targetEntries) {
-      if (!sourceNames.has(targetEntry.name)) {
-        rmSync(join(targetDir, targetEntry.name), { recursive: true, force: true });
-      }
-    }
-  }
-
-  for (const entry of sourceEntries) {
-    const sourcePath = join(sourceDir, entry.name);
-    const targetPath = join(targetDir, entry.name);
-    const sourceIsDirectory = entry.isDirectory();
-    const targetExists = existsSync(targetPath);
-
-    if (sourceIsDirectory) {
-      if (targetExists && !statSync(targetPath).isDirectory()) {
-        rmSync(targetPath, { recursive: true, force: true });
-      }
-      syncDirectory(sourcePath, targetPath, excludes, deleteMissing);
-      continue;
-    }
-
-    if (targetExists && statSync(targetPath).isDirectory()) {
-      rmSync(targetPath, { recursive: true, force: true });
-    }
-
-    ensureDirectory(dirname(targetPath));
-    copyFileSync(sourcePath, targetPath);
-  }
-}
-
-function runGit(args: string[], cwd: string) {
+export function runGit(args: string[], cwd: string) {
   return spawnSync("git", args, { cwd, encoding: "utf8" });
 }
 
-function syncRepoSnapshotToWorkspace(repoRoot: string, workspacePath: string) {
-  syncDirectory(repoRoot, workspacePath, SNAPSHOT_EXCLUDES, true);
-}
-
-function syncWorkspaceChangesToRepo(repoRoot: string, workspacePath: string) {
-  const statusResult = runGit(["status", "--porcelain", "-uall"], workspacePath);
-  if (statusResult.status !== 0) {
-    throw new Error(`Failed to inspect worktree changes: ${statusResult.stderr || statusResult.stdout}`);
-  }
-
-  for (const rawLine of statusResult.stdout.split(/\r?\n/)) {
-    if (!rawLine.trim()) {
-      continue;
-    }
-
-    const statusCode = rawLine.slice(0, 2);
-    const payload = rawLine.slice(3).trim();
-
-    if (payload.includes(" -> ")) {
-      const [oldPath, newPath] = payload.split(" -> ").map((part) => part.trim());
-      rmSync(join(repoRoot, oldPath), { recursive: true, force: true });
-      const sourcePath = join(workspacePath, newPath);
-      if (existsSync(sourcePath)) {
-        ensureDirectory(dirname(join(repoRoot, newPath)));
-        copyFileSync(sourcePath, join(repoRoot, newPath));
-      }
-      continue;
-    }
-
-    if (statusCode.includes("D")) {
-      rmSync(join(repoRoot, payload), { recursive: true, force: true });
-      continue;
-    }
-
-    const sourcePath = join(workspacePath, payload);
-    if (!existsSync(sourcePath)) {
-      continue;
-    }
-    ensureDirectory(dirname(join(repoRoot, payload)));
-    copyFileSync(sourcePath, join(repoRoot, payload));
-  }
+function gitError(result: ReturnType<typeof runGit>, fallback: string): string {
+  return result.stderr?.trim() || result.stdout?.trim() || fallback;
 }
 
 export function parseWorkflowFile(content: string, workflowPath = "WORKFLOW.md"): WorkflowConfig {
@@ -198,7 +115,9 @@ export function parseWorkflowFile(content: string, workflowPath = "WORKFLOW.md")
   if (content.startsWith("---\n")) {
     const end = content.indexOf("\n---", 4);
     if (end === -1) {
-      throw new Error(`Workflow file ${workflowPath} starts a front matter block but never closes it.`);
+      throw new Error(
+        `Workflow file ${workflowPath} starts a front matter block but never closes it.`,
+      );
     }
 
     const rawFrontMatter = content.slice(4, end).split("\n");
@@ -219,7 +138,9 @@ export function parseWorkflowFile(content: string, workflowPath = "WORKFLOW.md")
         }
         const current = frontMatter[currentKey];
         if (!Array.isArray(current)) {
-          throw new Error(`Key ${currentKey} must be declared before adding list items in ${workflowPath}.`);
+          throw new Error(
+            `Key ${currentKey} must be declared before adding list items in ${workflowPath}.`,
+          );
         }
         current.push(String(parseScalarValue(listItemMatch[1])));
         continue;
@@ -252,7 +173,9 @@ export function parseWorkflowFile(content: string, workflowPath = "WORKFLOW.md")
         ? frontMatter.progress_file
         : DEFAULT_WORKFLOW.progressFile,
     stateFile:
-      typeof frontMatter.state_file === "string" ? frontMatter.state_file : DEFAULT_WORKFLOW.stateFile,
+      typeof frontMatter.state_file === "string"
+        ? frontMatter.state_file
+        : DEFAULT_WORKFLOW.stateFile,
     workspaceRoot:
       typeof frontMatter.workspace_root === "string"
         ? frontMatter.workspace_root
@@ -265,7 +188,9 @@ export function parseWorkflowFile(content: string, workflowPath = "WORKFLOW.md")
       typeof frontMatter.agent_command === "string"
         ? frontMatter.agent_command
         : DEFAULT_WORKFLOW.agentCommand,
-    agentArgs: Array.isArray(frontMatter.agent_args) ? frontMatter.agent_args : DEFAULT_WORKFLOW.agentArgs,
+    agentArgs: Array.isArray(frontMatter.agent_args)
+      ? frontMatter.agent_args
+      : DEFAULT_WORKFLOW.agentArgs,
     maxIterations:
       typeof frontMatter.max_iterations === "number"
         ? frontMatter.max_iterations
@@ -304,8 +229,8 @@ function normalizePriority(rawPriority: string | null): TaskPriority {
   if (!rawPriority) {
     return "unscored";
   }
-  const match = rawPriority.trim().match(/P\d+/i);
-  return match ? (match[0].toUpperCase() as TaskPriority) : "unscored";
+  const normalized = rawPriority.trim().toUpperCase();
+  return /^P\d+$/.test(normalized) ? (normalized as TaskPriority) : "unscored";
 }
 
 function parseDependsOn(rawDependsOn: string | null): string[] {
@@ -419,7 +344,11 @@ function isReady(task: Task, taskMap: Map<string, Task>): boolean {
   return task.dependsOn.every((dependencyId) => taskMap.get(dependencyId)?.status === "done");
 }
 
-export function selectNextTask(tasks: Task[], activeTaskId: string | null, dependencyUniverse: Task[] = tasks): Task | null {
+export function selectNextTask(
+  tasks: Task[],
+  activeTaskId: string | null,
+  dependencyUniverse: Task[] = tasks,
+): Task | null {
   const taskMap = new Map(dependencyUniverse.map((task) => [task.id, task]));
 
   if (activeTaskId) {
@@ -495,7 +424,9 @@ export function saveState(repoRoot: string, config: WorkflowConfig, state: Orche
 export function appendProgress(repoRoot: string, config: WorkflowConfig, lines: string[]) {
   const progressPath = resolvePath(repoRoot, config.progressFile);
   ensureDirectory(dirname(progressPath));
-  const existing = existsSync(progressPath) ? readFileSync(progressPath, "utf8") : `# ${config.name} Progress\n\n`;
+  const existing = existsSync(progressPath)
+    ? readFileSync(progressPath, "utf8")
+    : `# ${config.name} Progress\n\n`;
   writeFileSync(progressPath, existing + lines.join("\n") + "\n");
 }
 
@@ -526,33 +457,22 @@ export function previewWorkspacePath(repoRoot: string, config: WorkflowConfig, t
 
 export function ensureWorkspace(repoRoot: string, config: WorkflowConfig, task: Task): WorkspaceHandle {
   if (config.workspaceMode === "shared") {
-    return { path: repoRoot, kind: "shared" };
+    return { path: repoRoot, kind: "shared", branchName: getCurrentBranch(repoRoot) };
   }
 
   const workspacePath = previewWorkspacePath(repoRoot, config, task);
+  const branchName = sanitizeBranchName(task.id);
   ensureDirectory(dirname(workspacePath));
 
   if (!existsSync(workspacePath)) {
-    const branchName = sanitizeBranchName(task.id);
-    const result = spawnSync("git", ["worktree", "add", "-B", branchName, workspacePath, "HEAD"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-    });
-
+    const baseRef = config.requiredBranch ?? "HEAD";
+    const result = runGit(["worktree", "add", "-B", branchName, workspacePath, baseRef], repoRoot);
     if (result.status !== 0) {
-      throw new Error(`Failed to create git worktree for ${task.id}: ${result.stderr || result.stdout}`);
+      throw new Error(`Failed to create git worktree for ${task.id}: ${gitError(result, "git worktree add failed")}`);
     }
   }
 
-  syncRepoSnapshotToWorkspace(repoRoot, workspacePath);
-  return { path: workspacePath, kind: "git_worktree" };
-}
-
-export function reconcileWorkspace(repoRoot: string, workspace: WorkspaceHandle) {
-  if (workspace.kind !== "git_worktree") {
-    return;
-  }
-  syncWorkspaceChangesToRepo(repoRoot, workspace.path);
+  return { path: workspacePath, kind: "git_worktree", branchName };
 }
 
 export function buildTaskPrompt(config: WorkflowConfig, task: Task, workspacePath: string): string {
@@ -604,38 +524,97 @@ export type RepoPushResult = {
   error: string | null;
 };
 
-export function commitPendingChanges(repoRoot: string, message: string): RepoCommitResult {
-  const addResult = runGit(["add", "-A"], repoRoot);
-  if (addResult.status !== 0) {
-    return { committed: false, commitSha: null, error: addResult.stderr || addResult.stdout || "git add failed" };
+export type CherryPickResult = {
+  applied: boolean;
+  commitCount: number;
+  lastCommitSha: string | null;
+  error: string | null;
+};
+
+export function getHeadCommit(repoPath: string): string | null {
+  const result = runGit(["rev-parse", "--short", "HEAD"], repoPath);
+  if (result.status !== 0) {
+    return null;
+  }
+  const sha = result.stdout.trim();
+  return sha.length > 0 ? sha : null;
+}
+
+export function listUniqueCommits(repoPath: string, baseRef: string): string[] {
+  const result = runGit(["rev-list", "--reverse", `${baseRef}..HEAD`], repoPath);
+  if (result.status !== 0) {
+    throw new Error(`Failed to inspect task branch commits: ${gitError(result, "git rev-list failed")}`);
   }
 
-  const statusResult = runGit(["status", "--porcelain"], repoRoot);
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function commitPendingChanges(repoPath: string, message: string): RepoCommitResult {
+  const addResult = runGit(["add", "-A"], repoPath);
+  if (addResult.status !== 0) {
+    return { committed: false, commitSha: null, error: gitError(addResult, "git add failed") };
+  }
+
+  const statusResult = runGit(["status", "--porcelain"], repoPath);
   if (statusResult.status !== 0) {
-    return { committed: false, commitSha: null, error: statusResult.stderr || statusResult.stdout || "git status failed" };
+    return { committed: false, commitSha: null, error: gitError(statusResult, "git status failed") };
   }
 
   if (!statusResult.stdout.trim()) {
     return { committed: false, commitSha: null, error: null };
   }
 
-  const commitResult = runGit(["commit", "-m", message], repoRoot);
+  const commitResult = runGit(["commit", "-m", message], repoPath);
   if (commitResult.status !== 0) {
-    return { committed: false, commitSha: null, error: commitResult.stderr || commitResult.stdout || "git commit failed" };
+    return { committed: false, commitSha: null, error: gitError(commitResult, "git commit failed") };
   }
 
-  const shaResult = runGit(["rev-parse", "--short", "HEAD"], repoRoot);
-  if (shaResult.status !== 0) {
-    return { committed: true, commitSha: null, error: null };
+  return {
+    committed: true,
+    commitSha: getHeadCommit(repoPath),
+    error: null,
+  };
+}
+
+export function cherryPickCommits(repoRoot: string, commits: string[]): CherryPickResult {
+  if (commits.length === 0) {
+    return { applied: false, commitCount: 0, lastCommitSha: null, error: null };
   }
 
-  return { committed: true, commitSha: shaResult.stdout.trim() || null, error: null };
+  let appliedCount = 0;
+  let lastCommitSha: string | null = null;
+
+  for (const commit of commits) {
+    const cherryPickResult = runGit(["cherry-pick", "-x", commit], repoRoot);
+    if (cherryPickResult.status !== 0) {
+      runGit(["cherry-pick", "--abort"], repoRoot);
+      return {
+        applied: appliedCount > 0,
+        commitCount: appliedCount,
+        lastCommitSha,
+        error: gitError(cherryPickResult, `git cherry-pick failed for ${commit}`),
+      };
+    }
+
+    appliedCount += 1;
+    lastCommitSha = getHeadCommit(repoRoot);
+  }
+
+  return {
+    applied: appliedCount > 0,
+    commitCount: appliedCount,
+    lastCommitSha,
+    error: null,
+  };
 }
 
 export function pushBranch(repoRoot: string, branch: string): RepoPushResult {
   const pushResult = runGit(["push", "origin", branch], repoRoot);
   if (pushResult.status !== 0) {
-    return { pushed: false, error: pushResult.stderr || pushResult.stdout || `git push failed for ${branch}` };
+    return { pushed: false, error: gitError(pushResult, `git push failed for ${branch}`) };
   }
 
   return { pushed: true, error: null };

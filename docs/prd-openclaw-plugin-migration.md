@@ -252,14 +252,18 @@ It is:
 
 ### 1.3 Port Tests
 - **ID**: `PLG2-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011
 - **Description**:
   - Bring over existing tests as migration safety net.
 - **Acceptance Criteria**:
-  - [ ] Current behavior is covered after migration
-  - [ ] Test suite runs from new plugin home
+  - [x] Current behavior is covered after migration
+  - [x] Test suite runs from new plugin home
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-012 by auditing legacy tests in `myclawd/extensions/mahilo/tests` and mapping them to migrated modules under `plugins/openclaw-mahilo/src`.
+  - 2026-03-08: Ported and expanded plugin-local tests for migrated modules (`client`, `config`, `keys`, `state`, `policy-helpers`, `tools`, `webhook`) with legacy parity scenarios adapted to contract-driven plugin behavior.
+  - 2026-03-08: Validated from `plugins/openclaw-mahilo/` with `bun run test` (73 passing) and `bun run build`.
 
 ### 1.4 Inventory Legacy Gaps
 - **ID**: `PLG2-013`

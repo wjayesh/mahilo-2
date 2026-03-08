@@ -10,6 +10,23 @@ describe("InMemoryDedupeState", () => {
     expect(state.markSeen("msg_1", 200)).toBe(false);
     expect(state.markSeen("msg_1", 1_300)).toBe(true);
   });
+
+  it("supports has(), prune(), and size()", () => {
+    const state = new InMemoryDedupeState(1_000);
+
+    expect(state.size()).toBe(0);
+    expect(state.has("msg_1", 100)).toBe(false);
+
+    state.markSeen("msg_1", 100);
+    state.markSeen("msg_2", 200);
+    expect(state.size()).toBe(2);
+    expect(state.has("msg_1", 500)).toBe(true);
+
+    expect(state.prune(1_201)).toBe(2);
+    expect(state.size()).toBe(0);
+    expect(state.has("msg_1", 1_201)).toBe(false);
+    expect(state.has("msg_2", 1_201)).toBe(false);
+  });
 });
 
 describe("InMemoryPluginState", () => {
@@ -19,5 +36,34 @@ describe("InMemoryPluginState", () => {
     state.setCachedContext("alice", { relationship: "friend" }, 100);
     expect(state.getCachedContext("alice", 500)).toEqual({ relationship: "friend" });
     expect(state.getCachedContext("alice", 1_500)).toBeUndefined();
+  });
+
+  it("expires cache entries immediately when ttl is zero", () => {
+    const state = new InMemoryPluginState({ contextCacheTtlSeconds: 0 });
+
+    state.setCachedContext("alice", { relationship: "friend" }, 100);
+    expect(state.getCachedContext("alice", 100)).toBeUndefined();
+    expect(state.contextCacheSize()).toBe(0);
+  });
+
+  it("can prune cached context entries", () => {
+    const state = new InMemoryPluginState({ contextCacheTtlSeconds: 2 });
+
+    state.setCachedContext("a", { ok: true }, 100);
+    state.setCachedContext("b", { ok: true }, 200);
+
+    expect(state.contextCacheSize()).toBe(2);
+    expect(state.pruneContextCache(2_101)).toBe(1);
+    expect(state.contextCacheSize()).toBe(1);
+    expect(state.pruneContextCache(2_201)).toBe(1);
+    expect(state.contextCacheSize()).toBe(0);
+  });
+
+  it("exposes dedupe state for inbound callback deduping", () => {
+    const state = new InMemoryPluginState({ dedupeTtlMs: 500 });
+
+    expect(state.dedupe.markSeen("msg_1", 100)).toBe(true);
+    expect(state.dedupe.markSeen("msg_1", 101)).toBe(false);
+    expect(state.dedupe.markSeen("msg_1", 700)).toBe(true);
   });
 });

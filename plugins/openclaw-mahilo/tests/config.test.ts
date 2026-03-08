@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import { MahiloConfigError, parseMahiloPluginConfig } from "../src";
+import {
+  MahiloConfigError,
+  MahiloContractClient,
+  createClientOptionsFromConfig,
+  createMahiloClientFromConfig,
+  parseMahiloPluginConfig,
+  redactSensitiveConfig
+} from "../src";
 
 describe("parseMahiloPluginConfig", () => {
   it("parses required fields and applies defaults", () => {
@@ -32,5 +39,113 @@ describe("parseMahiloPluginConfig", () => {
         reviewMode: "always"
       })
     ).toThrow("reviewMode must be one of");
+  });
+
+  it("throws when config is not an object", () => {
+    expect(() => parseMahiloPluginConfig("not-an-object")).toThrow(
+      "plugin config must be an object"
+    );
+  });
+
+  it("throws when required fields are missing", () => {
+    expect(() => parseMahiloPluginConfig({ apiKey: "mahilo-key" })).toThrow(
+      "baseUrl must be a non-empty string"
+    );
+    expect(() => parseMahiloPluginConfig({ baseUrl: "https://mahilo.example" })).toThrow(
+      "apiKey must be a non-empty string"
+    );
+  });
+
+  it("parses callbackUrl as absolute URL", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      callbackUrl: "https://example.com/hooks/mahilo"
+    });
+
+    expect(config.callbackUrl).toBe("https://example.com/hooks/mahilo");
+  });
+
+  it("throws for invalid callbackUrl", () => {
+    expect(() =>
+      parseMahiloPluginConfig({
+        apiKey: "mahilo-key",
+        baseUrl: "https://mahilo.example",
+        callbackUrl: "not-a-url"
+      })
+    ).toThrow("callbackUrl must be a valid absolute URL");
+  });
+
+  it("throws for negative cacheTtlSeconds", () => {
+    expect(() =>
+      parseMahiloPluginConfig({
+        apiKey: "mahilo-key",
+        baseUrl: "https://mahilo.example",
+        cacheTtlSeconds: -1
+      })
+    ).toThrow("cacheTtlSeconds must be a non-negative integer");
+  });
+
+  it("accepts explicit defaults override", () => {
+    const config = parseMahiloPluginConfig(
+      {
+        apiKey: "mahilo-key",
+        baseUrl: "https://mahilo.example"
+      },
+      {
+        defaults: {
+          cacheTtlSeconds: 120,
+          contractVersion: "2.0.0",
+          pluginVersion: "1.2.3",
+          reviewMode: "manual"
+        }
+      }
+    );
+
+    expect(config.cacheTtlSeconds).toBe(120);
+    expect(config.contractVersion).toBe("2.0.0");
+    expect(config.pluginVersion).toBe("1.2.3");
+    expect(config.reviewMode).toBe("manual");
+  });
+});
+
+describe("config helpers", () => {
+  it("builds client options from parsed config", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      contractVersion: "1.1.0",
+      pluginVersion: "9.9.9"
+    });
+
+    expect(createClientOptionsFromConfig(config)).toEqual({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      contractVersion: "1.1.0",
+      pluginVersion: "9.9.9"
+    });
+  });
+
+  it("creates Mahilo contract client from config", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example"
+    });
+
+    const client = createMahiloClientFromConfig(config);
+    expect(client).toBeInstanceOf(MahiloContractClient);
+  });
+
+  it("redacts sensitive config values", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-super-secret",
+      baseUrl: "https://mahilo.example",
+      callbackSecret: "cb-secret"
+    });
+
+    const redacted = redactSensitiveConfig(config);
+    expect(redacted.apiKey).toBe("ma***et");
+    expect(redacted.callbackSecret).toBe("cb***et");
+    expect(redacted.baseUrl).toBe("https://mahilo.example");
   });
 });
