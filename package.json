@@ -16,7 +16,14 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/db/migrate.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "orchestrate": "bun run scripts/orchestrator.ts",
+    "orchestrate:once": "bun run scripts/orchestrator.ts --once",
+    "ralph": "./scripts/ralph.sh",
+    "orchestrate:dry-run": "bun run scripts/orchestrator.ts --once --dry-run",
+    "orchestrate:plugin": "bun run scripts/orchestrator.ts --workflow WORKFLOW.plugin.md",
+    "orchestrate:plugin:once": "bun run scripts/orchestrator.ts --workflow WORKFLOW.plugin.md --once",
+    "orchestrate:plugin:dry-run": "bun run scripts/orchestrator.ts --workflow WORKFLOW.plugin.md --once --dry-run"
   },
   "dependencies": {
     "hono": "^4.7.0",

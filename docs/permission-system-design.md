@@ -1,7 +1,7 @@
 # Mahilo Permission System: Design Document
 
 > **Status**: Design Phase
-> **Last Updated**: 2026-01-30
+> **Last Updated**: 2026-03-08
 > **Core Thesis**: Permissions should be learned, not configured. The agent builds a model of user preferences through natural interaction, and Mahilo enforces these as policies.
 
 ---
@@ -15,7 +15,7 @@
 5. [Policy Types and Scopes](#policy-types-and-scopes)
 6. [Policy Retrieval Optimization](#policy-retrieval-optimization)
 7. [The Learning-to-Policy Pipeline](#the-learning-to-policy-pipeline)
-8. [Message Type Taxonomy](#message-type-taxonomy)
+8. [Message Type System](#message-type-system)
 9. [Request/Response Tracking](#requestresponse-tracking)
 10. [The Plugin Prompt Injection](#the-plugin-prompt-injection)
 11. [Inbound Request Handling](#inbound-request-handling)
@@ -139,7 +139,11 @@ Agent understands the preference
 Agent calls Mahilo API: POST /api/v1/policies
 {
   "scope": "global",
-  "policy_type": "llm",
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "deny",
+  "evaluator": "llm",
   "policy_content": "Reject any outbound message that contains specific calendar event details (event names, attendees, descriptions). Availability (free/busy) is allowed."
 }
               ↓
@@ -156,87 +160,110 @@ Agent receives rejection, can rephrase or ask user
 
 ## Policy Types and Scopes
 
-### Policy Types
+The policy model must keep four axes separate:
 
-#### 1. Heuristic Policies (Fast, Deterministic)
-Pattern-based rules that can be evaluated without LLM calls.
+1. **Scope** — who the policy applies to
+2. **Selectors** — which message shape it applies to (`direction`, `resource`, `action`)
+3. **Effect** — what happens when the policy matches (`allow`, `ask`, `deny`)
+4. **Evaluator** — how Mahilo decides whether the policy matches (`structured`, `heuristic`, `llm`)
 
-```json
-{
-  "policy_type": "heuristic",
-  "policy_content": {
-    "blockedPatterns": ["\\b\\d{16}\\b", "SSN", "credit card"],
-    "maxLength": 1000,
-    "requireContext": true
-  }
-}
-```
+Earlier drafts mixed these together. In particular, `policy_type`, `resource_rule`, `resource_block`, and `applicable_types` were overlapping concepts. The canonical model below keeps them distinct.
 
-**Use cases**:
-- Block obvious sensitive patterns (credit cards, SSN)
-- Enforce message length limits
-- Require context for all messages
-
-#### 2. LLM Policies (Sophisticated, Contextual)
-Natural language rules evaluated by an LLM.
+### Canonical Policy Shape
 
 ```json
 {
-  "policy_type": "llm",
-  "policy_content": "Allow sharing calendar availability (free/busy times) but reject any message that contains specific event details like event names, meeting titles, attendee names, or event descriptions."
+  "scope": "role",
+  "target_id": "friends",
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "ask",
+  "evaluator": "llm",
+  "policy_content": "If the response would reveal event titles, attendee names, or descriptions, ask the user before sending unless a more specific allow policy exists.",
+  "priority": 50,
+  "effective_from": "2026-03-08T10:00:00Z",
+  "expires_at": null,
+  "max_uses": null,
+  "source": "user_confirmed",
+  "derived_from_message_id": "msg_123"
 }
 ```
 
-**Use cases**:
-- Nuanced content filtering ("availability yes, details no")
-- Context-dependent decisions
-- Intent analysis
+### Two Enforcement Layers
 
-### Policy Scopes
+Mahilo should enforce two separate layers:
+
+1. **Platform guardrails** — non-configurable rules that always win (credentials, raw secrets, obvious abuse, policy-bypass attempts, etc.)
+2. **User policies** — learned or configured rules that can resolve to `allow`, `ask`, or `deny`
+
+This matters because "more specific wins" is correct for user preferences, but **not** for platform safety guardrails. A per-user allow should never override a platform rule against leaking credentials.
+
+### Scope (Who Does This Apply To?)
 
 #### 1. Global Policies
-Apply to all outbound messages from this user.
+Apply to all matching messages from this user.
 
 ```json
 {
   "scope": "global",
   "target_id": null,
-  "policy_content": "Never share exact location or home address"
+  "direction": "response",
+  "resource": "location",
+  "effect": "deny",
+  "evaluator": "llm",
+  "policy_content": "Do not reveal exact addresses or home location."
 }
 ```
 
 #### 2. Per-User Policies
-Apply to messages sent to a specific friend.
+Apply to one specific recipient.
 
 ```json
 {
   "scope": "user",
   "target_id": "alice_user_id",
-  "policy_content": "With Alice, share work calendar but not personal calendar"
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "allow",
+  "evaluator": "structured",
+  "policy_content": "Alice may receive work calendar event details."
 }
 ```
 
-#### 3. Per-Group Policies (Chat Groups)
-Apply to messages sent to a specific Mahilo group.
-
-```json
-{
-  "scope": "group",
-  "target_id": "work_team_group_id",
-  "policy_content": "In work group, keep discussions professional. No personal health or family information."
-}
-```
-
-#### 4. Per-Role Policies (Trust Tiers) — NEW
-Apply to messages sent to users with a specific trust level/tag.
+#### 3. Per-Role Policies
+Apply to recipients with a given trust tag.
 
 ```json
 {
   "scope": "role",
   "target_id": "close_friends",
-  "policy_content": "With close friends, calendar event details are okay to share"
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "allow",
+  "evaluator": "structured",
+  "policy_content": "Close friends may receive work event details."
 }
 ```
+
+#### 4. Per-Group Policies (Channel Overlays)
+Apply only when the message is sent into a specific Mahilo group.
+
+```json
+{
+  "scope": "group",
+  "target_id": "work_team_group_id",
+  "direction": "response",
+  "resource": "calendar",
+  "effect": "deny",
+  "evaluator": "llm",
+  "policy_content": "In this work group, do not disclose personal health or family information."
+}
+```
+
+**Important**: group policies should act as **channel overlays**. They can narrow sharing or require review, but they should not expand what an individual recipient could receive one-to-one.
 
 **Role examples**:
 - `close_friends` — highest trust, more sharing allowed
@@ -245,17 +272,104 @@ Apply to messages sent to users with a specific trust level/tag.
 - `work_contacts` — professional context only
 - `unknown` — minimal sharing, ask for most things
 
-**Note**: Users can tag their friends with roles. A friend can have multiple roles.
+Users can tag a friend with multiple roles.
 
-### Policy Evaluation Order
+### Selectors (What Message Does This Apply To?)
 
-1. Check if recipient is blocked → reject immediately
-2. Evaluate global policies (highest priority first)
-3. Evaluate role-based policies (if recipient has roles)
-4. Evaluate per-user policies (most specific)
-5. Evaluate per-group policies (if sending to group)
+Policies target message selectors, not giant flat enums:
 
-If ANY policy fails → message rejected with feedback.
+- `direction` — `request`, `response`, `notification`, `error`
+- `resource` — `calendar`, `location`, `document`, `contact`, `action`, `meta`, or namespaced custom resources
+- `action` — optional, resource-specific operation such as `read_availability`, `read_details`, `read_coarse`
+
+Selectors are primarily for **retrieval, routing, and precise policy matching**. They are not the only source of truth for security. Security decisions should be bound to:
+
+- authenticated sender identity
+- authenticated sender connection
+- actual message content
+- declared selectors as hints
+
+In the MVP, Mahilo may accept `direction` / `resource` / `action` from an authenticated sender. Longer term, Mahilo should compare declared selectors with its own lightweight classification and flag mismatches.
+
+### Effect (What Happens If It Matches?)
+
+- `allow` — explicit exception or positive permission
+- `ask` — require user approval / escalation before proceeding
+- `deny` — block delivery
+
+This is the axis that was previously implicit. `resource_block` and `resource_rule` should **not** be policy types — they are ordinary policies with different `effect` values.
+
+### Evaluator (How Does Mahilo Judge the Policy?)
+
+#### 1. Structured Policies
+Fast exact-match policies with little or no content inspection.
+
+**Use cases**:
+- Allow coarse location to friends
+- Deny all inbound location requests from acquaintances
+- Create one-time or expiring overrides
+
+#### 2. Heuristic Policies
+Deterministic rule evaluation with regexes, length limits, allowlists/blocklists, or other simple logic.
+
+```json
+{
+  "effect": "deny",
+  "evaluator": "heuristic",
+  "policy_content": {
+    "blockedPatterns": ["\\b\\d{16}\\b", "SSN", "credit card"],
+    "maxLength": 1000,
+    "requireContext": true
+  }
+}
+```
+
+#### 3. LLM Policies
+Contextual policies for nuanced content decisions.
+
+```json
+{
+  "effect": "deny",
+  "evaluator": "llm",
+  "policy_content": "Allow calendar availability, but do not reveal event titles, attendee names, or event descriptions."
+}
+```
+
+### Lifecycle and Provenance
+
+Policies need to capture *when* and *why* they exist:
+
+- `effective_from` — scheduled start time
+- `expires_at` — temporary rule expiry
+- `max_uses` — one-time or limited-use override
+- `source` — `default`, `learned`, `user_confirmed`, `override`
+- `derived_from_message_id` — which interaction created this rule
+
+This is critical because many privacy decisions are situational. Novel decisions should usually start as temporary overrides, not permanent generalized rules.
+
+### Policy Resolution Rules
+
+This section replaces the older "if ANY policy fails → reject" rule.
+
+1. **Run platform guardrails first** — they always win and are never overridden by user policies.
+2. **Filter to active policies only** — `enabled`, in time window, and with remaining uses if applicable.
+3. **Match exact selectors** — `direction`, `resource`, `action`, plus scope match for recipient / role / group.
+4. **Resolve by specificity**:
+   - direct messages: `user > role > global`
+   - group messages: evaluate per recipient, then apply the `group` overlay as an additional constraint
+5. **Resolve within the same specificity** using the safer outcome:
+   - `deny > ask > allow`
+6. **If a more specific user policy conflicts with a broader user policy, the more specific one wins**.
+7. **If equally specific policies still conflict, the safer result wins** (`deny > ask > allow`).
+8. **If nothing matches, fall back to default posture** — conservative for sensitive domains (location, health, finance, credentials), more permissive only for clearly low-sensitivity or public information.
+
+This gives Mahilo a logical, explainable system:
+
+- broad defaults
+- role-based trust tiers
+- per-user exceptions
+- temporary overrides
+- non-overridable platform guardrails
 
 ---
 
@@ -279,155 +393,136 @@ If we dump all 1000 lines of policies into an LLM call for every message, that's
 - Expensive (many tokens)
 - Potentially confusing (too much context)
 
-### Solution: Hierarchical Policy Retrieval
+### Safe Retrieval Principle
 
-We use a funnel approach to narrow down relevant policies:
+Retrieval should optimize **latency and relevance**, not change policy semantics.
+
+**A safety-critical deny rule must never disappear because it was not in the top 5 semantic matches.**
+
+That means vector search can help rank or summarize contextual policies, but it should never be the reason a hard constraint is skipped.
+
+### Recommended Retrieval Pipeline
 
 ```
-All Policies (1000)
+Authenticate identity + resolve recipient/channel
        ↓
- Filter by scope (recipient, role, group)
+Filter to active policies (enabled, time window, remaining uses)
        ↓
-Candidate Policies (50-100)
+Filter by scope (global, user, role, group overlay)
        ↓
- Filter by resource/action
+Filter by exact selectors (direction, resource, action)
        ↓
-Relevant Policies (10-20)
+Evaluate all structured + heuristic matches
        ↓
- Vector search for semantic relevance
+Evaluate contextual LLM matches
        ↓
-Final Policies (3-5)
+Resolve effect (specificity + allow/ask/deny)
        ↓
- LLM evaluation
+Optional: use embeddings to rank explanations, history, or non-critical guidance
 ```
 
-### Step 1: Scope Filtering (Fast, Database Query)
+### Step 1: Resolve Identity and Channel Context
+
+Before retrieval, Mahilo must know:
+
+- authenticated sender user ID
+- authenticated sender connection ID
+- direct recipient or group target
+- recipient roles (for direct or per-recipient group fan-out)
+- whether this is an inbound request or outbound response
+
+Policy evaluation should always be bound to authenticated identity, not free-form sender strings.
+
+### Step 2: Filter to Active Policies
 
 ```sql
 SELECT * FROM policies WHERE
   user_id = :sender_user_id
+  AND enabled = true
+  AND (effective_from IS NULL OR effective_from <= :now)
+  AND (expires_at IS NULL OR expires_at > :now)
+  AND (remaining_uses IS NULL OR remaining_uses > 0);
+```
+
+This removes expired temporary rules and spent one-time overrides before any deeper work.
+
+### Step 3: Scope + Selector Filtering
+
+```sql
+SELECT * FROM policies WHERE
+  id IN (:active_policy_ids)
   AND (
     scope = 'global'
     OR (scope = 'user' AND target_id = :recipient_user_id)
     OR (scope = 'role' AND target_id IN (:recipient_roles))
     OR (scope = 'group' AND target_id = :group_id)
   )
-  AND enabled = true
-ORDER BY priority DESC;
+  AND (direction IS NULL OR direction = :message_direction)
+  AND (resource IS NULL OR resource = :message_resource)
+  AND (action IS NULL OR action = :message_action);
 ```
 
-This reduces 1000 policies to maybe 50-100 relevant ones.
+At this point, policy retrieval should already be narrow enough to be semantically correct. If too many policies still match, that is a signal that the policies are underspecified and should be split more precisely.
 
-### Step 2: Resource/Action Filtering (Fast, Database Query)
+### Step 4: Evaluate Deterministic Policies First
 
-Filter by the message's resource and action:
+All matching `structured` and `heuristic` policies should always be evaluated.
 
-```sql
--- Policies can be scoped to specific resources/actions
-SELECT * FROM policies WHERE
-  id IN (:candidate_policy_ids)
-  AND (
-    applicable_resource IS NULL  -- applies to all resources
-    OR applicable_resource = :message_resource
-  )
-  AND (
-    applicable_actions IS NULL  -- applies to all actions
-    OR :message_action IN (SELECT value FROM json_each(applicable_actions))
-  )
-  AND (
-    applicable_direction IS NULL  -- applies to both request/response
-    OR applicable_direction = :message_direction
-  );
-```
+This includes:
 
-**Enhanced Policy Schema:**
+- exact selector-based allows / asks / denies
+- regex and pattern blocks
+- one-time overrides
+- expiring temporary permissions
 
-```json
-{
-  "policy_type": "llm",
-  "policy_content": "For location responses, only share city-level location, never exact address or real-time location.",
-  "applicable_resource": "location",
-  "applicable_actions": ["read_current", "read_coarse", "read_history"],
-  "applicable_direction": "response"
-}
-```
+These rules are safety-critical and inexpensive. They should never be dropped for performance reasons.
 
-This reduces 50-100 policies to maybe 10-20.
+### Step 5: Evaluate Contextual LLM Policies
 
-### Step 3: Vector Search (Semantic Relevance)
+Only after exact filtering should Mahilo evaluate contextual `llm` policies.
 
-For the remaining policies, use vector embeddings to find the most semantically relevant:
+If there are many candidate LLM policies:
 
-```typescript
-// Embed the outgoing message
-const messageEmbedding = await embed(outgoingMessage);
+- evaluate all matching `deny` and `ask` policies
+- use embeddings only to **rank** explanatory or supportive context
+- prefer better selectors over more aggressive semantic pruning
 
-// Find policies with similar content
-const relevantPolicies = await vectorSearch({
-  collection: 'policy_embeddings',
-  query: messageEmbedding,
-  filter: { policy_id: { $in: candidatePolicyIds } },
-  limit: 5
-});
-```
+In other words, embeddings can help order the work, but not redefine what the candidate set means.
 
-**When to embed policies:**
-- On policy creation/update, compute and store embedding of `policy_content`
-- Embedding captures semantic meaning ("calendar availability" ≈ "schedule free time")
+### Where Embeddings Still Help
 
-This reduces 10-20 policies to the 3-5 most relevant.
+Embeddings are still valuable for:
 
-### Step 4: LLM Evaluation (Final Check)
+- finding similar past interactions to show the agent
+- ranking explanatory policies in the prompt
+- grouping near-duplicate learned rules for cleanup
+- suggesting candidate policy merges or promotions
 
-Now we call the LLM with only 3-5 highly relevant policies:
-
-```typescript
-const evaluation = await llm.evaluate({
-  message: outgoingMessage,
-  policies: relevantPolicies,  // Just 3-5, not 1000
-  prompt: `
-    Check if this message violates any of the following policies.
-    Message: "${outgoingMessage}"
-
-    Policies:
-    ${relevantPolicies.map(p => `- ${p.policy_content}`).join('\n')}
-
-    For each policy, respond PASS or FAIL with brief explanation.
-  `
-});
-```
+They are especially useful for history retrieval and summarization, where the cost of omission is lower than in enforcement.
 
 ### Optimization Summary
 
-| Stage | Method | Input | Output | Speed |
-|-------|--------|-------|--------|-------|
-| 1. Scope filter | SQL query | 1000 | 50-100 | <10ms |
-| 2. Resource/action filter | SQL query | 50-100 | 10-20 | <5ms |
-| 3. Vector search | Embedding similarity | 10-20 | 3-5 | <50ms |
-| 4. LLM evaluation | LLM call | 3-5 | Pass/Fail | ~500ms |
-
-**Total: ~600ms** vs **several seconds** for naive approach.
-
-### When to Skip Steps
-
-- **No action specified?** Filter by resource only, then vector search
-- **Few total policies (<20)?** Skip vector search, send all to LLM
-- **Heuristic policies only?** Skip LLM entirely, evaluate patterns directly
+| Stage | Method | Notes |
+|-------|--------|-------|
+| Identity resolution | Auth + graph lookup | Required before any policy match |
+| Active policy filter | SQL query | Removes expired / spent overrides |
+| Scope + selector filter | SQL query | Primary narrowing mechanism |
+| Deterministic evaluation | In-process logic | Evaluate all matches |
+| Contextual evaluation | LLM call | Evaluate bounded exact-match candidates |
+| Embedding ranking | Optional | Guidance/history, not hard safety gates |
 
 ### Policy Embedding Storage
 
 ```sql
--- Add to policies table
-ALTER TABLE policies ADD COLUMN embedding BLOB;  -- Vector embedding
-ALTER TABLE policies ADD COLUMN applicable_types TEXT;  -- JSON array of message types
-
--- Or separate table for vector search
 CREATE TABLE policy_embeddings (
-  policy_id TEXT PRIMARY KEY REFERENCES policies(id),
+  policy_id TEXT PRIMARY KEY REFERENCES policies(id) ON DELETE CASCADE,
   embedding BLOB NOT NULL,
+  model TEXT NOT NULL,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+Embeddings should be derived from `policy_content` and metadata, but they should be treated as an optimization layer only.
 
 ---
 
@@ -452,35 +547,99 @@ The agent understands:
 - Don't share: specific event details
 - Context: this was about calendar, with a friend
 
-### Step 3: Agent Generalizes (One Decision, Many Applications)
+### Step 3: Agent Asks for Scope **and** Duration
 
-Agent to Bob: "Got it. Should I apply this rule to all friends, or just Alice?"
+The next question should not be only "all friends or just Alice?" because many privacy decisions are situational.
 
-Bob: "All friends is fine"
+Agent to Bob:
 
-### Step 4: Agent Creates Policy via Mahilo API
+> "Got it. Should this be:
+> - just this time,
+> - until today ends,
+> - for Alice specifically,
+> - for all close friends,
+> - or your normal rule going forward?"
 
-```
-POST /api/v1/policies
+This keeps the learning loop from over-generalizing a single contextual decision into a permanent preference.
+
+### Step 4: Create a Temporary Rule First (Default)
+
+For novel situations, Mahilo should prefer one-time or expiring overrides first.
+
+**One-time override:**
+
+```json
 {
-  "scope": "role",
-  "target_id": "friends",
-  "policy_type": "llm",
-  "policy_content": "For calendar-related questions: share availability (free/busy, general time slots) but do not share specific event details (event names, descriptions, attendees, locations of specific events).",
-  "priority": 10
+  "scope": "user",
+  "target_id": "alice_user_id",
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "allow",
+  "evaluator": "structured",
+  "policy_content": "Allow this response once for Alice.",
+  "max_uses": 1,
+  "source": "override",
+  "derived_from_message_id": "msg_123"
 }
 ```
 
-### Step 5: Mahilo Stores and Enforces
+**Temporary rule until tonight:**
 
-Future messages are validated against this policy. If Bob's agent accidentally includes "dentist appointment at 2pm", Mahilo rejects it.
+```json
+{
+  "scope": "user",
+  "target_id": "alice_user_id",
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "allow",
+  "evaluator": "structured",
+  "policy_content": "Allow sharing today's work-event details with Alice.",
+  "expires_at": "2026-03-08T23:59:59Z",
+  "source": "override",
+  "derived_from_message_id": "msg_123"
+}
+```
 
-### Step 6: Feedback Loop
+### Step 5: Promote to Persistent Policy Deliberately
 
-If rejected, agent can:
-- Rephrase the message
-- Ask Bob for guidance
-- Learn that this type of content triggers rejection
+Only after explicit confirmation ("yes, always do this") or repeated consistent temporary decisions should the system create a lasting generalized policy.
+
+```json
+{
+  "scope": "role",
+  "target_id": "friends",
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "deny",
+  "evaluator": "llm",
+  "policy_content": "For calendar-related questions, share availability but do not share specific event details such as event names, attendee names, or descriptions.",
+  "priority": 10,
+  "source": "user_confirmed"
+}
+```
+
+### Step 6: Mahilo Stores, Resolves, and Enforces
+
+Future messages are evaluated against:
+
+- platform guardrails
+- active temporary overrides
+- persistent user policies
+- group overlays (if applicable)
+
+If Bob's agent accidentally includes "dentist appointment at 2pm", Mahilo can either `deny` or `ask`, depending on the resolved effective policy.
+
+### Step 7: Feedback Loop
+
+If a message is denied or escalated, the agent can:
+
+- rephrase the message
+- ask Bob for a one-time override
+- promote a repeated pattern into a broader rule
+- learn that this type of content is sensitive for this relationship or context
 
 ---
 
@@ -752,10 +911,11 @@ Policies target (resource, action) combinations:
 {
   "scope": "role",
   "target_id": "acquaintances",
-  "policy_type": "resource_block",
+  "direction": "request",
   "resource": "location",
-  "action": "*",
-  "effect": "deny"
+  "effect": "deny",
+  "evaluator": "structured",
+  "policy_content": "Location requests are blocked for acquaintances."
 }
 ```
 
@@ -764,10 +924,12 @@ Policies target (resource, action) combinations:
 {
   "scope": "role",
   "target_id": "friends",
-  "policy_type": "resource_rule",
+  "direction": "response",
   "resource": "location",
   "action": "read_coarse",
-  "effect": "allow"
+  "effect": "allow",
+  "evaluator": "structured",
+  "policy_content": "Friends may receive city-level location."
 }
 ```
 
@@ -775,10 +937,13 @@ Policies target (resource, action) combinations:
 ```json
 {
   "scope": "global",
-  "policy_type": "llm",
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_details",
+  "effect": "deny",
+  "evaluator": "llm",
   "policy_content": "When sharing calendar details, never include attendee names or meeting descriptions. Only share time slots.",
-  "applicable_resource": "calendar",
-  "applicable_actions": ["read_details"]
+  "priority": 80
 }
 ```
 
@@ -830,11 +995,11 @@ Custom resources are allowed but not validated by Mahilo (pass-through).
 
 To provide rich context for future interactions:
 > "Past similar decisions:
-> - 2024-01-20: Carol (friend) asked `calendar_availability_request`
->   → You responded `calendar_availability_response`: "Bob is free Thursday afternoon"
+> - 2024-01-20: Carol (friend) asked `request/calendar/read_availability`
+>   → You responded `response/calendar/read_availability`: "Bob is free Thursday afternoon"
 >   → Outcome: shared (availability only)
-> - 2024-01-18: Dan (acquaintance) asked `calendar_details_request`
->   → You responded `meta_escalation`: "I'd need to check with Bob first"
+> - 2024-01-18: Dan (acquaintance) asked `request/calendar/read_details`
+>   → You responded `response/meta/escalate`: "I'd need to check with Bob first"
 >   → Outcome: escalated → Bob approved availability only"
 
 This context helps agents make consistent decisions and shows users what happened.
@@ -977,7 +1142,9 @@ POST /api/v1/messages/send
 {
   "recipient": "alice",
   "message": "Bob is free Thursday after 2pm",
-  "message_type": "calendar_availability_response",
+  "direction": "response",
+  "resource": "calendar",
+  "action": "read_availability",
   "in_response_to": "msg_001",
   "outcome_metadata": {
     "outcome": "partial",
@@ -1058,19 +1225,23 @@ The plugin fetches relevant history and formats it:
 ```typescript
 async function getRelevantHistory(
   senderUsername: string,
-  messageType: string
+  selectors: { direction: string; resource: string; action?: string }
 ): Promise<FormattedHistory[]> {
-  // Get past interactions of same type from same sender
+  // Get past interactions of same selector shape from same sender
   const sameSenderSameType = await mahilo.getHistory({
     with_user: senderUsername,
-    message_type: messageType,
+    direction: selectors.direction,
+    resource: selectors.resource,
+    action: selectors.action,
     include_responses: true,
     limit: 3
   });
 
-  // Get past interactions of same type from anyone
+  // Get past interactions of same selector shape from anyone
   const sameTypeAnyUser = await mahilo.getHistory({
-    message_type: messageType,
+    direction: selectors.direction,
+    resource: selectors.resource,
+    action: selectors.action,
     include_responses: true,
     limit: 3
   });
@@ -1085,7 +1256,9 @@ For very active users, raw history might be overwhelming. Option to summarize:
 
 ```
 GET /api/v1/messages/history?
-  message_type=calendar_availability_request&
+  direction=request&
+  resource=calendar&
+  action=read_availability&
   summarize=true
 
 Response:
@@ -1172,7 +1345,7 @@ GUIDANCE
 Based on policies and past behavior, you MAY share:
   ✓ General availability (free/busy)
   ✓ Specific time slots
-  ✓ Event details (Alice is close_friend) — but NOT health appointments
+  ✓ Event details (Alice is in `close_friends`) — but NOT health appointments
 
 Your response will be validated against Bob's policies before delivery.
 If it violates a policy, you'll be notified and can rephrase.
@@ -1198,7 +1371,7 @@ After the agent sends a response, the plugin injects a transparency note. This s
 MAHILO: MESSAGE SENT ✓
 ═══════════════════════════════════════════════════════════════════════════════
 
-TO: alice (in response to calendar_availability_request)
+TO: alice (in response to request/calendar/read_availability)
 
 WHAT YOU SENT:
 "Bob is free Thursday after 2pm and Friday morning. He has a team standup
@@ -1226,49 +1399,81 @@ This interaction has been logged. Bob can review anytime in Mahilo dashboard.
 
 ### Part 3: Learning Prompt (One Decision → Many Applications)
 
-When the agent makes a decision that could become a general rule, prompt for generalization.
+When the agent makes a decision that could become a general rule, prompt for **scope and duration**, not just scope.
 
 ```markdown
 ═══════════════════════════════════════════════════════════════════════════════
 MAHILO: LEARNING OPPORTUNITY
 ═══════════════════════════════════════════════════════════════════════════════
 
-You just shared work event details with Alice (close_friend).
+You just shared work event details with Alice (`close_friends`).
 
 This might be worth turning into a policy for future interactions.
 
 QUESTIONS TO ASK BOB:
 
-1. "I shared your team standup with Alice since she's a close friend.
-    Should I share work event details with all close friends in the future,
-    or just Alice?"
+1. "Was this:
+    - just this one message,
+    - okay until tonight,
+    - okay for Alice specifically,
+    - okay for all close friends,
+    - or your usual rule going forward?"
 
-    If Bob says "all close friends" → Create policy:
-    {
-      scope: "role",
-      target_id: "close_friends",
-      policy_type: "llm",
-      policy_content: "Work-related event details (meetings, standups, deadlines)
-                       may be shared with close friends."
-    }
-
-    If Bob says "just Alice" → Create policy:
+    If Bob says "just this one" → Create override:
     {
       scope: "user",
       target_id: "alice_user_id",
-      policy_type: "llm",
-      policy_content: "Work-related event details may be shared with Alice."
+      direction: "response",
+      resource: "calendar",
+      action: "read_details",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: "Allow this response once for Alice.",
+      max_uses: 1,
+      source: "override"
+    }
+
+    If Bob says "until tonight" → Create temporary rule:
+    {
+      scope: "user",
+      target_id: "alice_user_id",
+      direction: "response",
+      resource: "calendar",
+      action: "read_details",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: "Allow sharing today's work-event details with Alice.",
+      expires_at: "2026-03-08T23:59:59Z",
+      source: "override"
+    }
+
+    If Bob says "all close friends" → Create persistent policy:
+    {
+      scope: "role",
+      target_id: "close_friends",
+      direction: "response",
+      resource: "calendar",
+      action: "read_details",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: "Close friends may receive work-related event details.",
+      source: "user_confirmed"
     }
 
 2. "I withheld your dentist appointment since it's health-related.
     Is that the right call? Should health appointments always stay private?"
 
-    If Bob confirms → Ensure global policy exists:
+    If Bob confirms → Ensure global deny exists:
     {
       scope: "global",
-      policy_type: "llm",
-      policy_content: "Never share health-related appointments or medical
-                       information with anyone, regardless of trust level."
+      direction: "response",
+      resource: "calendar",
+      action: "read_details",
+      effect: "deny",
+      evaluator: "llm",
+      policy_content: "Do not reveal health-related appointments or medical
+                       information with anyone unless Bob creates an explicit exception.",
+      source: "user_confirmed"
     }
 
 ───────────────────────────────────────────────────────────────────────────────
@@ -1312,21 +1517,21 @@ WHEN YOU DO ASK, frame it helpfully:
 
 ### Part 5: Error/Rejection Handling
 
-When Mahilo rejects a message for policy violation:
+When Mahilo blocks or pauses a message, the agent-facing view should be helpful but not overly revealing.
 
 ```markdown
 ═══════════════════════════════════════════════════════════════════════════════
-MAHILO: MESSAGE BLOCKED ✗
+MAHILO: REVIEW REQUIRED ✗
 ═══════════════════════════════════════════════════════════════════════════════
 
 Your message to alice was not sent.
 
-WHAT YOU TRIED TO SEND:
-"Bob is at 123 Main Street right now, he'll be there for another hour."
+REASON CODE:
+  • response.location.too_specific
 
-POLICY VIOLATION:
-  • [policy_456] "Never share exact location or home address"
-  • Triggered by: "123 Main Street" (exact address detected)
+SUMMARY:
+  • This draft would reveal more precise location information than current
+    policy allows for this recipient or channel.
 
 SUGGESTED ALTERNATIVES:
   • Share general area: "Bob is in downtown SF"
@@ -1334,20 +1539,27 @@ SUGGESTED ALTERNATIVES:
   • Ask Bob: "Alice is asking for your exact location. Share it?"
 
 ACTION NEEDED:
-  → Rephrase your response to comply with policies, OR
-  → Ask Bob if he wants to override this policy for this specific case
+  → Rephrase your response to comply with policy, OR
+  → Ask Bob if he wants a one-time override or temporary exception
 
 ═══════════════════════════════════════════════════════════════════════════════
 ```
 
+**User-facing audit views** can show exact policy IDs, exact matches, and detailed reasoning. Agent-facing rejection prompts should usually show:
+
+- a stable reason code
+- the general category of blocked content
+- safe alternatives
+- whether an override / ask path exists
+
 ### Key Principles for Prompt Injection
 
-1. **Be Specific**: Show exact policy IDs, exact past interactions, exact decisions
+1. **Be Specific in the Right Place**: Show exact policy IDs and exact triggers in user-facing audit logs; keep agent-facing rejection prompts minimally revealing
 2. **Be Actionable**: Clear guidance on what to do, not just what the rules are
-3. **Encourage Learning**: Prompt for generalization after novel decisions
+3. **Encourage Learning**: Prefer temporary overrides first, then promote to durable policy only when the user confirms a lasting rule
 4. **Show Work**: Transparency about what was shared, why, and what was withheld
 5. **Make Asking Easy**: Frame questions to Bob so they're quick to answer
-6. **Build Trust**: Always log, always show, let Bob review anytime
+6. **Build Trust**: Always log, always show, and make expiry / override behavior reviewable
 
 ### Technical Implementation
 
@@ -1362,22 +1574,34 @@ interface MahiloPromptContext {
     roles: string[];
     interactionCount: number;
   };
-  messageType: string;
+  messageSelectors: {
+    direction: 'request' | 'response' | 'notification' | 'error';
+    resource: string;
+    action?: string;
+    declaredBySender: boolean;
+    verifiedByMahilo?: boolean;
+  };
   messageContent: string;
 
   // Policies
   relevantPolicies: Array<{
     id: string;
     scope: string;
+    effect: 'allow' | 'ask' | 'deny';
+    evaluator: 'structured' | 'heuristic' | 'llm';
     content: string;
-    recommendation: 'allow' | 'ask' | 'block';
+    expiresAt?: Date | null;
   }>;
 
   // History
   pastInteractions: Array<{
     date: Date;
     from: string;
-    type: string;
+    selectors: {
+      direction: string;
+      resource: string;
+      action?: string;
+    };
     response: string;
     outcome: string;
   }>;
@@ -1414,440 +1638,336 @@ function formatLearningPrompt(
 
 ## Inbound Request Handling
 
-### The Philosophy: Context Over Rejection
+### The Philosophy: Authenticated Identity Before Context
 
-Instead of rigidly rejecting requests, we:
-1. **Block truly unwanted messages** at Mahilo (never reach agent)
-2. **Provide rich context** for everything else
-3. **Let the agent make informed judgments**
-4. **Validate the agent's response** before sending
+Inbound policy handling should follow this order:
+
+1. **Authenticate sender identity** — resolve authenticated sender user and sender connection
+2. **Apply platform guardrails and request policies** — block obvious abuse or explicitly denied requests
+3. **Interpret selectors carefully** — use declared `direction` / `resource` / `action` as hints, with optional Mahilo-side verification/classification
+4. **Deliver with the right level of review** — normal delivery, review-required delivery, or block
+5. **Validate any resulting response** before it leaves Mahilo
+
+This keeps the system honest: request policy is tied to authenticated identity first, then to declared metadata, then to content.
+
+### Request Policy Semantics
+
+For inbound requests, the effect meanings are:
+
+- `deny` — block the request at Mahilo; it never reaches the receiving agent
+- `ask` — deliver with a `review_required` / `needs_approval` flag (or optionally hold for approval in stricter product modes)
+- `allow` — deliver normally with context
+
+This preserves the "context over rejection" principle without letting every potentially sensitive request flow through silently.
 
 ### What Gets Blocked at Mahilo
 
-These messages never reach the agent:
-
-| Condition | Action |
-|-----------|--------|
-| Sender is blocked | Reject, don't store |
-| Message type blocked for this sender's role | Reject, store in filtered log |
-| Sender not a friend (and friendship required) | Reject with "not friends" error |
-| Obvious spam/abuse patterns | Reject, flag for review |
+| Condition | Action | Audit Behavior |
+|-----------|--------|----------------|
+| Sender authentication fails | Reject immediately | Minimal blocked-event log only |
+| Sender is blocked by the user | Reject immediately | Minimal blocked-event log |
+| Request matches platform abuse guardrails | Reject / quarantine | Abuse/security log |
+| Request matches a `deny` request policy | Reject immediately | Minimal blocked-event log |
+| Sender is not allowed to contact this user | Reject immediately | Minimal blocked-event log |
 
 ### What Gets Delivered with Context
 
-Everything else is delivered, but with context:
-
-| Condition | Context Added |
-|-----------|---------------|
-| Request from unknown role | "⚠️ New contact, no history" |
-| Unusual request pattern | "⚠️ This type of request is uncommon from this person" |
-| Urgent framing | "⚠️ Message marked urgent - verify legitimacy" |
-| Request for sensitive data | "⚠️ This involves [calendar/location/etc] - check policies" |
+| Condition | Delivery Mode | Context Added |
+|-----------|---------------|---------------|
+| Request matches an `ask` policy | Review required | "Sensitive request — user review recommended" |
+| Request from unknown or low-trust sender | Normal or review-required | "New contact / low-trust relationship" |
+| Urgent or manipulative framing | Normal or review-required | "Urgent framing detected — verify legitimacy" |
+| Declared selectors look suspicious | Normal or review-required | "Declared type may not match content" |
+| Sensitive resource domain | Normal or review-required | "Location / calendar / health / finance sensitivity" |
 
 ### Blocked Message Log
 
-Users should be able to see what was blocked:
+Users should be able to inspect blocked events, but Mahilo should store **minimal metadata by default**, not necessarily full blocked content.
 
+```json
+{
+  "id": "blocked_123",
+  "sender": "spammy_agent",
+  "reason_code": "request.location.denied_for_unknown_sender",
+  "direction": "request",
+  "resource": "location",
+  "action": "read_current",
+  "stored_payload_excerpt": null,
+  "payload_hash": "sha256:...",
+  "timestamp": "2026-03-08T10:00:00Z"
+}
 ```
-GET /api/v1/messages/blocked
 
-[
-  {
-    "from": "spammy_agent",
-    "type": "location_request",
-    "blocked_reason": "location_request blocked for role: unknown",
-    "timestamp": "2024-01-20T10:00:00Z"
-  }
-]
-```
+Full payload retention for blocked inbound messages should be opt-in or tightly redacted.
 
 ---
 
 ## Implementation Considerations
 
+### Foundational Principle: Policy Binds to Identity
+
+Mahilo policies should bind to:
+
+- authenticated `sender_user_id`
+- authenticated `sender_connection_id`
+- resolved recipient or group target
+- resolved relationship / role graph
+
+They should **not** rely on free-form sender strings for enforcement.
+
+`direction`, `resource`, and `action` are still valuable, but they should be treated as selectors from an authenticated source, not as independent proof of what the message really means.
+
 ### New API Endpoints Needed
 
 ```
-# Policy management (already exists, may need extensions)
-POST   /api/v1/policies              # Create policy
-GET    /api/v1/policies              # List policies
-PATCH  /api/v1/policies/:id          # Update policy
-DELETE /api/v1/policies/:id          # Delete policy
+# Policy management
+POST   /api/v1/policies                 # Create policy or temporary override
+GET    /api/v1/policies                 # List policies
+PATCH  /api/v1/policies/:id             # Update policy
+DELETE /api/v1/policies/:id             # Delete policy
+POST   /api/v1/policies/resolve         # Preview resolution for a message draft
 
-# New: Policy retrieval for enforcement
-GET    /api/v1/policies/evaluate     # Get relevant policies for a message
-                                     # (uses scope + type filtering + vector search)
+# Role management
+POST   /api/v1/friends/:id/roles        # Add role to friend
+DELETE /api/v1/friends/:id/roles/:role  # Remove role from friend
+GET    /api/v1/roles                    # List available roles
+POST   /api/v1/roles                    # Create custom role
 
-# New: Role/tag management for friends
-POST   /api/v1/friends/:id/roles     # Add role to friend
-DELETE /api/v1/friends/:id/roles/:role  # Remove role
-GET    /api/v1/roles                 # List available roles
-POST   /api/v1/roles                 # Create custom role
-
-# New: Message schema (read-only reference)
-GET    /api/v1/message-schema        # List directions, resources, actions
-
-# New: Message history with filtering
-GET    /api/v1/messages/history      # Query with filters (type, user, outcome)
-GET    /api/v1/messages/blocked      # View blocked messages
-POST   /api/v1/messages/:id/outcome  # Report outcome of a response
-
-# New: Context endpoint for plugins
-GET    /api/v1/context/:username     # Get full context for a sender
-                                     # (relationship, roles, history, policies)
+# Message typing + context
+GET    /api/v1/message-schema           # List directions, resources, actions
+GET    /api/v1/context/:username        # Get sender/relationship/history/policy context
+GET    /api/v1/messages/history         # Query history with filters
+GET    /api/v1/messages/blocked         # View blocked inbound/outbound events
+POST   /api/v1/messages/:id/outcome     # Report outcome of a response
 ```
+
+No separate override endpoint is required if `POST /api/v1/policies` accepts `expires_at` and `max_uses`.
+
+### Canonical Policy Type
+
+```typescript
+type PolicyScope = 'global' | 'user' | 'role' | 'group';
+type PolicyEffect = 'allow' | 'ask' | 'deny';
+type PolicyEvaluator = 'structured' | 'heuristic' | 'llm';
+
+type PolicySource = 'default' | 'learned' | 'user_confirmed' | 'override';
+
+interface Policy {
+  id: string;
+  userId: string;
+  scope: PolicyScope;
+  targetId: string | null;
+  direction: 'request' | 'response' | 'notification' | 'error' | null;
+  resource: string | null;
+  action: string | null;
+  effect: PolicyEffect;
+  evaluator: PolicyEvaluator;
+  policyContent: string;
+  priority: number;
+  enabled: boolean;
+  effectiveFrom: Date | null;
+  expiresAt: Date | null;
+  maxUses: number | null;
+  remainingUses: number | null;
+  source: PolicySource;
+  derivedFromMessageId: string | null;
+  createdAt: Date;
+}
+```
+
+`policyContent` can be:
+
+- structured JSON for `structured`
+- structured JSON for `heuristic`
+- natural-language policy text for `llm`
 
 ### Database Schema Changes
 
+Keep the message direction / resource / action reference tables from earlier in this document. On top of that, the key schema changes are:
+
 ```sql
--- ═══════════════════════════════════════════════════════════════════════════
--- MESSAGE TYPE SCHEMA (reference tables for validation)
--- ═══════════════════════════════════════════════════════════════════════════
+-- Policies: make selectors, effect, lifecycle, and provenance explicit
+ALTER TABLE policies ADD COLUMN direction TEXT;
+ALTER TABLE policies ADD COLUMN resource TEXT;
+ALTER TABLE policies ADD COLUMN action TEXT;
+ALTER TABLE policies ADD COLUMN effect TEXT NOT NULL DEFAULT 'ask';
+ALTER TABLE policies ADD COLUMN evaluator TEXT NOT NULL DEFAULT 'llm';
+ALTER TABLE policies ADD COLUMN effective_from DATETIME;
+ALTER TABLE policies ADD COLUMN expires_at DATETIME;
+ALTER TABLE policies ADD COLUMN max_uses INTEGER;
+ALTER TABLE policies ADD COLUMN remaining_uses INTEGER;
+ALTER TABLE policies ADD COLUMN source TEXT NOT NULL DEFAULT 'learned';
+ALTER TABLE policies ADD COLUMN derived_from_message_id TEXT REFERENCES messages(id);
 
--- Valid directions (primitives)
-CREATE TABLE message_directions (
-  direction TEXT PRIMARY KEY,
-  description TEXT NOT NULL
-);
+CREATE INDEX idx_policies_lookup
+  ON policies(user_id, enabled, scope, target_id);
 
-INSERT INTO message_directions (direction, description) VALUES
-  ('request', 'Asking for information or action'),
-  ('response', 'Replying to a request'),
-  ('notification', 'One-way informational message'),
-  ('error', 'Error or inability to fulfill');
+CREATE INDEX idx_policies_selectors
+  ON policies(direction, resource, action);
 
--- Valid resources (domains)
-CREATE TABLE message_resources (
-  resource TEXT PRIMARY KEY,
-  description TEXT NOT NULL
-);
+CREATE INDEX idx_policies_lifecycle
+  ON policies(effective_from, expires_at);
+```
 
-INSERT INTO message_resources (resource, description) VALUES
-  ('calendar', 'Schedule, availability, events'),
-  ('location', 'Whereabouts, places'),
-  ('document', 'Files, content'),
-  ('contact', 'People, introductions'),
-  ('action', 'Tasks, reminders, approvals'),
-  ('meta', 'System-level communication');
-
--- Known actions per resource (for validation/suggestions, not strict)
-CREATE TABLE message_actions (
-  resource TEXT NOT NULL REFERENCES message_resources(resource),
-  action TEXT NOT NULL,
-  description TEXT,
-  PRIMARY KEY (resource, action)
-);
-
-INSERT INTO message_actions (resource, action, description) VALUES
-  -- Calendar
-  ('calendar', 'read_availability', 'Get free/busy windows'),
-  ('calendar', 'read_details', 'Get event details'),
-  ('calendar', 'propose_hold', 'Suggest a tentative time'),
-  ('calendar', 'confirm', 'Confirm a proposed time'),
-  ('calendar', 'cancel', 'Cancel an event'),
-  ('calendar', 'explain_constraints', 'Explain scheduling constraints'),
-  -- Location
-  ('location', 'read_current', 'Current exact location'),
-  ('location', 'read_coarse', 'City-level location'),
-  ('location', 'read_history', 'Past locations'),
-  ('location', 'subscribe', 'Stream location updates'),
-  ('location', 'share_eta', 'Share ETA to destination'),
-  ('location', 'verify_proximity', 'Check if within distance'),
-  ('location', 'checkin', 'User-initiated check-in'),
-  -- Document
-  ('document', 'read', 'Read document content'),
-  ('document', 'summarize', 'Get document summary'),
-  ('document', 'share', 'Share a document'),
-  ('document', 'request_access', 'Request access to document'),
-  -- Contact
-  ('contact', 'introduce', 'Make an introduction'),
-  ('contact', 'share_info', 'Share contact information'),
-  ('contact', 'connect', 'Request to connect'),
-  -- Action
-  ('action', 'remind', 'Set a reminder'),
-  ('action', 'approve', 'Approve something'),
-  ('action', 'execute', 'Execute a task'),
-  ('action', 'delegate', 'Delegate to someone'),
-  -- Meta
-  ('meta', 'capabilities', 'Query capabilities'),
-  ('meta', 'escalate', 'Escalate to human'),
-  ('meta', 'acknowledge', 'Simple acknowledgment'),
-  ('meta', 'ping', 'Health check');
-
-
--- ═══════════════════════════════════════════════════════════════════════════
--- FRIEND ROLES
--- ═══════════════════════════════════════════════════════════════════════════
-
--- Available roles (some system-defined, some user-defined)
-CREATE TABLE user_roles (
-  id TEXT PRIMARY KEY,
-  user_id TEXT REFERENCES users(id),         -- NULL for system roles
-  name TEXT NOT NULL,                         -- 'close_friends'
-  description TEXT,
-  is_system BOOLEAN DEFAULT FALSE,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, name)
-);
-
--- Seed system roles
-INSERT INTO user_roles (id, user_id, name, description, is_system) VALUES
-  ('role_close_friends', NULL, 'close_friends', 'Highest trust tier', TRUE),
-  ('role_friends', NULL, 'friends', 'Standard friends', TRUE),
-  ('role_acquaintances', NULL, 'acquaintances', 'Casual contacts', TRUE),
-  ('role_work_contacts', NULL, 'work_contacts', 'Professional context only', TRUE),
-  ('role_family', NULL, 'family', 'Family members', TRUE);
-
--- Friend-to-role mapping (many-to-many)
-CREATE TABLE friend_roles (
-  friendship_id TEXT NOT NULL REFERENCES friendships(id) ON DELETE CASCADE,
-  role_name TEXT NOT NULL,                   -- references user_roles.name
-  assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (friendship_id, role_name)
-);
-
-CREATE INDEX idx_friend_roles_role ON friend_roles(role_name);
-
-
--- ═══════════════════════════════════════════════════════════════════════════
--- MESSAGE ENHANCEMENTS
--- ═══════════════════════════════════════════════════════════════════════════
-
--- Message type structure (primitives + metadata)
-ALTER TABLE messages ADD COLUMN direction TEXT NOT NULL
-  REFERENCES message_directions(direction);
-ALTER TABLE messages ADD COLUMN resource TEXT NOT NULL
-  REFERENCES message_resources(resource);
-ALTER TABLE messages ADD COLUMN action TEXT;                 -- optional, free-form but validated
-ALTER TABLE messages ADD COLUMN schema_version TEXT;         -- e.g., 'mahilo.location.subscribe.v1'
-
--- Request/response correlation
-ALTER TABLE messages ADD COLUMN in_response_to TEXT
-  REFERENCES messages(id);
-
--- Outcome tracking
+```sql
+-- Messages: persist selectors, outcomes, and stronger identity binding
+ALTER TABLE messages ADD COLUMN direction TEXT NOT NULL;
+ALTER TABLE messages ADD COLUMN resource TEXT NOT NULL;
+ALTER TABLE messages ADD COLUMN action TEXT;
+ALTER TABLE messages ADD COLUMN in_response_to TEXT REFERENCES messages(id);
 ALTER TABLE messages ADD COLUMN outcome TEXT;
-  -- 'shared', 'partial', 'declined', 'escalated', 'error'
 ALTER TABLE messages ADD COLUMN outcome_details TEXT;
-ALTER TABLE messages ADD COLUMN policies_evaluated TEXT;    -- JSON array of policy IDs
-ALTER TABLE messages ADD COLUMN user_involved BOOLEAN DEFAULT FALSE;
-ALTER TABLE messages ADD COLUMN blocked_reason TEXT;        -- null if delivered
-
--- Indexes for efficient querying
-CREATE INDEX idx_messages_direction ON messages(direction);
-CREATE INDEX idx_messages_resource ON messages(resource);
-CREATE INDEX idx_messages_resource_action ON messages(resource, action);
-CREATE INDEX idx_messages_in_response_to ON messages(in_response_to);
-CREATE INDEX idx_messages_outcome ON messages(outcome);
-CREATE INDEX idx_messages_resource_sender ON messages(resource, sender_user_id);
-
-
--- ═══════════════════════════════════════════════════════════════════════════
--- POLICY ENHANCEMENTS
--- ═══════════════════════════════════════════════════════════════════════════
-
--- scope can now be: 'global', 'user', 'group', 'role'
-
--- Resource/action scoping for policies (null = applies to all)
-ALTER TABLE policies ADD COLUMN applicable_resource TEXT
-  REFERENCES message_resources(resource);
-ALTER TABLE policies ADD COLUMN applicable_actions TEXT;    -- JSON array of actions, null = all
-ALTER TABLE policies ADD COLUMN applicable_direction TEXT
-  REFERENCES message_directions(direction);  -- 'request', 'response', or null for both
-
--- Vector embedding for semantic search
-ALTER TABLE policies ADD COLUMN embedding BLOB;
-
--- Or separate table for embeddings (cleaner)
-CREATE TABLE policy_embeddings (
-  policy_id TEXT PRIMARY KEY REFERENCES policies(id) ON DELETE CASCADE,
-  embedding BLOB NOT NULL,
-  model TEXT NOT NULL,                       -- embedding model used
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-
--- ═══════════════════════════════════════════════════════════════════════════
--- INDEXES FOR POLICY RETRIEVAL
--- ═══════════════════════════════════════════════════════════════════════════
-
-CREATE INDEX idx_policies_scope_target ON policies(scope, target_id);
-CREATE INDEX idx_policies_user_scope ON policies(user_id, scope);
-CREATE INDEX idx_policies_enabled ON policies(enabled) WHERE enabled = TRUE;
+ALTER TABLE messages ADD COLUMN policies_evaluated TEXT;
+ALTER TABLE messages ADD COLUMN sender_connection_id TEXT REFERENCES agent_connections(id);
+ALTER TABLE messages ADD COLUMN classified_direction TEXT;
+ALTER TABLE messages ADD COLUMN classified_resource TEXT;
+ALTER TABLE messages ADD COLUMN classified_action TEXT;
 ```
 
-### Plugin SDK Requirements
+The `classified_*` columns are optional but useful later if Mahilo starts verifying declared selectors against its own classifier.
 
-The Mahilo plugin needs to:
-
-#### 1. Fetch Context Before Presenting Messages
+### Resolver Flow
 
 ```typescript
-const context = await mahilo.getContext(senderUsername);
+async function resolvePolicies(ctx: ResolutionContext): Promise<ResolutionResult> {
+  await runPlatformGuardrails(ctx);
 
-// Returns:
-interface MessageContext {
-  sender: {
-    username: string;
-    displayName: string;
-    relationship: 'friend' | 'acquaintance' | 'unknown';
-    connectedSince: Date | null;
-    roles: string[];
-    interactionCount: number;
-  };
-  relevantPolicies: Array<{
-    id: string;
-    scope: string;
-    content: string;
-    recommendation: 'allow' | 'ask' | 'block';
-  }>;
-  pastInteractions: Array<{
-    date: Date;
-    from: string;
-    type: string;
-    responseSummary: string;
-    outcome: string;
-  }>;
-  relevantDecisions: Array<{
-    decision: string;
-    learnedDate: Date;
-  }>;
+  const activePolicies = await getActivePolicies(ctx);
+  const matchingPolicies = filterByScopeAndSelectors(activePolicies, ctx);
+
+  const deterministicMatches = evaluateDeterministicPolicies(matchingPolicies, ctx);
+  const llmMatches = await evaluateContextualPolicies(matchingPolicies, ctx);
+
+  const resolved = resolveBySpecificityAndEffect([
+    ...deterministicMatches,
+    ...llmMatches,
+  ]);
+
+  if (resolved.appliedPolicy?.remainingUses === 1) {
+    await consumeOneTimeOverride(resolved.appliedPolicy.id);
+  }
+
+  return resolved;
 }
 ```
 
-#### 2. Inject Context Into Agent Prompt
+The resolver should return:
 
-```typescript
-// Format the structured prompt for injection
-const incomingPrompt = mahilo.formatIncomingPrompt(message, context);
-agent.injectSystemContext(incomingPrompt);
+- final effect: `allow`, `ask`, or `deny`
+- winning policy (if any)
+- policies evaluated
+- human explanation for audit
+- minimal reason code for agent-facing prompts
 
-// After agent responds, format the transparency note
-const postResponsePrompt = mahilo.formatPostResponsePrompt(
-  sentMessage,
-  policiesChecked,
-  { shared: [...], withheld: [...] }
-);
-agent.injectSystemContext(postResponsePrompt);
+### Group Message Enforcement
 
-// If learning opportunity exists, prompt for generalization
-if (isNovelDecision(sentMessage)) {
-  const learningPrompt = mahilo.formatLearningPrompt(
-    sentMessage,
-    potentialGeneralizations
-  );
-  agent.injectSystemContext(learningPrompt);
-}
-```
+Group messages should be enforced per recipient, not just once at the group level.
 
-#### 3. Report Outcomes
+Recommended model:
 
-```typescript
-await mahilo.reportOutcome(messageId, {
-  outcome: 'partial',
-  details: 'Shared availability only, not event details',
-  policiesEvaluated: ['policy_123', 'policy_456'],
-  userInvolved: false
-});
-```
+1. Create a parent group message record
+2. For each recipient in the group:
+   - resolve recipient roles
+   - evaluate global + role + user policies for that recipient
+   - apply group policy as an overlay
+   - produce `allow`, `ask`, or `deny` for that delivery
+3. Fan out only to recipients that pass resolution
+4. Record partial deliveries explicitly
 
-#### 4. Create Policies From Learned Preferences
+This means one group message may be:
 
-```typescript
-// After user confirms a generalization
-await mahilo.createPolicy({
-  scope: 'role',
-  target_id: 'close_friends',
-  policy_type: 'llm',
-  policy_content: 'Work event details (meetings, standups) may be shared.',
-  applicable_types: ['calendar_details_request', 'calendar_details_response'],
-  priority: 50
-});
-```
+- delivered to some members
+- held / escalated for some members
+- denied for others
 
-#### 5. Validate Message Types
+That behavior is more correct than a single coarse group-wide allow/deny decision.
 
-```typescript
-// Before sending, ensure type is valid
-const validTypes = await mahilo.getMessageTypes();
-if (!validTypes.includes(messageType)) {
-  throw new MahiloValidationError(`Invalid message type: ${messageType}`);
-}
+### Temporary Overrides and Promotion
 
-// Get suggested response type
-const requestType = incomingMessage.type;
-const suggestedResponseType = validTypes.find(t => t.type === requestType)?.expectedResponseType;
-```
+The learning system should default to **temporary overrides first**:
 
-### Cold Start: Default Policies
+- one-time override → `max_uses = 1`
+- expiring rule → `expires_at = ...`
+- recurring rule → no expiry, but only after user confirmation
 
-When a user registers, create sensible default policies:
+Promotion rules should be conservative:
+
+- repeated temporary overrides can trigger a suggestion
+- promotion should still be explicit (`source = user_confirmed`)
+- expired and spent policies should be ignored by default and optionally garbage-collected later
+
+### Default Policies & Cold Start
+
+Cold start should be conservative for high-sensitivity domains.
 
 ```typescript
 const defaultPolicies = [
-  // High priority: Block obvious sensitive patterns
   {
     scope: 'global',
-    policy_type: 'heuristic',
+    target_id: null,
+    direction: 'response',
+    resource: null,
+    action: null,
+    effect: 'deny',
+    evaluator: 'heuristic',
     policy_content: {
-      blockedPatterns: ['\\b\\d{16}\\b', 'SSN', 'password', 'secret']
+      blockedPatterns: ['\\b\\d{16}\\b', 'SSN', 'password', 'secret', 'api[_\\s-]?key']
     },
-    priority: 100
+    priority: 100,
+    source: 'default'
   },
-
-  // Location protection
   {
     scope: 'global',
-    policy_type: 'llm',
-    policy_content: 'Never share exact addresses or real-time location. City-level location is okay with friends.',
-    applicable_types: ['location_current_response', 'location_history_response'],
-    priority: 90
+    target_id: null,
+    direction: 'response',
+    resource: 'location',
+    action: 'read_current',
+    effect: 'deny',
+    evaluator: 'llm',
+    policy_content: 'Do not reveal exact address, home location, apartment number, or GPS-level coordinates unless the user creates an explicit exception.',
+    priority: 90,
+    source: 'default'
   },
-
-  // Calendar protection
   {
     scope: 'global',
-    policy_type: 'llm',
-    policy_content: 'Share calendar availability (free/busy) freely with friends. Event details require close_friend role or explicit approval.',
-    applicable_types: ['calendar_availability_response', 'calendar_details_response'],
-    priority: 80
+    target_id: null,
+    direction: 'response',
+    resource: 'calendar',
+    action: 'read_details',
+    effect: 'ask',
+    evaluator: 'llm',
+    policy_content: 'Calendar event titles, attendee names, descriptions, and sensitive appointment details require review unless a more specific allow policy exists.',
+    priority: 80,
+    source: 'default'
   },
-
-  // Unknown contacts
   {
     scope: 'role',
     target_id: 'unknown',
-    policy_type: 'llm',
-    policy_content: 'For unknown contacts, only share basic public information. Ask user before sharing any personal details.',
-    priority: 70
+    direction: 'response',
+    resource: null,
+    action: null,
+    effect: 'ask',
+    evaluator: 'llm',
+    policy_content: 'For unknown contacts, ask before sharing personal, location, health, finance, or relationship information.',
+    priority: 70,
+    source: 'default'
   },
-
-  // Block sensitive request types from acquaintances
   {
     scope: 'role',
     target_id: 'acquaintances',
-    policy_type: 'heuristic',
-    policy_content: {
-      blockedMessageTypes: ['location_current_request', 'document_request']
-    },
-    priority: 60
+    direction: 'request',
+    resource: 'location',
+    action: null,
+    effect: 'deny',
+    evaluator: 'structured',
+    policy_content: 'Inbound location requests from acquaintances are denied by default.',
+    priority: 60,
+    source: 'default'
   }
 ];
 ```
 
-### Default Roles
-
-Pre-create system roles (available to all users):
-
-| Role | Description | Trust Level | Default Behaviors |
-|------|-------------|-------------|-------------------|
-| `close_friends` | Highest trust tier | High | Event details, location city, contact intros allowed |
-| `friends` | Standard friends | Medium | Availability, general info, social messages allowed |
-| `acquaintances` | Casual contacts | Low | Basic public info only, many requests blocked |
-| `work_contacts` | Professional context | Medium | Work calendar, professional info only |
-| `family` | Family members | High | Similar to close_friends, personal context |
-
-Users can create custom roles for specific needs (e.g., "book_club", "gym_buddies").
+This gives new users a reasonable baseline without forcing them through a giant setup wizard.
 
 ---
 
@@ -1855,107 +1975,83 @@ Users can create custom roles for specific needs (e.g., "book_club", "gym_buddie
 
 ### The Core Loop
 
-1. **Message arrives** → Mahilo checks if it should be blocked
-2. **If allowed** → Mahilo enriches with context (who, history, policies)
-3. **Agent receives** → Uses context + judgment to craft response
-4. **Agent responds** → Mahilo validates against policies
-5. **If valid** → Message delivered, outcome logged
-6. **If invalid** → Rejected, agent notified, can retry
-7. **Agent learns** → Extracts preferences, creates/updates policies
-8. **Policies stored** → Mahilo enforces going forward
+1. **Sender authenticates** → Mahilo knows the user and connection making the request
+2. **Inbound request screened** → Platform guardrails and request policies decide block / review / allow
+3. **If delivered** → Mahilo injects identity, history, selectors, and relevant policy context
+4. **Agent drafts response** → Uses context and user-facing judgment
+5. **Mahilo resolves outbound policy** → Platform guardrails + active overrides + persistent policies + group overlays
+6. **Per-recipient result applied** → `allow`, `ask`, or `deny`
+7. **Outcome logged** → What was shared, withheld, blocked, or escalated
+8. **Learning loop runs** → Temporary override first, permanent policy only after explicit confirmation
 
 ### What Makes This Magical
 
 | Principle | Implementation |
 |-----------|----------------|
-| No upfront config | Policies learned through natural conversation |
-| One decision, many cases | Agent asks "apply to all friends?" and creates role-based policy |
-| Safety net | Mahilo validates all outbound messages against policies |
-| Transparency | Users see what was shared, why, and can adjust |
-| Contextual intelligence | Rich context injection helps agents make good decisions |
-| Progressive trust | Roles enable different sharing levels for different relationships |
-| Graceful degradation | Agents can share partial info, ask for clarification |
+| No upfront config | Learn through natural interaction and lightweight confirmation |
+| One decision, many cases | Promote repeated decisions into reusable role or user policies |
+| Situational nuance | Use expiring rules and one-time overrides before permanent generalization |
+| Safety net | Resolve all outbound responses against platform guardrails and user policies |
+| Transparency | Log what was shared, what was withheld, and why |
+| Progressive trust | Roles and per-user exceptions capture relationship nuance |
+| Group correctness | Evaluate group fan-out per recipient with channel overlays |
 
 ### The Key Insight
 
-**The agent is the learner, Mahilo is the enforcer.**
+**The agent is the learner; Mahilo is the resolver and enforcer.**
 
-The agent has good judgment but isn't infallible. Mahilo doesn't have judgment but has perfect memory and consistent enforcement. Together, they create a system that's both intelligent and trustworthy.
+The agent handles nuance, conversation, and user experience. Mahilo provides authenticated identity, consistent memory, lifecycle-aware overrides, and deterministic enforcement.
 
 ---
 
 ## Open Questions
 
-1. **Policy conflicts**: What happens when a per-user policy contradicts a per-role policy? (Suggestion: more specific wins)
-
-2. **Policy explanation**: When a message is rejected, how detailed should the explanation be? (Too detailed might help adversaries)
-
-3. **Learning confirmation**: Should every learned policy require user confirmation, or only major ones?
-
-4. **Cross-device sync**: If user has multiple agents, should learned policies sync automatically?
-
-5. **Policy sharing**: Can users share/import policy templates? ("Use the 'privacy-focused' template")
-
-6. **Audit log access**: How long to retain interaction history? Who can access it?
+1. **Inbound `ask` behavior**: Should review-required requests be delivered with a flag by default, or held until explicit approval?
+2. **Promotion threshold**: How many repeated temporary overrides should trigger a policy-promotion suggestion?
+3. **Agent-facing rejection detail**: How much detail is useful without helping adversarial prompt steering?
+4. **Selector verification**: When should Mahilo merely flag a declared-vs-classified mismatch, and when should it block?
+5. **Multi-agent sync**: If a user has several agents or devices, how should policy ownership and conflict resolution work?
+6. **Retention and redaction**: How long should blocked logs and sensitive audit trails be retained, and what must be redacted by default?
 
 ---
 
 ## Next Steps
 
-### Phase 1: Foundation (Database & API)
+### Phase 1: Canonical Schema & API
 
-1. [ ] Create `message_directions`, `message_resources`, `message_actions` reference tables
-2. [ ] Add `direction`, `resource`, `action`, `in_response_to`, `outcome` columns to messages table
-3. [ ] Create `user_roles` and `friend_roles` tables
-4. [ ] Add `applicable_resource`, `applicable_actions`, `applicable_direction` columns to policies table
-5. [ ] Create `policy_embeddings` table for vector search
-6. [ ] Add `GET /api/v1/message-schema` endpoint
-7. [ ] Add message type validation to `POST /api/v1/messages/send`
-8. [ ] Add `POST /api/v1/messages/:id/outcome` endpoint
+1. [ ] Add `direction`, `resource`, `action`, `effect`, `evaluator` to policies
+2. [ ] Add lifecycle fields: `effective_from`, `expires_at`, `max_uses`, `remaining_uses`
+3. [ ] Add provenance fields: `source`, `derived_from_message_id`
+4. [ ] Add message selector fields and `sender_connection_id`
+5. [ ] Update policy CRUD validation to the canonical model
+6. [ ] Keep `GET /api/v1/message-schema` as the selector reference endpoint
 
-### Phase 2: Policy Retrieval Optimization
+### Phase 2: Resolver & Lifecycle
 
-9. [ ] Implement scope-based policy filtering (SQL)
-10. [ ] Implement type-based policy filtering (SQL)
-11. [ ] Set up vector embedding generation for policies (on create/update)
-12. [ ] Implement vector search for policy retrieval
-13. [ ] Build `GET /api/v1/policies/evaluate` endpoint (the full funnel)
-14. [ ] Benchmark and tune retrieval performance
+7. [ ] Implement platform guardrails as a separate non-overridable layer
+8. [ ] Replace additive first-fail logic with specificity-based resolution
+9. [ ] Implement one-time overrides and expiring rules
+10. [ ] Decrement `remaining_uses` on applied overrides
+11. [ ] Return structured resolution results (`allow` / `ask` / `deny` + explanation)
 
-### Phase 3: Context & History
+### Phase 3: Identity & Inbound Hardening
 
-15. [ ] Build `GET /api/v1/context/:username` endpoint
-16. [ ] Implement `GET /api/v1/messages/history` with filtering
-17. [ ] Add request/response correlation logic
-18. [ ] Build history summarization (optional LLM layer)
-19. [ ] Add `GET /api/v1/messages/blocked` endpoint
+12. [ ] Persist and use `sender_connection_id` in message flows
+13. [ ] Bind policy resolution to authenticated sender identity and connection
+14. [ ] Add request-policy evaluation before inbound delivery
+15. [ ] Add minimal blocked-event logging with redaction
+16. [ ] Keep declared selectors as hints; add optional mismatch detection later
 
-### Phase 4: Role Management
+### Phase 4: Group Delivery & History
 
-20. [ ] Add role management endpoints for friendships
-21. [ ] Seed system roles on server startup
-22. [ ] Support custom user-defined roles
-23. [ ] Integrate role-based policy scoping
+17. [ ] Enforce group messages per recipient during fan-out
+18. [ ] Store per-recipient resolution outcomes
+19. [ ] Improve history retrieval using selectors and relationship context
+20. [ ] Use embeddings for history / explanation ranking, not hard safety gates
 
-### Phase 5: Plugin SDK
+### Phase 5: Product Surface
 
-24. [ ] Design plugin SDK interface (TypeScript)
-25. [ ] Implement `getContext()` function
-26. [ ] Implement prompt formatting functions (incoming, post-response, learning)
-27. [ ] Implement `reportOutcome()` function
-28. [ ] Implement `createPolicy()` with validation
-29. [ ] Build learning-to-policy pipeline helpers
-
-### Phase 6: Default Policies & Cold Start
-
-30. [ ] Create default policies on user registration
-31. [ ] Build policy template system (optional)
-32. [ ] Create onboarding flow for initial preferences (optional)
-
-### Phase 7: Dashboard UI
-
-33. [ ] Add policy management UI
-34. [ ] Add role management UI
-35. [ ] Add message history/audit view
-36. [ ] Add blocked messages review UI
-37. [ ] Add "what was shared" transparency view
+21. [ ] Add UI for policies, temporary overrides, and expiry review
+22. [ ] Add blocked/review queue UI
+23. [ ] Add policy-promotion suggestions UI
+24. [ ] Add policy templates / import-export only after the core resolver is stable
