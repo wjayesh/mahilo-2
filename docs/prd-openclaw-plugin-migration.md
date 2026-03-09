@@ -559,7 +559,7 @@ It is:
 
 ### 5.3 Inbound Message Routing
 - **ID**: `PLG2-052`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P1
 - **Depends on**: PLG2-050, SRV-032
 - **Description**:
@@ -572,6 +572,7 @@ It is:
 
 - **Notes**:
   - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
+  - 2026-03-09T07:59:02.880Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
 ## Phase 6: Release, Compatibility, and Decommissioning
 
 ### 6.1 Publishable Package Readiness
