@@ -125,6 +125,7 @@ function createStatusCommand(
           ? {
               contextCacheEntries: options.pluginState.contextCacheSize(),
               dedupeEntries: options.pluginState.dedupe.size(),
+              inboundRouteEntries: options.pluginState.inboundRouteCount(),
               novelDecisionEntries: options.pluginState.novelDecisionCount(),
               pendingLearningSuggestions:
                 options.pluginState.pendingLearningSuggestionCount()

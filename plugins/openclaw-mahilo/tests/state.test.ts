@@ -101,4 +101,71 @@ describe("InMemoryPluginState", () => {
     expect(state.consumeLearningSuggestions("session_1", 200)).toEqual([suggestion]);
     expect(state.pendingLearningSuggestionCount(200)).toBe(0);
   });
+
+  it("remembers inbound routes across thread, reply, group, connection, and participant lookups", () => {
+    const state = new InMemoryPluginState({ inboundRouteTtlMs: 5_000 });
+
+    state.rememberInboundRoute(
+      {
+        agentId: "agent_1",
+        correlationId: "corr_1",
+        groupId: "group_1",
+        localConnectionId: "conn_local",
+        outboundMessageId: "msg_out_1",
+        remoteConnectionId: "conn_alice",
+        remoteParticipant: "Alice",
+        sessionKey: "session_1"
+      },
+      100
+    );
+
+    const expectedRoute = expect.objectContaining({
+      agentId: "agent_1",
+      sessionKey: "session_1"
+    });
+
+    expect(state.resolveInboundRoute({ correlationId: "corr_1" }, 200)).toEqual(expectedRoute);
+    expect(state.resolveInboundRoute({ inResponseToMessageId: "msg_out_1" }, 200)).toEqual(expectedRoute);
+    expect(state.resolveInboundRoute({ groupId: "group_1" }, 200)).toEqual(expectedRoute);
+    expect(
+      state.resolveInboundRoute(
+        {
+          localConnectionId: "conn_local",
+          remoteConnectionId: "conn_alice"
+        },
+        200
+      )
+    ).toEqual(expectedRoute);
+    expect(
+      state.resolveInboundRoute(
+        {
+          localConnectionId: "conn_local",
+          remoteParticipant: "alice"
+        },
+        200
+      )
+    ).toEqual(expectedRoute);
+  });
+
+  it("expires inbound route entries across all lookup indexes", () => {
+    const state = new InMemoryPluginState({ inboundRouteTtlMs: 500 });
+
+    state.rememberInboundRoute(
+      {
+        correlationId: "corr_expire",
+        localConnectionId: "conn_local",
+        remoteParticipant: "alice",
+        sessionKey: "session_expire"
+      },
+      100
+    );
+
+    expect(state.resolveInboundRoute({ correlationId: "corr_expire" }, 200)).toEqual(
+      expect.objectContaining({
+        sessionKey: "session_expire"
+      })
+    );
+    expect(state.resolveInboundRoute({ correlationId: "corr_expire" }, 700)).toBeUndefined();
+    expect(state.inboundRouteCount(700)).toBe(0);
+  });
 });

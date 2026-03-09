@@ -9,6 +9,7 @@ export interface MahiloInboundWebhookPayload {
   delivery_id?: string | null;
   group_id?: string | null;
   group_name?: string | null;
+  in_response_to?: string;
   message: string;
   message_id: string;
   payload_type?: string;
@@ -70,6 +71,7 @@ export function parseInboundWebhookPayload(rawBody: string): MahiloInboundWebhoo
     delivery_id: readNullableString(payload.delivery_id),
     group_id: readNullableString(payload.group_id),
     group_name: readNullableString(payload.group_name),
+    in_response_to: readOptionalString(payload.in_response_to),
     message,
     message_id: messageId,
     payload_type: readOptionalString(payload.payload_type) ?? "text/plain",

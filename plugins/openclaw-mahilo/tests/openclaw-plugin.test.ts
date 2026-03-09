@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { createMahiloOpenClawPlugin, MahiloRequestError } from "../src";
+import {
+  createMahiloOpenClawPlugin,
+  generateCallbackSignature,
+  MahiloRequestError
+} from "../src";
+
+const CALLBACK_SECRET = "callback-secret";
 
 interface MockClientState {
   blockedEventCalls: number[];
@@ -241,6 +247,63 @@ function createMockPluginApi(
   };
 }
 
+function buildInboundWebhookRawBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    message: "Incoming Mahilo request.",
+    message_id: "msg_inbound_1",
+    recipient_connection_id: "conn_sender",
+    sender: "alice",
+    sender_agent: "openclaw",
+    timestamp: "2026-03-08T12:15:00.000Z",
+    ...overrides
+  });
+}
+
+function createMockWebhookRequest(params: {
+  headers?: Record<string, string>;
+  method?: string;
+  rawBody: string;
+}) {
+  return {
+    headers: params.headers ?? {},
+    method: params.method ?? "POST",
+    [Symbol.asyncIterator]: async function* () {
+      yield Buffer.from(params.rawBody, "utf8");
+    }
+  };
+}
+
+function createMockWebhookResponse(): {
+  body: () => Record<string, unknown>;
+  response: {
+    end: (chunk?: string) => void;
+    setHeader: (name: string, value: string) => void;
+    statusCode: number;
+    writeHead: (statusCode: number, headers?: Record<string, string>) => void;
+  };
+  status: () => number;
+} {
+  let body = "";
+  const response = {
+    end: (chunk?: string) => {
+      if (typeof chunk === "string") {
+        body = chunk;
+      }
+    },
+    setHeader: (_name: string, _value: string) => {},
+    statusCode: 200,
+    writeHead: (statusCode: number, _headers?: Record<string, string>) => {
+      response.statusCode = statusCode;
+    }
+  };
+
+  return {
+    body: () => JSON.parse(body) as Record<string, unknown>,
+    response,
+    status: () => response.statusCode
+  };
+}
+
 function parseRegisteredCommand(args: unknown[]): RegisteredCommand | undefined {
   if (args.length === 0) {
     return undefined;
@@ -429,6 +492,170 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(routes).toHaveLength(1);
     expect(routes[0]?.path).toBe("/hooks/mahilo");
+  });
+
+  it("routes inbound webhook callbacks back to the originating session by correlation id", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "talk_to_agent");
+    const outboundInput = {
+      correlationId: "corr_routing_1",
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_route_1", outboundInput);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "talk_to_agent"
+      },
+      {
+        agentId: "mahilo-agent",
+        runId: "run_route_1",
+        sessionKey: "session_route_1",
+        toolCallId: "tool_call_route_1",
+        toolName: "talk_to_agent"
+      }
+    );
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const rawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_routing_1",
+      message: "Replying in the same Mahilo thread.",
+      recipient_connection_id: "conn_sender",
+      sender_connection_id: "conn_alice"
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp)
+      },
+      rawBody
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    expect(response.body()).toMatchObject({
+      messageId: "msg_inbound_1",
+      status: "accepted"
+    });
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        contextKey: "mahilo:inbound:direct:msg_inbound_1",
+        sessionKey: "session_route_1",
+        text: expect.stringContaining("[MahiloInbound/v1]")
+      })
+    ]);
+    expect(systemEvents[0]?.text).toContain("[thread corr_routing_1]");
+    expect(systemEvents[0]?.text).toContain("Replying in the same Mahilo thread.");
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_route_1"
+      }
+    ]);
+  });
+
+  it("falls back to sender and local connection routing when correlation id is absent", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "talk_to_agent");
+    const outboundInput = {
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_route_2", outboundInput);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "talk_to_agent"
+      },
+      {
+        agentId: "mahilo-agent-2",
+        runId: "run_route_2",
+        sessionKey: "session_route_2",
+        toolCallId: "tool_call_route_2",
+        toolName: "talk_to_agent"
+      }
+    );
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const rawBody = buildInboundWebhookRawBody({
+      message: "Fallback route should still hit the active session.",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice"
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp)
+      },
+      rawBody
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "session_route_2",
+        text: expect.stringContaining("Fallback route should still hit the active session.")
+      })
+    ]);
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-agent-2",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_route_2"
+      }
+    ]);
   });
 
   it("executes talk_to_agent with sender_connection_id alias", async () => {

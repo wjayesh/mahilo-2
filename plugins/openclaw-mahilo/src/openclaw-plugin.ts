@@ -33,6 +33,7 @@ import {
   type PreviewMahiloSendInput,
   type TalkToGroupInput
 } from "./tools";
+import type { MahiloInboundWebhookPayload } from "./webhook";
 import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./webhook-route";
 import {
   extractMahiloPostSendEvent,
@@ -57,6 +58,7 @@ export interface MahiloOpenClawPluginDefinition {
 }
 
 const MAHILO_PROMPT_CONTEXT_MARKER = "[MahiloContext/v1]";
+const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
 
 interface MahiloToolFailure {
@@ -105,9 +107,14 @@ export function registerMahiloOpenClawPlugin(
       contextCacheTtlSeconds: config.cacheTtlSeconds,
       dedupeTtlMs: options.webhookRoute?.dedupeTtlMs
     });
+  const externalAcceptedDelivery = options.webhookRoute?.onAcceptedDelivery;
   const webhookRouteOptions: MahiloWebhookRouteOptions = {
     ...options.webhookRoute,
-    dedupeState: options.webhookRoute?.dedupeState ?? pluginState.dedupe
+    dedupeState: options.webhookRoute?.dedupeState ?? pluginState.dedupe,
+    onAcceptedDelivery: async (params) => {
+      routeAcceptedMahiloDelivery(api, pluginState, params.payload, params.messageId);
+      await externalAcceptedDelivery?.(params);
+    }
   };
   const diagnosticsCommandOptions: MahiloDiagnosticsCommandOptions = {
     ...options.diagnosticsCommands,
@@ -735,6 +742,11 @@ function registerMahiloPostSendHooks(
   api.on("after_tool_call", async (event, ctx) => {
     try {
       const params = readOptionalObject(event.params) ?? {};
+      rememberMahiloInboundRoute(pluginState, {
+        params,
+        result: event.result,
+        toolName: event.toolName
+      }, ctx);
       const postSendEvent = extractMahiloPostSendEvent({
         error: readOptionalString(event.error),
         params,
@@ -812,6 +824,189 @@ function registerMahiloPostSendHooks(
       );
     }
   });
+}
+
+function rememberMahiloInboundRoute(
+  pluginState: InMemoryPluginState,
+  event: {
+    params: Record<string, unknown>;
+    result?: unknown;
+    toolName: unknown;
+  },
+  rawContext: unknown
+): void {
+  const context = readOptionalObject(rawContext) ?? {};
+  const sessionKey = readOptionalString(context.sessionKey);
+  if (!sessionKey) {
+    return;
+  }
+
+  const toolName = readOptionalString(event.toolName);
+  if (toolName !== "talk_to_agent" && toolName !== "talk_to_group") {
+    return;
+  }
+
+  const resultDetails =
+    readOptionalObject(readOptionalObject(event.result)?.details) ??
+    readOptionalObject(event.result);
+  if (!resultDetails) {
+    return;
+  }
+
+  const status = readOptionalString(resultDetails.status);
+  if (status === "denied" || status === "error") {
+    return;
+  }
+
+  const outboundMessageId =
+    readOptionalString(resultDetails.messageId) ??
+    readOptionalString(resultDetails.message_id);
+  if (!outboundMessageId) {
+    return;
+  }
+
+  const groupId =
+    toolName === "talk_to_group"
+      ? readOptionalString(event.params.groupId) ??
+        readOptionalString(event.params.group_id) ??
+        readOptionalString(event.params.recipient)
+      : undefined;
+  const remoteParticipant =
+    toolName === "talk_to_agent" ? readOptionalString(event.params.recipient) : undefined;
+
+  pluginState.rememberInboundRoute({
+    agentId: readOptionalString(context.agentId),
+    correlationId:
+      readOptionalString(event.params.correlationId) ??
+      readOptionalString(event.params.correlation_id),
+    groupId,
+    localConnectionId:
+      readOptionalString(event.params.senderConnectionId) ??
+      readOptionalString(event.params.sender_connection_id),
+    outboundMessageId,
+    remoteConnectionId:
+      readOptionalString(event.params.recipientConnectionId) ??
+      readOptionalString(event.params.recipient_connection_id),
+    remoteParticipant,
+    sessionKey
+  });
+}
+
+function routeAcceptedMahiloDelivery(
+  api: OpenClawPluginApi,
+  pluginState: InMemoryPluginState,
+  payload: MahiloInboundWebhookPayload,
+  messageId: string
+): void {
+  const route = pluginState.resolveInboundRoute({
+    correlationId: payload.correlation_id,
+    groupId: payload.group_id ?? undefined,
+    inResponseToMessageId: payload.in_response_to,
+    localConnectionId: payload.recipient_connection_id,
+    remoteConnectionId: payload.sender_connection_id,
+    remoteParticipant: payload.sender
+  });
+
+  if (!route) {
+    api.logger?.warn?.(
+      `[Mahilo] Unable to route inbound message ${messageId}; no matching session context was found.`
+    );
+    return;
+  }
+
+  // Refresh the route with the exact inbound delivery metadata once it resolves.
+  pluginState.rememberInboundRoute({
+    ...route,
+    correlationId: payload.correlation_id ?? route.correlationId,
+    groupId: payload.group_id ?? route.groupId,
+    localConnectionId: payload.recipient_connection_id,
+    remoteConnectionId: payload.sender_connection_id ?? route.remoteConnectionId,
+    remoteParticipant: payload.sender
+  });
+
+  api.runtime.system.enqueueSystemEvent(
+    formatMahiloInboundSystemEvent(payload),
+    {
+      contextKey: buildMahiloInboundContextKey(payload),
+      sessionKey: route.sessionKey
+    }
+  );
+  api.runtime.system.requestHeartbeatNow({
+    agentId: route.agentId,
+    reason: "mahilo:inbound-message",
+    sessionKey: route.sessionKey
+  });
+
+  api.logger?.debug?.(
+    `[Mahilo] Routed inbound message ${messageId} to session ${route.sessionKey}.`
+  );
+}
+
+function buildMahiloInboundContextKey(payload: MahiloInboundWebhookPayload): string {
+  return [
+    "mahilo",
+    "inbound",
+    payload.group_id ? "group" : "direct",
+    payload.delivery_id ?? payload.message_id
+  ].join(":");
+}
+
+function formatMahiloInboundSystemEvent(payload: MahiloInboundWebhookPayload): string {
+  const groupLabel = readOptionalString(payload.group_name) ?? payload.group_id ?? undefined;
+  const selectorLabel = formatMahiloInboundSelectorLabel(payload.selectors);
+  const messageBody = formatMahiloInboundBody(payload);
+  const contextText = normalizeInlineText(payload.context);
+
+  const parts = [
+    MAHILO_INBOUND_EVENT_MARKER,
+    `Mahilo inbound from ${payload.sender}`,
+    groupLabel ? `in group ${groupLabel}` : undefined,
+    `via ${payload.sender_agent}`,
+    `[message ${payload.message_id}]`,
+    payload.delivery_id ? `[delivery ${payload.delivery_id}]` : undefined,
+    payload.correlation_id ? `[thread ${payload.correlation_id}]` : undefined,
+    selectorLabel ? `[${selectorLabel}]` : undefined
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+  let text = parts.join(" ");
+  if (messageBody) {
+    text = `${text}: ${messageBody}`;
+  }
+
+  if (contextText) {
+    text = `${text} Context: ${contextText}`;
+  }
+
+  return text;
+}
+
+function formatMahiloInboundSelectorLabel(
+  selectors: MahiloInboundWebhookPayload["selectors"]
+): string | undefined {
+  if (!selectors) {
+    return undefined;
+  }
+
+  return `${selectors.resource}/${selectors.action}`;
+}
+
+function formatMahiloInboundBody(payload: MahiloInboundWebhookPayload): string {
+  const payloadType = readOptionalString(payload.payload_type) ?? "text/plain";
+  const message = normalizeInlineText(payload.message) ?? "";
+
+  if (payloadType === "application/mahilo+ciphertext") {
+    return `Encrypted payload received (${payloadType}).`;
+  }
+
+  if (payloadType.startsWith("text/")) {
+    return message;
+  }
+
+  if (message.length > 0) {
+    return `[payload ${payloadType}] ${message}`;
+  }
+
+  return `Payload received as ${payloadType}.`;
 }
 
 function buildMahiloOutcomeContextKey(
@@ -1131,6 +1326,15 @@ function prependContextBlock(prompt: string, injection: string): string {
   }
 
   return `${injection}\n\n${prompt}`;
+}
+
+function normalizeInlineText(value: string | undefined): string | undefined {
+  const normalized = readOptionalString(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.replace(/\s+/g, " ").trim();
 }
 
 function boundPromptInjection(injection: string): string {
