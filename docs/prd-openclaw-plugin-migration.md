@@ -702,7 +702,7 @@ It is:
   - 2026-03-09T21:19:06.730Z: PLG2-071 completed via orchestrator integration.
 ### 7.3 Published Install Documentation
 - **ID**: `PLG2-072`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-070, PLG2-071
 - **Description**:
@@ -718,6 +718,8 @@ It is:
   - [ ] README includes upgrade / troubleshooting notes for common setup failures
   - [ ] Compatibility expectations are explicit
 
+- **Notes**:
+  - 2026-03-09T21:24:05.010Z: PLG2-072 completed via orchestrator integration.
 ### 7.4 Tarball Install Smoke Test
 - **ID**: `PLG2-073`
 - **Status**: `pending`
