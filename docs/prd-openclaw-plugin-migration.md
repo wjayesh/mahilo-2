@@ -572,7 +572,7 @@ It is:
 
 ### 5.3 Inbound Message Routing
 - **ID**: `PLG2-052`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-050, SRV-032
 - **Description**:
@@ -588,6 +588,7 @@ It is:
   - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
   - 2026-03-09T19:00:35.967Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
   - 2026-03-09T19:20:18.752Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
+  - 2026-03-09T20:52:55.509Z: PLG2-052 completed via orchestrator integration.
 ## Phase 6: Release, Compatibility, and Decommissioning
 
 ### 6.1 Publishable Package Readiness
