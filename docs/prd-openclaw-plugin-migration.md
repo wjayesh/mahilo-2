@@ -366,16 +366,20 @@ It is:
 
 ### 3.1 Replace Local Policy Truth with Server Preflight
 - **ID**: `PLG2-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011, SRV-041
 - **Description**:
   - Local filtering can remain as a lightweight safety helper, but final truth should come from Mahilo.
   - Plugin should call server preflight/resolve before final send.
 - **Acceptance Criteria**:
-  - [ ] Plugin does not own final policy truth
-  - [ ] Server preflight result drives send behavior
-  - [ ] Local policy logic is explicitly secondary or removed
+  - [x] Plugin does not own final policy truth
+  - [x] Server preflight result drives send behavior
+  - [x] Local policy logic is explicitly secondary or removed
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-030 by auditing `talkToAgent`/`talkToGroup` send flow and confirming local policy merge currently overrides server preflight decisions.
+  - 2026-03-09: Updated `plugins/openclaw-mahilo/src/tools.ts` so send gating uses Mahilo `/api/v1/plugin/resolve` decision directly; local policy guard remains optional advisory metadata (`localPolicyGuard`) and no longer overrides server allow/ask/deny outcomes.
+  - 2026-03-09: Added/updated send-tool tests validating server-preflight-driven behavior and local-guard secondary semantics; validated with `bun run test` (97 passing) and `bun run build`.
 
 ### 3.2 Context Fetch for Prompt Injection
 - **ID**: `PLG2-031`

@@ -4,11 +4,11 @@ import {
   applyLocalPolicyGuard,
   extractDecision,
   extractResolutionId,
-  mergePolicyDecisions,
   normalizeDeclaredSelectors,
   shouldSendForDecision,
   toToolStatus,
   type DeclaredSelectors,
+  type LocalPolicyGuardResult,
   type PolicyDecision
 } from "./policy-helpers";
 
@@ -43,6 +43,7 @@ export interface ToolExecutionOptions {
 export interface MahiloToolResult {
   decision: PolicyDecision;
   deduplicated?: boolean;
+  localPolicyGuard?: LocalPolicyGuardResult;
   messageId?: string;
   reason?: string;
   resolutionId?: string;
@@ -102,9 +103,9 @@ async function executeSendTool(
   const reviewMode = options.reviewMode ?? context.reviewMode ?? DEFAULT_REVIEW_MODE;
   const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
 
-  const localDecision = options.skipLocalPolicyGuard
-    ? "allow"
-    : applyLocalPolicyGuard({ message: input.message, selectors: normalizedSelectors }).decision;
+  const localPolicyGuard = options.skipLocalPolicyGuard
+    ? undefined
+    : applyLocalPolicyGuard({ message: input.message, selectors: normalizedSelectors });
 
   const resolvePayload = compactObject({
     agent_session_id: context.agentSessionId,
@@ -124,15 +125,16 @@ async function executeSendTool(
   const resolveResponse = await client.resolveDraft(resolvePayload);
   const serverDecision = extractDecision(resolveResponse);
   const resolutionId = extractResolutionId(resolveResponse);
-  const mergedDecision = mergePolicyDecisions(localDecision, serverDecision);
 
-  if (!shouldSendForDecision(mergedDecision, reviewMode)) {
+  // Local policy guard remains optional advisory signal; server preflight is send-time truth.
+  if (!shouldSendForDecision(serverDecision, reviewMode)) {
     return {
-      decision: mergedDecision,
-      reason: mergedDecision === "deny" ? "request denied by policy" : "policy review required",
+      decision: serverDecision,
+      localPolicyGuard,
+      reason: serverDecision === "deny" ? "request denied by policy" : "policy review required",
       resolutionId,
       response: resolveResponse,
-      status: toToolStatus(mergedDecision, reviewMode)
+      status: toToolStatus(serverDecision, reviewMode)
     };
   }
 
@@ -147,7 +149,7 @@ async function executeSendTool(
 
   if (options.reportOutcomes ?? true) {
     const outcomePayload = compactObject({
-      decision: mergedDecision,
+      decision: serverDecision,
       declared_selectors: normalizedSelectors,
       message_id: messageId,
       outcome: "sent",
@@ -161,8 +163,9 @@ async function executeSendTool(
   }
 
   return {
-    decision: mergedDecision,
+    decision: serverDecision,
     deduplicated,
+    localPolicyGuard,
     messageId,
     resolutionId,
     response: sendResponse,

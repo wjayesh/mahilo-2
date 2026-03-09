@@ -156,7 +156,7 @@ describe("send tools", () => {
     expect(state.outcomeCalls).toHaveLength(1);
   });
 
-  it("applies local sensitive guard before sending", async () => {
+  it("keeps local policy guard as advisory while server allow drives send behavior", async () => {
     const { client, state } = createMockClient({
       resolveResponse: createResolveResponse("allow")
     });
@@ -177,9 +177,12 @@ describe("send tools", () => {
       }
     );
 
-    expect(result.status).toBe("review_required");
-    expect(result.decision).toBe("ask");
-    expect(state.sendCalls).toHaveLength(0);
+    expect(result.status).toBe("sent");
+    expect(result.decision).toBe("allow");
+    expect(result.localPolicyGuard?.decision).toBe("ask");
+    expect(result.localPolicyGuard?.reason).toContain("sensitive resource");
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.outcomeCalls[0]?.payload.decision).toBe("allow");
   });
 
   it("can skip local policy guard when requested", async () => {
@@ -207,6 +210,7 @@ describe("send tools", () => {
     );
 
     expect(result.status).toBe("sent");
+    expect(result.localPolicyGuard).toBeUndefined();
     expect(state.sendCalls).toHaveLength(1);
   });
 
