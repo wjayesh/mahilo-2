@@ -88,6 +88,17 @@ If the repo is dirty:
 
 This is intentionally strict. The source-of-truth tracker files live in the shared repo, so silently cherry-picking across local edits is the wrong failure mode.
 
+### 7. Prevent duplicate workers for the same workflow
+
+The orchestrator now takes a workflow-scoped worker lock for the lifetime of the process.
+
+That means:
+- one plugin worker per repo clone
+- one server worker per repo clone
+- fast failure if a stale raw `bun run scripts/orchestrator.ts ...` process is still alive
+
+This is the minimum needed to stop stray unsupervised workers from racing the supervised loop and mutating the tracker unexpectedly.
+
 ## Config Defaults
 
 Both workflow files now include:

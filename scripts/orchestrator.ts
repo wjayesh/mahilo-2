@@ -117,6 +117,11 @@ function getRepoLockPath(repoRoot: string): string {
   return resolve(repoRoot, ".mahilo-orchestrator", REPO_LOCK_NAME);
 }
 
+function getWorkerLockPath(repoRoot: string, workflow: WorkflowConfig): string {
+  const stateBase = basename(resolvePath(repoRoot, workflow.stateFile)).replace(/\.json$/i, "");
+  return resolve(repoRoot, ".mahilo-orchestrator", "runtime", `${stateBase}.worker.lock`);
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -194,6 +199,37 @@ function acquireRepoLock(repoRoot: string, workflow: string, taskId: string): st
 
 function releaseRepoLock(lockPath: string) {
   rmSync(lockPath, { recursive: true, force: true });
+}
+
+function acquireWorkerLock(repoRoot: string, workflow: WorkflowConfig): string {
+  const lockPath = getWorkerLockPath(repoRoot, workflow);
+  ensureDirectory(resolve(lockPath, ".."));
+
+  while (true) {
+    try {
+      mkdirSync(lockPath);
+      const owner: RepoLockOwner = {
+        pid: process.pid,
+        workflow: workflow.name,
+        taskId: "orchestrator",
+        acquiredAt: new Date().toISOString(),
+      };
+      writeFileSync(join(lockPath, "owner.json"), JSON.stringify(owner, null, 2));
+      return lockPath;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== "EEXIST") {
+        throw error;
+      }
+      if (tryRemoveStaleLock(lockPath)) {
+        continue;
+      }
+      const owner = readLockOwner(lockPath);
+      throw new Error(
+        `Workflow ${workflow.name} is already running${owner?.pid ? ` (pid ${owner.pid})` : ""}. Stop the existing worker before starting another.`,
+      );
+    }
+  }
 }
 
 function loadActionableTasks(repoRoot: string, workflowPath: string) {
@@ -491,6 +527,8 @@ async function main() {
     process.exit(1);
   }
 
+  const workerLockPath = acquireWorkerLock(repoRoot, workflow);
+
   const state = loadState(repoRoot, workflow);
   const maxIterations = options.maxIterations ?? workflow.maxIterations;
   const infinite = maxIterations <= 0;
@@ -507,6 +545,7 @@ async function main() {
       lastExitReason: reason,
       lastNote: reason,
     });
+    releaseRepoLock(workerLockPath);
   };
 
   process.on("SIGINT", () => {

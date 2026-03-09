@@ -59,6 +59,7 @@ A healthy loop should show:
 - a live supervisor pid
 - recent heartbeat timestamps
 - either an active task or a clear idle/cooldown state
+- no stray raw `scripts/orchestrator.ts --workflow ...` worker outside the supervisor
 
 ## Restart Flow
 
@@ -80,6 +81,7 @@ The hardened loop now:
 - records retry cooldowns in state/runtime files
 - keeps tasks `pending` when the failure is a worker/runtime/integration problem
 - only marks a task `blocked` when the worker explicitly emits `TASK_BLOCKED <id>`
+- takes a workflow-scoped worker lock so duplicate raw/supervised workers fail fast
 - restarts the worker if the supervised process dies or becomes stale
 
 ## Fallback `screen` Usage
@@ -110,6 +112,7 @@ Use this only for temporary manual debugging.
 
 Escalate when:
 - the same task keeps failing after retries and is not making progress
+- supervisor says stopped but `pgrep` still finds a raw `scripts/orchestrator.ts --workflow ...` worker
 - supervisor status shows repeated restart loops
 - heartbeat timestamps stop moving even though the supervisor is alive
 - the integration branch is wrong or dirty in a way that blocks safe restart

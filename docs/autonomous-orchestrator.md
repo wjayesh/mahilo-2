@@ -57,6 +57,7 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 - Each completed or blocked terminal task is committed in its own task branch before integration.
 - The integration branch stays linear by cherry-picking task commits instead of merging task branches.
 - The loop auto-pushes after every 3 integrated task commits by default.
+- Each workflow takes a single-instance worker lock, so duplicate server/plugin loops in the same clone fail fast.
 - Concurrent workflows share a repo-level lock only around cherry-pick and push operations.
 - Repeated worker/runtime/integration failures are retried with backoff and do not mutate task status to `blocked`.
 - Only an explicit `TASK_BLOCKED <id>` from the worker marks a task `blocked` in the PRD.

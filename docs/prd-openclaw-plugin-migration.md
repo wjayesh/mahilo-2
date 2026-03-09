@@ -415,7 +415,7 @@ It is:
 
 ### 3.4 Temporary Override Flows
 - **ID**: `PLG2-033`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: SRV-043
 - **Description**:
@@ -428,7 +428,7 @@ It is:
 ---
 
 - **Notes**:
-  - 2026-03-10: Reset to `pending` after the orchestrator stopped auto-blocking runtime/integration failures; prior blocks reflected orchestration failures, not a confirmed product blocker in this task.
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
   - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
   - 2026-03-09T18:42:44.384Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
   - 2026-03-09T19:20:09.488Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
@@ -453,7 +453,7 @@ It is:
 
 ### 4.2 Native Tools
 - **ID**: `PLG2-041`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P0
 - **Depends on**: PLG2-020, PLG2-030
 - **Description**:
@@ -471,14 +471,14 @@ It is:
   - [ ] Tools fail gracefully on network/server errors
 
 - **Notes**:
-  - 2026-03-10: Reset to `pending` after the orchestrator stopped auto-blocking runtime/integration failures; prior blocks reflected orchestration failures, not a confirmed product blocker in this task.
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
   - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
   - 2026-03-09T14:33:08.978Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
   - 2026-03-09T14:33:09.726Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt - (Executable not found in $PATH: "codex")
   - 2026-03-09T19:19:32.552Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
 ### 4.3 Send-Time Hooks
 - **ID**: `PLG2-042`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P0
 - **Depends on**: PLG2-030
 - **Description**:
@@ -489,7 +489,7 @@ It is:
   - [ ] Plugin can surface review-required cases cleanly
 
 - **Notes**:
-  - 2026-03-10: Reset to `pending` after the orchestrator stopped auto-blocking runtime/integration failures; prior blocks reflected orchestration failures, not a confirmed product blocker in this task.
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
   - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
   - 2026-03-09T18:42:15.115Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
   - 2026-03-09T19:20:05.598Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
@@ -505,9 +505,10 @@ It is:
   - [ ] Plugin can trigger learning suggestions after novel decisions
 
 - **Notes**:
-  - 2026-03-10: Reset to `pending` after the orchestrator stopped auto-blocking runtime/integration failures; prior blocks reflected orchestration failures, not a confirmed product blocker in this task.
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
   - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
   - 2026-03-09T18:43:12.182Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
+  - 2026-03-09T19:20:14.906Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
 - **Status**: `done`
@@ -579,9 +580,10 @@ It is:
 ---
 
 - **Notes**:
-  - 2026-03-10: Reset to `pending` after the orchestrator stopped auto-blocking runtime/integration failures; prior blocks reflected orchestration failures, not a confirmed product blocker in this task.
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
   - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
   - 2026-03-09T19:00:35.967Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
+  - 2026-03-09T19:20:18.752Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
 ## Phase 6: Release, Compatibility, and Decommissioning
 
 ### 6.1 Publishable Package Readiness
