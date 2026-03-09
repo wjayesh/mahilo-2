@@ -37,6 +37,18 @@ export { listMahiloContacts, talkToAgent, talkToGroup } from "./tools";
 export type { ContactsProvider, MahiloContact, MahiloSendToolInput, MahiloToolContext, MahiloToolResult, TalkToGroupInput, ToolExecutionOptions } from "./tools";
 export { createMahiloOpenClawPlugin, registerMahiloOpenClawPlugin } from "./openclaw-plugin";
 export type { MahiloOpenClawPluginOptions } from "./openclaw-plugin";
+export { fetchMahiloPromptContext, formatMahiloPromptInjection } from "./prompt-context";
+export type {
+  CompactMahiloPromptContext,
+  CompactPromptGuidance,
+  CompactPromptInteraction,
+  CompactPromptRecipient,
+  FetchMahiloPromptContextInput,
+  FetchMahiloPromptContextOptions,
+  FetchMahiloPromptContextResult,
+  FormatPromptInjectionOptions,
+  PromptContextCache
+} from "./prompt-context";
 export { parseInboundWebhookPayload, processWebhookDelivery } from "./webhook";
 export type {
   MahiloInboundWebhookPayload,

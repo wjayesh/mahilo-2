@@ -383,15 +383,19 @@ It is:
 
 ### 3.2 Context Fetch for Prompt Injection
 - **ID**: `PLG2-031`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-040
 - **Description**:
   - Fetch selector-aware context from Mahilo before prompt build.
 - **Acceptance Criteria**:
-  - [ ] Plugin can fetch compact recipient context
-  - [ ] Prompt injection format is stable and concise
-  - [ ] Failure degrades gracefully
+  - [x] Plugin can fetch compact recipient context
+  - [x] Prompt injection format is stable and concise
+  - [x] Failure degrades gracefully
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-031 by auditing server contract `POST /api/v1/plugin/context` payload/response shape and plugin runtime paths to add prompt-context fetch before prompt build.
+  - 2026-03-09: Added `src/prompt-context.ts` with selector-aware context fetch (`fetchMahiloPromptContext`), compact context normalization, deterministic `MahiloContext/v1` prompt injection formatting, context-cache integration, and graceful non-throwing fallback on fetch failures.
+  - 2026-03-09: Exported prompt-context helpers from `src/index.ts`, added `tests/prompt-context.test.ts` coverage for payload normalization, compact/stable injection output, cache reuse, and failure degradation, and validated with `bun test` (101 passing) and `bun run build` from `plugins/openclaw-mahilo/`.
 
 ### 3.3 Outcome Reporting
 - **ID**: `PLG2-032`
