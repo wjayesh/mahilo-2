@@ -242,7 +242,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T23:42:49.813Z: PLG3-011 completed via orchestrator integration.
 ### 2.3 Trust Contract: "I Don't Know" Over Fabrication
 - **ID**: `PLG3-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG3-010, PLG3-011
 - **Description**:
@@ -254,6 +254,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Plugin/tool result types include a first-class no-grounded-answer / I-don't-know outcome
   - [ ] Tests cover attribution failures, unknown responses, and provenance formatting
 
+- **Notes**:
+  - 2026-03-09T23:52:44.500Z: PLG3-012 completed via orchestrator integration.
 ### 2.4 Missing-Contact and Not-On-Mahilo Nudges
 - **ID**: `PLG3-013`
 - **Status**: `pending`
