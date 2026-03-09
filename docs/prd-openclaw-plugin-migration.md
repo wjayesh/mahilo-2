@@ -722,7 +722,7 @@ It is:
   - 2026-03-09T21:24:05.010Z: PLG2-072 completed via orchestrator integration.
 ### 7.4 Tarball Install Smoke Test
 - **ID**: `PLG2-073`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-071, PLG2-072
 - **Description**:
@@ -734,6 +734,8 @@ It is:
   - [ ] Tools, hooks, routes, and plugin config schema load correctly from the packed artifact
   - [ ] The smoke-test steps are documented for repeatable validation
 
+- **Notes**:
+  - 2026-03-09T21:34:29.084Z: PLG2-073 completed via orchestrator integration.
 ### 7.5 Release Gates and Version Sync Checks
 - **ID**: `PLG2-074`
 - **Status**: `pending`
