@@ -7,6 +7,7 @@ const AUTH_REGISTER_ENDPOINT = "/api/v1/auth/register";
 const CONTACTS_ENDPOINT = CONTRACT_ENDPOINTS.contacts;
 const FRIEND_REQUEST_ENDPOINT = CONTRACT_ENDPOINTS.friendRequest;
 const FRIENDS_ENDPOINT = CONTRACT_ENDPOINTS.friends;
+const GROUPS_ENDPOINT = CONTRACT_ENDPOINTS.groups;
 
 export interface MahiloClientOptions {
   apiKey: string;
@@ -77,6 +78,18 @@ export interface MahiloFriendConnectionDirectory {
   raw: unknown;
   state: MahiloFriendConnectionsState;
   username: string;
+}
+
+export interface MahiloGroupSummary {
+  createdAt?: string;
+  description?: string;
+  groupId: string;
+  inviteOnly?: boolean;
+  memberCount?: number;
+  name: string;
+  raw: unknown;
+  role?: string;
+  status?: string;
 }
 
 export type MahiloProductState =
@@ -255,6 +268,13 @@ export class MahiloContractClient {
 
   async listFriends(params?: { status?: MahiloFriendshipStatus | string }): Promise<MahiloFriendshipSummary[]> {
     return this.listFriendships(params);
+  }
+
+  async listGroups(): Promise<MahiloGroupSummary[]> {
+    const response = await this.request(GROUPS_ENDPOINT, {
+      method: "GET"
+    });
+    return normalizeGroups(response);
   }
 
   async sendFriendRequest(username: string): Promise<MahiloFriendRequestResult> {
@@ -516,6 +536,35 @@ function normalizeFriendRequestResult(
       (root ? readBoolean(root.success) : undefined) ??
       fallback.success ??
       (status === "accepted" || status === "pending")
+  };
+}
+
+function normalizeGroups(value: unknown): MahiloGroupSummary[] {
+  return normalizeCollection(value, normalizeGroup, ["groups", "items", "results", "data"]);
+}
+
+function normalizeGroup(value: unknown): MahiloGroupSummary | null {
+  const root = readObject(value);
+  if (!root) {
+    return null;
+  }
+
+  const groupId = readFirstString(root, ["group_id", "groupId", "id"]);
+  const name = readFirstString(root, ["name", "group_name", "groupName"]);
+  if (!groupId || !name) {
+    return null;
+  }
+
+  return {
+    createdAt: readFirstString(root, ["created_at", "createdAt"]),
+    description: readFirstString(root, ["description"]),
+    groupId,
+    inviteOnly: readBoolean(root.invite_only) ?? readBoolean(root.inviteOnly),
+    memberCount: readFirstNumber(root, ["member_count", "memberCount"]),
+    name,
+    raw: root,
+    role: readFirstString(root, ["role"]),
+    status: readFirstString(root, ["status", "state"])
   };
 }
 

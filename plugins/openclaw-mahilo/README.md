@@ -104,7 +104,7 @@ The plugin keeps the model-facing surface intentionally small:
 - `mahilo_network`
   - `action=list`: list contacts and pending requests from Mahilo server
   - `action=send_request`, `accept`, `decline`: manage Mahilo relationships without a separate tool per server route
-  - future ask-around / fan-out actions will land on this same tool so the surface stays stable
+  - `action=ask_around`: fan out one question across all contacts, selected roles, or a named Mahilo group while replies keep flowing back into the same OpenClaw thread
 - `mahilo_boundaries`
   - change sharing boundaries conversationally for opinions/recommendations, availability/schedule, location, health, financial, and contact details
   - one-off boundary exceptions still live here, but ongoing boundary changes use the same stable tool instead of exposing policy jargon

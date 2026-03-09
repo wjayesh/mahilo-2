@@ -1,0 +1,957 @@
+import {
+  MahiloRequestError,
+  type MahiloContractClient,
+  type MahiloGroupSummary,
+  type MahiloProductState,
+} from "./client";
+import { type DeclaredSelectors } from "./policy-helpers";
+import {
+  executeMahiloRelationshipAction,
+  type ExecuteMahiloRelationshipActionInput,
+  type MahiloRelationshipAction,
+  type MahiloRelationshipActionResult,
+} from "./relationships";
+import {
+  listMahiloContacts,
+  talkToAgent,
+  talkToGroup,
+  type MahiloContact,
+  type MahiloContactConnectionState,
+  type MahiloToolContext,
+} from "./tools-default-sender";
+
+export type MahiloNetworkAction = MahiloRelationshipAction | "ask_around";
+
+export interface ExecuteMahiloNetworkActionInput
+  extends ExecuteMahiloRelationshipActionInput {
+  correlationId?: string;
+  declaredSelectors?: Partial<DeclaredSelectors>;
+  group?: string;
+  groupId?: string;
+  groupName?: string;
+  idempotencyKey?: string;
+  message?: string;
+  question?: string;
+  role?: string;
+  roles?: string[];
+}
+
+export interface MahiloNetworkError {
+  code?: string;
+  message: string;
+  productState: MahiloProductState;
+  retryable: boolean;
+  technicalMessage?: string;
+}
+
+export type MahiloAskAroundDeliveryStatus =
+  | "awaiting_reply"
+  | "blocked"
+  | "review_required"
+  | "send_failed"
+  | "skipped";
+
+export interface MahiloAskAroundDelivery {
+  connectionState?: MahiloContactConnectionState;
+  decision?: "allow" | "ask" | "deny";
+  messageId?: string;
+  productState?: MahiloProductState;
+  reason?: string;
+  recipient: string;
+  recipientLabel: string;
+  recipientType: "group" | "user";
+  roles?: string[];
+  status: MahiloAskAroundDeliveryStatus;
+}
+
+export interface MahiloAskAroundCounts {
+  awaitingReplies: number;
+  blocked: number;
+  reviewRequired: number;
+  sendFailed: number;
+  skipped: number;
+}
+
+export interface MahiloAskAroundTarget {
+  contactCount?: number;
+  groupId?: string;
+  groupName?: string;
+  kind: "all_contacts" | "group" | "roles";
+  memberCount?: number;
+  roles?: string[];
+}
+
+export interface MahiloAskAroundActionResult {
+  action: "ask_around";
+  correlationId?: string;
+  counts?: MahiloAskAroundCounts;
+  deliveries?: MahiloAskAroundDelivery[];
+  error?: MahiloNetworkError;
+  question?: string;
+  replyExpectation?: string;
+  senderConnectionId?: string;
+  source: "mahilo_server";
+  status: "error" | "success";
+  summary: string;
+  target?: MahiloAskAroundTarget;
+}
+
+export type MahiloNetworkActionResult =
+  | MahiloAskAroundActionResult
+  | MahiloRelationshipActionResult;
+
+export async function executeMahiloNetworkAction(
+  client: MahiloContractClient,
+  input: ExecuteMahiloNetworkActionInput = {},
+  context: MahiloToolContext = {}
+): Promise<MahiloNetworkActionResult> {
+  const action = normalizeMahiloNetworkAction(input.action);
+  if (!action) {
+    return createNetworkErrorResult(
+      "Use action=list, send_request, accept, decline, or ask_around for Mahilo network management.",
+      "invalid_request"
+    );
+  }
+
+  if (action === "ask_around") {
+    return executeMahiloAskAroundAction(client, input, context);
+  }
+
+  return executeMahiloRelationshipAction(client, {
+    action,
+    friendshipId: input.friendshipId,
+    username: input.username
+  });
+}
+
+export function normalizeMahiloNetworkAction(
+  value: string | undefined
+): MahiloNetworkAction | undefined {
+  const normalized = normalizeToken(value)?.toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) {
+    return "list";
+  }
+
+  switch (normalized) {
+    case "ask":
+    case "ask_around":
+    case "ask_contacts":
+    case "ask_friends":
+    case "fanout":
+    case "fan_out":
+      return "ask_around";
+    case "accept":
+    case "approve":
+      return "accept";
+    case "decline":
+    case "reject":
+    case "cancel":
+    case "withdraw":
+      return "decline";
+    case "list":
+    case "contacts":
+    case "list_contacts":
+    case "requests":
+    case "review":
+    case "review_requests":
+      return "list";
+    case "add":
+    case "friend_request":
+    case "request":
+    case "send":
+    case "send_request":
+    case "send_friend_request":
+      return "send_request";
+    default:
+      return undefined;
+  }
+}
+
+async function executeMahiloAskAroundAction(
+  client: MahiloContractClient,
+  input: ExecuteMahiloNetworkActionInput,
+  context: MahiloToolContext
+): Promise<MahiloAskAroundActionResult> {
+  const question = normalizeToken(input.question) ?? normalizeToken(input.message);
+  if (!question) {
+    return createNetworkErrorResult(
+      "Provide a question or message for Mahilo ask-around.",
+      "invalid_request"
+    );
+  }
+
+  const declaredSelectors = normalizeDeclaredSelectors(input.declaredSelectors);
+  const correlationId = normalizeToken(input.correlationId) ?? createAskAroundCorrelationId();
+  const roles = normalizeRoles(input.role, input.roles);
+  const groupRef =
+    normalizeToken(input.groupId) ??
+    normalizeToken(input.groupName) ??
+    normalizeToken(input.group);
+
+  if (roles.length > 0 && groupRef) {
+    return createNetworkErrorResult(
+      "Use either roles or a specific group for Mahilo ask-around, not both at once.",
+      "invalid_request"
+    );
+  }
+
+  if (groupRef) {
+    return executeMahiloGroupAskAround(client, {
+      correlationId,
+      declaredSelectors,
+      groupId: normalizeToken(input.groupId),
+      groupRef,
+      idempotencyKey: normalizeToken(input.idempotencyKey),
+      question
+    }, context);
+  }
+
+  return executeMahiloContactAskAround(client, {
+    correlationId,
+    declaredSelectors,
+    idempotencyKey: normalizeToken(input.idempotencyKey),
+    question,
+    roles
+  }, context);
+}
+
+async function executeMahiloContactAskAround(
+  client: MahiloContractClient,
+  options: {
+    correlationId: string;
+    declaredSelectors?: Partial<DeclaredSelectors>;
+    idempotencyKey?: string;
+    question: string;
+    roles: string[];
+  },
+  context: MahiloToolContext
+): Promise<MahiloAskAroundActionResult> {
+  let contacts: MahiloContact[];
+  try {
+    contacts = await listMahiloContacts(client);
+  } catch (error) {
+    return createAskAroundErrorResult(error, "Mahilo couldn't load your contacts for ask-around.");
+  }
+
+  const matchingContacts =
+    options.roles.length === 0
+      ? contacts
+      : contacts.filter((contact) => contactHasAnyRole(contact, options.roles));
+
+  const target: MahiloAskAroundTarget = {
+    contactCount: matchingContacts.length,
+    kind: options.roles.length > 0 ? "roles" : "all_contacts",
+    roles: options.roles.length > 0 ? options.roles : undefined
+  };
+
+  if (matchingContacts.length === 0) {
+    return {
+      action: "ask_around",
+      correlationId: options.correlationId,
+      counts: emptyAskAroundCounts(),
+      deliveries: [],
+      question: options.question,
+      replyExpectation: options.roles.length > 0
+        ? "No contacts matched that role filter yet."
+        : "Add Mahilo contacts first, then ask around from the same tool.",
+      senderConnectionId: context.senderConnectionId,
+      source: "mahilo_server",
+      status: "success",
+      summary:
+        options.roles.length > 0
+          ? `Mahilo ask-around: no contacts matched roles ${formatRoleList(options.roles)}.`
+          : "Mahilo ask-around: no contacts are available to ask yet.",
+      target
+    };
+  }
+
+  const deliveries = await Promise.all(
+    matchingContacts.map((contact) =>
+      askContact(client, contact, {
+        correlationId: options.correlationId,
+        declaredSelectors: options.declaredSelectors,
+        idempotencyKey: options.idempotencyKey,
+        question: options.question
+      }, context)
+    )
+  );
+
+  const counts = countAskAroundDeliveries(deliveries);
+  const replyExpectation = formatReplyExpectation(counts);
+
+  return {
+    action: "ask_around",
+    correlationId: options.correlationId,
+    counts,
+    deliveries,
+    question: options.question,
+    replyExpectation,
+    senderConnectionId: context.senderConnectionId,
+    source: "mahilo_server",
+    status: "success",
+    summary: formatContactAskAroundSummary(target, counts, matchingContacts.length),
+    target
+  };
+}
+
+async function executeMahiloGroupAskAround(
+  client: MahiloContractClient,
+  options: {
+    correlationId: string;
+    declaredSelectors?: Partial<DeclaredSelectors>;
+    groupId?: string;
+    groupRef: string;
+    idempotencyKey?: string;
+    question: string;
+  },
+  context: MahiloToolContext
+): Promise<MahiloAskAroundActionResult> {
+  const resolvedGroup = await resolveAskAroundGroup(client, options.groupRef, options.groupId);
+  if ("error" in resolvedGroup) {
+    return resolvedGroup.error;
+  }
+
+  try {
+    const result = await talkToGroup(
+      client,
+      {
+        correlationId: options.correlationId,
+        declaredSelectors: options.declaredSelectors,
+        groupId: resolvedGroup.group.groupId,
+        idempotencyKey: deriveTargetIdempotencyKey(
+          options.idempotencyKey,
+          resolvedGroup.group.groupId
+        ),
+        message: options.question,
+        recipient: resolvedGroup.group.groupId
+      },
+      context
+    );
+
+    const delivery = mapToolResultToAskAroundDelivery(
+      result,
+      {
+        recipient: resolvedGroup.group.groupId,
+        recipientLabel: resolvedGroup.group.name,
+        recipientType: "group"
+      }
+    );
+    const counts = countAskAroundDeliveries([delivery]);
+    const target: MahiloAskAroundTarget = {
+      groupId: resolvedGroup.group.groupId,
+      groupName: resolvedGroup.group.name,
+      kind: "group",
+      memberCount: resolvedGroup.group.memberCount
+    };
+
+    return {
+      action: "ask_around",
+      correlationId: options.correlationId,
+      counts,
+      deliveries: [delivery],
+      question: options.question,
+      replyExpectation: formatGroupReplyExpectation(delivery, resolvedGroup.group),
+      senderConnectionId: context.senderConnectionId,
+      source: "mahilo_server",
+      status: "success",
+      summary: formatGroupAskAroundSummary(delivery, resolvedGroup.group),
+      target
+    };
+  } catch (error) {
+    return createAskAroundErrorResult(
+      error,
+      `Mahilo couldn't ask group ${formatGroupLabel(resolvedGroup.group)} right now.`
+    );
+  }
+}
+
+async function askContact(
+  client: MahiloContractClient,
+  contact: MahiloContact,
+  options: {
+    correlationId: string;
+    declaredSelectors?: Partial<DeclaredSelectors>;
+    idempotencyKey?: string;
+    question: string;
+  },
+  context: MahiloToolContext
+): Promise<MahiloAskAroundDelivery> {
+  const username = readContactUsername(contact);
+  const roles = readContactRoles(contact);
+  const connectionState = contact.connectionState;
+
+  if (!username) {
+    return {
+      connectionState,
+      productState: "not_found",
+      reason: "Mahilo could not resolve a username for this contact.",
+      recipient: contact.id,
+      recipientLabel: contact.label,
+      recipientType: "user",
+      roles: roles.length > 0 ? roles : undefined,
+      status: "skipped"
+    };
+  }
+
+  if (connectionState && connectionState !== "available") {
+    return {
+      connectionState,
+      productState: mapContactStateToProductState(connectionState),
+      reason: formatUnavailableContactReason(contact, connectionState),
+      recipient: username,
+      recipientLabel: contact.label,
+      recipientType: "user",
+      roles: roles.length > 0 ? roles : undefined,
+      status: "skipped"
+    };
+  }
+
+  try {
+    const result = await talkToAgent(
+      client,
+      {
+        correlationId: options.correlationId,
+        declaredSelectors: options.declaredSelectors,
+        idempotencyKey: deriveTargetIdempotencyKey(options.idempotencyKey, username),
+        message: options.question,
+        recipient: username
+      },
+      context
+    );
+
+    return mapToolResultToAskAroundDelivery(result, {
+      connectionState,
+      recipient: username,
+      recipientLabel: contact.label,
+      recipientType: "user",
+      roles: roles.length > 0 ? roles : undefined
+    });
+  } catch (error) {
+    return createRecipientSendFailure(contact, username, roles, connectionState, error);
+  }
+}
+
+async function resolveAskAroundGroup(
+  client: MahiloContractClient,
+  groupRef: string,
+  explicitGroupId?: string
+): Promise<{ group: MahiloGroupSummary } | { error: MahiloAskAroundActionResult }> {
+  const normalizedGroupId = normalizeToken(explicitGroupId);
+  const normalizedGroupRef = normalizeToken(groupRef);
+  if (!normalizedGroupRef) {
+    return {
+      error: createNetworkErrorResult(
+        "Provide a Mahilo group name or groupId for ask-around.",
+        "invalid_request"
+      )
+    };
+  }
+
+  if (!hasMahiloGroupSupport(client)) {
+    if (!normalizedGroupId) {
+      return {
+        error: createNetworkErrorResult(
+          "Mahilo group lookup is not available in this environment yet.",
+          "invalid_request"
+        )
+      };
+    }
+
+    return {
+      group: {
+        groupId: normalizedGroupId,
+        name: normalizedGroupRef,
+        raw: normalizedGroupId
+      }
+    };
+  }
+
+  let groups: MahiloGroupSummary[];
+  try {
+    groups = await client.listGroups();
+  } catch (error) {
+    return {
+      error: createAskAroundErrorResult(error, "Mahilo couldn't load your groups for ask-around.")
+    };
+  }
+
+  const match = groups.find((group) => {
+    if (normalizedGroupId && group.groupId === normalizedGroupId) {
+      return true;
+    }
+
+    return group.name.localeCompare(normalizedGroupRef, undefined, { sensitivity: "accent" }) === 0;
+  });
+
+  if (!match) {
+    return {
+      error: createNetworkErrorResult(
+        `Mahilo could not find group ${formatQuotedLabel(normalizedGroupRef)}.`,
+        "not_found"
+      )
+    };
+  }
+
+  return { group: match };
+}
+
+function hasMahiloGroupSupport(
+  client: MahiloContractClient
+): client is MahiloContractClient & {
+  listGroups: () => Promise<MahiloGroupSummary[]>;
+} {
+  return typeof (client as MahiloContractClient & { listGroups?: unknown }).listGroups === "function";
+}
+
+function normalizeDeclaredSelectors(
+  selectors: Partial<DeclaredSelectors> | undefined
+): Partial<DeclaredSelectors> | undefined {
+  if (!selectors) {
+    return undefined;
+  }
+
+  const normalized: Partial<DeclaredSelectors> = {};
+  const action = normalizeToken(selectors.action);
+  const direction = normalizeToken(selectors.direction);
+  const resource = normalizeToken(selectors.resource);
+
+  if (action) {
+    normalized.action = action;
+  }
+
+  if (direction === "inbound" || direction === "outbound") {
+    normalized.direction = direction;
+  }
+
+  if (resource) {
+    normalized.resource = resource;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeRoles(
+  singleRole: string | undefined,
+  roles: string[] | undefined
+): string[] {
+  const combined = [
+    normalizeRoleToken(singleRole),
+    ...(Array.isArray(roles) ? roles.map((role) => normalizeRoleToken(role)) : [])
+  ];
+
+  const uniqueRoles = new Set<string>();
+  for (const role of combined) {
+    if (role) {
+      uniqueRoles.add(role);
+    }
+  }
+
+  return [...uniqueRoles];
+}
+
+function normalizeRoleToken(value: string | undefined): string | undefined {
+  const normalized = normalizeToken(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function readContactUsername(contact: MahiloContact): string | undefined {
+  const metadataUsername =
+    typeof contact.metadata?.username === "string" ? contact.metadata.username : undefined;
+  const candidate = normalizeToken(metadataUsername) ?? normalizeToken(contact.id);
+  return candidate ? candidate.replace(/^@+/, "") : undefined;
+}
+
+function readContactRoles(contact: MahiloContact): string[] {
+  const roles = Array.isArray(contact.metadata?.roles) ? contact.metadata.roles : [];
+
+  return roles
+    .filter((role): role is string => typeof role === "string")
+    .map((role) => role.trim())
+    .filter((role) => role.length > 0);
+}
+
+function contactHasAnyRole(contact: MahiloContact, expectedRoles: string[]): boolean {
+  const contactRoles = new Set(
+    readContactRoles(contact)
+      .map((role) => normalizeRoleToken(role))
+      .filter((role): role is string => Boolean(role))
+  );
+
+  return expectedRoles.some((role) => contactRoles.has(role));
+}
+
+function createAskAroundCorrelationId(): string {
+  const randomId =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.round(Math.random() * 1_000_000_000)}`;
+  return `mahilo-ask-${randomId}`;
+}
+
+function deriveTargetIdempotencyKey(
+  baseKey: string | undefined,
+  target: string
+): string | undefined {
+  const normalizedBaseKey = normalizeToken(baseKey);
+  if (!normalizedBaseKey) {
+    return undefined;
+  }
+
+  const normalizedTarget = target.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "_");
+  return `${normalizedBaseKey}:${normalizedTarget}`;
+}
+
+function mapToolResultToAskAroundDelivery(
+  result: {
+    decision: "allow" | "ask" | "deny";
+    messageId?: string;
+    reason?: string;
+    status: "denied" | "review_required" | "sent";
+  },
+  target: {
+    connectionState?: MahiloContactConnectionState;
+    recipient: string;
+    recipientLabel: string;
+    recipientType: "group" | "user";
+    roles?: string[];
+  }
+): MahiloAskAroundDelivery {
+  if (result.status === "sent") {
+    return {
+      connectionState: target.connectionState,
+      decision: result.decision,
+      messageId: result.messageId,
+      reason: result.reason,
+      recipient: target.recipient,
+      recipientLabel: target.recipientLabel,
+      recipientType: target.recipientType,
+      roles: target.roles,
+      status: "awaiting_reply"
+    };
+  }
+
+  if (result.status === "review_required") {
+    return {
+      connectionState: target.connectionState,
+      decision: result.decision,
+      messageId: result.messageId,
+      reason: result.reason ?? "Mahilo needs review before sending this ask.",
+      recipient: target.recipient,
+      recipientLabel: target.recipientLabel,
+      recipientType: target.recipientType,
+      roles: target.roles,
+      status: "review_required"
+    };
+  }
+
+  return {
+    connectionState: target.connectionState,
+    decision: result.decision,
+    messageId: result.messageId,
+    reason: result.reason ?? "Mahilo blocked this ask.",
+    recipient: target.recipient,
+    recipientLabel: target.recipientLabel,
+    recipientType: target.recipientType,
+    roles: target.roles,
+    status: "blocked"
+  };
+}
+
+function createRecipientSendFailure(
+  contact: MahiloContact,
+  username: string,
+  roles: string[],
+  connectionState: MahiloContactConnectionState | undefined,
+  error: unknown
+): MahiloAskAroundDelivery {
+  if (error instanceof MahiloRequestError) {
+    const status =
+      error.productState === "transport_failure" ? "send_failed" : "skipped";
+
+    return {
+      connectionState,
+      productState: error.productState,
+      reason: formatAskAroundSendError(error, contact.label),
+      recipient: username,
+      recipientLabel: contact.label,
+      recipientType: "user",
+      roles: roles.length > 0 ? roles : undefined,
+      status
+    };
+  }
+
+  return {
+    connectionState,
+    productState: "unknown",
+    reason: toErrorMessage(error),
+    recipient: username,
+    recipientLabel: contact.label,
+    recipientType: "user",
+    roles: roles.length > 0 ? roles : undefined,
+    status: "send_failed"
+  };
+}
+
+function countAskAroundDeliveries(
+  deliveries: MahiloAskAroundDelivery[]
+): MahiloAskAroundCounts {
+  return deliveries.reduce<MahiloAskAroundCounts>(
+    (counts, delivery) => {
+      switch (delivery.status) {
+        case "awaiting_reply":
+          counts.awaitingReplies += 1;
+          break;
+        case "blocked":
+          counts.blocked += 1;
+          break;
+        case "review_required":
+          counts.reviewRequired += 1;
+          break;
+        case "send_failed":
+          counts.sendFailed += 1;
+          break;
+        case "skipped":
+          counts.skipped += 1;
+          break;
+      }
+
+      return counts;
+    },
+    emptyAskAroundCounts()
+  );
+}
+
+function emptyAskAroundCounts(): MahiloAskAroundCounts {
+  return {
+    awaitingReplies: 0,
+    blocked: 0,
+    reviewRequired: 0,
+    sendFailed: 0,
+    skipped: 0
+  };
+}
+
+function formatContactAskAroundSummary(
+  target: MahiloAskAroundTarget,
+  counts: MahiloAskAroundCounts,
+  contactCount: number
+): string {
+  const targetLabel =
+    target.kind === "roles" && target.roles && target.roles.length > 0
+      ? `contacts in roles ${formatRoleList(target.roles)}`
+      : "your contacts";
+
+  const parts = [
+    counts.awaitingReplies > 0
+      ? `asked ${counts.awaitingReplies} of ${contactCount} ${targetLabel}`
+      : `reached 0 of ${contactCount} ${targetLabel}`
+  ];
+
+  if (counts.reviewRequired > 0) {
+    parts.push(`${counts.reviewRequired} waiting on review`);
+  }
+
+  if (counts.blocked > 0) {
+    parts.push(`${counts.blocked} blocked by boundaries`);
+  }
+
+  if (counts.skipped > 0) {
+    parts.push(`${counts.skipped} unavailable right now`);
+  }
+
+  if (counts.sendFailed > 0) {
+    parts.push(`${counts.sendFailed} failed to send`);
+  }
+
+  return `Mahilo ask-around: ${parts.join(", ")}.`;
+}
+
+function formatGroupAskAroundSummary(
+  delivery: MahiloAskAroundDelivery,
+  group: MahiloGroupSummary
+): string {
+  const groupLabel = formatGroupLabel(group);
+  switch (delivery.status) {
+    case "awaiting_reply":
+      return `Mahilo ask-around: asked group ${groupLabel}.`;
+    case "review_required":
+      return `Mahilo ask-around: group ${groupLabel} needs review before the question can go out.`;
+    case "blocked":
+      return `Mahilo ask-around: boundaries blocked asking group ${groupLabel}.`;
+    case "skipped":
+      return `Mahilo ask-around: group ${groupLabel} is not available right now.`;
+    case "send_failed":
+      return `Mahilo ask-around: couldn't send the question to group ${groupLabel}.`;
+  }
+}
+
+function formatReplyExpectation(counts: MahiloAskAroundCounts): string | undefined {
+  if (counts.awaitingReplies > 0) {
+    return "Replies will show up in this thread as your contacts respond. If someone stays silent, nothing is stuck.";
+  }
+
+  if (counts.reviewRequired > 0) {
+    return "Mahilo is waiting on review before those asks can go out.";
+  }
+
+  if (counts.skipped > 0 && counts.sendFailed === 0 && counts.blocked === 0) {
+    return "Those contacts were unavailable, so ask-around finished without hanging.";
+  }
+
+  return undefined;
+}
+
+function formatGroupReplyExpectation(
+  delivery: MahiloAskAroundDelivery,
+  group: MahiloGroupSummary
+): string | undefined {
+  if (delivery.status === "awaiting_reply") {
+    const memberCountSuffix =
+      typeof group.memberCount === "number" && group.memberCount > 0
+        ? ` (${group.memberCount} members)`
+        : "";
+    return `Replies will show up in this thread as ${formatGroupLabel(group)}${memberCountSuffix} responds. If nobody replies, nothing is stuck.`;
+  }
+
+  if (delivery.status === "review_required") {
+    return "Mahilo is waiting on review before the group ask can go out.";
+  }
+
+  return delivery.reason;
+}
+
+function formatRoleList(roles: string[]): string {
+  return roles.map((role) => `"${role}"`).join(", ");
+}
+
+function formatGroupLabel(group: Pick<MahiloGroupSummary, "groupId" | "name">): string {
+  return formatQuotedLabel(group.name || group.groupId);
+}
+
+function formatQuotedLabel(value: string): string {
+  return `"${value}"`;
+}
+
+function formatUnavailableContactReason(
+  contact: MahiloContact,
+  connectionState: MahiloContactConnectionState
+): string {
+  switch (connectionState) {
+    case "blocked":
+      return `${contact.label} is blocked on Mahilo right now.`;
+    case "no_active_connections":
+      return `${contact.label} has no active Mahilo agent connection right now.`;
+    case "not_found":
+      return `${contact.label} could not be resolved on Mahilo right now.`;
+    case "not_friends":
+      return `${contact.label} is not available through your Mahilo contact graph.`;
+    case "request_pending":
+      return `${contact.label} still has a pending Mahilo request.`;
+    case "transport_failure":
+      return `Mahilo could not reach ${contact.label}'s agent connection right now.`;
+    default:
+      return `${contact.label} is not available for Mahilo ask-around right now.`;
+  }
+}
+
+function formatAskAroundSendError(
+  error: MahiloRequestError,
+  recipientLabel: string
+): string {
+  switch (error.productState) {
+    case "transport_failure":
+      return `Couldn't reach Mahilo while asking ${recipientLabel}.`;
+    case "no_active_connections":
+      return `${recipientLabel} has no active Mahilo agent connection right now.`;
+    case "not_found":
+      return `Mahilo could not find ${recipientLabel} right now.`;
+    default:
+      return `Mahilo couldn't deliver the ask to ${recipientLabel}.`;
+  }
+}
+
+function mapContactStateToProductState(
+  state: MahiloContactConnectionState
+): MahiloProductState {
+  switch (state) {
+    case "blocked":
+      return "blocked";
+    case "no_active_connections":
+      return "no_active_connections";
+    case "not_found":
+      return "not_found";
+    case "not_friends":
+      return "not_friends";
+    case "request_pending":
+      return "request_pending";
+    case "transport_failure":
+      return "transport_failure";
+    default:
+      return "unknown";
+  }
+}
+
+function createAskAroundErrorResult(
+  error: unknown,
+  fallbackSummary: string
+): MahiloAskAroundActionResult {
+  if (error instanceof MahiloRequestError) {
+    const message =
+      error.productState === "transport_failure"
+        ? "Couldn't reach Mahilo right now. Check the server connection and try again."
+        : fallbackSummary;
+
+    return createNetworkErrorResult(message, error.productState, error.code, error.retryable, error.message);
+  }
+
+  return createNetworkErrorResult(
+    fallbackSummary,
+    "unknown",
+    undefined,
+    false,
+    toErrorMessage(error)
+  );
+}
+
+function createNetworkErrorResult(
+  summary: string,
+  productState: MahiloProductState,
+  code?: string,
+  retryable = false,
+  technicalMessage?: string
+): MahiloAskAroundActionResult {
+  return {
+    action: "ask_around",
+    error: {
+      code,
+      message: summary,
+      productState,
+      retryable,
+      technicalMessage
+    },
+    source: "mahilo_server",
+    status: "error",
+    summary
+  };
+}
+
+function normalizeToken(value: string | undefined): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return "Mahilo ask-around failed";
+}

@@ -246,6 +246,55 @@ describe("MahiloContractClient", () => {
     ]);
   });
 
+  it("lists groups through the Mahilo social endpoint", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push({ init, input });
+
+      return new Response(
+        JSON.stringify([
+          {
+            created_at: "2026-03-01T10:00:00.000Z",
+            description: "Trusted local recs",
+            group_id: "grp_hiking",
+            invite_only: true,
+            member_count: 4,
+            name: "Hiking Crew",
+            role: "owner",
+            status: "active"
+          }
+        ]),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200
+        }
+      );
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    const result = await client.listGroups();
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/groups");
+    expect(fetchCalls[0].init?.method).toBe("GET");
+    expect(result).toEqual([
+      expect.objectContaining({
+        createdAt: "2026-03-01T10:00:00.000Z",
+        description: "Trusted local recs",
+        groupId: "grp_hiking",
+        inviteOnly: true,
+        memberCount: 4,
+        name: "Hiking Crew",
+        role: "owner",
+        status: "active"
+      })
+    ]);
+  });
+
   it("sends friend requests through the Mahilo social endpoint", async () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",

@@ -8,6 +8,7 @@ export const CONTRACT_ENDPOINTS = {
   context: `${API_V1_BASE_PATH}/plugin/context`,
   friendRequest: `${API_V1_BASE_PATH}/friends/request`,
   friends: `${API_V1_BASE_PATH}/friends`,
+  groups: `${API_V1_BASE_PATH}/groups`,
   resolve: `${API_V1_BASE_PATH}/plugin/resolve`,
   sendMessage: `${API_V1_BASE_PATH}/messages/send`,
   outcomes: `${API_V1_BASE_PATH}/plugin/outcomes`,
