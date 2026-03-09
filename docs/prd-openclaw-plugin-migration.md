@@ -753,7 +753,7 @@ It is:
   - 2026-03-09T21:39:42.530Z: PLG2-074 completed via orchestrator integration.
 ### 7.6 Human Publish Handoff
 - **ID**: `PLG2-075`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-072, PLG2-073, PLG2-074
 - **Description**:
@@ -764,6 +764,8 @@ It is:
   - [ ] Post-publish verification steps are documented
   - [ ] Rollback / hotfix guidance exists for a bad first release
 
+- **Notes**:
+  - 2026-03-09T21:45:18.961Z: PLG2-075 completed via orchestrator integration.
 ### 7.7 Positioning Alignment Handoff
 - **ID**: `PLG2-080`
 - **Status**: `pending`
