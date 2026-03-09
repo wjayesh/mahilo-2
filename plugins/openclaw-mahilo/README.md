@@ -106,9 +106,9 @@ The plugin keeps the model-facing surface intentionally small:
   - `action=send_request`, `accept`, `decline`: manage Mahilo relationships without a separate tool per server route
   - future ask-around / fan-out actions will land on this same tool so the surface stays stable
 - `mahilo_boundaries`
-  - create one-time or temporary sharing exceptions
-  - defaults stay compact: `effect=allow`, `scope=user`, and `kind` is inferred from duration/expiry inputs when omitted
-  - future conversational boundary controls will extend this tool instead of adding new boundary-specific tools
+  - change sharing boundaries conversationally for opinions/recommendations, availability/schedule, location, health, financial, and contact details
+  - one-off boundary exceptions still live here, but ongoing boundary changes use the same stable tool instead of exposing policy jargon
+  - safety-sensitive categories default conservatively: health, financial, and contact details tighten to deny unless you explicitly open them up
 
 Operational and debug workflows stay on commands instead of expanding the tool list.
 

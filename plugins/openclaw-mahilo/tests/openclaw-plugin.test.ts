@@ -1126,12 +1126,12 @@ describe("createMahiloOpenClawPlugin", () => {
       content: [
         {
           text: expect.stringContaining(
-            "Message requires review before delivery. Ask for approval or create an override."
+            "Message requires review before delivery. Ask for approval or adjust boundaries."
           )
         }
       ],
       details: {
-        agentGuidance: "Ask for approval or create an override.",
+        agentGuidance: "Ask for approval or adjust boundaries.",
         decision: "ask",
         deliveryMode: "review_required",
         resolutionId: "res_ask_1",
@@ -1140,7 +1140,7 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
-  it("executes mahilo_boundaries with compact override defaults", async () => {
+  it("executes mahilo_boundaries with conversational category defaults", async () => {
     const { client, state } = createMockContractClient({
       promptContextResponse: {
         policy_guidance: {
@@ -1173,29 +1173,48 @@ describe("createMahiloOpenClawPlugin", () => {
 
     const tool = findTool(tools, "mahilo_boundaries");
     const result = await tool.execute("tool_call_6", {
+      action: "exception",
+      category: "location",
+      durationMinutes: 30,
       recipient: "alice",
-      reason: "User approved a one-time share.",
-      selectors: {
-        action: "share",
-        resource: "location.current"
-      },
-      senderConnectionId: "conn_sender",
       sourceResolutionId: "res_123"
     });
 
     expect(result).toMatchObject({
       content: [
         {
-          text: expect.stringContaining("one-time override")
+          text: expect.stringContaining(
+            "Boundary exception saved: allow sharing location with alice for 30 minutes."
+          )
         }
       ],
       details: {
+        action: "exception",
+        category: "location",
         created: true,
-        kind: "one_time",
-        policyId: "pol_789",
-        resolvedTargetId: "usr_alice"
+        effect: "allow",
+        kind: "temporary",
+        resolvedTargetId: "usr_alice",
+        scope: "user",
+        writes: [
+          {
+            selector: {
+              action: "share",
+              direction: "outbound",
+              resource: "location.current"
+            }
+          },
+          {
+            selector: {
+              action: "share",
+              direction: "outbound",
+              resource: "location.history"
+            }
+          }
+        ]
       }
     });
+    expect(state.agentConnectionCalls).toBe(1);
     expect(state.promptContextCalls).toEqual([
       {
         draft_selectors: {
@@ -1207,24 +1226,37 @@ describe("createMahiloOpenClawPlugin", () => {
         interaction_limit: 1,
         recipient: "alice",
         recipient_type: "user",
-        sender_connection_id: "conn_sender"
+        sender_connection_id: "conn_sender_default"
       }
     ]);
-    expect(state.overrideCalls).toHaveLength(1);
-    expect(state.overrideCalls[0]?.payload).toEqual({
+    expect(state.overrideCalls).toHaveLength(2);
+    expect(state.overrideCalls[0]?.payload).toMatchObject({
       effect: "allow",
-      kind: "one_time",
-      max_uses: 1,
-      reason: "User approved a one-time share.",
+      kind: "temporary",
       scope: "user",
       selectors: {
         action: "share",
         direction: "outbound",
         resource: "location.current"
       },
-      sender_connection_id: "conn_sender",
+      sender_connection_id: "conn_sender_default",
       source_resolution_id: "res_123",
-      target_id: "usr_alice"
+      target_id: "usr_alice",
+      ttl_seconds: 1800
+    });
+    expect(state.overrideCalls[1]?.payload).toMatchObject({
+      effect: "allow",
+      kind: "temporary",
+      scope: "user",
+      selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "location.history"
+      },
+      sender_connection_id: "conn_sender_default",
+      source_resolution_id: "res_123",
+      target_id: "usr_alice",
+      ttl_seconds: 1800
     });
   });
 

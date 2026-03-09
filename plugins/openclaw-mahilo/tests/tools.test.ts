@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  createMahiloBoundaryChange,
   createMahiloOverride,
   getMahiloContext,
   listMahiloContacts,
@@ -869,6 +870,179 @@ describe("native contract tools", () => {
     ).rejects.toThrow(
       "temporary overrides require expiresAt, ttlSeconds, durationMinutes, or durationHours"
     );
+  });
+});
+
+describe("createMahiloBoundaryChange", () => {
+  it("creates conservative persistent boundaries for contact details by default", async () => {
+    const { client, state } = createMockClient();
+
+    const result = await createMahiloBoundaryChange(client, {
+      category: "contact_details",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result).toMatchObject({
+      action: "set",
+      category: "contact",
+      effect: "deny",
+      kind: "persistent",
+      scope: "global",
+      writes: [
+        {
+          selector: {
+            action: "share",
+            direction: "outbound",
+            resource: "contact.email"
+          }
+        },
+        {
+          selector: {
+            action: "share",
+            direction: "outbound",
+            resource: "contact.phone"
+          }
+        }
+      ]
+    });
+    expect(result.summary).toContain(
+      "Boundary updated: stop sharing contact details with anyone from now on."
+    );
+    expect(state.promptContextCalls).toHaveLength(0);
+    expect(state.overrideCalls).toHaveLength(2);
+    expect(state.overrideCalls[0]?.payload).toMatchObject({
+      effect: "deny",
+      kind: "persistent",
+      scope: "global",
+      selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "contact.email"
+      },
+      sender_connection_id: "conn_sender"
+    });
+    expect(state.overrideCalls[0]?.payload.reason).toEqual(
+      expect.stringContaining("contact details")
+    );
+    expect(state.overrideCalls[1]?.payload).toMatchObject({
+      effect: "deny",
+      kind: "persistent",
+      scope: "global",
+      selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "contact.phone"
+      },
+      sender_connection_id: "conn_sender"
+    });
+  });
+
+  it("creates temporary location boundary exceptions for a specific recipient", async () => {
+    const { client, state } = createMockClient({
+      promptContextResponse: {
+        policy_guidance: {
+          default_decision: "ask",
+          summary: "Location shares require review by default."
+        },
+        recipient: {
+          id: "usr_alice",
+          relationship: "friend",
+          username: "alice"
+        },
+        suggested_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        }
+      }
+    });
+
+    const result = await createMahiloBoundaryChange(client, {
+      action: "exception",
+      category: "location",
+      durationMinutes: 30,
+      idempotencyKey: "idem_boundary",
+      recipient: "alice",
+      senderConnectionId: "conn_sender",
+      sourceResolutionId: "res_123"
+    });
+
+    expect(result).toMatchObject({
+      action: "exception",
+      category: "location",
+      effect: "allow",
+      kind: "temporary",
+      resolvedTargetId: "usr_alice",
+      scope: "user",
+      writes: [
+        {
+          selector: {
+            action: "share",
+            direction: "outbound",
+            resource: "location.current"
+          }
+        },
+        {
+          selector: {
+            action: "share",
+            direction: "outbound",
+            resource: "location.history"
+          }
+        }
+      ]
+    });
+    expect(result.summary).toContain(
+      "Boundary exception saved: allow sharing location with alice for 30 minutes."
+    );
+    expect(state.promptContextCalls).toEqual([
+      {
+        draft_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        },
+        include_recent_interactions: false,
+        interaction_limit: 1,
+        recipient: "alice",
+        recipient_type: "user",
+        sender_connection_id: "conn_sender"
+      }
+    ]);
+    expect(state.overrideCalls).toHaveLength(2);
+    expect(state.overrideCalls[0]).toMatchObject({
+      idempotencyKey: "idem_boundary:1",
+      payload: {
+        effect: "allow",
+        kind: "temporary",
+        scope: "user",
+        selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        },
+        sender_connection_id: "conn_sender",
+        source_resolution_id: "res_123",
+        target_id: "usr_alice",
+        ttl_seconds: 1800
+      }
+    });
+    expect(state.overrideCalls[1]).toMatchObject({
+      idempotencyKey: "idem_boundary:2",
+      payload: {
+        effect: "allow",
+        kind: "temporary",
+        scope: "user",
+        selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.history"
+        },
+        sender_connection_id: "conn_sender",
+        source_resolution_id: "res_123",
+        target_id: "usr_alice",
+        ttl_seconds: 1800
+      }
+    });
   });
 });
 

@@ -191,7 +191,7 @@ export function formatMahiloLearningSuggestion(
     "Mahilo learning opportunity:",
     `${actionSummary} for ${targetLabel} on ${selectorLabel}.${reasonLine}`,
     `Decide whether this should apply just once, for a short time, for ${targetLabel}, for similar contacts, or as your normal rule.`,
-    "Use `mahilo_boundaries` when you want a one-time or temporary exception."
+    "Use `mahilo_boundaries` to adjust boundaries or create a temporary boundary exception."
   ].join(" ");
 }
 

@@ -1,6 +1,11 @@
 export * from "./tools";
+export * from "./boundaries";
 
 import type { MahiloContractClient } from "./client";
+import {
+  createMahiloBoundaryChange as createMahiloBoundaryChangeBase,
+  type MahiloBoundaryChangeInput,
+} from "./boundaries";
 import type { FetchMahiloPromptContextOptions } from "./prompt-context";
 import {
   getMahiloContext as getMahiloContextBase,
@@ -56,6 +61,16 @@ export async function getMahiloContext(
     },
     options
   );
+}
+
+export async function createMahiloBoundaryChange(
+  client: MahiloContractClient,
+  input: MahiloBoundaryChangeInput
+) {
+  return createMahiloBoundaryChangeBase(client, {
+    ...input,
+    senderConnectionId: await resolveSenderConnectionId(client, input.senderConnectionId),
+  });
 }
 
 async function resolveToolContext(

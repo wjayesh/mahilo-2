@@ -24,12 +24,13 @@ import {
 import { InMemoryPluginState } from "./state";
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
-  createMahiloOverride,
+  createMahiloBoundaryChange,
   getMahiloContext,
   previewMahiloSend,
   talkToAgent,
   talkToGroup,
-  type CreateMahiloOverrideInput,
+  type MahiloBoundaryChangeInput,
+  type MahiloBoundaryChangeResult,
   type ContactsProvider,
   type GetMahiloContextInput,
   type MahiloContextToolResult,
@@ -75,8 +76,9 @@ const MAHILO_BOUNDARIES_TOOL_NAME = "mahilo_boundaries";
 const MAHILO_MESSAGE_TOOL_NAME = "mahilo_message";
 const MAHILO_NETWORK_TOOL_NAME = "mahilo_network";
 
-type MahiloBoundaryToolAction = "override";
+type MahiloBoundaryToolAction = "exception" | "set";
 type MahiloMessageToolAction = "context" | "preview" | "send";
+type MahiloBoundaryToolDetails = MahiloBoundaryChangeResult;
 type MahiloMessageToolDetails =
   | MahiloContextToolResult
   | MahiloPreviewResult
@@ -283,11 +285,11 @@ function createMahiloNetworkTool(client: MahiloContractClient): AnyAgentTool {
 function createMahiloBoundariesTool(client: MahiloContractClient): AnyAgentTool {
   return {
     description:
-      "Mahilo boundary management: create a one-time or temporary exception now, with broader boundary controls expanding here instead of adding new tools.",
+      "Mahilo boundary management: change sharing boundaries conversationally for opinions, availability, location, and sensitive personal details while Mahilo writes canonical boundary rules under the hood.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
-      executeMahiloTool(MAHILO_BOUNDARIES_TOOL_NAME, async () => {
+      executeMahiloTool<MahiloBoundaryToolDetails>(MAHILO_BOUNDARIES_TOOL_NAME, async () => {
         const input = parseMahiloBoundariesInput(rawInput);
-        const result = await createMahiloOverride(client, input);
+        const result = await createMahiloBoundaryChange(client, input);
         return toAgentToolResult(result, result.summary);
       }),
     label: "Mahilo Boundaries",
@@ -296,8 +298,32 @@ function createMahiloBoundariesTool(client: MahiloContractClient): AnyAgentTool 
       additionalProperties: false,
       properties: {
         action: {
-          description: "Defaults to override.",
-          enum: ["override"],
+          description: "Use set for ongoing boundaries and exception for one-off or temporary changes.",
+          enum: ["set", "exception", "override"],
+          type: "string"
+        },
+        audience: {
+          description: "Defaults to everyone unless a specific recipient or target is provided.",
+          enum: ["everyone", "contact", "group", "role"],
+          type: "string"
+        },
+        boundary: {
+          description: "Conversational boundary setting: allow, ask, or deny.",
+          enum: ["allow", "ask", "deny"],
+          type: "string"
+        },
+        category: {
+          description:
+            "Common boundary categories. private_details covers health, financial, and contact details together.",
+          enum: [
+            "opinions",
+            "availability",
+            "location",
+            "health",
+            "financial",
+            "contact",
+            "private_details"
+          ],
           type: "string"
         },
         declaredSelectors: createSelectorSchema(),
@@ -312,6 +338,11 @@ function createMahiloBoundariesTool(client: MahiloContractClient): AnyAgentTool 
         expires_at: { type: "string" },
         idempotencyKey: { type: "string" },
         kind: { type: "string" },
+        lifetime: {
+          description: "Conversational lifetime: once, temporary, or always.",
+          enum: ["once", "temporary", "always"],
+          type: "string"
+        },
         maxUses: { type: "integer" },
         max_uses: { type: "integer" },
         priority: { type: "integer" },
@@ -336,7 +367,6 @@ function createMahiloBoundariesTool(client: MahiloContractClient): AnyAgentTool 
         ttlSeconds: { type: "integer" },
         ttl_seconds: { type: "integer" }
       },
-      required: ["reason", "senderConnectionId"],
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -470,20 +500,26 @@ function parsePreviewMahiloSendInput(rawInput: unknown): PreviewMahiloSendInput 
   };
 }
 
-function parseMahiloBoundariesInput(rawInput: unknown): CreateMahiloOverrideInput {
+function parseMahiloBoundariesInput(rawInput: unknown): MahiloBoundaryChangeInput {
   const input = readInputObject(rawInput);
   const action = normalizeMahiloBoundaryAction(readOptionalString(input.action));
-  const reason = readOptionalString(input.reason);
 
   if (input.action !== undefined && !action) {
-    throw new MahiloToolInputError("action must be override");
-  }
-
-  if (!reason) {
-    throw new MahiloToolInputError("reason is required");
+    throw new MahiloToolInputError("action must be set, exception, or override");
   }
 
   return {
+    action,
+    audience:
+      readOptionalString(input.audience) ??
+      readOptionalString(input.appliesTo) ??
+      readOptionalString(input.applies_to),
+    boundary:
+      readOptionalString(input.boundary) ??
+      readOptionalString(input.preference) ??
+      readOptionalString(input.mode) ??
+      readOptionalString(input.setting),
+    category: readOptionalString(input.category) ?? readOptionalString(input.topic),
     durationHours:
       readPositiveInteger(input.durationHours) ??
       readPositiveInteger(input.duration_hours),
@@ -498,18 +534,21 @@ function parseMahiloBoundariesInput(rawInput: unknown): CreateMahiloOverrideInpu
     idempotencyKey:
       readOptionalString(input.idempotencyKey) ??
       readOptionalString(input.idempotency_key),
-    kind: inferMahiloOverrideKind(input),
+    kind: readOptionalString(input.kind),
+    lifetime: readOptionalString(input.lifetime),
     maxUses: readPositiveInteger(input.maxUses) ?? readPositiveInteger(input.max_uses),
     priority: readOptionalInteger(input.priority),
     recipient: readOptionalString(input.recipient),
     recipientType:
       readRecipientType(input.recipientType) ?? readRecipientType(input.recipient_type),
-    reason,
-    scope: readOptionalString(input.scope) ?? "user",
+    reason: readOptionalString(input.reason),
+    scope: readOptionalString(input.scope),
     selectors: parseDeclaredSelectors(
       input.selectors ?? input.declaredSelectors ?? input.declared_selectors
     ),
-    senderConnectionId: readRequiredSenderConnectionId(input),
+    senderConnectionId:
+      readOptionalString(input.senderConnectionId) ??
+      readOptionalString(input.sender_connection_id),
     sourceResolutionId:
       readOptionalString(input.sourceResolutionId) ??
       readOptionalString(input.source_resolution_id),
@@ -543,11 +582,15 @@ function normalizeMahiloBoundaryAction(
   }
 
   switch (normalized) {
+    case "set":
+    case "change":
+    case "update":
+      return "set";
     case "exception":
     case "grant_exception":
     case "create_override":
     case "override":
-      return "override";
+      return "exception";
     default:
       return undefined;
   }
@@ -584,28 +627,6 @@ function readMahiloMessageRecipientType(input: Record<string, unknown>): "group"
     readRecipientType(input.recipient_type) ??
     (readOptionalString(input.groupId) ?? readOptionalString(input.group_id) ? "group" : "user")
   );
-}
-
-function inferMahiloOverrideKind(input: Record<string, unknown>): string {
-  const explicitKind = readOptionalString(input.kind);
-  if (explicitKind) {
-    return explicitKind;
-  }
-
-  if (
-    readOptionalString(input.expiresAt) ||
-    readOptionalString(input.expires_at) ||
-    typeof readPositiveInteger(input.ttlSeconds) === "number" ||
-    typeof readPositiveInteger(input.ttl_seconds) === "number" ||
-    typeof readPositiveInteger(input.durationMinutes) === "number" ||
-    typeof readPositiveInteger(input.duration_minutes) === "number" ||
-    typeof readPositiveInteger(input.durationHours) === "number" ||
-    typeof readPositiveInteger(input.duration_hours) === "number"
-  ) {
-    return "temporary";
-  }
-
-  return "one_time";
 }
 
 function parseDeclaredSelectors(value: unknown): Partial<DeclaredSelectors> | undefined {
@@ -653,20 +674,6 @@ function readInputObject(rawInput: unknown): Record<string, unknown> {
   }
 
   return rawInput as Record<string, unknown>;
-}
-
-function readRequiredSenderConnectionId(input: Record<string, unknown>): string {
-  const senderConnectionId =
-    readOptionalString(input.senderConnectionId) ??
-    readOptionalString(input.sender_connection_id);
-
-  if (!senderConnectionId) {
-    throw new MahiloToolInputError(
-      "senderConnectionId is required (pass senderConnectionId or sender_connection_id)"
-    );
-  }
-
-  return senderConnectionId;
 }
 
 function readOptionalObject(value: unknown): Record<string, unknown> | undefined {

@@ -35,6 +35,8 @@ describe("README install docs", () => {
     expect(readme).toContain("mahilo_message");
     expect(readme).toContain("mahilo_network");
     expect(readme).toContain("mahilo_boundaries");
+    expect(readme).toContain("opinions/recommendations");
+    expect(readme).toContain("health, financial, and contact details");
     expect(readme).toContain("mahilo setup");
     expect(readme).toContain("mahilo status");
     expect(readme).toContain("mahilo reconnect");

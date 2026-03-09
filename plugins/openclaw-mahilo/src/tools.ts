@@ -970,7 +970,9 @@ function summarizePreviewResponse(
   );
 
   return {
-    agentGuidance: readString(root?.agent_guidance) ?? readString(result?.agent_guidance),
+    agentGuidance: normalizeBoundaryLanguage(
+      readString(root?.agent_guidance) ?? readString(result?.agent_guidance)
+    ),
     decision,
     deliveryMode,
     expiresAt: readString(root?.expires_at) ?? readString(result?.expires_at),
@@ -986,6 +988,17 @@ function summarizePreviewResponse(
     ),
     recipientResults
   };
+}
+
+function normalizeBoundaryLanguage(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.replace(
+    /\bcreate an override\b/giu,
+    "adjust boundaries"
+  );
 }
 
 export function summarizeMahiloSendOutcome(
