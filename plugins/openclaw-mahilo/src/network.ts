@@ -791,7 +791,7 @@ function formatGroupAskAroundSummary(
 
 function formatReplyExpectation(counts: MahiloAskAroundCounts): string | undefined {
   if (counts.awaitingReplies > 0) {
-    return "Replies will show up in this thread as your contacts respond. If someone stays silent, nothing is stuck.";
+    return "Replies will show up in this thread with attribution and a running summary as your contacts respond. If someone stays silent, nothing is stuck.";
   }
 
   if (counts.reviewRequired > 0) {
@@ -814,7 +814,7 @@ function formatGroupReplyExpectation(
       typeof group.memberCount === "number" && group.memberCount > 0
         ? ` (${group.memberCount} members)`
         : "";
-    return `Replies will show up in this thread as ${formatGroupLabel(group)}${memberCountSuffix} responds. If nobody replies, nothing is stuck.`;
+    return `Replies will show up in this thread with attribution and a running summary as ${formatGroupLabel(group)}${memberCountSuffix} responds. If nobody replies, nothing is stuck.`;
   }
 
   if (delivery.status === "review_required") {

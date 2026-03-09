@@ -7,6 +7,7 @@ import { MahiloRequestError, type MahiloContractClient } from "./client";
 import {
   executeMahiloNetworkAction,
   normalizeMahiloNetworkAction,
+  type MahiloAskAroundTarget,
   type ExecuteMahiloNetworkActionInput,
   type MahiloNetworkActionResult
 } from "./network";
@@ -27,7 +28,10 @@ import {
   attachMahiloSenderResolutionCache,
   resolveMahiloSenderConnection
 } from "./sender-resolution";
-import { InMemoryPluginState } from "./state";
+import {
+  InMemoryPluginState,
+  type MahiloAskAroundSession
+} from "./state";
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
   createMahiloBoundaryChange,
@@ -780,6 +784,15 @@ function readPositiveInteger(value: unknown): number | undefined {
   return normalized;
 }
 
+function readNonNegativeInteger(value: unknown): number | undefined {
+  const normalized = readOptionalInteger(value);
+  if (typeof normalized !== "number" || normalized < 0) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
 function readRecipientType(value: unknown): "group" | "user" | undefined {
   return value === "group" || value === "user" ? value : undefined;
 }
@@ -1074,7 +1087,19 @@ function rememberMahiloAskAroundInboundRoutes(
     readOptionalString(event.params.senderConnectionId) ??
     readOptionalString(event.params.sender_connection_id);
   const deliveries = Array.isArray(resultDetails.deliveries) ? resultDetails.deliveries : [];
-  const target = readOptionalObject(resultDetails.target);
+  const target = readMahiloAskAroundTarget(resultDetails.target);
+
+  if (correlationId) {
+    pluginState.rememberAskAroundSession({
+      correlationId,
+      expectedReplyCount: readMahiloAskAroundExpectedReplyCount(resultDetails, deliveries, target),
+      question:
+        readOptionalString(resultDetails.question) ??
+        readOptionalString(event.params.question) ??
+        readOptionalString(event.params.message),
+      target
+    });
+  }
 
   for (const rawDelivery of deliveries) {
     const delivery = readOptionalObject(rawDelivery);
@@ -1093,7 +1118,7 @@ function rememberMahiloAskAroundInboundRoutes(
     const recipientType =
       readRecipientType(delivery.recipientType) ??
       readRecipientType(delivery.recipient_type) ??
-      (readOptionalString(target?.kind) === "group" ? "group" : "user");
+      (target?.kind === "group" ? "group" : "user");
 
     if (!outboundMessageId || !recipient) {
       continue;
@@ -1101,8 +1126,7 @@ function rememberMahiloAskAroundInboundRoutes(
 
     const groupId =
       recipientType === "group"
-        ? readOptionalString(target?.groupId) ??
-          readOptionalString(target?.group_id) ??
+        ? target?.groupId ??
           recipient
         : undefined;
     const remoteParticipant = recipientType === "user" ? recipient : undefined;
@@ -1141,18 +1165,38 @@ function routeAcceptedMahiloDelivery(
     return;
   }
 
+  const correlationId = payload.correlation_id ?? route.correlationId;
+
   // Refresh the route with the exact inbound delivery metadata once it resolves.
   pluginState.rememberInboundRoute({
     ...route,
-    correlationId: payload.correlation_id ?? route.correlationId,
+    correlationId,
     groupId: payload.group_id ?? route.groupId,
     localConnectionId: payload.recipient_connection_id,
     remoteConnectionId: payload.sender_connection_id ?? route.remoteConnectionId,
     remoteParticipant: payload.sender
   });
 
+  const askAroundSession =
+    correlationId
+      ? pluginState.recordAskAroundReply(correlationId, {
+          context: payload.context,
+          deliveryId: payload.delivery_id ?? undefined,
+          groupId: payload.group_id ?? undefined,
+          groupName: payload.group_name ?? undefined,
+          message: payload.message,
+          messageId: payload.message_id,
+          payloadType: payload.payload_type,
+          sender: payload.sender,
+          senderAgent: payload.sender_agent,
+          senderConnectionId: payload.sender_connection_id,
+          senderUserId: payload.sender_user_id,
+          timestamp: payload.timestamp
+        })
+      : undefined;
+
   api.runtime.system.enqueueSystemEvent(
-    formatMahiloInboundSystemEvent(payload),
+    formatMahiloInboundSystemEvent(payload, askAroundSession),
     {
       contextKey: buildMahiloInboundContextKey(payload),
       sessionKey: route.sessionKey
@@ -1178,7 +1222,14 @@ function buildMahiloInboundContextKey(payload: MahiloInboundWebhookPayload): str
   ].join(":");
 }
 
-function formatMahiloInboundSystemEvent(payload: MahiloInboundWebhookPayload): string {
+function formatMahiloInboundSystemEvent(
+  payload: MahiloInboundWebhookPayload,
+  askAroundSession?: MahiloAskAroundSession
+): string {
+  if (askAroundSession) {
+    return formatMahiloAskAroundInboundSystemEvent(askAroundSession);
+  }
+
   const groupLabel = readOptionalString(payload.group_name) ?? payload.group_id ?? undefined;
   const selectorLabel = formatMahiloInboundSelectorLabel(payload.selectors);
   const messageBody = formatMahiloInboundBody(payload);
@@ -1207,6 +1258,35 @@ function formatMahiloInboundSystemEvent(payload: MahiloInboundWebhookPayload): s
   return text;
 }
 
+function formatMahiloAskAroundInboundSystemEvent(
+  session: MahiloAskAroundSession
+): string {
+  const lines = [
+    [
+      MAHILO_INBOUND_EVENT_MARKER,
+      "Mahilo ask-around update",
+      `[thread ${session.correlationId}]`
+    ].join(" ")
+  ];
+  const question = normalizeInlineText(session.question);
+  if (question) {
+    lines.push(`Question: ${question}`);
+  }
+
+  const targetLine = formatMahiloAskAroundTargetLine(session.target);
+  if (targetLine) {
+    lines.push(targetLine);
+  }
+
+  lines.push(
+    `Synthesized summary (plugin-generated): ${formatMahiloAskAroundSummary(session)}`
+  );
+  lines.push("Direct replies:");
+  lines.push(...session.replies.map((reply) => formatMahiloAskAroundDirectReply(reply)));
+
+  return lines.join("\n");
+}
+
 function formatMahiloInboundSelectorLabel(
   selectors: MahiloInboundWebhookPayload["selectors"]
 ): string | undefined {
@@ -1218,8 +1298,15 @@ function formatMahiloInboundSelectorLabel(
 }
 
 function formatMahiloInboundBody(payload: MahiloInboundWebhookPayload): string {
-  const payloadType = readOptionalString(payload.payload_type) ?? "text/plain";
-  const message = normalizeInlineText(payload.message) ?? "";
+  return formatMahiloInboundBodyContent(payload.message, payload.payload_type);
+}
+
+function formatMahiloInboundBodyContent(
+  messageValue: string | undefined,
+  payloadTypeValue: string | undefined
+): string {
+  const payloadType = readOptionalString(payloadTypeValue) ?? "text/plain";
+  const message = normalizeInlineText(messageValue) ?? "";
 
   if (payloadType === "application/mahilo+ciphertext") {
     return `Encrypted payload received (${payloadType}).`;
@@ -1234,6 +1321,184 @@ function formatMahiloInboundBody(payload: MahiloInboundWebhookPayload): string {
   }
 
   return `Payload received as ${payloadType}.`;
+}
+
+function readMahiloAskAroundTarget(value: unknown): MahiloAskAroundTarget | undefined {
+  const target = readOptionalObject(value);
+  if (!target) {
+    return undefined;
+  }
+
+  const kind = readOptionalString(target.kind);
+  if (kind !== "all_contacts" && kind !== "group" && kind !== "roles") {
+    return undefined;
+  }
+
+  return {
+    contactCount: readNonNegativeInteger(target.contactCount),
+    groupId: readOptionalString(target.groupId) ?? readOptionalString(target.group_id),
+    groupName: readOptionalString(target.groupName) ?? readOptionalString(target.group_name),
+    kind,
+    memberCount: readNonNegativeInteger(target.memberCount) ?? readNonNegativeInteger(target.member_count),
+    roles: readStringArray(target.roles)
+  };
+}
+
+function readMahiloAskAroundExpectedReplyCount(
+  resultDetails: Record<string, unknown>,
+  deliveries: unknown[],
+  target: MahiloAskAroundTarget | undefined
+): number | undefined {
+  if (target?.kind === "group") {
+    return undefined;
+  }
+
+  const counts = readOptionalObject(resultDetails.counts);
+  const countedReplies =
+    readNonNegativeInteger(counts?.awaitingReplies) ??
+    readNonNegativeInteger(counts?.awaiting_replies);
+  if (typeof countedReplies === "number" && countedReplies > 0) {
+    return countedReplies;
+  }
+
+  let awaitingReplyCount = 0;
+  for (const rawDelivery of deliveries) {
+    const delivery = readOptionalObject(rawDelivery);
+    if (readOptionalString(delivery?.status) === "awaiting_reply") {
+      awaitingReplyCount += 1;
+    }
+  }
+
+  return awaitingReplyCount > 0 ? awaitingReplyCount : undefined;
+}
+
+function formatMahiloAskAroundTargetLine(
+  target: MahiloAskAroundTarget | undefined
+): string | undefined {
+  if (!target) {
+    return undefined;
+  }
+
+  switch (target.kind) {
+    case "all_contacts":
+      return "Asked: your Mahilo contacts.";
+    case "group": {
+      const groupLabel = target.groupName ?? target.groupId;
+      if (!groupLabel) {
+        return "Asked: a Mahilo group.";
+      }
+
+      const memberCountSuffix =
+        typeof target.memberCount === "number" && target.memberCount > 0
+          ? ` (${target.memberCount} members)`
+          : "";
+      return `Asked: group ${formatQuotedLabel(groupLabel)}${memberCountSuffix}.`;
+    }
+    case "roles":
+      return target.roles && target.roles.length > 0
+        ? `Asked: Mahilo contacts in roles ${formatQuotedList(target.roles)}.`
+        : "Asked: role-filtered Mahilo contacts.";
+  }
+}
+
+function formatMahiloAskAroundSummary(session: MahiloAskAroundSession): string {
+  if (session.replies.length === 0) {
+    return "No direct replies are recorded yet.";
+  }
+
+  const respondentCount = countMahiloAskAroundRespondents(session);
+  const directMessageCount = session.replies.length;
+  let overview: string;
+
+  if (session.target?.kind === "group") {
+    const groupLabel = session.target.groupName ?? session.target.groupId;
+    const groupSuffix = groupLabel ? ` from group ${formatQuotedLabel(groupLabel)}` : "";
+    overview =
+      respondentCount === 1
+        ? `1 contact has replied so far${groupSuffix}.`
+        : `${respondentCount} contacts have replied so far${groupSuffix}.`;
+  } else if (
+    typeof session.expectedReplyCount === "number" &&
+    session.expectedReplyCount > 0
+  ) {
+    overview =
+      respondentCount === 1
+        ? `1 of ${session.expectedReplyCount} contacted people has replied so far.`
+        : `${respondentCount} of ${session.expectedReplyCount} contacted people have replied so far.`;
+  } else {
+    overview =
+      respondentCount === 1
+        ? "1 contact has replied so far."
+        : `${respondentCount} contacts have replied so far.`;
+  }
+
+  if (directMessageCount > respondentCount) {
+    overview = `${overview} ${directMessageCount} direct messages are on record.`;
+  }
+
+  const replySnippets = session.replies
+    .map((reply) => formatMahiloAskAroundReplySnippet(reply))
+    .join(" ");
+
+  return replySnippets.length > 0 ? `${overview} ${replySnippets}` : overview;
+}
+
+function formatMahiloAskAroundReplySnippet(
+  reply: MahiloAskAroundSession["replies"][number]
+): string {
+  const contextText = normalizeInlineText(reply.context);
+  const timeText = normalizeInlineText(reply.timestamp);
+  const attributionSuffix = contextText
+    ? ` (context: ${contextText})`
+    : timeText
+      ? ` (${timeText})`
+      : "";
+
+  return `${reply.sender}${attributionSuffix} said: ${formatMahiloInboundBodyContent(
+    reply.message,
+    reply.payloadType
+  )}`;
+}
+
+function formatMahiloAskAroundDirectReply(
+  reply: MahiloAskAroundSession["replies"][number]
+): string {
+  const details = [
+    `- ${reply.sender}`,
+    `via ${reply.senderAgent}`,
+    reply.timestamp ? `at ${reply.timestamp}` : undefined,
+    `[message ${reply.messageId}]`,
+    reply.deliveryId ? `[delivery ${reply.deliveryId}]` : undefined
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+  let line = `${details.join(" ")}.`;
+  const contextText = normalizeInlineText(reply.context);
+  if (contextText) {
+    line = `${line} Experience context: ${contextText}.`;
+  }
+
+  return `${line} Direct reply: ${formatMahiloInboundBodyContent(
+    reply.message,
+    reply.payloadType
+  )}`;
+}
+
+function countMahiloAskAroundRespondents(session: MahiloAskAroundSession): number {
+  const respondents = new Set(
+    session.replies
+      .map((reply) => normalizeInlineText(reply.sender)?.toLowerCase())
+      .filter((sender): sender is string => Boolean(sender))
+  );
+
+  return respondents.size;
+}
+
+function formatQuotedLabel(value: string): string {
+  return `"${value}"`;
+}
+
+function formatQuotedList(values: string[]): string {
+  return values.map((value) => formatQuotedLabel(value)).join(", ");
 }
 
 function buildMahiloOutcomeContextKey(

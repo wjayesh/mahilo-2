@@ -831,6 +831,7 @@ describe("createMahiloOpenClawPlugin", () => {
       message: "Try Mensho for the broth.",
       message_id: "msg_inbound_network_1",
       recipient_connection_id: "conn_sender",
+      sender: "Alice",
       sender_connection_id: "conn_alice"
     });
     const timestamp = Math.floor(Date.now() / 1000);
@@ -855,6 +856,10 @@ describe("createMahiloOpenClawPlugin", () => {
         text: expect.stringContaining("Try Mensho for the broth.")
       })
     ]);
+    expect(systemEvents[0]?.text).toContain("Mahilo ask-around update");
+    expect(systemEvents[0]?.text).toContain("Question: Who knows a good ramen spot?");
+    expect(systemEvents[0]?.text).toContain("Synthesized summary (plugin-generated):");
+    expect(systemEvents[0]?.text).toContain("Direct replies:");
     expect(heartbeatRequests).toEqual([
       {
         agentId: "mahilo-network-agent",
@@ -862,6 +867,157 @@ describe("createMahiloOpenClawPlugin", () => {
         sessionKey: "session_network_route_1"
       }
     ]);
+  });
+
+  it("keeps synthesized ask-around updates separate from direct attributed replies", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+        bob: [{ active: true, id: "conn_bob" }]
+      },
+      friendshipsResponse: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
+        },
+        {
+          direction: "sent",
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_bob",
+          username: "bob"
+        }
+      ]
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, hooks, routes, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "mahilo_network");
+    const outboundInput = {
+      action: "ask_around",
+      correlationId: "corr_network_summary_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_network_summary_1", outboundInput);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "mahilo_network"
+      },
+      {
+        agentId: "mahilo-network-agent",
+        runId: "run_network_summary_1",
+        sessionKey: "session_network_summary_1",
+        toolCallId: "tool_call_network_summary_1",
+        toolName: "mahilo_network"
+      }
+    );
+
+    const firstReplyBody = buildInboundWebhookRawBody({
+      context: "Went last month",
+      correlation_id: "corr_network_summary_1",
+      message: "Try Mensho for the broth.",
+      message_id: "msg_inbound_summary_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice"
+    });
+    const firstTimestamp = Math.floor(Date.now() / 1000);
+    const firstSignature = generateCallbackSignature(
+      firstReplyBody,
+      CALLBACK_SECRET,
+      firstTimestamp
+    );
+    const firstRequest = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_summary_1",
+        "x-mahilo-signature": `sha256=${firstSignature}`,
+        "x-mahilo-timestamp": String(firstTimestamp)
+      },
+      rawBody: firstReplyBody
+    });
+    const firstResponse = createMockWebhookResponse();
+
+    await routes[0]!.handler(firstRequest, firstResponse.response);
+
+    expect(firstResponse.status()).toBe(200);
+    expect(systemEvents[0]?.text).toContain(
+      "Synthesized summary (plugin-generated): 1 of 2 contacted people has replied so far."
+    );
+    expect(systemEvents[0]?.text).toContain(
+      "Alice (context: Went last month) said: Try Mensho for the broth."
+    );
+    expect(systemEvents[0]?.text).toContain("Direct replies:");
+    expect(systemEvents[0]?.text).toContain(
+      "- Alice via openclaw at 2026-03-08T12:15:00.000Z [message msg_inbound_summary_1]. Experience context: Went last month. Direct reply: Try Mensho for the broth."
+    );
+
+    const secondReplyBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_summary_1",
+      message: "Ramen Shop is worth the wait.",
+      message_id: "msg_inbound_summary_2",
+      recipient_connection_id: "conn_sender",
+      sender: "Bob",
+      sender_connection_id: "conn_bob",
+      timestamp: "2026-03-08T12:17:00.000Z"
+    });
+    const secondTimestamp = Math.floor(Date.now() / 1000);
+    const secondSignature = generateCallbackSignature(
+      secondReplyBody,
+      CALLBACK_SECRET,
+      secondTimestamp
+    );
+    const secondRequest = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_summary_2",
+        "x-mahilo-signature": `sha256=${secondSignature}`,
+        "x-mahilo-timestamp": String(secondTimestamp)
+      },
+      rawBody: secondReplyBody
+    });
+    const secondResponse = createMockWebhookResponse();
+
+    await routes[0]!.handler(secondRequest, secondResponse.response);
+
+    expect(secondResponse.status()).toBe(200);
+    const finalEventText = systemEvents[1]?.text ?? "";
+    expect(finalEventText).toContain(
+      "Synthesized summary (plugin-generated): 2 of 2 contacted people have replied so far."
+    );
+    expect(finalEventText).toContain(
+      "Alice (context: Went last month) said: Try Mensho for the broth."
+    );
+    expect(finalEventText).toContain(
+      "Bob (2026-03-08T12:17:00.000Z) said: Ramen Shop is worth the wait."
+    );
+    expect(finalEventText).toContain("Direct replies:");
+    expect(finalEventText).toContain(
+      "- Alice via openclaw at 2026-03-08T12:15:00.000Z [message msg_inbound_summary_1]. Experience context: Went last month. Direct reply: Try Mensho for the broth."
+    );
+    expect(finalEventText).toContain(
+      "- Bob via openclaw at 2026-03-08T12:17:00.000Z [message msg_inbound_summary_2]. Direct reply: Ramen Shop is worth the wait."
+    );
   });
 
   it("executes mahilo_message sends with sender_connection_id alias", async () => {

@@ -147,6 +147,95 @@ describe("InMemoryPluginState", () => {
     ).toEqual(expectedRoute);
   });
 
+  it("tracks ask-around sessions and attributed replies by correlation id", () => {
+    const state = new InMemoryPluginState({ askAroundSessionTtlMs: 5_000 });
+
+    state.rememberAskAroundSession(
+      {
+        correlationId: "corr_ask_1",
+        expectedReplyCount: 2,
+        question: "Who knows a good ramen spot?",
+        target: {
+          kind: "roles",
+          roles: ["foodies"]
+        }
+      },
+      100
+    );
+
+    state.recordAskAroundReply(
+      "corr_ask_1",
+      {
+        context: "Went last month.",
+        message: "Try Mensho for the broth.",
+        messageId: "msg_reply_1",
+        payloadType: "text/plain",
+        sender: "Alice",
+        senderAgent: "openclaw",
+        timestamp: "2026-03-10T10:00:00.000Z"
+      },
+      200
+    );
+    const session = state.recordAskAroundReply(
+      "corr_ask_1",
+      {
+        message: "Ramen Shop is great, but expect a wait.",
+        messageId: "msg_reply_2",
+        payloadType: "text/plain",
+        sender: "Bob",
+        senderAgent: "openclaw",
+        timestamp: "2026-03-10T10:02:00.000Z"
+      },
+      300
+    );
+
+    expect(session).toEqual(
+      expect.objectContaining({
+        correlationId: "corr_ask_1",
+        expectedReplyCount: 2,
+        question: "Who knows a good ramen spot?",
+        target: expect.objectContaining({
+          kind: "roles",
+          roles: ["foodies"]
+        })
+      })
+    );
+    expect(session?.replies).toEqual([
+      expect.objectContaining({
+        context: "Went last month.",
+        message: "Try Mensho for the broth.",
+        messageId: "msg_reply_1",
+        sender: "Alice"
+      }),
+      expect.objectContaining({
+        message: "Ramen Shop is great, but expect a wait.",
+        messageId: "msg_reply_2",
+        sender: "Bob"
+      })
+    ]);
+    expect(state.askAroundSessionCount(300)).toBe(1);
+  });
+
+  it("expires ask-around session entries after their ttl", () => {
+    const state = new InMemoryPluginState({ askAroundSessionTtlMs: 500 });
+
+    state.rememberAskAroundSession(
+      {
+        correlationId: "corr_expire_ask",
+        question: "Any hike ideas?"
+      },
+      100
+    );
+
+    expect(state.getAskAroundSession("corr_expire_ask", 200)).toEqual(
+      expect.objectContaining({
+        correlationId: "corr_expire_ask"
+      })
+    );
+    expect(state.getAskAroundSession("corr_expire_ask", 700)).toBeUndefined();
+    expect(state.askAroundSessionCount(700)).toBe(0);
+  });
+
   it("expires inbound route entries across all lookup indexes", () => {
     const state = new InMemoryPluginState({ inboundRouteTtlMs: 500 });
 
