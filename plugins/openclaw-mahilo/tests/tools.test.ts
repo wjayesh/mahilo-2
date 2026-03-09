@@ -687,6 +687,101 @@ describe("native contract tools", () => {
       }
     });
   });
+
+  it("resolves user target ids from prompt context for recipient-based temporary overrides", async () => {
+    const { client, state } = createMockClient({
+      overrideResponse: {
+        created: true,
+        kind: "temporary",
+        policy_id: "pol_temp_2"
+      },
+      promptContextResponse: {
+        policy_guidance: {
+          default_decision: "ask",
+          summary: "Location shares require review by default."
+        },
+        recipient: {
+          id: "usr_alice",
+          relationship: "friend",
+          username: "alice"
+        },
+        suggested_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        }
+      }
+    });
+
+    const result = await createMahiloOverride(client, {
+      durationMinutes: 30,
+      effect: "allow",
+      kind: "expiring",
+      reason: "User approved sharing this for the next 30 minutes.",
+      recipient: "alice",
+      scope: "user",
+      selectors: {
+        action: "Share",
+        resource: "location.current"
+      },
+      senderConnectionId: "conn_sender",
+      sourceResolutionId: "res_123"
+    });
+
+    expect(result).toMatchObject({
+      created: true,
+      kind: "temporary",
+      policyId: "pol_temp_2",
+      resolvedTargetId: "usr_alice"
+    });
+    expect(result.summary).toContain("temporary rule for 30 minutes");
+    expect(state.promptContextCalls).toEqual([
+      {
+        draft_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        },
+        include_recent_interactions: false,
+        interaction_limit: 1,
+        recipient: "alice",
+        recipient_type: "user",
+        sender_connection_id: "conn_sender"
+      }
+    ]);
+    expect(state.overrideCalls).toHaveLength(1);
+    expect(state.overrideCalls[0]?.payload).toEqual({
+      effect: "allow",
+      kind: "temporary",
+      reason: "User approved sharing this for the next 30 minutes.",
+      scope: "user",
+      selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "location.current"
+      },
+      sender_connection_id: "conn_sender",
+      source_resolution_id: "res_123",
+      target_id: "usr_alice",
+      ttl_seconds: 1800
+    });
+  });
+
+  it("rejects temporary overrides without an expiry window", async () => {
+    const { client } = createMockClient();
+
+    await expect(
+      createMahiloOverride(client, {
+        effect: "allow",
+        kind: "temporary",
+        reason: "User approved it for a while.",
+        scope: "global",
+        senderConnectionId: "conn_sender"
+      })
+    ).rejects.toThrow(
+      "temporary overrides require expiresAt, ttlSeconds, durationMinutes, or durationHours"
+    );
+  });
 });
 
 describe("listMahiloContacts", () => {

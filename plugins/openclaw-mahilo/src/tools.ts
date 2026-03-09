@@ -108,6 +108,8 @@ export interface MahiloPreviewResult {
 }
 
 export interface CreateMahiloOverrideInput {
+  durationHours?: number;
+  durationMinutes?: number;
   derivedFromMessageId?: string;
   effect: string;
   expiresAt?: string;
@@ -115,6 +117,8 @@ export interface CreateMahiloOverrideInput {
   kind: string;
   maxUses?: number;
   priority?: number;
+  recipient?: string;
+  recipientType?: "group" | "user";
   reason: string;
   scope: string;
   selectors?: Partial<DeclaredSelectors>;
@@ -128,7 +132,9 @@ export interface MahiloOverrideResult {
   created?: boolean;
   kind?: string;
   policyId?: string;
+  resolvedTargetId?: string;
   response: unknown;
+  summary: string;
 }
 
 type ReportedOutcome =
@@ -209,33 +215,362 @@ export async function createMahiloOverride(
   client: MahiloContractClient,
   input: CreateMahiloOverrideInput
 ): Promise<MahiloOverrideResult> {
-  const selectors = input.selectors
-    ? normalizeDeclaredSelectors(input.selectors, "outbound")
-    : undefined;
+  const normalized = await normalizeOverrideRequest(client, input);
   const payload = compactObject({
     derived_from_message_id: input.derivedFromMessageId,
-    effect: input.effect,
-    expires_at: input.expiresAt,
-    kind: input.kind,
-    max_uses: input.maxUses,
+    effect: normalized.effect,
+    expires_at: normalized.expiresAt,
+    kind: normalized.kind,
+    max_uses: normalized.maxUses,
     priority: input.priority,
     reason: input.reason,
-    scope: input.scope,
-    selectors,
+    scope: normalized.scope,
+    selectors: normalized.selectors,
     sender_connection_id: input.senderConnectionId,
     source_resolution_id: input.sourceResolutionId,
-    target_id: input.targetId,
-    ttl_seconds: input.ttlSeconds
+    target_id: normalized.targetId,
+    ttl_seconds: normalized.ttlSeconds
   });
   const response = await client.createOverride(payload, input.idempotencyKey);
   const root = readObject(response);
+  const created = readBoolean(root?.created);
+  const kind = readString(root?.kind) ?? normalized.kind;
+  const policyId = readString(root?.policy_id) ?? readString(root?.policyId);
 
   return {
-    created: readBoolean(root?.created),
-    kind: readString(root?.kind),
-    policyId: readString(root?.policy_id) ?? readString(root?.policyId),
-    response
+    created,
+    kind,
+    policyId,
+    resolvedTargetId: normalized.targetId,
+    response,
+    summary: formatOverrideSummary({
+      created,
+      effect: normalized.effect,
+      expiresAt: normalized.expiresAt,
+      kind,
+      policyId,
+      scope: normalized.scope,
+      selectors: normalized.selectors,
+      targetId: normalized.targetId,
+      targetLabel: normalized.targetLabel,
+      ttlSeconds: normalized.ttlSeconds
+    })
   };
+}
+
+interface NormalizedOverrideRequest {
+  effect: string;
+  expiresAt?: string;
+  kind: "one_time" | "persistent" | "temporary";
+  maxUses?: number;
+  scope: "global" | "group" | "role" | "user";
+  selectors?: DeclaredSelectors;
+  targetId?: string;
+  targetLabel?: string;
+  ttlSeconds?: number;
+}
+
+async function normalizeOverrideRequest(
+  client: MahiloContractClient,
+  input: CreateMahiloOverrideInput
+): Promise<NormalizedOverrideRequest> {
+  const effect = normalizeOverrideEffect(input.effect);
+  const kind = normalizeOverrideKind(input.kind);
+  const scope = normalizeOverrideScope(input.scope);
+
+  if (!effect) {
+    throw new Error("effect is required");
+  }
+
+  if (!kind) {
+    throw new Error(
+      "kind is required (use one_time, temporary, or persistent; aliases once/expiring/always are also accepted)"
+    );
+  }
+
+  if (!scope) {
+    throw new Error("scope is required (use global, user, group, or role)");
+  }
+
+  const selectors = input.selectors
+    ? normalizeDeclaredSelectors(input.selectors, "outbound")
+    : undefined;
+  const expiresAt = readString(input.expiresAt);
+  const ttlSeconds = resolveOverrideTtlSeconds(input);
+  const maxUses = kind === "one_time" ? 1 : normalizeMaxUses(input.maxUses);
+
+  validateOverrideLifecycle({
+    expiresAt,
+    kind,
+    maxUses,
+    ttlSeconds
+  });
+
+  const targetId =
+    scope === "global"
+      ? undefined
+      : readString(input.targetId) ??
+        (scope === "user"
+          ? await resolveUserOverrideTargetId(client, {
+              recipient: readString(input.recipient),
+              recipientType: input.recipientType,
+              selectors,
+              senderConnectionId: input.senderConnectionId
+            })
+          : undefined);
+
+  if (scope !== "global" && !targetId) {
+    if (scope === "user") {
+      throw new Error("user-scoped overrides require targetId or recipient");
+    }
+
+    throw new Error(`${scope}-scoped overrides require targetId`);
+  }
+
+  return {
+    effect,
+    expiresAt,
+    kind,
+    maxUses,
+    scope,
+    selectors,
+    targetId,
+    targetLabel: readString(input.recipient) ?? targetId,
+    ttlSeconds
+  };
+}
+
+function normalizeOverrideEffect(value: string | undefined): string | undefined {
+  return readString(value)?.toLowerCase();
+}
+
+function normalizeOverrideKind(
+  value: string | undefined
+): "one_time" | "persistent" | "temporary" | undefined {
+  const normalized = readString(value)?.toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (
+    normalized === "one_time" ||
+    normalized === "once" ||
+    normalized === "single_use" ||
+    normalized === "single"
+  ) {
+    return "one_time";
+  }
+
+  if (
+    normalized === "temporary" ||
+    normalized === "expiring" ||
+    normalized === "expires" ||
+    normalized === "temporary_rule"
+  ) {
+    return "temporary";
+  }
+
+  if (
+    normalized === "persistent" ||
+    normalized === "permanent" ||
+    normalized === "always"
+  ) {
+    return "persistent";
+  }
+
+  return undefined;
+}
+
+function normalizeOverrideScope(
+  value: string | undefined
+): "global" | "group" | "role" | "user" | undefined {
+  const normalized = readString(value)?.toLowerCase();
+  if (
+    normalized === "global" ||
+    normalized === "group" ||
+    normalized === "role" ||
+    normalized === "user"
+  ) {
+    return normalized;
+  }
+
+  return undefined;
+}
+
+function normalizeMaxUses(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const normalized = Math.trunc(value);
+  return normalized > 0 ? normalized : undefined;
+}
+
+function resolveOverrideTtlSeconds(input: CreateMahiloOverrideInput): number | undefined {
+  const ttlSeconds = normalizePositiveInteger(input.ttlSeconds);
+  if (typeof ttlSeconds === "number") {
+    return ttlSeconds;
+  }
+
+  const durationMinutes = normalizePositiveInteger(input.durationMinutes);
+  if (typeof durationMinutes === "number") {
+    return durationMinutes * 60;
+  }
+
+  const durationHours = normalizePositiveInteger(input.durationHours);
+  if (typeof durationHours === "number") {
+    return durationHours * 60 * 60;
+  }
+
+  return undefined;
+}
+
+function normalizePositiveInteger(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const normalized = Math.trunc(value);
+  return normalized > 0 ? normalized : undefined;
+}
+
+function validateOverrideLifecycle(options: {
+  expiresAt?: string;
+  kind: "one_time" | "persistent" | "temporary";
+  maxUses?: number;
+  ttlSeconds?: number;
+}): void {
+  if (options.kind === "temporary" && !options.expiresAt && typeof options.ttlSeconds !== "number") {
+    throw new Error(
+      "temporary overrides require expiresAt, ttlSeconds, durationMinutes, or durationHours"
+    );
+  }
+
+  if (
+    options.kind === "persistent" &&
+    (options.expiresAt || typeof options.ttlSeconds === "number" || typeof options.maxUses === "number")
+  ) {
+    throw new Error("persistent overrides cannot include expiry or maxUses");
+  }
+}
+
+async function resolveUserOverrideTargetId(
+  client: MahiloContractClient,
+  options: {
+    recipient?: string;
+    recipientType?: "group" | "user";
+    selectors?: DeclaredSelectors;
+    senderConnectionId: string;
+  }
+): Promise<string | undefined> {
+  if (!options.recipient) {
+    return undefined;
+  }
+
+  if (options.recipientType === "group") {
+    throw new Error("recipientType=group cannot be used for a user-scoped override");
+  }
+
+  const context = await fetchMahiloPromptContext(client, {
+    declaredSelectors: options.selectors,
+    includeRecentInteractions: false,
+    interactionLimit: 1,
+    recipient: options.recipient,
+    recipientType: "user",
+    senderConnectionId: options.senderConnectionId
+  });
+
+  const recipientId = context.context?.recipient.id;
+  if (context.ok && recipientId) {
+    return recipientId;
+  }
+
+  const detail = context.error ? `: ${context.error}` : "";
+  throw new Error(
+    `Could not resolve a Mahilo user ID for recipient ${options.recipient}${detail}. Pass targetId explicitly or fetch Mahilo context first.`
+  );
+}
+
+function formatOverrideSummary(options: {
+  created?: boolean;
+  effect: string;
+  expiresAt?: string;
+  kind: string;
+  policyId?: string;
+  scope: string;
+  selectors?: DeclaredSelectors;
+  targetId?: string;
+  targetLabel?: string;
+  ttlSeconds?: number;
+}): string {
+  const status = options.created === false ? "Submitted" : "Created";
+  const lifecycle = describeOverrideLifecycle(options.kind, options.expiresAt, options.ttlSeconds);
+  const scope = describeOverrideScope(options.scope, options.targetLabel ?? options.targetId);
+  const selectors = options.selectors
+    ? ` covering ${options.selectors.direction}/${options.selectors.resource}/${options.selectors.action}`
+    : "";
+  const base = `${status} ${lifecycle} (${options.effect}) ${scope}${selectors}`;
+
+  return options.policyId ? `${base} [${options.policyId}].` : `${base}.`;
+}
+
+function describeOverrideLifecycle(
+  kind: string,
+  expiresAt?: string,
+  ttlSeconds?: number
+): string {
+  if (kind === "one_time") {
+    if (expiresAt) {
+      return `one-time override until ${expiresAt}`;
+    }
+
+    return "one-time override";
+  }
+
+  if (kind === "temporary") {
+    if (expiresAt) {
+      return `temporary rule until ${expiresAt}`;
+    }
+
+    if (typeof ttlSeconds === "number") {
+      return `temporary rule for ${formatDuration(ttlSeconds)}`;
+    }
+
+    return "temporary rule";
+  }
+
+  return "persistent rule";
+}
+
+function describeOverrideScope(scope: string, targetLabel?: string): string {
+  if (scope === "global") {
+    return "globally";
+  }
+
+  if (!targetLabel) {
+    return `for ${scope}`;
+  }
+
+  return `for ${scope} ${targetLabel}`;
+}
+
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds % (60 * 60 * 24) === 0) {
+    const days = totalSeconds / (60 * 60 * 24);
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+
+  if (totalSeconds % (60 * 60) === 0) {
+    const hours = totalSeconds / (60 * 60);
+    return `${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+
+  if (totalSeconds % 60 === 0) {
+    const minutes = totalSeconds / 60;
+    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+
+  return `${totalSeconds} second${totalSeconds === 1 ? "" : "s"}`;
 }
 
 async function executeSendTool(

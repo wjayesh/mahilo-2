@@ -41,6 +41,7 @@ function createMockContractClient(options: {
   promptContextError?: Error;
   promptContextResponse?: Record<string, unknown>;
   resolveError?: Error;
+  resolveResponse?: Record<string, unknown>;
 } = {}) {
   const state: MockClientState = {
     blockedEventCalls: [],
@@ -119,7 +120,7 @@ function createMockContractClient(options: {
         throw options.resolveError;
       }
 
-      return {
+      return options.resolveResponse ?? {
         decision: "allow",
         resolution_id: "res_123"
       };
@@ -345,6 +346,7 @@ describe("createMahiloOpenClawPlugin", () => {
       "talk_to_group"
     ]);
     expect(commands.map((command) => command.name).sort()).toEqual([
+      "mahilo override",
       "mahilo reconnect",
       "mahilo review",
       "mahilo status"
@@ -567,8 +569,73 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.outcomeCalls).toHaveLength(0);
   });
 
+  it("surfaces preview guidance when Mahilo requires review", async () => {
+    const { client } = createMockContractClient({
+      resolveResponse: {
+        agent_guidance: "Ask for approval or create an override.",
+        decision: "ask",
+        delivery_mode: "review_required",
+        reason_code: "policy.ask.resolved",
+        resolution_id: "res_ask_1",
+        resolution_summary: "Message requires review before delivery."
+      }
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "preview_mahilo_send");
+    const result = await tool.execute("tool_call_5b", {
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining(
+            "Message requires review before delivery. Ask for approval or create an override."
+          )
+        }
+      ],
+      details: {
+        agentGuidance: "Ask for approval or create an override.",
+        decision: "ask",
+        deliveryMode: "review_required",
+        resolutionId: "res_ask_1",
+        resolutionSummary: "Message requires review before delivery."
+      }
+    });
+  });
+
   it("executes create_mahilo_override against the override contract", async () => {
-    const { client, state } = createMockContractClient();
+    const { client, state } = createMockContractClient({
+      promptContextResponse: {
+        policy_guidance: {
+          default_decision: "ask",
+          reason_code: "context.ask.role.structured",
+          summary: "Location shares require explicit approval."
+        },
+        recipient: {
+          id: "usr_alice",
+          relationship: "friend",
+          roles: ["close_friends"],
+          username: "alice"
+        },
+        suggested_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        }
+      }
+    });
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
     });
@@ -582,7 +649,8 @@ describe("createMahiloOpenClawPlugin", () => {
     const tool = findTool(tools, "create_mahilo_override");
     const result = await tool.execute("tool_call_6", {
       effect: "allow",
-      kind: "one_time",
+      kind: "once",
+      recipient: "alice",
       reason: "User approved a one-time share.",
       scope: "user",
       selectors: {
@@ -590,21 +658,41 @@ describe("createMahiloOpenClawPlugin", () => {
         resource: "location.current"
       },
       senderConnectionId: "conn_sender",
-      sourceResolutionId: "res_123",
-      targetId: "usr_alice"
+      sourceResolutionId: "res_123"
     });
 
     expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("one-time override")
+        }
+      ],
       details: {
         created: true,
         kind: "one_time",
-        policyId: "pol_789"
+        policyId: "pol_789",
+        resolvedTargetId: "usr_alice"
       }
     });
+    expect(state.promptContextCalls).toEqual([
+      {
+        draft_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        },
+        include_recent_interactions: false,
+        interaction_limit: 1,
+        recipient: "alice",
+        recipient_type: "user",
+        sender_connection_id: "conn_sender"
+      }
+    ]);
     expect(state.overrideCalls).toHaveLength(1);
     expect(state.overrideCalls[0]?.payload).toEqual({
       effect: "allow",
       kind: "one_time",
+      max_uses: 1,
       reason: "User approved a one-time share.",
       scope: "user",
       selectors: {

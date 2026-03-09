@@ -294,11 +294,7 @@ function createPreviewMahiloSendTool(
         const input = parsePreviewMahiloSendInput(rawInput);
         const context = parseToolContext(rawInput, config);
         const result = await previewMahiloSend(client, input, context);
-        const text = result.deliveryMode
-          ? `Mahilo preview: ${result.decision} (${result.deliveryMode}).`
-          : `Mahilo preview: ${result.decision}.`;
-
-        return toAgentToolResult(result, text);
+        return toAgentToolResult(result, formatPreviewToolText(result));
       }),
     label: "Preview Mahilo Send",
     name: "preview_mahilo_send",
@@ -340,26 +336,26 @@ function createPreviewMahiloSendTool(
 
 function createCreateMahiloOverrideTool(client: MahiloContractClient): AnyAgentTool {
   return {
-    description: "Create a Mahilo override record using the documented server contract.",
+    description:
+      "Create a one-time or expiring Mahilo override. For user scope, pass recipient to resolve targetId automatically.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool("create_mahilo_override", async () => {
         const input = parseCreateMahiloOverrideInput(rawInput);
         const result = await createMahiloOverride(client, input);
-        return toAgentToolResult(
-          result,
-          result.created === true
-            ? "Mahilo override created."
-            : "Mahilo override request submitted."
-        );
+        return toAgentToolResult(result, result.summary);
       }),
     label: "Create Mahilo Override",
     name: "create_mahilo_override",
     parameters: {
       additionalProperties: false,
       properties: {
+        durationHours: { type: "integer" },
+        durationMinutes: { type: "integer" },
         declaredSelectors: createSelectorSchema(),
         derivedFromMessageId: { type: "string" },
         derived_from_message_id: { type: "string" },
+        duration_hours: { type: "integer" },
+        duration_minutes: { type: "integer" },
         effect: { type: "string" },
         expiresAt: { type: "string" },
         expires_at: { type: "string" },
@@ -368,6 +364,15 @@ function createCreateMahiloOverrideTool(client: MahiloContractClient): AnyAgentT
         maxUses: { type: "integer" },
         max_uses: { type: "integer" },
         priority: { type: "integer" },
+        recipient: { type: "string" },
+        recipientType: {
+          enum: ["group", "user"],
+          type: "string"
+        },
+        recipient_type: {
+          enum: ["group", "user"],
+          type: "string"
+        },
         reason: { type: "string" },
         scope: { type: "string" },
         selectors: createSelectorSchema(),
@@ -520,6 +525,12 @@ function parseCreateMahiloOverrideInput(rawInput: unknown): CreateMahiloOverride
   }
 
   return {
+    durationHours:
+      readOptionalInteger(input.durationHours) ??
+      readOptionalInteger(input.duration_hours),
+    durationMinutes:
+      readOptionalInteger(input.durationMinutes) ??
+      readOptionalInteger(input.duration_minutes),
     derivedFromMessageId:
       readOptionalString(input.derivedFromMessageId) ??
       readOptionalString(input.derived_from_message_id),
@@ -531,6 +542,9 @@ function parseCreateMahiloOverrideInput(rawInput: unknown): CreateMahiloOverride
     kind,
     maxUses: readOptionalInteger(input.maxUses) ?? readOptionalInteger(input.max_uses),
     priority: readOptionalInteger(input.priority),
+    recipient: readOptionalString(input.recipient),
+    recipientType:
+      readRecipientType(input.recipientType) ?? readRecipientType(input.recipient_type),
     reason,
     scope,
     selectors: parseDeclaredSelectors(
@@ -668,6 +682,21 @@ function toAgentToolResult<T>(details: T, text: string): { content: Array<{ text
     content: [{ text, type: "text" }],
     details
   };
+}
+
+function formatPreviewToolText(result: {
+  agentGuidance?: string;
+  decision: string;
+  deliveryMode?: string;
+  resolutionSummary?: string;
+}): string {
+  const summary = result.deliveryMode
+    ? `Mahilo preview: ${result.decision} (${result.deliveryMode}).`
+    : `Mahilo preview: ${result.decision}.`;
+  const details = [result.resolutionSummary, result.agentGuidance]
+    .filter((value): value is string => typeof value === "string" && value.length > 0);
+
+  return details.length > 0 ? `${summary} ${details.join(" ")}` : summary;
 }
 
 function registerPromptContextHook(

@@ -63,7 +63,14 @@ The plugin registers OpenClaw-native diagnostics/management commands:
 
 - `mahilo status`: show redacted plugin config, connectivity probe status, and local runtime state counters.
 - `mahilo review`: inspect Mahilo review queue items (supports optional `status` and `limit` input).
+- `mahilo override`: create a one-time or temporary override; defaults to a conservative one-time `allow`, and can resolve user `targetId` from `recipient`.
 - `mahilo reconnect`: retry Mahilo connectivity probes with configurable retry attempts and delay.
+
+Temporary override flow notes:
+
+- Use `preview_mahilo_send` first when you want Mahilo’s resolution summary and guidance before creating an override.
+- For user-scoped overrides, prefer passing `recipient` and `senderConnectionId`; the plugin will resolve the Mahilo user ID through prompt context when possible.
+- For expiring rules, use `durationMinutes`, `durationHours`, `ttlSeconds`, or `expiresAt`.
 
 ## Local OpenClaw Development (Repo-First)
 
