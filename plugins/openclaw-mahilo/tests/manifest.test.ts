@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "bun:test";
 import {
   MAHILO_PLUGIN_CONFIG_KEYS,
@@ -14,6 +17,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function expectPackagedFileExists(baseUrl: URL, filePath: unknown): void {
+  expect(typeof filePath).toBe("string");
+
+  if (typeof filePath !== "string") {
+    return;
+  }
+
+  expect(existsSync(fileURLToPath(new URL(filePath, baseUrl)))).toBe(true);
+}
+
 describe("openclaw.plugin.json", () => {
   it("loads package metadata with chosen package identity", async () => {
     const packageJson = (await Bun.file(packageJsonPath).json()) as unknown;
@@ -26,9 +39,25 @@ describe("openclaw.plugin.json", () => {
     expect(packageJson.name).toBe(MAHILO_PLUGIN_PACKAGE_NAME);
     expect(packageJson.version).toBe(MAHILO_PLUGIN_RELEASE_VERSION);
     expect(packageJson.private).not.toBe(true);
-    expect(packageJson.license).toBe("UNLICENSED");
+    expect(packageJson.license).toBe("MIT");
     expect(packageJson.author).toBe("Jayesh Sharma <wjayesh@outlook.com>");
     expect(packageJson.homepage).toBe("https://github.com/wjayesh/mahilo-2#readme");
+    expect(packageJson.main).toBe("./dist/index.js");
+    expect(packageJson.module).toBe("./dist/index.js");
+    expect(packageJson.types).toBe("./index.d.ts");
+    expect(packageJson.pluginManifest).toBe("./openclaw.plugin.json");
+    expect(packageJson.files).toEqual([
+      "dist",
+      "index.d.ts",
+      "LICENSE",
+      "openclaw.plugin.json",
+      "README.md",
+      "RELEASING.md"
+    ]);
+
+    expectPackagedFileExists(packageJsonPath, packageJson.main);
+    expectPackagedFileExists(packageJsonPath, packageJson.types);
+    expectPackagedFileExists(packageJsonPath, packageJson.pluginManifest);
 
     const repository = packageJson.repository;
     expect(isRecord(repository)).toBe(true);
@@ -59,6 +88,37 @@ describe("openclaw.plugin.json", () => {
 
     expect(publishConfig.access).toBe("public");
 
+    const exports = packageJson.exports;
+    expect(isRecord(exports)).toBe(true);
+
+    if (!isRecord(exports)) {
+      return;
+    }
+
+    const rootExport = exports["."];
+    expect(isRecord(rootExport)).toBe(true);
+
+    if (!isRecord(rootExport)) {
+      return;
+    }
+
+    expect(rootExport.types).toBe("./index.d.ts");
+    expect(rootExport.import).toBe("./dist/index.js");
+    expect(rootExport.default).toBe("./dist/index.js");
+    expect(exports["./openclaw.plugin.json"]).toBe("./openclaw.plugin.json");
+    expect(exports["./package.json"]).toBe("./package.json");
+
+    const scripts = packageJson.scripts;
+    expect(isRecord(scripts)).toBe(true);
+
+    if (!isRecord(scripts)) {
+      return;
+    }
+
+    expect(scripts.prepare).toBe("bun run build");
+    expect(scripts.prepack).toBe("bun run build");
+    expect(scripts.prepublishOnly).toBe("bun run check");
+
     const openclaw = packageJson.openclaw;
     expect(isRecord(openclaw)).toBe(true);
 
@@ -74,6 +134,7 @@ describe("openclaw.plugin.json", () => {
     }
 
     expect(extensions).toEqual(["./dist/index.js"]);
+    expectPackagedFileExists(packageJsonPath, extensions[0]);
   });
 
   it("loads manifest metadata", async () => {
@@ -94,6 +155,7 @@ describe("openclaw.plugin.json", () => {
     expect(manifest.name).toBe(MAHILO_RUNTIME_PLUGIN_NAME);
     expect(manifest.version).toBe(packageJson.version);
     expect(manifest.entry).toBe("./dist/index.js");
+    expectPackagedFileExists(manifestPath, manifest.entry);
   });
 
   it("loads config schema with clear plugin-local boundaries", async () => {

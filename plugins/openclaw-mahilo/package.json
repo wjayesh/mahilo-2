@@ -2,7 +2,7 @@
   "name": "@mahilo/openclaw-mahilo",
   "version": "0.1.0",
   "description": "Mahilo plugin package for OpenClaw native integration",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "author": "Jayesh Sharma <wjayesh@outlook.com>",
   "homepage": "https://github.com/wjayesh/mahilo-2#readme",
   "bugs": {
@@ -16,15 +16,34 @@
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./openclaw.plugin.json": "./openclaw.plugin.json",
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist",
+    "index.d.ts",
+    "LICENSE",
     "openclaw.plugin.json",
-    "README.md"
+    "README.md",
+    "RELEASING.md"
   ],
   "pluginManifest": "./openclaw.plugin.json",
   "scripts": {
+    "clean": "rm -rf dist",
     "sync:manifest-version": "bun run scripts/sync-manifest-version.ts",
-    "build": "bun run sync:manifest-version && bun build src/index.ts --outdir dist --target bun",
+    "build:runtime": "bun build src/index.ts --outdir dist --target bun",
+    "build:types": "bunx tsc -p tsconfig.build.json && cp src/openclaw-plugin-sdk-core.d.ts dist/openclaw-plugin-sdk-core.d.ts",
+    "build": "bun run sync:manifest-version && bun run clean && bun run build:runtime && bun run build:types",
+    "prepare": "bun run build",
+    "prepack": "bun run build",
+    "prepublishOnly": "bun run check",
     "test": "bun test",
     "test:ci": "bun test --reporter=dot",
     "test:run": "bun test",
@@ -38,6 +57,10 @@
     "plugin",
     "policy"
   ],
+  "devDependencies": {
+    "@types/bun": "^1.2.2",
+    "typescript": "^5.9.3"
+  },
   "engines": {
     "bun": ">=1.0.0"
   },

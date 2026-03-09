@@ -49,6 +49,7 @@ Run from `plugins/openclaw-mahilo/`:
 - `bun run test`
 - `bun run validate:manifest`
 - `bun run check`
+- `npm pack --dry-run`
 
 ## Build/Test Story (Publish-Ready)
 
@@ -56,7 +57,9 @@ This package is configured for a first public scoped npm release:
 
 - `package.json` is publishable and sets `publishConfig.access` to `public`.
 - `package.json` is the canonical release-version source; `bun run sync:manifest-version` keeps `openclaw.plugin.json` aligned with it.
-- Build output is produced at `dist/index.js`.
+- Build output is produced at `dist/index.js`, with declarations at `dist/index.d.ts`.
+- The public type surface is explicit: root `index.d.ts` references the packaged OpenClaw SDK shim and re-exports the generated declarations from `dist/`.
+- `prepare` rebuilds runtime artifacts for source installs, `prepack` rebuilds before tarball creation, and `prepublishOnly` gates publish with `bun run check`.
 - `package.json` declares `openclaw.extensions` as `["./dist/index.js"]` so package installs resolve the built plugin entry.
 - `bun run check` runs the release-gate flow: build, tests, and manifest/package metadata validation.
 
@@ -125,7 +128,7 @@ When preparing or cutting a public npm release, keep this sequence:
 
 1. Run `bun run check` and confirm all plugin-local checks pass.
 2. Bump `package.json` version and run `bun run sync:manifest-version` if you did not already build or check as part of the release flow.
-3. Build before packaging so `openclaw.extensions` points to a present built entry (`./dist/index.js`).
+3. Run `npm pack --dry-run` to confirm the tarball contents; `prepack` rebuilds `dist/` so the packaged runtime and declarations stay current even from a clean source tree.
 4. Publish the scoped package with public access after validating tarball contents and release notes.
 
 Legacy path and deprecation policy (PLG2-062, effective 2026-03-08):

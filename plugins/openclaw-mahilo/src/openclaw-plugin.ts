@@ -752,7 +752,7 @@ function registerMahiloPostSendHooks(
         error: readOptionalString(event.error),
         params,
         result: event.result,
-        toolName: event.toolName
+        toolName: readOptionalString(event.toolName) ?? ""
       });
 
       if (!postSendEvent) {

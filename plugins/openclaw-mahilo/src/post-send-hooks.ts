@@ -123,7 +123,7 @@ export function formatMahiloOutcomeSystemEvent(event: MahiloPostSendEvent): stri
   }
 
   const { observation } = event;
-  const targetLabel = formatTargetLabel(observation.toolName, observation.recipient);
+  const targetLabel = formatObservationTargetLabel(observation);
   const selectorLabel = formatSelectorLabel(observation.selectors);
   const messageIdSuffix = observation.messageId
     ? ` [message ${observation.messageId}]`
@@ -169,7 +169,7 @@ export function shouldQueueMahiloLearningSuggestion(
 export function formatMahiloLearningSuggestion(
   observation: MahiloPostSendObservation
 ): string {
-  const targetLabel = formatTargetLabel(observation.toolName, observation.recipient);
+  const targetLabel = formatObservationTargetLabel(observation);
   const selectorLabel = formatSelectorLabel(observation.selectors);
   const actionSummary = describeLearningDecision(observation);
   const reasonLine = observation.reason ? ` ${observation.reason}` : "";
@@ -203,7 +203,7 @@ function buildDecisionFingerprint(options: {
 }
 
 function describeLearningDecision(observation: MahiloPostSendObservation): string {
-  const targetLabel = formatTargetLabel(observation.toolName, observation.recipient);
+  const targetLabel = formatObservationTargetLabel(observation);
 
   if (observation.outcome === "review_requested") {
     return `Mahilo asked for review before sending to ${targetLabel}`;
@@ -226,6 +226,11 @@ function describeLearningDecision(observation: MahiloPostSendObservation): strin
 
 function formatTargetLabel(toolName: SendToolName, recipient: string): string {
   return toolName === "talk_to_group" ? `group ${recipient}` : recipient;
+}
+
+function formatObservationTargetLabel(observation: MahiloPostSendObservation): string {
+  const toolName = readToolName(observation.toolName);
+  return toolName ? formatTargetLabel(toolName, observation.recipient) : observation.recipient;
 }
 
 function formatSelectorLabel(selectors: DeclaredSelectors): string {
