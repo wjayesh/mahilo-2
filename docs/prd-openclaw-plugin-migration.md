@@ -453,7 +453,7 @@ It is:
 
 ### 4.2 Native Tools
 - **ID**: `PLG2-041`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-020, PLG2-030
 - **Description**:
@@ -476,6 +476,7 @@ It is:
   - 2026-03-09T14:33:08.978Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
   - 2026-03-09T14:33:09.726Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt - (Executable not found in $PATH: "codex")
   - 2026-03-09T19:19:32.552Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
+  - 2026-03-09T20:04:46.526Z: PLG2-041 completed via orchestrator integration.
 ### 4.3 Send-Time Hooks
 - **ID**: `PLG2-042`
 - **Status**: `pending`
