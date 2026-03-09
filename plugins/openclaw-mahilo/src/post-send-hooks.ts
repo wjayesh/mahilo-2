@@ -6,11 +6,15 @@ import {
 import type { MahiloPendingLearningSuggestion } from "./state";
 import { summarizeMahiloSendOutcome } from "./tools";
 
-type SendToolName = "talk_to_agent" | "talk_to_group";
+const MAHILO_MESSAGE_TOOL_NAME = "mahilo_message";
+
+type MahiloSendTargetType = "group" | "user";
+type SendToolName = typeof MAHILO_MESSAGE_TOOL_NAME;
 
 export interface MahiloPostSendFailure {
   error: string;
   recipient: string;
+  recipientType: MahiloSendTargetType;
   selectors: DeclaredSelectors;
   senderConnectionId?: string;
   toolName: SendToolName;
@@ -39,7 +43,13 @@ export function extractMahiloPostSendEvent(event: {
     return undefined;
   }
 
-  const recipient = resolveRecipient(event.params, toolName);
+  const action = readMahiloMessageAction(event.params);
+  if (action !== "send") {
+    return undefined;
+  }
+
+  const recipientType = resolveRecipientType(event.params);
+  const recipient = resolveRecipient(event.params, recipientType);
   if (!recipient) {
     return undefined;
   }
@@ -65,6 +75,7 @@ export function extractMahiloPostSendEvent(event: {
       failure: {
         error: failure,
         recipient,
+        recipientType,
         selectors,
         senderConnectionId,
         toolName
@@ -97,6 +108,7 @@ export function extractMahiloPostSendEvent(event: {
         decision,
         outcome: outcomeSummary.outcome,
         recipient,
+        recipientType,
         selectors,
         senderConnectionId,
         toolName
@@ -105,6 +117,7 @@ export function extractMahiloPostSendEvent(event: {
       outcome: outcomeSummary.outcome,
       reason: outcomeSummary.reason ?? readString(details?.reason),
       recipient,
+      recipientType,
       resolutionId:
         readString(details?.resolutionId) ?? readString(details?.resolution_id),
       selectors,
@@ -117,7 +130,7 @@ export function extractMahiloPostSendEvent(event: {
 
 export function formatMahiloOutcomeSystemEvent(event: MahiloPostSendEvent): string {
   if (event.kind === "failure") {
-    const targetLabel = formatTargetLabel(event.failure.toolName, event.failure.recipient);
+    const targetLabel = formatTargetLabel(event.failure.recipientType, event.failure.recipient);
     const selectorLabel = formatSelectorLabel(event.failure.selectors);
     return `Mahilo outcome: send failed for ${targetLabel} (${selectorLabel}). ${event.failure.error}`;
   }
@@ -178,7 +191,7 @@ export function formatMahiloLearningSuggestion(
     "Mahilo learning opportunity:",
     `${actionSummary} for ${targetLabel} on ${selectorLabel}.${reasonLine}`,
     `Decide whether this should apply just once, for a short time, for ${targetLabel}, for similar contacts, or as your normal rule.`,
-    "Use `mahilo override` when you want a one-time or temporary exception."
+    "Use `mahilo_boundaries` when you want a one-time or temporary exception."
   ].join(" ");
 }
 
@@ -186,6 +199,7 @@ function buildDecisionFingerprint(options: {
   decision: PolicyDecision;
   outcome: MahiloPendingLearningSuggestion["outcome"];
   recipient: string;
+  recipientType: MahiloSendTargetType;
   selectors: DeclaredSelectors;
   senderConnectionId?: string;
   toolName: SendToolName;
@@ -193,6 +207,7 @@ function buildDecisionFingerprint(options: {
   return [
     options.senderConnectionId ?? "default",
     options.toolName,
+    options.recipientType,
     options.recipient.toLowerCase(),
     options.selectors.direction,
     options.selectors.resource,
@@ -224,13 +239,14 @@ function describeLearningDecision(observation: MahiloPostSendObservation): strin
   return `Mahilo just shared new information with ${targetLabel}`;
 }
 
-function formatTargetLabel(toolName: SendToolName, recipient: string): string {
-  return toolName === "talk_to_group" ? `group ${recipient}` : recipient;
+function formatTargetLabel(recipientType: MahiloSendTargetType, recipient: string): string {
+  return recipientType === "group" ? `group ${recipient}` : recipient;
 }
 
 function formatObservationTargetLabel(observation: MahiloPostSendObservation): string {
-  const toolName = readToolName(observation.toolName);
-  return toolName ? formatTargetLabel(toolName, observation.recipient) : observation.recipient;
+  const recipientType =
+    observation.recipientType ?? readLegacyRecipientType(observation.toolName) ?? "user";
+  return formatTargetLabel(recipientType, observation.recipient);
 }
 
 function formatSelectorLabel(selectors: DeclaredSelectors): string {
@@ -238,19 +254,64 @@ function formatSelectorLabel(selectors: DeclaredSelectors): string {
 }
 
 function readToolName(value: string): SendToolName | undefined {
-  return value === "talk_to_agent" || value === "talk_to_group" ? value : undefined;
+  return value === MAHILO_MESSAGE_TOOL_NAME ? value : undefined;
 }
 
 function resolveRecipient(
   params: Record<string, unknown>,
-  toolName: SendToolName
+  recipientType: MahiloSendTargetType
 ): string | undefined {
   return (
     readString(params.recipient) ??
-    (toolName === "talk_to_group"
+    (recipientType === "group"
       ? readString(params.groupId) ?? readString(params.group_id)
       : undefined)
   );
+}
+
+function resolveRecipientType(params: Record<string, unknown>): MahiloSendTargetType {
+  return (
+    readRecipientType(params.recipientType) ??
+    readRecipientType(params.recipient_type) ??
+    (readString(params.groupId) ?? readString(params.group_id) ? "group" : "user")
+  );
+}
+
+function readMahiloMessageAction(
+  params: Record<string, unknown>
+): "context" | "preview" | "send" | undefined {
+  const normalized = readString(params.action)?.toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) {
+    return "send";
+  }
+
+  switch (normalized) {
+    case "context":
+    case "fetch_context":
+    case "get_context":
+      return "context";
+    case "preview":
+    case "preflight":
+    case "resolve":
+      return "preview";
+    case "message":
+    case "send":
+      return "send";
+    default:
+      return undefined;
+  }
+}
+
+function readLegacyRecipientType(value: string): MahiloSendTargetType | undefined {
+  if (value === "talk_to_group") {
+    return "group";
+  }
+
+  if (value === "talk_to_agent") {
+    return "user";
+  }
+
+  return undefined;
 }
 
 function readDecision(value: unknown): PolicyDecision | undefined {
@@ -263,6 +324,10 @@ function readStatus(
   return value === "denied" || value === "review_required" || value === "sent"
     ? value
     : undefined;
+}
+
+function readRecipientType(value: unknown): MahiloSendTargetType | undefined {
+  return value === "group" || value === "user" ? value : undefined;
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {

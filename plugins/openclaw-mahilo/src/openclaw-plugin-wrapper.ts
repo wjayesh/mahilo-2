@@ -35,13 +35,10 @@ interface CommandDefinitionLike {
   parameters?: unknown;
 }
 
-const AUTO_SENDER_COMMAND_NAMES = new Set(["mahilo override"]);
+const AUTO_SENDER_COMMAND_NAMES = new Set<string>();
 const AUTO_SENDER_TOOL_NAMES = new Set([
-  "create_mahilo_override",
-  "get_mahilo_context",
-  "preview_mahilo_send",
-  "talk_to_agent",
-  "talk_to_group",
+  "mahilo_boundaries",
+  "mahilo_message",
 ]);
 
 export function createMahiloOpenClawPlugin(

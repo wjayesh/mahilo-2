@@ -2,10 +2,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 
 import type { MahiloContractClient } from "./client";
 import { redactSensitiveConfig, type MahiloPluginConfig } from "./config";
-import type { DeclaredSelectors } from "./policy-helpers";
-import { executeMahiloRelationshipAction } from "./relationships";
 import type { InMemoryPluginState } from "./state";
-import { createMahiloOverride } from "./tools";
 import { DEFAULT_WEBHOOK_ROUTE_PATH } from "./webhook-route";
 
 export interface MahiloDiagnosticsLogger {
@@ -53,10 +50,8 @@ export function registerMahiloDiagnosticsCommands(
   };
 
   const commands: MahiloCommand[] = [
-    createRelationshipsCommand(client, runtimeState, options),
     createStatusCommand(config, client, runtimeState, options),
     createReviewCommand(client, runtimeState, options),
-    createOverrideCommand(client, runtimeState, options),
     createReconnectCommand(client, runtimeState, options)
   ];
 
@@ -65,80 +60,8 @@ export function registerMahiloDiagnosticsCommands(
   }
 
   options.logger?.info?.(
-    "[Mahilo] Registered commands: mahilo relationships, mahilo status, mahilo review, mahilo override, mahilo reconnect"
+    "[Mahilo] Registered commands: mahilo status, mahilo review, mahilo reconnect"
   );
-}
-
-function createRelationshipsCommand(
-  client: MahiloContractClient,
-  runtimeState: MahiloDiagnosticsRuntimeState,
-  options: MahiloDiagnosticsCommandOptions
-): MahiloCommand {
-  return {
-    description:
-      "Manage Mahilo friendships: list contacts and pending requests, send requests, or accept/decline them by username or friendshipId.",
-    execute: async (rawInput?: unknown) => {
-      const checkedAt = toIsoTimestamp(options.now);
-
-      try {
-        const input = readInputObject(rawInput);
-        const result = await executeMahiloRelationshipAction(client, {
-          action: readOptionalString(input.action),
-          friendshipId:
-            readOptionalString(input.friendshipId) ??
-            readOptionalString(input.friendship_id),
-          username:
-            readOptionalString(input.username) ??
-            readOptionalString(input.recipient)
-        });
-
-        if (result.status === "success") {
-          runtimeState.lastSuccessfulContactAt = checkedAt;
-          runtimeState.lastContactError = undefined;
-        } else if (result.error?.productState === "transport_failure") {
-          runtimeState.lastContactError = result.error.message;
-        } else {
-          runtimeState.lastContactError = undefined;
-        }
-
-        return toCommandResult(result.summary, {
-          checkedAt,
-          command: "mahilo relationships",
-          ...result
-        });
-      } catch (error) {
-        const message = toErrorMessage(error);
-        runtimeState.lastContactError = message;
-
-        return toCommandResult("Mahilo relationships: failed to process the request.", {
-          checkedAt,
-          command: "mahilo relationships",
-          error: message,
-          hints: [
-            "Use action=list to review contacts and pending requests from Mahilo server.",
-            "Use action=send_request with username to add someone by Mahilo handle.",
-            "Use action=accept or action=decline with username or friendshipId to act on a pending request."
-          ]
-        });
-      }
-    },
-    label: "Mahilo Relationships",
-    name: "mahilo relationships",
-    parameters: {
-      additionalProperties: false,
-      properties: {
-        action: {
-          enum: ["list", "send_request", "accept", "decline"],
-          type: "string"
-        },
-        friendshipId: { type: "string" },
-        friendship_id: { type: "string" },
-        recipient: { type: "string" },
-        username: { type: "string" }
-      },
-      type: "object"
-    }
-  };
 }
 
 function createStatusCommand(
@@ -368,144 +291,6 @@ function createReconnectCommand(
   };
 }
 
-function createOverrideCommand(
-  client: MahiloContractClient,
-  runtimeState: MahiloDiagnosticsRuntimeState,
-  options: MahiloDiagnosticsCommandOptions
-): MahiloCommand {
-  return {
-    description:
-      "Create a one-time or temporary Mahilo override with user-friendly defaults.",
-    execute: async (rawInput?: unknown) => {
-      const checkedAt = toIsoTimestamp(options.now);
-
-      try {
-        const input = readInputObject(rawInput);
-        const senderConnectionId = readRequiredSenderConnectionId(input);
-        const reason = readOptionalString(input.reason);
-
-        if (!reason) {
-          throw new Error("reason is required");
-        }
-
-        const result = await createMahiloOverride(client, {
-          durationHours:
-            readPositiveInteger(input.durationHours) ??
-            readPositiveInteger(input.duration_hours),
-          durationMinutes:
-            readPositiveInteger(input.durationMinutes) ??
-            readPositiveInteger(input.duration_minutes),
-          derivedFromMessageId:
-            readOptionalString(input.derivedFromMessageId) ??
-            readOptionalString(input.derived_from_message_id),
-          effect: readOptionalString(input.effect) ?? "allow",
-          expiresAt:
-            readOptionalString(input.expiresAt) ??
-            readOptionalString(input.expires_at),
-          idempotencyKey:
-            readOptionalString(input.idempotencyKey) ??
-            readOptionalString(input.idempotency_key),
-          kind: inferOverrideKind(input),
-          maxUses:
-            readPositiveInteger(input.maxUses) ??
-            readPositiveInteger(input.max_uses),
-          priority: readOptionalInteger(input.priority),
-          recipient: readOptionalString(input.recipient),
-          recipientType:
-            readRecipientType(input.recipientType) ??
-            readRecipientType(input.recipient_type),
-          reason,
-          scope: readOptionalString(input.scope) ?? "user",
-          selectors: parseSelectors(
-            input.selectors ?? input.declaredSelectors ?? input.declared_selectors
-          ),
-          senderConnectionId,
-          sourceResolutionId:
-            readOptionalString(input.sourceResolutionId) ??
-            readOptionalString(input.source_resolution_id),
-          targetId:
-            readOptionalString(input.targetId) ??
-            readOptionalString(input.target_id),
-          ttlSeconds:
-            readPositiveInteger(input.ttlSeconds) ??
-            readPositiveInteger(input.ttl_seconds)
-        });
-
-        runtimeState.lastSuccessfulContactAt = checkedAt;
-        runtimeState.lastContactError = undefined;
-
-        return toCommandResult(result.summary, {
-          checkedAt,
-          command: "mahilo override",
-          created: result.created ?? null,
-          kind: result.kind ?? null,
-          policyId: result.policyId ?? null,
-          resolvedTargetId: result.resolvedTargetId ?? null
-        });
-      } catch (error) {
-        const message = toErrorMessage(error);
-        runtimeState.lastContactError = message;
-
-        return toCommandResult("Mahilo override: failed to create override.", {
-          checkedAt,
-          command: "mahilo override",
-          error: message,
-          hints: [
-            "Pass recipient for user-scoped overrides to resolve the Mahilo user ID automatically.",
-            "Use durationMinutes, durationHours, ttlSeconds, or expiresAt for temporary overrides.",
-            "Pass targetId explicitly for group-, role-, or pre-resolved user-scoped overrides."
-          ]
-        });
-      }
-    },
-    label: "Mahilo Override",
-    name: "mahilo override",
-    parameters: {
-      additionalProperties: false,
-      properties: {
-        declaredSelectors: createSelectorSchema(),
-        derivedFromMessageId: { type: "string" },
-        derived_from_message_id: { type: "string" },
-        durationHours: { type: "integer" },
-        durationMinutes: { type: "integer" },
-        duration_hours: { type: "integer" },
-        duration_minutes: { type: "integer" },
-        effect: { type: "string" },
-        expiresAt: { type: "string" },
-        expires_at: { type: "string" },
-        idempotencyKey: { type: "string" },
-        idempotency_key: { type: "string" },
-        kind: { type: "string" },
-        maxUses: { type: "integer" },
-        max_uses: { type: "integer" },
-        priority: { type: "integer" },
-        recipient: { type: "string" },
-        recipientType: {
-          enum: ["group", "user"],
-          type: "string"
-        },
-        recipient_type: {
-          enum: ["group", "user"],
-          type: "string"
-        },
-        reason: { type: "string" },
-        scope: { type: "string" },
-        selectors: createSelectorSchema(),
-        senderConnectionId: { type: "string" },
-        sender_connection_id: { type: "string" },
-        sourceResolutionId: { type: "string" },
-        source_resolution_id: { type: "string" },
-        targetId: { type: "string" },
-        target_id: { type: "string" },
-        ttlSeconds: { type: "integer" },
-        ttl_seconds: { type: "integer" }
-      },
-      required: ["reason", "senderConnectionId"],
-      type: "object"
-    }
-  };
-}
-
 function registerCommandCompat(api: OpenClawPluginApi, command: MahiloCommand): void {
   const registerCommand = api.registerCommand as unknown as (...args: unknown[]) => void;
 
@@ -559,23 +344,6 @@ function readOptionalString(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function readOptionalInteger(value: unknown): number | undefined {
-  if (!Number.isInteger(value)) {
-    return undefined;
-  }
-
-  return Number(value);
-}
-
-function readPositiveInteger(value: unknown): number | undefined {
-  const normalized = readOptionalInteger(value);
-  if (typeof normalized !== "number" || normalized <= 0) {
-    return undefined;
-  }
-
-  return normalized;
-}
-
 function readBoundedInteger(value: unknown, fallback: number, min: number, max: number): number {
   const candidate = Number.isInteger(value) ? Number(value) : fallback;
   if (!Number.isFinite(candidate)) {
@@ -591,85 +359,6 @@ function readBoundedInteger(value: unknown, fallback: number, min: number, max: 
   }
 
   return candidate;
-}
-
-function readRequiredSenderConnectionId(input: Record<string, unknown>): string {
-  const senderConnectionId =
-    readOptionalString(input.senderConnectionId) ??
-    readOptionalString(input.sender_connection_id);
-
-  if (!senderConnectionId) {
-    throw new Error(
-      "senderConnectionId is required (pass senderConnectionId or sender_connection_id)"
-    );
-  }
-
-  return senderConnectionId;
-}
-
-function readRecipientType(value: unknown): "group" | "user" | undefined {
-  return value === "group" || value === "user" ? value : undefined;
-}
-
-function parseSelectors(value: unknown): Partial<DeclaredSelectors> | undefined {
-  const selectors = readObject(value);
-  if (!selectors) {
-    return undefined;
-  }
-
-  const action = readOptionalString(selectors.action);
-  const direction = readRecipientDirection(selectors.direction);
-  const resource = readOptionalString(selectors.resource);
-
-  if (!action && !direction && !resource) {
-    return undefined;
-  }
-
-  return {
-    action,
-    direction,
-    resource
-  };
-}
-
-function readRecipientDirection(
-  value: unknown
-): DeclaredSelectors["direction"] | undefined {
-  return value === "inbound" || value === "outbound" ? value : undefined;
-}
-
-function inferOverrideKind(input: Record<string, unknown>): string {
-  const explicitKind = readOptionalString(input.kind);
-  if (explicitKind) {
-    return explicitKind;
-  }
-
-  if (
-    readOptionalString(input.expiresAt) ||
-    readOptionalString(input.expires_at) ||
-    typeof readPositiveInteger(input.ttlSeconds) === "number" ||
-    typeof readPositiveInteger(input.ttl_seconds) === "number" ||
-    typeof readPositiveInteger(input.durationMinutes) === "number" ||
-    typeof readPositiveInteger(input.duration_minutes) === "number" ||
-    typeof readPositiveInteger(input.durationHours) === "number" ||
-    typeof readPositiveInteger(input.duration_hours) === "number"
-  ) {
-    return "temporary";
-  }
-
-  return "one_time";
-}
-
-function createSelectorSchema(): Record<string, unknown> {
-  return {
-    additionalProperties: false,
-    properties: {
-      action: { type: "string" },
-      direction: { type: "string" },
-      resource: { type: "string" }
-    },
-    type: "object"
-  };
 }
 
 function toErrorMessage(error: unknown): string {

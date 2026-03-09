@@ -2,7 +2,7 @@
 
 `@mahilo/openclaw-mahilo` is the published Mahilo plugin for OpenClaw. Install it as a normal npm package, register it in `openclaw.extensions`, and keep runtime settings under `plugins.entries.mahilo.config`.
 
-The plugin adds Mahilo-aware tools, diagnostics commands, prompt-time context injection, and inbound webhook handling while keeping Mahilo server as the policy source of truth.
+The plugin adds a compact Mahilo tool surface, setup and diagnostics commands, prompt-time context injection, and inbound webhook handling while keeping Mahilo server as the policy source of truth.
 
 ## Compatibility
 
@@ -93,6 +93,25 @@ When a send, preview, or context-fetch call omits `senderConnectionId`, the plug
 
 `senderConnectionId` and `sender_connection_id` are still accepted as advanced overrides when you need to force a specific routing path.
 
+## Minimal Mahilo Surface
+
+The plugin keeps the model-facing surface intentionally small:
+
+- `mahilo_message`
+  - `action=send` (default): send a policy-aware message to a user or group
+  - `action=preview`: resolve a draft without sending it
+  - `action=context`: fetch compact Mahilo context and prompt guidance for a contact
+- `mahilo_network`
+  - `action=list`: list contacts and pending requests from Mahilo server
+  - `action=send_request`, `accept`, `decline`: manage Mahilo relationships without a separate tool per server route
+  - future ask-around / fan-out actions will land on this same tool so the surface stays stable
+- `mahilo_boundaries`
+  - create one-time or temporary sharing exceptions
+  - defaults stay compact: `effect=allow`, `scope=user`, and `kind` is inferred from duration/expiry inputs when omitted
+  - future conversational boundary controls will extend this tool instead of adding new boundary-specific tools
+
+Operational and debug workflows stay on commands instead of expanding the tool list.
+
 ## First Connectivity Check
 
 After saving the config, restart OpenClaw and run:
@@ -140,13 +159,13 @@ If you are moving from a repo-local install to the published package:
 - `reviewMode must be one of: auto, ask, manual`: choose one of the supported review modes exactly.
 - `Mahilo status: connectivity checks failed`: run `mahilo reconnect` and check server reachability, API key scope, and callback alignment.
 
-## Available Diagnostics Commands
+## Commands
 
 The plugin registers these OpenClaw-native commands:
 
+- `mahilo setup`
 - `mahilo status`
 - `mahilo review`
-- `mahilo override`
 - `mahilo reconnect`
 
 ## Local Development From This Repo

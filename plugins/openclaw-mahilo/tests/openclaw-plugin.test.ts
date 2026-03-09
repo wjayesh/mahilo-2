@@ -562,18 +562,12 @@ describe("createMahiloOpenClawPlugin", () => {
     await plugin.register?.(api);
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
-      "create_mahilo_override",
-      "get_mahilo_context",
-      "list_mahilo_contacts",
-      "manage_mahilo_relationships",
-      "preview_mahilo_send",
-      "talk_to_agent",
-      "talk_to_group"
+      "mahilo_boundaries",
+      "mahilo_message",
+      "mahilo_network"
     ]);
     expect(commands.map((command) => command.name).sort()).toEqual([
-      "mahilo override",
       "mahilo reconnect",
-      "mahilo relationships",
       "mahilo review",
       "mahilo setup",
       "mahilo status"
@@ -636,7 +630,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "talk_to_agent");
+    const tool = findTool(tools, "mahilo_message");
     const outboundInput = {
       correlationId: "corr_routing_1",
       message: "hello",
@@ -650,14 +644,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       },
       {
         agentId: "mahilo-agent",
         runId: "run_route_1",
         sessionKey: "session_route_1",
         toolCallId: "tool_call_route_1",
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       }
     );
 
@@ -722,7 +716,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "talk_to_agent");
+    const tool = findTool(tools, "mahilo_message");
     const outboundInput = {
       message: "hello",
       recipient: "alice",
@@ -735,14 +729,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       },
       {
         agentId: "mahilo-agent-2",
         runId: "run_route_2",
         sessionKey: "session_route_2",
         toolCallId: "tool_call_route_2",
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       }
     );
 
@@ -785,7 +779,7 @@ describe("createMahiloOpenClawPlugin", () => {
     ]);
   });
 
-  it("executes talk_to_agent with sender_connection_id alias", async () => {
+  it("executes mahilo_message sends with sender_connection_id alias", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -798,7 +792,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "talk_to_agent");
+    const tool = findTool(tools, "mahilo_message");
     const result = await tool.execute("tool_call_1", {
       message: "hello",
       recipient: "alice",
@@ -817,7 +811,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.outcomeCalls).toHaveLength(1);
   });
 
-  it("resolves a default sender connection for talk_to_agent when input omits it", async () => {
+  it("resolves a default sender connection for mahilo_message sends when input omits it", async () => {
     const { client, state } = createMockContractClient({
       agentConnectionsResponse: [
         {
@@ -844,7 +838,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "talk_to_agent");
+    const tool = findTool(tools, "mahilo_message");
     const result = await tool.execute("tool_call_2", {
       message: "hello",
       recipient: "alice"
@@ -860,7 +854,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
   });
 
-  it("lists contacts from Mahilo server data instead of the host contacts provider", async () => {
+  it("lists contacts from Mahilo server data through mahilo_network instead of the host contacts provider", async () => {
     let providerCalls = 0;
     const { client, state } = createMockContractClient({
       friendConnectionsByUsername: {
@@ -905,31 +899,37 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "list_mahilo_contacts");
-    const result = await tool.execute("tool_call_3", {});
+    const tool = findTool(tools, "mahilo_network");
+    const result = await tool.execute("tool_call_3", {
+      action: "list"
+    });
 
     expect(result).toMatchObject({
-      details: [
-        {
-          connectionId: "conn_alice_primary",
-          connectionState: "available",
-          id: "alice",
-          label: "Alice",
-          metadata: {
-            connectionCount: 1,
+      details: {
+        action: "list",
+        contacts: [
+          {
+            connectionId: "conn_alice_primary",
             connectionState: "available",
-            friendshipId: "fr_alice"
-          },
-          type: "user"
-        }
-      ]
+            id: "alice",
+            label: "Alice",
+            metadata: {
+              connectionCount: 1,
+              connectionState: "available",
+              friendshipId: "fr_alice"
+            },
+            type: "user"
+          }
+        ],
+        status: "success"
+      }
     });
     expect(providerCalls).toBe(0);
-    expect(state.friendshipCalls).toEqual([{ status: "accepted" }]);
+    expect(state.friendshipCalls).toEqual([{ status: "accepted" }, { status: "pending" }]);
     expect(state.friendConnectionCalls).toEqual(["alice"]);
   });
 
-  it("executes manage_mahilo_relationships to send friend requests by @username", async () => {
+  it("executes mahilo_network to send friend requests by @username", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -941,7 +941,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "manage_mahilo_relationships");
+    const tool = findTool(tools, "mahilo_network");
     const result = await tool.execute("tool_call_relationship_add", {
       action: "send_request",
       username: "@alice"
@@ -986,7 +986,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "manage_mahilo_relationships");
+    const tool = findTool(tools, "mahilo_network");
     const result = await tool.execute("tool_call_relationship_accept", {
       action: "accept",
       username: "alice"
@@ -1008,7 +1008,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.acceptFriendRequestCalls).toEqual(["fr_pending_alice"]);
   });
 
-  it("executes get_mahilo_context through the context contract", async () => {
+  it("executes mahilo_message context requests through the context contract", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -1020,8 +1020,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "get_mahilo_context");
+    const tool = findTool(tools, "mahilo_message");
     const result = await tool.execute("tool_call_4", {
+      action: "context",
       declaredSelectors: {
         action: "share",
         resource: "location.current"
@@ -1052,7 +1053,7 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
-  it("executes preview_mahilo_send without creating a send record", async () => {
+  it("executes mahilo_message previews without creating a send record", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -1064,8 +1065,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "preview_mahilo_send");
+    const tool = findTool(tools, "mahilo_message");
     const result = await tool.execute("tool_call_5", {
+      action: "preview",
       declaredSelectors: {
         action: "share",
         resource: "location.current"
@@ -1112,8 +1114,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "preview_mahilo_send");
+    const tool = findTool(tools, "mahilo_message");
     const result = await tool.execute("tool_call_5b", {
+      action: "preview",
       message: "hello",
       recipient: "alice",
       senderConnectionId: "conn_sender"
@@ -1137,7 +1140,7 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
-  it("executes create_mahilo_override against the override contract", async () => {
+  it("executes mahilo_boundaries with compact override defaults", async () => {
     const { client, state } = createMockContractClient({
       promptContextResponse: {
         policy_guidance: {
@@ -1168,13 +1171,10 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "create_mahilo_override");
+    const tool = findTool(tools, "mahilo_boundaries");
     const result = await tool.execute("tool_call_6", {
-      effect: "allow",
-      kind: "once",
       recipient: "alice",
       reason: "User approved a one-time share.",
-      scope: "user",
       selectors: {
         action: "share",
         resource: "location.current"
@@ -1228,7 +1228,7 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
-  it("returns graceful server failures for preview_mahilo_send", async () => {
+  it("returns graceful server failures for mahilo_message previews", async () => {
     const { client } = createMockContractClient({
       resolveError: new MahiloRequestError("Mahilo request failed with status 503", {
         kind: "http",
@@ -1245,8 +1245,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "preview_mahilo_send");
+    const tool = findTool(tools, "mahilo_message");
     const result = await tool.execute("tool_call_7", {
+      action: "preview",
       message: "hello",
       recipient: "alice",
       senderConnectionId: "conn_sender"
@@ -1258,7 +1259,7 @@ describe("createMahiloOpenClawPlugin", () => {
         errorType: "server",
         retryable: true,
         status: "error",
-        tool: "preview_mahilo_send"
+        tool: "mahilo_message"
       }
     });
   });
@@ -1308,7 +1309,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "talk_to_agent");
+    const tool = findTool(tools, "mahilo_message");
     const input = {
       declaredSelectors: {
         action: "share",
@@ -1325,14 +1326,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: toolResult,
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       },
       {
         agentId: "mahilo-agent",
         runId: "run_1",
         sessionKey: "session_1",
         toolCallId: "tool_call_post_send_1",
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       }
     );
 
@@ -1382,7 +1383,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "talk_to_agent");
+    const tool = findTool(tools, "mahilo_message");
     const afterToolCall = findHook(hooks, "after_tool_call");
     const agentEnd = findHook(hooks, "agent_end");
     const input = {
@@ -1400,13 +1401,13 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: firstResult,
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       },
       {
         runId: "run_2a",
         sessionKey: "session_2",
         toolCallId: "tool_call_post_send_2a",
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       }
     );
     await agentEnd.execute(
@@ -1424,13 +1425,13 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: secondResult,
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       },
       {
         runId: "run_2b",
         sessionKey: "session_2",
         toolCallId: "tool_call_post_send_2b",
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       }
     );
     await agentEnd.execute(
@@ -1463,7 +1464,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "talk_to_agent");
+    const tool = findTool(tools, "mahilo_message");
     const input = {
       message: "hello",
       recipient: "alice",
@@ -1476,12 +1477,12 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: toolResult,
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       },
       {
         sessionKey: "session_3",
         toolCallId: "tool_call_post_send_3",
-        toolName: "talk_to_agent"
+        toolName: "mahilo_message"
       }
     );
 

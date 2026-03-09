@@ -20,6 +20,7 @@ export interface MahiloPendingLearningSuggestion {
   outcome: ReportedOutcome;
   reason?: string;
   recipient: string;
+  recipientType?: "group" | "user";
   resolutionId?: string;
   selectors: DeclaredSelectors;
   senderConnectionId?: string;

@@ -32,6 +32,10 @@ describe("README install docs", () => {
 
     expect(readme).toContain("openclaw/plugin-sdk/core");
     expect(readme).toContain(MAHILO_CONTRACT_VERSION);
+    expect(readme).toContain("mahilo_message");
+    expect(readme).toContain("mahilo_network");
+    expect(readme).toContain("mahilo_boundaries");
+    expect(readme).toContain("mahilo setup");
     expect(readme).toContain("mahilo status");
     expect(readme).toContain("mahilo reconnect");
     expect(readme).toContain(DEFAULT_WEBHOOK_ROUTE_PATH);

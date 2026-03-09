@@ -91,7 +91,7 @@ describe("InMemoryPluginState", () => {
         resource: "location.current"
       },
       status: "sent" as const,
-      toolName: "talk_to_agent" as const
+      toolName: "mahilo_message" as const
     };
 
     state.queueLearningSuggestion("session_1", suggestion, 100);

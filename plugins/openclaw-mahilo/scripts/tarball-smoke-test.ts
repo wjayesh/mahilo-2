@@ -62,8 +62,6 @@ export interface TarballSmokeSummary {
 }
 
 const EXPECTED_COMMAND_NAMES = [
-  "mahilo relationships",
-  "mahilo override",
   "mahilo reconnect",
   "mahilo review",
   "mahilo setup",
@@ -81,13 +79,9 @@ const EXPECTED_REQUIRED_CONFIG_KEYS = ["baseUrl", "apiKey"];
 const EXPECTED_ROUTE_PATHS = ["/mahilo/incoming"];
 
 const EXPECTED_TOOL_NAMES = [
-  "create_mahilo_override",
-  "get_mahilo_context",
-  "list_mahilo_contacts",
-  "manage_mahilo_relationships",
-  "preview_mahilo_send",
-  "talk_to_agent",
-  "talk_to_group"
+  "mahilo_boundaries",
+  "mahilo_message",
+  "mahilo_network"
 ];
 
 const FORBIDDEN_PACK_PATH_PREFIXES = [
