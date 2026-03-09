@@ -179,7 +179,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T23:08:36.797Z: PLG3-006 completed via orchestrator integration.
 ### 1.6 Boundary Management by Conversation
 - **ID**: `PLG3-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-033, PLG3-001, PLG3-002, PLG3-006
 - **Description**:
@@ -198,6 +198,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ---
 
+- **Notes**:
+  - 2026-03-09T23:21:09.173Z: PLG3-003 completed via orchestrator integration.
 ## Phase 2: The Ask-Around Wedge
 
 ### 2.1 Ask My Contacts / Ask Around
