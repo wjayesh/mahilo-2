@@ -121,7 +121,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T22:33:11.406Z: PLG3-004 completed via orchestrator integration.
 ### 1.3 Mahilo Social Client Expansion
 - **ID**: `PLG3-005`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-080
 - **Description**:
@@ -138,6 +138,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] `list_mahilo_contacts` no longer depends on host-injected contacts as the normal path
   - [ ] Client errors map cleanly to product-level states such as not found, already connected, and no active connections
 
+- **Notes**:
+  - 2026-03-09T22:43:57.338Z: PLG3-005 completed via orchestrator integration.
 ### 1.4 Friend Request and Accept Flows
 - **ID**: `PLG3-002`
 - **Status**: `pending`
