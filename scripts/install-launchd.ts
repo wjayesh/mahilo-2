@@ -40,6 +40,15 @@ function sanitizeName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 function buildPlist(options: CliOptions, repoRoot: string): string {
   const safeName = sanitizeName(options.name);
   const label = `ai.mahilo.orchestrator.${safeName}`;
@@ -47,6 +56,10 @@ function buildPlist(options: CliOptions, repoRoot: string): string {
   const stderrPath = join(repoRoot, ".mahilo-orchestrator", `${safeName}-launchd.err.log`);
   const bunPath = process.execPath;
   const supervisorScript = resolve(repoRoot, "scripts", "orchestrator-supervisor.ts");
+  const launchdPath =
+    process.env.PATH ??
+    "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  const launchdHome = process.env.HOME ?? homedir();
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -66,15 +79,22 @@ function buildPlist(options: CliOptions, repoRoot: string): string {
       <string>${safeName}</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>${repoRoot}</string>
+    <string>${escapeXml(repoRoot)}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>${escapeXml(launchdPath)}</string>
+      <key>HOME</key>
+      <string>${escapeXml(launchdHome)}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>${stdoutPath}</string>
+    <string>${escapeXml(stdoutPath)}</string>
     <key>StandardErrorPath</key>
-    <string>${stderrPath}</string>
+    <string>${escapeXml(stderrPath)}</string>
   </dict>
 </plist>
 `;

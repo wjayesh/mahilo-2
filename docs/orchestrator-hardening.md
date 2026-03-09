@@ -61,6 +61,10 @@ We kept detached shell usage possible, but the preferred production-ish path is 
 
 This is a better fit for your machine than continuing to treat `screen` as the primary daemon manager.
 
+Follow-up implemented on 2026-03-09:
+- the generated `launchd` plist now captures the install-time `PATH` and `HOME`
+- this is required because the orchestrator spawns nested Codex workers as separate subprocesses, and `launchd`'s default minimal `PATH` was not sufficient to resolve `codex`
+
 ### 5. Avoid overengineering the stall detector
 
 We intentionally did **not** switch the agent runner to a fully async event-streaming architecture.

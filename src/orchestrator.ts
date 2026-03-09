@@ -541,6 +541,7 @@ export type AgentRunResult = {
   exitCode: number;
   lastMessage: string;
   commandLine: string;
+  error: string | null;
 };
 
 export type RepoCommitResult = {
@@ -705,6 +706,7 @@ export function runAgentForTask(
     exitCode: child.status ?? 1,
     lastMessage: existsSync(lastMessagePath) ? readFileSync(lastMessagePath, "utf8") : "",
     commandLine: [config.agentCommand, ...args].join(" "),
+    error: child.error ? child.error.message : null,
   };
 }
 

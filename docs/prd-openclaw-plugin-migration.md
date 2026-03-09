@@ -415,7 +415,7 @@ It is:
 
 ### 3.4 Temporary Override Flows
 - **ID**: `PLG2-033`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: SRV-043
 - **Description**:
@@ -428,8 +428,7 @@ It is:
 ---
 
 - **Notes**:
-  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
-  - 2026-03-09T07:58:54.737Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
 ## Phase 4: Native OpenClaw Value
 
 ### 4.1 Prompt Hook Integration
@@ -451,7 +450,7 @@ It is:
 
 ### 4.2 Native Tools
 - **ID**: `PLG2-041`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P0
 - **Depends on**: PLG2-020, PLG2-030
 - **Description**:
@@ -469,11 +468,10 @@ It is:
   - [ ] Tools fail gracefully on network/server errors
 
 - **Notes**:
-  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
-  - 2026-03-09T07:58:48.345Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
 ### 4.3 Send-Time Hooks
 - **ID**: `PLG2-042`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P0
 - **Depends on**: PLG2-030
 - **Description**:
@@ -484,11 +482,10 @@ It is:
   - [ ] Plugin can surface review-required cases cleanly
 
 - **Notes**:
-  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
-  - 2026-03-09T07:58:51.573Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
 ### 4.4 Post-Send Hooks
 - **ID**: `PLG2-043`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: PLG2-032
 - **Description**:
@@ -498,8 +495,7 @@ It is:
   - [ ] Plugin can trigger learning suggestions after novel decisions
 
 - **Notes**:
-  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
-  - 2026-03-09T07:58:59.645Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
 - **Status**: `done`
@@ -559,7 +555,7 @@ It is:
 
 ### 5.3 Inbound Message Routing
 - **ID**: `PLG2-052`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: PLG2-050, SRV-032
 - **Description**:
@@ -571,8 +567,7 @@ It is:
 ---
 
 - **Notes**:
-  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
-  - 2026-03-09T07:59:02.880Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
 ## Phase 6: Release, Compatibility, and Decommissioning
 
 ### 6.1 Publishable Package Readiness
@@ -630,6 +625,114 @@ It is:
   - 2026-03-08: Recorded the deprecation decision as freeze + legacy redirect stub with one canonical source of truth (`plugins/openclaw-mahilo/`) and explicit emergency-backport-only exception rules.
   - 2026-03-08: Updated `plugins/openclaw-mahilo/README.md` with the same effective deprecation policy and validated plugin-local health from `plugins/openclaw-mahilo/` via `bun run check` (build successful, 97 tests passing, manifest checks passing).
 
+### 6.4 Supervised Worker Environment Unblock
+- **ID**: `PLG2-063`
+- **Status**: `done`
+- **Priority**: P0
+- **Depends on**: PLG2-060
+- **Description**:
+  - Ensure the supervised plugin loop can actually spawn nested Codex workers under macOS `launchd`.
+  - Capture the interactive install-time `PATH` in the generated launch agent so `codex` resolves in the background.
+  - Make worker spawn failures surface the underlying OS error instead of only a generic non-zero exit.
+- **Acceptance Criteria**:
+  - [x] `launchd` plugin supervisor inherits a `PATH` that can resolve `codex`
+  - [x] Nested-worker spawn failures include the underlying process error
+  - [x] False auto-blocks caused by missing worker executables can be safely requeued
+- **Progress Notes**:
+  - 2026-03-09: Diagnosed repeated false auto-blocks on `PLG2-033`, `PLG2-041`, `PLG2-042`, `PLG2-043`, and `PLG2-052` as a background execution issue: the generated `launchd` service inherited a minimal default `PATH`, so supervised runs could not resolve the nested `codex` executable.
+  - 2026-03-09: Updated `scripts/install-launchd.ts` to persist install-time `PATH` and `HOME` in the generated plist, and updated orchestrator worker failure reporting so missing-command errors surface explicitly.
+  - 2026-03-09: Requeued the affected plugin tasks to `pending` so the plugin loop can resume real feature work under the fixed service environment.
+
+---
+
+## Phase 7: Community Install and npm Publish Readiness
+
+### 7.1 Public Release Metadata
+- **ID**: `PLG2-070`
+- **Status**: `pending`
+- **Priority**: P0
+- **Depends on**: PLG2-033, PLG2-041, PLG2-042, PLG2-043, PLG2-052, PLG2-060
+- **Description**:
+  - Convert the package from "publishable later" to "ready for first public release".
+  - Finalize package/manifest versioning, scoped-public npm settings, and standard release metadata.
+- **Acceptance Criteria**:
+  - [ ] `package.json` is no longer blocked by `private: true`
+  - [ ] `package.json` and `openclaw.plugin.json` versions are synchronized from one source of truth
+  - [ ] Public release metadata is present (`license`, `repository`, `homepage`, `bugs`, `author`/owner, `publishConfig.access`)
+  - [ ] README no longer describes npm publish as purely future work
+
+### 7.2 Package Surface and Build Artifacts
+- **ID**: `PLG2-071`
+- **Status**: `pending`
+- **Priority**: P0
+- **Depends on**: PLG2-070
+- **Description**:
+  - Harden the package so a clean install or tarball always contains the right runtime artifacts.
+  - Add publish-time build hooks and make the package surface explicit (`exports`, runtime entry, types/declaration story, packaged files).
+- **Acceptance Criteria**:
+  - [ ] `npm pack --dry-run` includes `dist/`, `openclaw.plugin.json`, `README`, and license/release files
+  - [ ] Publish/install flows cannot skip the required build output
+  - [ ] `main` / `exports` / OpenClaw manifest entry all resolve to valid packaged files
+  - [ ] Type surface is explicit (generated declarations or an intentional JS-only contract)
+
+### 7.3 Published Install Documentation
+- **ID**: `PLG2-072`
+- **Status**: `pending`
+- **Priority**: P0
+- **Depends on**: PLG2-070, PLG2-071
+- **Description**:
+  - Rewrite the README for a real community install flow:
+    - install from npm
+    - configure `openclaw.extensions`
+    - configure `plugins.entries.mahilo`
+    - run first connectivity check
+  - Add a compatibility note for supported OpenClaw/plugin contract versions.
+- **Acceptance Criteria**:
+  - [ ] README includes a published-package install flow
+  - [ ] README includes a minimal working OpenClaw config example
+  - [ ] README includes upgrade / troubleshooting notes for common setup failures
+  - [ ] Compatibility expectations are explicit
+
+### 7.4 Tarball Install Smoke Test
+- **ID**: `PLG2-073`
+- **Status**: `pending`
+- **Priority**: P0
+- **Depends on**: PLG2-071, PLG2-072
+- **Description**:
+  - Validate the package the same way users will consume it: from a packed artifact rather than from the monorepo path.
+  - Use a clean install path / scratch OpenClaw environment and confirm the plugin registers successfully.
+- **Acceptance Criteria**:
+  - [ ] `npm pack --dry-run` output is reviewed and correct
+  - [ ] Installing from the packed artifact works in a clean OpenClaw setup
+  - [ ] Tools, hooks, routes, and plugin config schema load correctly from the packed artifact
+  - [ ] The smoke-test steps are documented for repeatable validation
+
+### 7.5 Release Gates and Version Sync Checks
+- **ID**: `PLG2-074`
+- **Status**: `pending`
+- **Priority**: P1
+- **Depends on**: PLG2-070, PLG2-071
+- **Description**:
+  - Add release-specific checks so a future publish does not rely on manual memory.
+  - Cover version sync, package contents, manifest validity, build/test pass, and publish prerequisites.
+- **Acceptance Criteria**:
+  - [ ] One command or script validates the release gate end-to-end
+  - [ ] Version drift between package and manifest fails fast
+  - [ ] Release checks are documented and easy to rerun locally
+
+### 7.6 Human Publish Handoff
+- **ID**: `PLG2-075`
+- **Status**: `pending`
+- **Priority**: P1
+- **Depends on**: PLG2-072, PLG2-073, PLG2-074
+- **Description**:
+  - Reduce the final human publish step to a tiny, explicit checklist.
+  - Capture exact commands for version bump review, `npm publish`, tag/release notes, and rollback/patch follow-up.
+- **Acceptance Criteria**:
+  - [ ] There is a short publish checklist a human can follow without repo archaeology
+  - [ ] Post-publish verification steps are documented
+  - [ ] Rollback / hotfix guidance exists for a bad first release
+
 ---
 
 ## Recommended Migration Order
@@ -640,6 +743,7 @@ It is:
 4. PLG2-030 → PLG2-033
 5. PLG2-040 → PLG2-052
 6. PLG2-060 → PLG2-062
+7. PLG2-070 → PLG2-075
 
 ---
 
@@ -652,3 +756,5 @@ This PRD is complete when:
 - the plugin uses Mahilo server as source of truth
 - OpenClaw-native features (hooks, tools, diagnostics) are first-class
 - local development no longer depends on editing the legacy plugin in `myclawd`
+- the package can be installed through the documented OpenClaw extension flow from a packed/published artifact
+- the remaining human work before `npm publish` is reduced to a short explicit checklist

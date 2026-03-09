@@ -767,7 +767,9 @@ async function main() {
           task,
           actionableTasks: actionable,
           state,
-          reason: `Agent command failed: ${runResult.commandLine}`,
+          reason: runResult.error
+            ? `Agent command failed: ${runResult.commandLine} (${runResult.error})`
+            : `Agent command failed: ${runResult.commandLine}`,
         });
         historyStatus = failure.historyStatus;
         historyNote = failure.historyNote;
