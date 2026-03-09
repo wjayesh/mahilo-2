@@ -415,7 +415,7 @@ It is:
 
 ### 3.4 Temporary Override Flows
 - **ID**: `PLG2-033`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P1
 - **Depends on**: SRV-043
 - **Description**:
@@ -429,6 +429,7 @@ It is:
 
 - **Notes**:
   - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
+  - 2026-03-09T07:58:54.737Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
 ## Phase 4: Native OpenClaw Value
 
 ### 4.1 Prompt Hook Integration
