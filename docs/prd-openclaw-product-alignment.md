@@ -224,7 +224,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T23:33:44.114Z: PLG3-010 completed via orchestrator integration.
 ### 2.2 Trustworthy Response Synthesis and Attribution
 - **ID**: `PLG3-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-052, PLG3-010
 - **Description**:
@@ -238,6 +238,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] The final answer clearly distinguishes direct replies from synthesized summary text
   - [ ] The result reads well in OpenClaw chat without hiding provenance
 
+- **Notes**:
+  - 2026-03-09T23:42:49.813Z: PLG3-011 completed via orchestrator integration.
 ### 2.3 Trust Contract: "I Don't Know" Over Fabrication
 - **ID**: `PLG3-012`
 - **Status**: `pending`
