@@ -415,7 +415,7 @@ It is:
 
 ### 3.4 Temporary Override Flows
 - **ID**: `PLG2-033`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: SRV-043
 - **Description**:
@@ -428,16 +428,12 @@ It is:
 ---
 
 - **Notes**:
-  - 2026-03-09T07:45:41.401Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
+  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
 ## Phase 4: Native OpenClaw Value
 
 ### 4.1 Prompt Hook Integration
 - **ID**: `PLG2-040`
-<<<<<<< HEAD
-- **Status**: `blocked`
-=======
 - **Status**: `done`
->>>>>>> cbb4d7e (orchestrator: complete PLG2-040 4.1 Prompt Hook Integration)
 - **Priority**: P0
 - **Depends on**: PLG2-031
 - **Description**:
@@ -452,11 +448,9 @@ It is:
   - 2026-03-09: Added clean enable/disable control via `promptContextEnabled` plugin config (`src/config.ts`, `openclaw.plugin.json`, README/config identity constants) and expanded plugin/config/manifest tests for hook registration, bounded injection behavior, and toggle-off behavior.
   - 2026-03-09: Validated from `plugins/openclaw-mahilo/` with `bun run test` (105 passing) and `bun run build`.
 
-- **Notes**:
-  - 2026-03-09T07:45:30.120Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-040 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-040-last-message.txt -
 ### 4.2 Native Tools
 - **ID**: `PLG2-041`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P0
 - **Depends on**: PLG2-020, PLG2-030
 - **Description**:
@@ -474,10 +468,10 @@ It is:
   - [ ] Tools fail gracefully on network/server errors
 
 - **Notes**:
-  - 2026-03-09T07:45:33.787Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
+  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
 ### 4.3 Send-Time Hooks
 - **ID**: `PLG2-042`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P0
 - **Depends on**: PLG2-030
 - **Description**:
@@ -488,10 +482,10 @@ It is:
   - [ ] Plugin can surface review-required cases cleanly
 
 - **Notes**:
-  - 2026-03-09T07:45:37.615Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
+  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
 ### 4.4 Post-Send Hooks
 - **ID**: `PLG2-043`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: PLG2-032
 - **Description**:
@@ -501,7 +495,7 @@ It is:
   - [ ] Plugin can trigger learning suggestions after novel decisions
 
 - **Notes**:
-  - 2026-03-09T07:45:45.077Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
+  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
 - **Status**: `done`
@@ -561,7 +555,7 @@ It is:
 
 ### 5.3 Inbound Message Routing
 - **ID**: `PLG2-052`
-- **Status**: `blocked`
+- **Status**: `pending`
 - **Priority**: P1
 - **Depends on**: PLG2-050, SRV-032
 - **Description**:
@@ -573,7 +567,7 @@ It is:
 ---
 
 - **Notes**:
-  - 2026-03-09T07:45:48.748Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
+  - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
 ## Phase 6: Release, Compatibility, and Decommissioning
 
 ### 6.1 Publishable Package Readiness
