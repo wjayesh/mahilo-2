@@ -33,7 +33,7 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 8. When a task reaches `done` or `blocked`, commit that work in the task branch.
 9. Acquire a short repo-level lock only for integration-branch mutation.
 10. Cherry-pick the new task-branch commit(s) into the shared integration branch.
-11. Retry task failures with backoff, then auto-block if they repeatedly fail.
+11. Retry worker/runtime/integration failures with backoff while keeping the task pending.
 12. Write runtime heartbeat/status files for observability.
 13. Optionally run the loop under the lightweight supervisor or `launchd`.
 14. Repeat until all tracked tasks are complete or the loop is stopped.
@@ -58,7 +58,9 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 - The integration branch stays linear by cherry-picking task commits instead of merging task branches.
 - The loop auto-pushes after every 3 integrated task commits by default.
 - Concurrent workflows share a repo-level lock only around cherry-pick and push operations.
-- Repeated task failures are retried with backoff and eventually auto-block the task instead of killing the whole loop.
+- Repeated worker/runtime/integration failures are retried with backoff and do not mutate task status to `blocked`.
+- Only an explicit `TASK_BLOCKED <id>` from the worker marks a task `blocked` in the PRD.
+- Cherry-pick integration is refused when the shared integration checkout is dirty.
 - The plugin workflow is scoped away from server implementation files to reduce overlap.
 
 ## Recommended Commands

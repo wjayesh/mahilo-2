@@ -78,7 +78,8 @@ Use this when the orchestrator, supervisor, or workflow files changed.
 The hardened loop now:
 - retries task failures with exponential backoff
 - records retry cooldowns in state/runtime files
-- auto-blocks a task after the configured retry limit instead of killing the whole worker
+- keeps tasks `pending` when the failure is a worker/runtime/integration problem
+- only marks a task `blocked` when the worker explicitly emits `TASK_BLOCKED <id>`
 - restarts the worker if the supervised process dies or becomes stale
 
 ## Fallback `screen` Usage
@@ -108,7 +109,7 @@ Use this only for temporary manual debugging.
 ## When To Escalate
 
 Escalate when:
-- the same task keeps auto-blocking or failing after retries
+- the same task keeps failing after retries and is not making progress
 - supervisor status shows repeated restart loops
 - heartbeat timestamps stop moving even though the supervisor is alive
 - the integration branch is wrong or dirty in a way that blocks safe restart

@@ -34,10 +34,12 @@ Previously, agent failures or task integration errors could terminate the whole 
 Now the orchestrator:
 - records the failure in progress/state
 - retries the task with exponential backoff
-- auto-blocks the task after the configured retry limit
+- keeps the task `pending` when the failure is a worker/runtime/integration problem
 - continues running instead of killing the entire worker
 
-This choice keeps autonomous progress moving and makes failures explicit in the task docs.
+Only an explicit `TASK_BLOCKED <id>` from the worker changes the task doc to `blocked`.
+
+This choice keeps autonomous progress moving without turning orchestration glitches into false product blockers.
 
 ### 3. Add runtime heartbeats and status files
 
@@ -75,6 +77,17 @@ Instead, we chose a simpler version:
 
 That is enough to detect dead sessions or stuck workers without turning this into a full distributed control plane.
 
+### 6. Refuse integration into a dirty shared repo
+
+The orchestrator now checks that the shared integration checkout is clean before any task-branch cherry-pick.
+
+If the repo is dirty:
+- the task is left `pending`
+- the loop records an integration/runtime failure
+- the task is retried later with backoff
+
+This is intentionally strict. The source-of-truth tracker files live in the shared repo, so silently cherry-picking across local edits is the wrong failure mode.
+
 ## Config Defaults
 
 Both workflow files now include:
@@ -100,7 +113,7 @@ These are intentionally conservative defaults.
 
 ## Tradeoffs We Accepted
 
-- Auto-blocking after repeated failures may require manual unblocking later, but it is better than infinite crash loops.
+- Repeated runtime failures can keep a task pending for a while instead of auto-blocking it, so operator inspection still matters.
 - Runtime heartbeats are phase-level, not continuous sub-process telemetry.
 - `launchd` support is installer-based rather than a large service-management framework.
 
@@ -109,4 +122,4 @@ These are intentionally conservative defaults.
 If we want to go further later, the next sensible steps are:
 - notifications on repeated failures or all tasks complete
 - richer supervisor status output for humans
-- a small command to unblock/requeue auto-blocked tasks
+- a small command to requeue/reset tasks after operator review

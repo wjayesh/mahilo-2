@@ -610,12 +610,18 @@ export function commitPendingChanges(repoPath: string, message: string): RepoCom
     return { committed: false, commitSha: null, error: gitError(addResult, "git add failed") };
   }
 
-  const statusResult = runGit(["status", "--porcelain"], repoPath);
-  if (statusResult.status !== 0) {
-    return { committed: false, commitSha: null, error: gitError(statusResult, "git status failed") };
+  let pendingChanges: string[];
+  try {
+    pendingChanges = getPendingChanges(repoPath);
+  } catch (error) {
+    return {
+      committed: false,
+      commitSha: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 
-  if (!statusResult.stdout.trim()) {
+  if (pendingChanges.length === 0) {
     return { committed: false, commitSha: null, error: null };
   }
 
@@ -629,6 +635,18 @@ export function commitPendingChanges(repoPath: string, message: string): RepoCom
     commitSha: getHeadCommit(repoPath),
     error: null,
   };
+}
+
+export function getPendingChanges(repoPath: string): string[] {
+  const statusResult = runGit(["status", "--porcelain"], repoPath);
+  if (statusResult.status !== 0) {
+    throw new Error(gitError(statusResult, "git status failed"));
+  }
+
+  return statusResult.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
 }
 
 export function cherryPickCommits(repoRoot: string, commits: string[]): CherryPickResult {

@@ -11,6 +11,7 @@ import {
   ensureWorkspace,
   formatHistoryNote,
   getCurrentBranch,
+  getPendingChanges,
   listUniqueCommits,
   loadState,
   loadTasks,
@@ -24,7 +25,6 @@ import {
   selectNextTask,
   type OrchestratorState,
   type Task,
-  type TaskStatus,
   type WorkflowConfig,
 } from "../src/orchestrator";
 
@@ -69,7 +69,6 @@ type TaskFailureResult = {
   historyStatus: HistoryStatus;
   historyNote: string;
   refreshedActionableTasks: Task[];
-  blockedByOrchestrator: boolean;
 };
 
 const REPO_LOCK_NAME = "repo.lock";
@@ -341,149 +340,38 @@ function sleepMs(milliseconds: number) {
   }
 }
 
-function updateTaskStatusInSource(
-  repoRoot: string,
-  task: Task,
-  nextStatus: TaskStatus,
-  note?: string,
-) {
-  const filePath = resolvePath(repoRoot, task.filePath);
-  const lines = readFileSync(filePath, "utf8").split(/\r?\n/);
-  const headingLine = `${"#".repeat(task.headingLevel)} ${task.heading}`;
-  const startIndex = lines.findIndex((line) => line.trim() === headingLine);
-  if (startIndex === -1) {
-    throw new Error(`Could not find task heading ${headingLine} in ${task.filePath}.`);
-  }
-
-  let endIndex = lines.length;
-  for (let index = startIndex + 1; index < lines.length; index += 1) {
-    const match = lines[index].match(/^(#+)\s+/);
-    if (match && match[1].length <= task.headingLevel) {
-      endIndex = index;
-      break;
-    }
-  }
-
-  let replaced = false;
-  for (let index = startIndex + 1; index < endIndex; index += 1) {
-    if (/^- \*\*Status\*\*: `.*`$/.test(lines[index])) {
-      lines[index] = `- **Status**: \`${nextStatus}\``;
-      replaced = true;
-      break;
-    }
-  }
-
-  if (!replaced) {
-    throw new Error(`Could not find status line for ${task.id} in ${task.filePath}.`);
-  }
-
-  if (note) {
-    const noteHeadingIndex = (() => {
-      for (let index = startIndex + 1; index < endIndex; index += 1) {
-        if (
-          lines[index].trim() === "- **Notes**:" ||
-          lines[index].trim() === "- **Progress Notes**:"
-        ) {
-          return index;
-        }
-      }
-      return -1;
-    })();
-
-    const timestampedNote = `  - ${new Date().toISOString()}: ${compactReason(note)}`;
-    if (noteHeadingIndex !== -1) {
-      let insertAt = noteHeadingIndex + 1;
-      while (insertAt < endIndex && /^  - /.test(lines[insertAt])) {
-        insertAt += 1;
-      }
-      lines.splice(insertAt, 0, timestampedNote);
-    } else {
-      lines.splice(endIndex, 0, "- **Notes**:", timestampedNote);
-    }
-  }
-
-  writeFileSync(filePath, lines.join("\n"));
-}
-
 function handleTaskFailure(params: {
-  repoRoot: string;
   workflow: WorkflowConfig;
   task: Task;
   actionableTasks: Task[];
   state: OrchestratorState;
   reason: string;
 }): TaskFailureResult {
-  const { repoRoot, workflow, task, actionableTasks, state, reason } = params;
+  const { workflow, task, actionableTasks, state, reason } = params;
   const compact = compactReason(reason);
+  const retryLimit = Math.max(workflow.taskFailureRetryLimit, 1);
   const attempt = (state.taskFailureCounts[task.id] ?? 0) + 1;
-  state.taskFailureCounts[task.id] = attempt;
+  const cappedAttempt = Math.min(attempt, retryLimit);
+  state.taskFailureCounts[task.id] = cappedAttempt;
   state.activeTaskId = null;
 
-  if (attempt >= workflow.taskFailureRetryLimit) {
-    updateTaskStatusInSource(
-      repoRoot,
-      task,
-      "blocked",
-      `Auto-blocked by orchestrator after ${attempt} failures. Last error: ${compact}`,
-    );
-    clearTaskFailureState(state, task.id);
-    const refreshedActionableTasks = loadTasks(repoRoot, workflow.taskSources);
-    return {
-      historyStatus: "blocked",
-      historyNote: `${task.id} auto-blocked after ${attempt} failures: ${compact}`,
-      refreshedActionableTasks,
-      blockedByOrchestrator: true,
-    };
-  }
-
-  const backoffSeconds = workflow.taskFailureBackoffSeconds * 2 ** (attempt - 1);
+  const backoffSeconds = workflow.taskFailureBackoffSeconds * 2 ** (cappedAttempt - 1);
   const retryAfter = new Date(Date.now() + backoffSeconds * 1000).toISOString();
   state.taskRetryAfter[task.id] = retryAfter;
+  const historyNote =
+    attempt >= retryLimit
+      ? `${compact} Reached retry limit ${retryLimit}; keeping ${task.id} pending and retrying after ${retryAfter}.`
+      : `${compact} Retry ${cappedAttempt}/${retryLimit} after ${retryAfter}.`;
   return {
     historyStatus: "agent_error",
-    historyNote: `${compact} Retry ${attempt}/${workflow.taskFailureRetryLimit} after ${retryAfter}.`,
+    historyNote,
     refreshedActionableTasks: actionableTasks,
-    blockedByOrchestrator: false,
   };
 }
 
-function persistAutoBlockedTask(params: {
-  repoRoot: string;
-  workflow: WorkflowConfig;
-  task: Task;
-  state: OrchestratorState;
-}): string {
-  const { repoRoot, workflow, task, state } = params;
-  const integrationBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
-  if (!integrationBranch) {
-    throw new Error("Could not determine the integration branch for auto-block persistence.");
-  }
-
-  const lockPath = acquireRepoLock(repoRoot, workflow.name, task.id);
-  try {
-    const commitResult = commitPendingChanges(repoRoot, `orchestrator: block ${task.id} ${task.title}`);
-    if (commitResult.error) {
-      throw new Error(`${task.id} auto-block commit failed: ${commitResult.error}`);
-    }
-    if (commitResult.committed) {
-      state.commitsSincePush += 1;
-      state.lastCommittedTaskId = task.id;
-      state.lastCommitSha = commitResult.commitSha;
-    }
-    if (workflow.autoPushEveryCommits > 0 && state.commitsSincePush >= workflow.autoPushEveryCommits) {
-      const pushResult = maybePushBranch(repoRoot, integrationBranch, state.commitsSincePush, true);
-      if (pushResult.error) {
-        throw new Error(`${task.id} auto-block push failed: ${pushResult.error}`);
-      }
-      state.commitsSincePush = 0;
-      return `${task.id} auto-block persisted and pushed ${integrationBranch}.`;
-    }
-    return commitResult.committed
-      ? `${task.id} auto-block persisted${commitResult.commitSha ? ` as ${commitResult.commitSha}` : ""}.`
-      : `${task.id} auto-block already reflected in the integration branch.`;
-  } finally {
-    releaseRepoLock(lockPath);
-  }
+function summarizePendingChanges(pendingChanges: string[]): string {
+  const preview = pendingChanges.slice(0, 5).map((line) => line.slice(3).trim() || line.trim());
+  return `${preview.join(", ")}${pendingChanges.length > 5 ? ", ..." : ""}`;
 }
 
 function integrateTerminalTask(params: {
@@ -513,6 +401,15 @@ function integrateTerminalTask(params: {
 
   const lockPath = acquireRepoLock(repoRoot, workflow.name, task.id);
   try {
+    const pendingChanges = getPendingChanges(repoRoot);
+    if (pendingChanges.length > 0) {
+      throw new Error(
+        `Integration repo is dirty; refusing to integrate ${task.id} until it is clean. Pending paths: ${summarizePendingChanges(
+          pendingChanges,
+        )}`,
+      );
+    }
+
     const uniqueCommits = listUniqueCommits(workspace.path, integrationBranch);
     if (uniqueCommits.length === 0) {
       const rootTask = findTaskById(rootActionableTasks, task.id);
@@ -762,7 +659,6 @@ async function main() {
 
       if (runResult.exitCode !== 0) {
         const failure = handleTaskFailure({
-          repoRoot,
           workflow,
           task,
           actionableTasks: actionable,
@@ -774,11 +670,6 @@ async function main() {
         historyStatus = failure.historyStatus;
         historyNote = failure.historyNote;
         refreshedActionableTasks = failure.refreshedActionableTasks;
-        if (failure.blockedByOrchestrator) {
-          const persistenceNote = persistAutoBlockedTask({ repoRoot, workflow, task, state });
-          refreshedActionableTasks = loadTasks(repoRoot, workflow.taskSources);
-          historyNote = `${historyNote} ${persistenceNote}`;
-        }
       } else if (didTaskComplete(workspaceTask, runResult.lastMessage)) {
         historyStatus = "completed";
         state.activeTaskId = null;
@@ -818,7 +709,6 @@ async function main() {
       }
     } catch (error) {
       const failure = handleTaskFailure({
-        repoRoot,
         workflow,
         task,
         actionableTasks: actionable,
@@ -828,11 +718,6 @@ async function main() {
       historyStatus = failure.historyStatus;
       historyNote = failure.historyNote;
       refreshedActionableTasks = failure.refreshedActionableTasks;
-      if (failure.blockedByOrchestrator) {
-        const persistenceNote = persistAutoBlockedTask({ repoRoot, workflow, task, state });
-        refreshedActionableTasks = loadTasks(repoRoot, workflow.taskSources);
-        historyNote = `${historyNote} ${persistenceNote}`;
-      }
     }
 
     appendProgress(repoRoot, workflow, [formatHistoryNote(task.id, historyStatus, historyNote)]);
