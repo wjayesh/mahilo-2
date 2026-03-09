@@ -415,7 +415,7 @@ It is:
 
 ### 3.4 Temporary Override Flows
 - **ID**: `PLG2-033`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P1
 - **Depends on**: SRV-043
 - **Description**:
@@ -427,11 +427,13 @@ It is:
 
 ---
 
+- **Notes**:
+  - 2026-03-09T07:45:41.401Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
 ## Phase 4: Native OpenClaw Value
 
 ### 4.1 Prompt Hook Integration
 - **ID**: `PLG2-040`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P0
 - **Depends on**: PLG2-031
 - **Description**:
@@ -441,9 +443,11 @@ It is:
   - [ ] Prompt size stays bounded
   - [ ] Injection can be turned on/off cleanly
 
+- **Notes**:
+  - 2026-03-09T07:45:30.120Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-040 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-040-last-message.txt -
 ### 4.2 Native Tools
 - **ID**: `PLG2-041`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P0
 - **Depends on**: PLG2-020, PLG2-030
 - **Description**:
@@ -460,9 +464,11 @@ It is:
   - [ ] Naming stays stable and OpenClaw-friendly
   - [ ] Tools fail gracefully on network/server errors
 
+- **Notes**:
+  - 2026-03-09T07:45:33.787Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
 ### 4.3 Send-Time Hooks
 - **ID**: `PLG2-042`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P0
 - **Depends on**: PLG2-030
 - **Description**:
@@ -472,9 +478,11 @@ It is:
   - [ ] Plugin can cancel send when Mahilo denies
   - [ ] Plugin can surface review-required cases cleanly
 
+- **Notes**:
+  - 2026-03-09T07:45:37.615Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
 ### 4.4 Post-Send Hooks
 - **ID**: `PLG2-043`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P1
 - **Depends on**: PLG2-032
 - **Description**:
@@ -483,6 +491,8 @@ It is:
   - [ ] Plugin reports send results consistently
   - [ ] Plugin can trigger learning suggestions after novel decisions
 
+- **Notes**:
+  - 2026-03-09T07:45:45.077Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
 - **Status**: `done`
@@ -542,7 +552,7 @@ It is:
 
 ### 5.3 Inbound Message Routing
 - **ID**: `PLG2-052`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P1
 - **Depends on**: PLG2-050, SRV-032
 - **Description**:
@@ -553,6 +563,8 @@ It is:
 
 ---
 
+- **Notes**:
+  - 2026-03-09T07:45:48.748Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
 ## Phase 6: Release, Compatibility, and Decommissioning
 
 ### 6.1 Publishable Package Readiness
