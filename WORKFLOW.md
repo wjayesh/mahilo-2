@@ -14,12 +14,15 @@ agent_command: codex
 agent_args:
   - exec
   - --dangerously-bypass-approvals-and-sandbox
-max_iterations: 50
+max_iterations: 0
 poll_interval_seconds: 3
 completion_phrase: COMPLETE
 required_branch: autonomous/server-integration
 auto_commit_on_done: true
 auto_push_every_commits: 3
+task_failure_retry_limit: 3
+task_failure_backoff_seconds: 30
+runtime_stall_timeout_seconds: 1800
 ---
 # Mahilo Server Autonomous Workflow
 

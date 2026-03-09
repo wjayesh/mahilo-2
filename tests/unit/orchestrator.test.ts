@@ -16,6 +16,9 @@ workspace_mode: shared
 auto_commit_on_done: true
 auto_push_every_commits: 5
 required_branch: autonomous/server-integration
+task_failure_retry_limit: 4
+task_failure_backoff_seconds: 45
+runtime_stall_timeout_seconds: 1200
 ---
 # Workflow\nBody here.\n`);
 
@@ -28,6 +31,9 @@ required_branch: autonomous/server-integration
     expect(workflow.autoCommitOnDone).toBe(true);
     expect(workflow.autoPushEveryCommits).toBe(5);
     expect(workflow.requiredBranch).toBe("autonomous/server-integration");
+    expect(workflow.taskFailureRetryLimit).toBe(4);
+    expect(workflow.taskFailureBackoffSeconds).toBe(45);
+    expect(workflow.runtimeStallTimeoutSeconds).toBe(1200);
     expect(workflow.workflowBody).toContain("Body here");
   });
 });

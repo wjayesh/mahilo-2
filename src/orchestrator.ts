@@ -23,6 +23,9 @@ export type WorkflowConfig = {
   requiredBranch: string | null;
   autoCommitOnDone: boolean;
   autoPushEveryCommits: number;
+  taskFailureRetryLimit: number;
+  taskFailureBackoffSeconds: number;
+  runtimeStallTimeoutSeconds: number;
   workflowBody: string;
   workflowPath: string;
 };
@@ -54,6 +57,8 @@ export type OrchestratorState = {
   commitsSincePush: number;
   lastCommittedTaskId: string | null;
   lastCommitSha: string | null;
+  taskFailureCounts: Record<string, number>;
+  taskRetryAfter: Record<string, string>;
   history: Array<{
     iteration: number;
     taskId: string | null;
@@ -82,6 +87,9 @@ const DEFAULT_WORKFLOW: Omit<WorkflowConfig, "workflowBody" | "workflowPath"> = 
   requiredBranch: null,
   autoCommitOnDone: true,
   autoPushEveryCommits: 3,
+  taskFailureRetryLimit: 3,
+  taskFailureBackoffSeconds: 30,
+  runtimeStallTimeoutSeconds: 1800,
 };
 
 const STATUS_VALUES = new Set<TaskStatus>(["pending", "in-progress", "blocked", "review", "done"]);
@@ -215,6 +223,18 @@ export function parseWorkflowFile(content: string, workflowPath = "WORKFLOW.md")
       typeof frontMatter.auto_push_every_commits === "number"
         ? frontMatter.auto_push_every_commits
         : DEFAULT_WORKFLOW.autoPushEveryCommits,
+    taskFailureRetryLimit:
+      typeof frontMatter.task_failure_retry_limit === "number"
+        ? frontMatter.task_failure_retry_limit
+        : DEFAULT_WORKFLOW.taskFailureRetryLimit,
+    taskFailureBackoffSeconds:
+      typeof frontMatter.task_failure_backoff_seconds === "number"
+        ? frontMatter.task_failure_backoff_seconds
+        : DEFAULT_WORKFLOW.taskFailureBackoffSeconds,
+    runtimeStallTimeoutSeconds:
+      typeof frontMatter.runtime_stall_timeout_seconds === "number"
+        ? frontMatter.runtime_stall_timeout_seconds
+        : DEFAULT_WORKFLOW.runtimeStallTimeoutSeconds,
     workflowBody,
     workflowPath,
   };
@@ -397,6 +417,8 @@ export function loadState(repoRoot: string, config: WorkflowConfig): Orchestrato
       commitsSincePush: 0,
       lastCommittedTaskId: null,
       lastCommitSha: null,
+      taskFailureCounts: {},
+      taskRetryAfter: {},
       history: [],
     };
     writeFileSync(statePath, JSON.stringify(initialState, null, 2) + "\n");
@@ -411,6 +433,14 @@ export function loadState(repoRoot: string, config: WorkflowConfig): Orchestrato
     commitsSincePush: state.commitsSincePush ?? 0,
     lastCommittedTaskId: state.lastCommittedTaskId ?? null,
     lastCommitSha: state.lastCommitSha ?? null,
+    taskFailureCounts:
+      state.taskFailureCounts && typeof state.taskFailureCounts === "object"
+        ? state.taskFailureCounts
+        : {},
+    taskRetryAfter:
+      state.taskRetryAfter && typeof state.taskRetryAfter === "object"
+        ? state.taskRetryAfter
+        : {},
     history: Array.isArray(state.history) ? state.history : [],
   };
 }
@@ -611,12 +641,17 @@ export function cherryPickCommits(repoRoot: string, commits: string[]): CherryPi
   for (const commit of commits) {
     const cherryPickResult = runGit(["cherry-pick", "-x", commit], repoRoot);
     if (cherryPickResult.status !== 0) {
+      const errorText = gitError(cherryPickResult, `git cherry-pick failed for ${commit}`);
+      if (/previous cherry-pick is now empty|nothing to commit/i.test(errorText)) {
+        runGit(["cherry-pick", "--skip"], repoRoot);
+        continue;
+      }
       runGit(["cherry-pick", "--abort"], repoRoot);
       return {
         applied: appliedCount > 0,
         commitCount: appliedCount,
         lastCommitSha,
-        error: gitError(cherryPickResult, `git cherry-pick failed for ${commit}`),
+        error: errorText,
       };
     }
 
