@@ -50,6 +50,19 @@ Your job is to autonomously move the plugin task list forward using the task doc
 - Signal a real blocker with `TASK_BLOCKED <id>: <reason>`.
 - If all tracked tasks are done, say `COMPLETE`.
 
+## PRD Sequence
+
+The plugin workflow should progress through these PRDs in order:
+
+1. `docs/prd-openclaw-plugin-migration.md`
+2. `docs/prd-openclaw-product-alignment.md`
+
+Execution rules:
+
+- Treat `docs/prd-openclaw-plugin-migration.md` as the active source of truth until its Definition of Done is satisfied.
+- When the publish-readiness tasks are complete, continue directly into `docs/prd-openclaw-product-alignment.md` without requiring a manual workflow edit.
+- Only reopen the migration PRD if a product-alignment task identifies a concrete regression that blocks the next stage.
+
 ## Coordination Rules
 
 - Treat the tracked markdown docs as the issue tracker.

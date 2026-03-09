@@ -355,6 +355,109 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ---
 
+## 2026-03-10 Positioning Re-review
+
+Primary references for this refresh:
+
+- `/Users/wjayesh/apps/mahilo-2-product-positioning.md`
+- `docs/prd-openclaw-plugin-migration.md`
+
+This re-review assumes the publish-ready OpenClaw plugin now clears the migration PRD and reframes the next stage around Mahilo's product-positioning pillars: framework-agnostic agent integration, human-in-the-loop operations, and real-time multi-agent communication surfaced through OpenClaw.
+
+### What The Shipped Plugin Already Proves
+
+- The plugin is installable through the OpenClaw extension flow from a packed artifact, so Mahilo now has a distribution-ready OpenClaw surface instead of a local-only port.
+- The Mahilo server remains the source of truth, which preserves the control-plane story instead of pushing orchestration state into the client.
+- OpenClaw-native hooks, tools, and diagnostics are first-class, which makes the integration positionable as a serious operator surface rather than a thin compatibility layer.
+
+### Remaining Positioning Gaps
+
+- The current story is still migration-led and implementation-led; it needs a clear operator-facing narrative for why OpenClaw is the right Mahilo surface for teams adopting agent operations.
+- The first-run experience does not yet prove Mahilo's differentiators quickly enough for a new OpenClaw user: human approval loops, multi-agent coordination, and real-time communication should be obvious in the first guided workflow.
+- The documentation is still feature-shaped; it needs persona-shaped packaging for builders, operators, and evaluation stakeholders.
+- Proof points for governance, observability, and rollout confidence are still thinner than the product-positioning document implies, so the next stage should prioritize demonstrable outcomes over more migration cleanup.
+
+## Current Priorities
+
+The task ordering below supersedes any older sequencing in this document when there is a conflict.
+
+### 1.1 Narrative and ICP Refresh
+- **ID**: `PAL-001`
+- **Status**: `pending`
+- **Priority**: `P0`
+- **Depends on**: none
+- **Description**:
+  - Translate `/Users/wjayesh/apps/mahilo-2-product-positioning.md` into an OpenClaw-specific message architecture for the shipped plugin.
+  - Define the primary OpenClaw user/persona targets, the before/after value proposition, and the shortest credible explanation of Mahilo as the control plane behind the plugin.
+- **Acceptance Criteria**:
+  - [ ] The plugin has a crisp one-paragraph positioning statement aligned to the product-positioning doc
+  - [ ] Target personas and top jobs-to-be-done are explicit
+  - [ ] The product promise is framed in outcomes, not migration mechanics
+
+### 1.2 Documentation Surface Refresh
+- **ID**: `PAL-002`
+- **Status**: `pending`
+- **Priority**: `P0`
+- **Depends on**: `PAL-001`
+- **Description**:
+  - Rework the README, marketplace/listing copy inputs, and primary documentation entry points so the first screens a user sees reflect the refreshed narrative.
+  - Make OpenClaw-specific user journeys and calls-to-action obvious without requiring prior Mahilo context.
+- **Acceptance Criteria**:
+  - [ ] The primary plugin docs open with the new positioning
+  - [ ] Listing/packaging copy inputs are ready for publish surfaces
+  - [ ] The first three documentation hops match the intended persona flow
+
+### 1.3 Guided First-Run Story
+- **ID**: `PAL-010`
+- **Status**: `pending`
+- **Priority**: `P1`
+- **Depends on**: `PAL-001`
+- **Description**:
+  - Design the canonical first-run workflow that proves Mahilo's value inside OpenClaw within minutes.
+  - The flow should demonstrate connection to the Mahilo server, a meaningful agent event, human review/approval, and at least one multi-agent or real-time handoff.
+- **Acceptance Criteria**:
+  - [ ] A single recommended demo/quickstart path exists
+  - [ ] The path highlights human oversight and orchestration, not just connectivity
+  - [ ] Success criteria for the first-run experience are measurable
+
+### 1.4 Trust and Operations Proof
+- **ID**: `PAL-011`
+- **Status**: `pending`
+- **Priority**: `P1`
+- **Depends on**: `PAL-010`
+- **Description**:
+  - Package the operational proof needed for the positioning story: observability, approvals/policy surfaces, failure handling, and rollout confidence.
+  - Focus on the evidence a skeptical operator or team lead would need before adopting the plugin.
+- **Acceptance Criteria**:
+  - [ ] Governance and observability proof points are enumerated
+  - [ ] The docs/demo plan includes at least one failure-path or approval-path walkthrough
+  - [ ] Team-adoption concerns are addressed explicitly
+
+### 1.5 Launch Collateral and Validation Loop
+- **ID**: `PAL-020`
+- **Status**: `pending`
+- **Priority**: `P2`
+- **Depends on**: `PAL-002`, `PAL-011`
+- **Description**:
+  - Prepare the publish-adjacent collateral that validates the new positioning in the market: screenshots, short-form walkthrough assets, comparison framing, and a feedback loop for first adopters.
+  - Keep this scoped to the minimum artifact set required to learn whether the positioning lands.
+- **Acceptance Criteria**:
+  - [ ] The first publish/announce asset checklist exists
+  - [ ] Early-adopter feedback capture is planned
+  - [ ] The collateral reinforces the refreshed positioning without reopening migration work
+
+## Recommended Execution Order
+
+1. `PAL-001` -> `PAL-002`
+2. `PAL-010` -> `PAL-011`
+3. `PAL-020`
+
+## Scope Guardrails
+
+- Do not reopen migration-parity work unless a concrete product-alignment task exposes a blocking regression in the shipped plugin.
+- Prefer proof-of-value work over additional infrastructure cleanup.
+- Treat the Mahilo server and shared contract as fixed inputs unless a future task explicitly routes a dependency back to the server workflow.
+
 ## Definition of Done
 
 This PRD is complete when:
