@@ -2,11 +2,13 @@
 name: mahilo-plugin-autonomous-development
 task_sources:
   - docs/prd-openclaw-plugin-migration.md
+  - docs/prd-openclaw-product-alignment.md
 dependency_sources:
   - docs/prd-server-policy-platform.md
 instruction_files:
   - docs/openclaw-plugin-server-contract.md
   - docs/prd-openclaw-plugin-migration.md
+  - docs/prd-openclaw-product-alignment.md
 progress_file: .mahilo-orchestrator/plugin-progress.md
 state_file: .mahilo-orchestrator/plugin-state.json
 workspace_root: .mahilo-orchestrator/plugin-workspaces

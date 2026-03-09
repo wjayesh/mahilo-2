@@ -751,6 +751,20 @@ It is:
   - [ ] Post-publish verification steps are documented
   - [ ] Rollback / hotfix guidance exists for a bad first release
 
+### 7.7 Positioning Alignment Handoff
+- **ID**: `PLG2-080`
+- **Status**: `pending`
+- **Priority**: P1
+- **Depends on**: PLG2-075
+- **Description**:
+  - Reconcile the publish-ready plugin with the Mahilo product-positioning document at `/Users/wjayesh/apps/mahilo-2-product-positioning.md`.
+  - Refresh the next-stage product PRD in `docs/prd-openclaw-product-alignment.md`.
+  - Confirm the plugin workflow continues into that PRD after the publish-readiness tasks are complete.
+- **Acceptance Criteria**:
+  - [ ] Product-positioning gaps have been re-reviewed against the shipped plugin
+  - [ ] `docs/prd-openclaw-product-alignment.md` is current and prioritized
+  - [ ] `WORKFLOW.plugin.md` continues into the next-stage PRD without manual orchestration changes
+
 ---
 
 ## Recommended Migration Order
@@ -762,6 +776,7 @@ It is:
 5. PLG2-040 → PLG2-052
 6. PLG2-060 → PLG2-062
 7. PLG2-070 → PLG2-075
+8. PLG2-080
 
 ---
 
@@ -776,3 +791,4 @@ This PRD is complete when:
 - local development no longer depends on editing the legacy plugin in `myclawd`
 - the package can be installed through the documented OpenClaw extension flow from a packed/published artifact
 - the remaining human work before `npm publish` is reduced to a short explicit checklist
+- the next-stage product-alignment PRD is ready for the loop to continue beyond initial publish readiness
