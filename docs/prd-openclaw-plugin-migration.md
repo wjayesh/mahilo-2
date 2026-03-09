@@ -670,7 +670,7 @@ It is:
 
 ### 7.1 Public Release Metadata
 - **ID**: `PLG2-070`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-033, PLG2-041, PLG2-042, PLG2-043, PLG2-052, PLG2-060
 - **Description**:
@@ -682,6 +682,8 @@ It is:
   - [ ] Public release metadata is present (`license`, `repository`, `homepage`, `bugs`, `author`/owner, `publishConfig.access`)
   - [ ] README no longer describes npm publish as purely future work
 
+- **Notes**:
+  - 2026-03-09T20:59:59.206Z: PLG2-070 completed via orchestrator integration.
 ### 7.2 Package Surface and Build Artifacts
 - **ID**: `PLG2-071`
 - **Status**: `pending`
