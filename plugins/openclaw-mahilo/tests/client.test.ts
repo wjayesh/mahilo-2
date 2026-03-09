@@ -138,6 +138,222 @@ describe("MahiloContractClient", () => {
     expect(fetchCalls[0].init?.method).toBe("GET");
   });
 
+  it("normalizes own agent connections into typed summaries", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push({ init, input });
+
+      return new Response(
+        JSON.stringify([
+          {
+            capabilities: ["chat", "search"],
+            created_at: "2026-03-09T09:00:00.000Z",
+            description: "Primary OpenClaw route",
+            framework: "openclaw",
+            id: "conn_sender_default",
+            label: "default",
+            last_seen: "2026-03-10T09:00:00.000Z",
+            public_key: "pk_live",
+            public_key_alg: "ed25519",
+            routing_priority: 9,
+            status: "active"
+          }
+        ]),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200
+        }
+      );
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    const result = await client.listOwnAgentConnections();
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/agents");
+    expect(result).toEqual([
+      expect.objectContaining({
+        active: true,
+        capabilities: ["chat", "search"],
+        createdAt: "2026-03-09T09:00:00.000Z",
+        description: "Primary OpenClaw route",
+        framework: "openclaw",
+        id: "conn_sender_default",
+        label: "default",
+        lastSeen: "2026-03-10T09:00:00.000Z",
+        priority: 9,
+        publicKey: "pk_live",
+        publicKeyAlgorithm: "ed25519",
+        status: "active"
+      })
+    ]);
+  });
+
+  it("lists friendships through the Mahilo social endpoint with query params", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push({ init, input });
+
+      return new Response(
+        JSON.stringify({
+          friends: [
+            {
+              direction: "sent",
+              display_name: "Alice",
+              friendship_id: "fr_123",
+              interaction_count: 4,
+              roles: ["close_friends"],
+              since: "2026-03-01T10:00:00.000Z",
+              status: "accepted",
+              user_id: "usr_alice",
+              username: "alice"
+            }
+          ]
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200
+        }
+      );
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    const result = await client.listFriendships({ status: "accepted" });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/friends?status=accepted");
+    expect(fetchCalls[0].init?.method).toBe("GET");
+    expect(result).toEqual([
+      expect.objectContaining({
+        direction: "sent",
+        displayName: "Alice",
+        friendshipId: "fr_123",
+        interactionCount: 4,
+        roles: ["close_friends"],
+        since: "2026-03-01T10:00:00.000Z",
+        status: "accepted",
+        userId: "usr_alice",
+        username: "alice"
+      })
+    ]);
+  });
+
+  it("sends friend requests through the Mahilo social endpoint", async () => {
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    const result = await client.sendFriendRequest("alice");
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/friends/request");
+    expect(fetchCalls[0].init?.method).toBe("POST");
+    expect(fetchCalls[0].init?.body).toBe(JSON.stringify({ username: "alice" }));
+    expect(result).toEqual({
+      friendshipId: undefined,
+      message: undefined,
+      raw: { ok: true },
+      status: undefined,
+      success: true
+    });
+  });
+
+  it("accepts and rejects friend requests through typed client methods", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push({ init, input });
+
+      if (String(input).endsWith("/accept")) {
+        return new Response(
+          JSON.stringify({
+            friendship_id: "fr_accepted",
+            status: "accepted"
+          }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 200
+          }
+        );
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { "Content-Type": "application/json" },
+        status: 200
+      });
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    const accepted = await client.acceptFriendRequest("fr/accepted");
+    const rejected = await client.rejectFriendRequest("fr_rejected");
+
+    expect(fetchCalls).toHaveLength(2);
+    expect(String(fetchCalls[0].input)).toBe(
+      "https://mahilo.example/api/v1/friends/fr%2Faccepted/accept"
+    );
+    expect(String(fetchCalls[1].input)).toBe(
+      "https://mahilo.example/api/v1/friends/fr_rejected/reject"
+    );
+    expect(accepted).toEqual({
+      friendshipId: "fr_accepted",
+      message: undefined,
+      raw: {
+        friendship_id: "fr_accepted",
+        status: "accepted"
+      },
+      status: "accepted",
+      success: true
+    });
+    expect(rejected).toEqual({
+      friendshipId: "fr_rejected",
+      message: undefined,
+      raw: { success: true },
+      status: undefined,
+      success: true
+    });
+  });
+
+  it("surfaces friend connection availability as a product-level state", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push({ init, input });
+
+      return new Response(JSON.stringify([]), {
+        headers: { "Content-Type": "application/json" },
+        status: 200
+      });
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    const result = await client.getFriendAgentConnections("alice");
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/contacts/alice/connections");
+    expect(result).toEqual({
+      connections: [],
+      raw: [],
+      state: "no_active_connections",
+      username: "alice"
+    });
+  });
+
   it("returns undefined for 204 responses", async () => {
     globalThis.fetch = (async () => {
       return new Response(null, { status: 204 });
@@ -182,6 +398,39 @@ describe("MahiloContractClient", () => {
     await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(
       "Mahilo request failed with status 403: forbidden"
     );
+  });
+
+  it("maps social HTTP errors to stable product states", async () => {
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          code: "ALREADY_FRIENDS",
+          error: "Already friends with this user"
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 409
+        }
+      );
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    try {
+      await client.sendFriendRequest("alice");
+      throw new Error("expected sendFriendRequest to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MahiloRequestError);
+      expect((error as MahiloRequestError).code).toBe("ALREADY_FRIENDS");
+      expect((error as MahiloRequestError).productState).toBe("already_connected");
+      expect((error as MahiloRequestError).message).toBe(
+        "Mahilo request failed with status 409: Already friends with this user"
+      );
+    }
   });
 
   it("wraps network fetch failures in a stable request error", async () => {

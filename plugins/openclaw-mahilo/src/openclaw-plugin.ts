@@ -67,8 +67,10 @@ const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
 
 interface MahiloToolFailure {
+  code?: string;
   error: string;
   errorType: "input" | "network" | "server" | "unknown";
+  productState?: string;
   retryable: boolean;
   status: "error";
   tool: string;
@@ -129,7 +131,7 @@ export function registerMahiloOpenClawPlugin(
 
   api.registerTool(createTalkToAgentTool(client, config));
   api.registerTool(createTalkToGroupTool(client, config));
-  api.registerTool(createListMahiloContactsTool(options.contactsProvider));
+  api.registerTool(createListMahiloContactsTool(client, options.contactsProvider));
   api.registerTool(createGetMahiloContextTool(client, pluginState));
   api.registerTool(createPreviewMahiloSendTool(client, config));
   api.registerTool(createCreateMahiloOverrideTool(client));
@@ -237,12 +239,15 @@ function createTalkToGroupTool(client: MahiloContractClient, config: MahiloPlugi
   } as unknown as AnyAgentTool;
 }
 
-function createListMahiloContactsTool(contactsProvider?: ContactsProvider): AnyAgentTool {
+function createListMahiloContactsTool(
+  client: MahiloContractClient,
+  contactsProvider?: ContactsProvider
+): AnyAgentTool {
   return {
     description: "List known Mahilo contacts.",
     execute: async () =>
       executeMahiloTool("list_mahilo_contacts", async () => {
-        const contacts = await listMahiloContacts(contactsProvider);
+        const contacts = await listMahiloContacts(client, contactsProvider);
         return toAgentToolResult(contacts, `Mahilo contacts returned: ${contacts.length}`);
       }),
     label: "List Mahilo Contacts",
@@ -1405,8 +1410,10 @@ function toMahiloToolFailure(tool: string, error: unknown): MahiloToolFailure {
 
   if (error instanceof MahiloRequestError) {
     return {
+      code: error.code,
       error: error.message,
       errorType: error.kind === "network" ? "network" : "server",
+      productState: error.productState,
       retryable: error.retryable,
       status: "error",
       tool

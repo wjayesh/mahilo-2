@@ -1,5 +1,11 @@
 import type { ReviewMode } from "./config";
-import type { MahiloContractClient } from "./client";
+import {
+  MahiloRequestError,
+  type MahiloAgentConnectionSummary,
+  type MahiloContractClient,
+  type MahiloFriendConnectionDirectory,
+  type MahiloFriendshipSummary
+} from "./client";
 import {
   applyLocalPolicyGuard,
   extractDecision,
@@ -57,11 +63,23 @@ export interface MahiloToolResult {
 
 export interface MahiloContact {
   connectionId?: string;
+  connectionState?: MahiloContactConnectionState;
+  connections?: MahiloAgentConnectionSummary[];
   id: string;
   label: string;
   metadata?: Record<string, unknown>;
   type: "group" | "user";
 }
+
+export type MahiloContactConnectionState =
+  | "available"
+  | "blocked"
+  | "no_active_connections"
+  | "not_found"
+  | "not_friends"
+  | "request_pending"
+  | "transport_failure"
+  | "unknown";
 
 export type ContactsProvider = () => Promise<MahiloContact[]>;
 
@@ -184,7 +202,25 @@ export async function talkToGroup(
   return executeSendTool(client, "group", input, context, options);
 }
 
-export async function listMahiloContacts(provider?: ContactsProvider): Promise<MahiloContact[]> {
+export async function listMahiloContacts(provider?: ContactsProvider): Promise<MahiloContact[]>;
+export async function listMahiloContacts(
+  client: MahiloContractClient,
+  provider?: ContactsProvider
+): Promise<MahiloContact[]>;
+export async function listMahiloContacts(
+  clientOrProvider?: MahiloContractClient | ContactsProvider,
+  fallbackProvider?: ContactsProvider
+): Promise<MahiloContact[]> {
+  const client =
+    typeof clientOrProvider === "function" || clientOrProvider === undefined
+      ? undefined
+      : clientOrProvider;
+  const provider = typeof clientOrProvider === "function" ? clientOrProvider : fallbackProvider;
+
+  if (client && hasMahiloSocialContactSupport(client)) {
+    return listMahiloContactsFromServer(client);
+  }
+
   if (!provider) {
     return [];
   }
@@ -696,6 +732,167 @@ function compactObject(value: Record<string, unknown>): Record<string, unknown> 
   }
 
   return compacted;
+}
+
+interface ResolvedMahiloFriendConnectionDirectory {
+  connections: MahiloAgentConnectionSummary[];
+  raw: unknown;
+  state: MahiloContactConnectionState;
+  username?: string;
+}
+
+function hasMahiloSocialContactSupport(
+  client: MahiloContractClient
+): client is MahiloContractClient & {
+  getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
+  listFriendships: (params?: { status?: string }) => Promise<MahiloFriendshipSummary[]>;
+} {
+  const typedClient = client as MahiloContractClient & {
+    getFriendAgentConnections?: (username: string) => Promise<MahiloFriendConnectionDirectory>;
+    listFriendships?: (params?: { status?: string }) => Promise<MahiloFriendshipSummary[]>;
+  };
+
+  return (
+    typeof typedClient.listFriendships === "function" &&
+    typeof typedClient.getFriendAgentConnections === "function"
+  );
+}
+
+async function listMahiloContactsFromServer(
+  client: MahiloContractClient & {
+    getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
+    listFriendships: (params?: { status?: string }) => Promise<MahiloFriendshipSummary[]>;
+  }
+): Promise<MahiloContact[]> {
+  const friendships = await client.listFriendships({ status: "accepted" });
+  const contacts = await Promise.all(
+    friendships.map((friendship) => buildMahiloContactFromFriendship(client, friendship))
+  );
+
+  return contacts.sort(compareMahiloContacts);
+}
+
+async function buildMahiloContactFromFriendship(
+  client: MahiloContractClient & {
+    getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
+  },
+  friendship: MahiloFriendshipSummary
+): Promise<MahiloContact> {
+  const directory = await resolveFriendConnectionDirectory(client, friendship.username);
+  const connections = sortMahiloConnections(directory.connections);
+  const primaryConnection = pickPrimaryContactConnection(connections);
+  const id = readString(friendship.username) ?? readString(friendship.userId) ?? friendship.friendshipId;
+  const label = readString(friendship.displayName) ?? readString(friendship.username) ?? id;
+
+  return {
+    connectionId: primaryConnection?.id,
+    connectionState: directory.state,
+    connections,
+    id,
+    label,
+    metadata: compactObject({
+      connectionCount: connections.length,
+      connectionState: directory.state,
+      direction: friendship.direction,
+      displayName: friendship.displayName,
+      friendshipId: friendship.friendshipId,
+      interactionCount: friendship.interactionCount,
+      roles: friendship.roles.length > 0 ? friendship.roles : undefined,
+      since: friendship.since,
+      status: friendship.status,
+      username: friendship.username,
+      userId: friendship.userId
+    }),
+    type: "user"
+  };
+}
+
+async function resolveFriendConnectionDirectory(
+  client: MahiloContractClient & {
+    getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
+  },
+  username?: string
+): Promise<ResolvedMahiloFriendConnectionDirectory> {
+  if (!username) {
+    return {
+      connections: [],
+      raw: undefined,
+      state: "not_found"
+    };
+  }
+
+  try {
+    const directory = await client.getFriendAgentConnections(username);
+    return {
+      connections: directory.connections,
+      raw: directory.raw,
+      state: directory.state,
+      username: directory.username
+    };
+  } catch (error) {
+    return {
+      connections: [],
+      raw: error,
+      state: mapMahiloContactConnectionState(error),
+      username
+    };
+  }
+}
+
+function pickPrimaryContactConnection(
+  connections: MahiloAgentConnectionSummary[]
+): MahiloAgentConnectionSummary | undefined {
+  return sortMahiloConnections(connections)[0];
+}
+
+function sortMahiloConnections(
+  connections: MahiloAgentConnectionSummary[]
+): MahiloAgentConnectionSummary[] {
+  return [...connections].sort((left, right) => {
+    const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    const leftLabel = left.label ?? "";
+    const rightLabel = right.label ?? "";
+    const labelComparison = leftLabel.localeCompare(rightLabel);
+    if (labelComparison !== 0) {
+      return labelComparison;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function compareMahiloContacts(left: MahiloContact, right: MahiloContact): number {
+  const labelComparison = left.label.localeCompare(right.label);
+  if (labelComparison !== 0) {
+    return labelComparison;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function mapMahiloContactConnectionState(error: unknown): MahiloContactConnectionState {
+  if (error instanceof MahiloRequestError) {
+    switch (error.productState) {
+      case "blocked":
+        return "blocked";
+      case "not_found":
+        return "not_found";
+      case "not_friends":
+        return "not_friends";
+      case "request_pending":
+        return "request_pending";
+      case "transport_failure":
+        return "transport_failure";
+      default:
+        return "unknown";
+    }
+  }
+
+  return "unknown";
 }
 
 function extractMessageId(value: unknown): string | undefined {

@@ -14,6 +14,10 @@ type Decision = "allow" | "ask" | "deny";
 interface MockClientState {
   agentConnectionCalls: number;
   agentConnectionsResponse: unknown;
+  friendConnectionCalls: string[];
+  friendConnectionsByUsername: Record<string, unknown[]>;
+  friendshipCalls: Array<{ status?: string }>;
+  friendshipsResponse: unknown;
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   overrideResponse: unknown;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -28,6 +32,8 @@ interface MockClientState {
 
 function createMockClient(options: {
   agentConnectionsResponse?: unknown;
+  friendConnectionsByUsername?: Record<string, unknown[]>;
+  friendshipsResponse?: unknown;
   overrideResponse?: unknown;
   promptContextResponse?: unknown;
   reportOutcomeError?: Error;
@@ -44,6 +50,22 @@ function createMockClient(options: {
           framework: "openclaw",
           id: "conn_sender_default",
           label: "default"
+        }
+      ],
+    friendConnectionCalls: [],
+    friendConnectionsByUsername: options.friendConnectionsByUsername ?? {},
+    friendshipCalls: [],
+    friendshipsResponse:
+      options.friendshipsResponse ??
+      [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
         }
       ],
     overrideCalls: [],
@@ -93,9 +115,23 @@ function createMockClient(options: {
       state.promptContextCalls.push(payload);
       return state.promptContextResponse;
     },
+    getFriendAgentConnections: async (username: string) => {
+      state.friendConnectionCalls.push(username);
+      const connections = state.friendConnectionsByUsername[username] ?? [];
+      return {
+        connections,
+        raw: connections,
+        state: connections.length > 0 ? "available" : "no_active_connections",
+        username
+      };
+    },
     listOwnAgentConnections: async () => {
       state.agentConnectionCalls += 1;
       return state.agentConnectionsResponse;
+    },
+    listFriendships: async (params?: { status?: string }) => {
+      state.friendshipCalls.push(params ?? {});
+      return state.friendshipsResponse;
     },
     reportOutcome: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.outcomeCalls.push({ idempotencyKey, payload });
@@ -841,7 +877,87 @@ describe("listMahiloContacts", () => {
     expect(await listMahiloContacts()).toEqual([]);
   });
 
-  it("returns provider results with trimmed labels", async () => {
+  it("lists accepted Mahilo friends from the server with connection availability", async () => {
+    const { client, state } = createMockClient({
+      friendConnectionsByUsername: {
+        alice: [
+          {
+            active: true,
+            id: "conn_alice_secondary",
+            label: "secondary",
+            priority: 1
+          },
+          {
+            active: true,
+            id: "conn_alice_primary",
+            label: "primary",
+            priority: 5
+          }
+        ],
+        bob: []
+      },
+      friendshipsResponse: [
+        {
+          direction: "sent",
+          displayName: " Alice ",
+          friendshipId: "fr_alice",
+          interactionCount: 7,
+          roles: ["close_friends"],
+          since: "2026-03-01T10:00:00.000Z",
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
+        },
+        {
+          direction: "received",
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: [],
+          status: "accepted",
+          userId: "usr_bob",
+          username: "bob"
+        }
+      ]
+    });
+
+    const contacts = await listMahiloContacts(client);
+
+    expect(state.friendshipCalls).toEqual([{ status: "accepted" }]);
+    expect(state.friendConnectionCalls).toEqual(["alice", "bob"]);
+    expect(contacts).toHaveLength(2);
+    expect(contacts[0]).toMatchObject({
+      connectionId: "conn_alice_primary",
+      connectionState: "available",
+      id: "alice",
+      label: "Alice",
+      metadata: {
+        connectionCount: 2,
+        connectionState: "available",
+        friendshipId: "fr_alice",
+        interactionCount: 7,
+        roles: ["close_friends"]
+      },
+      type: "user"
+    });
+    expect(contacts[0]?.connections?.map((connection) => connection.id)).toEqual([
+      "conn_alice_primary",
+      "conn_alice_secondary"
+    ]);
+    expect(contacts[1]).toMatchObject({
+      connectionId: undefined,
+      connectionState: "no_active_connections",
+      id: "bob",
+      label: "Bob",
+      metadata: {
+        connectionCount: 0,
+        connectionState: "no_active_connections",
+        friendshipId: "fr_bob"
+      },
+      type: "user"
+    });
+  });
+
+  it("falls back to provider results with trimmed labels when a client is not available", async () => {
     const contacts = await listMahiloContacts(async () => [
       { id: "alice", label: " Alice ", type: "user" }
     ]);

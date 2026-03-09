@@ -12,6 +12,10 @@ interface MockClientState {
   agentConnectionCalls: number;
   agentConnectionsResponse: unknown;
   blockedEventCalls: number[];
+  friendConnectionCalls: string[];
+  friendConnectionsByUsername: Record<string, unknown[]>;
+  friendshipCalls: Array<{ status?: string }>;
+  friendshipsResponse: unknown;
   listReviewCalls: Array<{ limit?: number; status?: string }>;
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -59,6 +63,8 @@ interface RecordedHeartbeatRequest {
 function createMockContractClient(options: {
   agentConnectionsResponse?: unknown;
   createOverrideError?: Error;
+  friendConnectionsByUsername?: Record<string, unknown[]>;
+  friendshipsResponse?: unknown;
   promptContextError?: Error;
   promptContextResponse?: Record<string, unknown>;
   resolveError?: Error;
@@ -77,6 +83,22 @@ function createMockContractClient(options: {
         }
       ],
     blockedEventCalls: [],
+    friendConnectionCalls: [],
+    friendConnectionsByUsername: options.friendConnectionsByUsername ?? {},
+    friendshipCalls: [],
+    friendshipsResponse:
+      options.friendshipsResponse ??
+      [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
+        }
+      ],
     listReviewCalls: [],
     overrideCalls: [],
     outcomeCalls: [],
@@ -130,9 +152,23 @@ function createMockContractClient(options: {
 
       return promptContextResponse;
     },
+    getFriendAgentConnections: async (username: string) => {
+      state.friendConnectionCalls.push(username);
+      const connections = state.friendConnectionsByUsername[username] ?? [];
+      return {
+        connections,
+        raw: connections,
+        state: connections.length > 0 ? "available" : "no_active_connections",
+        username
+      };
+    },
     listOwnAgentConnections: async () => {
       state.agentConnectionCalls += 1;
       return state.agentConnectionsResponse;
+    },
+    listFriendships: async (params?: { status?: string }) => {
+      state.friendshipCalls.push(params ?? {});
+      return state.friendshipsResponse;
     },
     listBlockedEvents: async (limit?: number) => {
       state.blockedEventCalls.push(limit ?? 0);
@@ -752,16 +788,42 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
   });
 
-  it("lists contacts through the provided contacts provider", async () => {
-    const { client } = createMockContractClient();
-    const plugin = createMahiloOpenClawPlugin({
-      contactsProvider: async () => [
+  it("lists contacts from Mahilo server data instead of the host contacts provider", async () => {
+    let providerCalls = 0;
+    const { client, state } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [
+          {
+            active: true,
+            id: "conn_alice_primary",
+            label: "primary",
+            priority: 5
+          }
+        ]
+      },
+      friendshipsResponse: [
         {
-          id: "alice",
-          label: " Alice ",
-          type: "user"
+          direction: "sent",
+          displayName: " Alice ",
+          friendshipId: "fr_alice",
+          roles: ["close_friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
         }
-      ],
+      ]
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      contactsProvider: async () => {
+        providerCalls += 1;
+        return [
+          {
+            id: "provider-alice",
+            label: " Provider Alice ",
+            type: "user"
+          }
+        ];
+      },
       createClient: () => client
     });
     const { api, tools } = createMockPluginApi({
@@ -777,12 +839,22 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(result).toMatchObject({
       details: [
         {
+          connectionId: "conn_alice_primary",
+          connectionState: "available",
           id: "alice",
           label: "Alice",
+          metadata: {
+            connectionCount: 1,
+            connectionState: "available",
+            friendshipId: "fr_alice"
+          },
           type: "user"
         }
       ]
     });
+    expect(providerCalls).toBe(0);
+    expect(state.friendshipCalls).toEqual([{ status: "accepted" }]);
+    expect(state.friendConnectionCalls).toEqual(["alice"]);
   });
 
   it("executes get_mahilo_context through the context contract", async () => {
