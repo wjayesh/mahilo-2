@@ -81,7 +81,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ### 1.1 Conversational Setup Flow
 - **ID**: `PLG3-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-080
 - **Description**:
@@ -100,6 +100,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Default boundaries remain conservative
   - [ ] The setup flow reduces visible YAML/config burden for normal use
 
+- **Notes**:
+  - 2026-03-09T22:09:45.889Z: PLG3-001 completed via orchestrator integration.
 ### 1.2 Default Sender Connection Resolution
 - **ID**: `PLG3-004`
 - **Status**: `pending`
