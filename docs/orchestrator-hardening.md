@@ -99,6 +99,28 @@ That means:
 
 This is the minimum needed to stop stray unsupervised workers from racing the supervised loop and mutating the tracker unexpectedly.
 
+### 8. Make the orchestrator the only writer of tracked task status
+
+Workers no longer edit the `Status` metadata in the PRD/task docs.
+
+Instead:
+- workers emit `TASK_DONE <id>` or `TASK_BLOCKED <id>: ...`
+- the orchestrator integrates task-branch code first
+- the orchestrator then updates the task tracker in the shared integration branch
+
+This removes a large source of avoidable conflicts in adjacent task sections of the same PRD.
+
+### 9. Refresh stale task branches after integration conflicts
+
+Task workspaces are long-lived, so a task branch can drift behind the integration branch even when only one worker runs at a time.
+
+The loop now:
+- refreshes idle workspaces that have no local state when integration moves ahead
+- treats cherry-pick content conflicts as stale-branch recovery
+- rebuilds the task workspace from the latest integration branch before retrying
+
+This is the right fix for overlapping code changes in long-lived task branches.
+
 ## Config Defaults
 
 Both workflow files now include:

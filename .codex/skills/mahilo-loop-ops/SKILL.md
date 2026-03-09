@@ -81,6 +81,8 @@ The hardened loop now:
 - records retry cooldowns in state/runtime files
 - keeps tasks `pending` when the failure is a worker/runtime/integration problem
 - only marks a task `blocked` when the worker explicitly emits `TASK_BLOCKED <id>`
+- owns task-tracker status updates itself; workers should not edit PRD status metadata
+- refreshes stale task workspaces after cherry-pick conflicts before retrying
 - takes a workflow-scoped worker lock so duplicate raw/supervised workers fail fast
 - restarts the worker if the supervised process dies or becomes stale
 
