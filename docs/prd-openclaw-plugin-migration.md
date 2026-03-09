@@ -686,7 +686,7 @@ It is:
   - 2026-03-09T20:59:59.206Z: PLG2-070 completed via orchestrator integration.
 ### 7.2 Package Surface and Build Artifacts
 - **ID**: `PLG2-071`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-070
 - **Description**:
@@ -698,6 +698,8 @@ It is:
   - [ ] `main` / `exports` / OpenClaw manifest entry all resolve to valid packaged files
   - [ ] Type surface is explicit (generated declarations or an intentional JS-only contract)
 
+- **Notes**:
+  - 2026-03-09T21:19:06.730Z: PLG2-071 completed via orchestrator integration.
 ### 7.3 Published Install Documentation
 - **ID**: `PLG2-072`
 - **Status**: `pending`
