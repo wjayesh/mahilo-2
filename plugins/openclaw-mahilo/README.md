@@ -149,4 +149,4 @@ Then point `openclaw.extensions` at the absolute package directory path instead 
 
 ## Release Maintenance
 
-Package maintainers should use [`RELEASING.md`](./RELEASING.md) for tarball contents, build hooks, and publish checklist details.
+Package maintainers should use [`RELEASING.md`](./RELEASING.md) for tarball contents, packed-artifact smoke-test steps, build hooks, and publish checklist details.

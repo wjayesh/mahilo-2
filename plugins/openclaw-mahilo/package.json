@@ -44,6 +44,7 @@
     "prepare": "bun run build",
     "prepack": "bun run build",
     "prepublishOnly": "bun run check",
+    "smoke:tarball": "bun run scripts/tarball-smoke-test.ts",
     "test": "bun test",
     "test:ci": "bun test --reporter=dot",
     "test:run": "bun test",
