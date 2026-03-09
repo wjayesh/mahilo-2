@@ -35,7 +35,11 @@ The biggest remaining product gaps are:
 4. **Relationship flows are not yet native enough.**
    - Friend request / accept, boundaries, and connection visibility should be normal OpenClaw actions, not implicit server capabilities.
 
-5. **The positioning doc promises an ongoing loop.**
+5. **The plugin still exposes too much connection plumbing.**
+   - Normal OpenClaw use should not require a human or prompt author to manually supply `senderConnectionId`.
+   - The plugin should discover or remember the default sender connection and use Mahilo server as the source of truth for contacts and friendships.
+
+6. **The positioning doc promises an ongoing loop.**
    - The last task in this PRD should reassess the shipped product against positioning and create the next task list if more work remains.
 
 ---
@@ -53,6 +57,8 @@ The biggest remaining product gaps are:
 
 - Setup still needs to feel conversational and native in OpenClaw.
 - Friend network flows need direct OpenClaw commands/tools.
+- Contact discovery should come from Mahilo server, not host-injected contact lists.
+- Normal plugin use should not require manual sender connection IDs.
 - "Ask around" needs to be first-class.
 - Response attribution and "I don't know" behavior need explicit implementation and tests.
 - Non-user nudges and connection visibility need product polish.
@@ -83,11 +89,13 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - The flow should:
     - create or attach the Mahilo identity
     - confirm the username/agent connection
+    - discover or select the default sender connection for the plugin
     - run a connectivity check
     - apply conservative default boundaries
 - **Acceptance Criteria**:
   - [ ] A user can complete Mahilo setup inside OpenClaw without repo archaeology
   - [ ] The flow confirms username + connectivity at the end
+  - [ ] Normal plugin flows no longer require a human to pass `senderConnectionId` manually
   - [ ] Default boundaries remain conservative
   - [ ] The setup flow reduces visible YAML/config burden for normal use
 
@@ -100,10 +108,12 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - Expose relationship management natively in OpenClaw.
   - Support:
     - send friend request by username
+    - list current contacts/friendships from Mahilo server
     - review pending incoming/outgoing requests
     - accept or decline inside OpenClaw
 - **Acceptance Criteria**:
   - [ ] "Add @alice on Mahilo" style flows work inside OpenClaw
+  - [ ] Contact/friend listings come from Mahilo server as the source of truth
   - [ ] Pending requests can be reviewed and acted on in OpenClaw
   - [ ] Errors are human-friendly and distinguish "not found", "already connected", and transport failures
 
@@ -140,9 +150,10 @@ Those are intentionally excluded because the positioning doc explicitly says to 
     - "ask my contacts"
     - "ask my friends"
     - optional filters by role or group
-  - The plugin should fan out to relevant contacts rather than forcing the user into one-recipient sends.
+  - The plugin should fan out to relevant contacts from Mahilo server rather than forcing the user into one-recipient sends or relying on injected host contact providers.
 - **Acceptance Criteria**:
   - [ ] A single OpenClaw action can fan out a question across contacts
+  - [ ] Recipient discovery uses Mahilo server friendship/contact data as the source of truth
   - [ ] The caller can target all contacts, selected roles, or a specific group
   - [ ] The flow handles timeouts/non-responses without feeling broken
 
