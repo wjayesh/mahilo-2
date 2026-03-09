@@ -1020,6 +1020,209 @@ describe("createMahiloOpenClawPlugin", () => {
     );
   });
 
+  it("formats explicit no-grounded-answer replies as trusted unknowns instead of attributed advice", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+        bob: [{ active: true, id: "conn_bob" }]
+      },
+      friendshipsResponse: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
+        },
+        {
+          direction: "sent",
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_bob",
+          username: "bob"
+        }
+      ]
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, hooks, routes, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "mahilo_network");
+    const outboundInput = {
+      action: "ask_around",
+      correlationId: "corr_network_unknown_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_network_unknown_1", outboundInput);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "mahilo_network"
+      },
+      {
+        agentId: "mahilo-network-agent",
+        runId: "run_network_unknown_1",
+        sessionKey: "session_network_unknown_1",
+        toolCallId: "tool_call_network_unknown_1",
+        toolName: "mahilo_network"
+      }
+    );
+
+    const noGroundedReply = JSON.stringify({
+      message: "I don't know.",
+      outcome: "no_grounded_answer"
+    });
+    const rawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_unknown_1",
+      message: noGroundedReply,
+      message_id: "msg_inbound_unknown_1",
+      payload_type: "application/json",
+      recipient_connection_id: "conn_sender",
+      sender: "Bob",
+      sender_connection_id: "conn_bob",
+      timestamp: "2026-03-08T12:16:00.000Z"
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_unknown_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp)
+      },
+      rawBody
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    const eventText = systemEvents[0]?.text ?? "";
+    expect(eventText).toContain(
+      "Synthesized summary (plugin-generated): 1 of 2 contacted people has replied so far. Bob (2026-03-08T12:16:00.000Z) reported no grounded answer."
+    );
+    expect(eventText).not.toContain("Bob (2026-03-08T12:16:00.000Z) said:");
+    expect(eventText).toContain(
+      "- Bob via openclaw at 2026-03-08T12:16:00.000Z [message msg_inbound_unknown_1]. Outcome: no grounded answer. Direct reply: I don't know."
+    );
+  });
+
+  it("keeps unattributed ask-around replies separate from trusted friend attribution", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+        bob: [{ active: true, id: "conn_bob" }]
+      },
+      friendshipsResponse: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
+        },
+        {
+          direction: "sent",
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_bob",
+          username: "bob"
+        }
+      ]
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, hooks, routes, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "mahilo_network");
+    const outboundInput = {
+      action: "ask_around",
+      correlationId: "corr_network_unverified_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_network_unverified_1", outboundInput);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "mahilo_network"
+      },
+      {
+        agentId: "mahilo-network-agent",
+        runId: "run_network_unverified_1",
+        sessionKey: "session_network_unverified_1",
+        toolCallId: "tool_call_network_unverified_1",
+        toolName: "mahilo_network"
+      }
+    );
+
+    const rawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_unverified_1",
+      message: "Go to Ramen Shop.",
+      message_id: "msg_inbound_unverified_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Mallory",
+      sender_connection_id: "conn_mallory",
+      timestamp: "2026-03-08T12:18:00.000Z"
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_unverified_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp)
+      },
+      rawBody
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    const eventText = systemEvents[0]?.text ?? "";
+    expect(eventText).toContain(
+      "Synthesized summary (plugin-generated): 0 of 2 contacted people have replied so far. 1 reply could not be safely attributed to a contacted friend and is kept separate below."
+    );
+    expect(eventText).not.toContain("Mallory said:");
+    expect(eventText).toContain(
+      '- Unverified sender claim "Mallory" via openclaw at 2026-03-08T12:18:00.000Z [message msg_inbound_unverified_1]. Mahilo couldn\'t confirm this sender was one of the contacts asked in this thread. Raw reply: Go to Ramen Shop.'
+    );
+  });
+
   it("executes mahilo_message sends with sender_connection_id alias", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({

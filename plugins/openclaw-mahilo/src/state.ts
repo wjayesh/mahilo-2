@@ -1,5 +1,5 @@
 import type { DeclaredSelectors, PolicyDecision } from "./policy-helpers";
-import type { MahiloAskAroundTarget } from "./network";
+import type { MahiloAskAroundReplyOutcome, MahiloAskAroundTarget } from "./network";
 import type { ReportedOutcome } from "./tools";
 
 export interface DedupeState {
@@ -56,6 +56,7 @@ export interface MahiloAskAroundReply {
   groupName?: string;
   message: string;
   messageId: string;
+  outcome?: MahiloAskAroundReplyOutcome;
   payloadType?: string;
   sender: string;
   senderAgent: string;
@@ -64,9 +65,15 @@ export interface MahiloAskAroundReply {
   timestamp?: string;
 }
 
+export interface MahiloAskAroundExpectedParticipant {
+  label?: string;
+  recipient: string;
+}
+
 export interface MahiloAskAroundSession {
   correlationId: string;
   expectedReplyCount?: number;
+  expectedParticipants?: MahiloAskAroundExpectedParticipant[];
   question?: string;
   replies: MahiloAskAroundReply[];
   target?: MahiloAskAroundTarget;
@@ -75,6 +82,7 @@ export interface MahiloAskAroundSession {
 export interface MahiloAskAroundSessionInput {
   correlationId: string;
   expectedReplyCount?: number;
+  expectedParticipants?: MahiloAskAroundExpectedParticipant[];
   question?: string;
   replies?: MahiloAskAroundReply[];
   target?: MahiloAskAroundTarget;
@@ -354,6 +362,10 @@ export class InMemoryPluginState {
         correlationId: normalizedSession.correlationId,
         expectedReplyCount:
           normalizedSession.expectedReplyCount ?? existingSession?.expectedReplyCount,
+        expectedParticipants: mergeAskAroundExpectedParticipants(
+          existingSession?.expectedParticipants,
+          normalizedSession.expectedParticipants
+        ),
         question: normalizedSession.question ?? existingSession?.question,
         replies: mergeAskAroundReplies(
           existingSession?.replies ?? [],
@@ -408,9 +420,13 @@ export class InMemoryPluginState {
     }
 
     const session = entry.value as MahiloAskAroundSession;
+    const classifiedReply = {
+      ...normalizedReply,
+      outcome: normalizedReply.outcome ?? classifyAskAroundReply(session, normalizedReply)
+    } satisfies MahiloAskAroundReply;
     const updatedSession: MahiloAskAroundSession = {
       ...session,
-      replies: mergeAskAroundReplies(session.replies, [normalizedReply])
+      replies: mergeAskAroundReplies(session.replies, [classifiedReply])
     };
 
     this.askAroundSessions.set(normalizedCorrelationId, {
@@ -603,6 +619,9 @@ function normalizeAskAroundSessionInput(
   return {
     correlationId,
     expectedReplyCount: normalizeNonNegativeInteger(session.expectedReplyCount),
+    expectedParticipants: normalizeAskAroundExpectedParticipants(
+      session.expectedParticipants
+    ),
     question: normalizeToken(session.question),
     replies,
     target: normalizeAskAroundTarget(session.target)
@@ -656,6 +675,7 @@ function normalizeAskAroundReply(
     groupName: normalizeToken(reply.groupName),
     message,
     messageId,
+    outcome: normalizeAskAroundReplyOutcome(reply.outcome),
     payloadType: normalizeToken(reply.payloadType),
     sender,
     senderAgent,
@@ -688,7 +708,12 @@ function mergeAskAroundReplies(
 
     const existingIndex = replyIndexes.get(normalizedReply.messageId);
     if (typeof existingIndex === "number") {
-      mergedReplies[existingIndex] = normalizedReply;
+      const existingReply = mergedReplies[existingIndex]!;
+      mergedReplies[existingIndex] = {
+        ...existingReply,
+        ...normalizedReply,
+        outcome: normalizedReply.outcome ?? existingReply.outcome
+      };
       continue;
     }
 
@@ -697,6 +722,225 @@ function mergeAskAroundReplies(
   }
 
   return mergedReplies;
+}
+
+function normalizeAskAroundExpectedParticipants(
+  participants: MahiloAskAroundExpectedParticipant[] | undefined
+): MahiloAskAroundExpectedParticipant[] | undefined {
+  if (!Array.isArray(participants) || participants.length === 0) {
+    return undefined;
+  }
+
+  const normalizedParticipants = participants
+    .map((participant) => normalizeAskAroundExpectedParticipant(participant))
+    .filter((participant): participant is MahiloAskAroundExpectedParticipant => Boolean(participant));
+
+  return normalizedParticipants.length > 0 ? normalizedParticipants : undefined;
+}
+
+function normalizeAskAroundExpectedParticipant(
+  participant: MahiloAskAroundExpectedParticipant
+): MahiloAskAroundExpectedParticipant | undefined {
+  const recipient = normalizeToken(participant.recipient);
+  if (!recipient) {
+    return undefined;
+  }
+
+  return {
+    label: normalizeToken(participant.label),
+    recipient
+  };
+}
+
+function mergeAskAroundExpectedParticipants(
+  existingParticipants: MahiloAskAroundExpectedParticipant[] | undefined,
+  incomingParticipants: MahiloAskAroundExpectedParticipant[] | undefined
+): MahiloAskAroundExpectedParticipant[] | undefined {
+  const mergedParticipants = [
+    ...(existingParticipants ?? []),
+    ...(incomingParticipants ?? [])
+  ];
+  if (mergedParticipants.length === 0) {
+    return undefined;
+  }
+
+  const merged = new Map<string, MahiloAskAroundExpectedParticipant>();
+  for (const participant of mergedParticipants) {
+    const normalizedParticipant = normalizeAskAroundExpectedParticipant(participant);
+    if (!normalizedParticipant) {
+      continue;
+    }
+
+    const participantKey = normalizeAskAroundParticipantKey(normalizedParticipant.recipient);
+    if (!participantKey) {
+      continue;
+    }
+
+    const existing = merged.get(participantKey);
+    merged.set(participantKey, {
+      label: normalizedParticipant.label ?? existing?.label,
+      recipient: normalizedParticipant.recipient
+    });
+  }
+
+  const values = [...merged.values()];
+  return values.length > 0 ? values : undefined;
+}
+
+function normalizeAskAroundReplyOutcome(
+  value: MahiloAskAroundReplyOutcome | undefined
+): MahiloAskAroundReplyOutcome | undefined {
+  switch (value) {
+    case "attribution_unverified":
+    case "direct_reply":
+    case "no_grounded_answer":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function classifyAskAroundReply(
+  session: MahiloAskAroundSession,
+  reply: MahiloAskAroundReply
+): MahiloAskAroundReplyOutcome {
+  if (!isExpectedAskAroundParticipant(session.expectedParticipants, reply.sender)) {
+    return "attribution_unverified";
+  }
+
+  return isExplicitNoGroundedAnswerReply(reply)
+    ? "no_grounded_answer"
+    : "direct_reply";
+}
+
+function isExpectedAskAroundParticipant(
+  participants: MahiloAskAroundExpectedParticipant[] | undefined,
+  sender: string
+): boolean {
+  if (!participants || participants.length === 0) {
+    return true;
+  }
+
+  const normalizedSenderKey = normalizeAskAroundParticipantKey(sender);
+  const normalizedSenderLabel = normalizeAskAroundParticipantLabel(sender);
+
+  return participants.some((participant) => {
+    const participantKey = normalizeAskAroundParticipantKey(participant.recipient);
+    const participantLabel = normalizeAskAroundParticipantLabel(participant.label);
+    return (
+      (normalizedSenderKey && normalizedSenderKey === participantKey) ||
+      (normalizedSenderLabel && normalizedSenderLabel === participantLabel)
+    );
+  });
+}
+
+function normalizeAskAroundParticipantKey(value: string | undefined): string | undefined {
+  const normalized = normalizeToken(value);
+  return normalized ? normalized.replace(/^@+/, "").toLowerCase() : undefined;
+}
+
+function normalizeAskAroundParticipantLabel(value: string | undefined): string | undefined {
+  const normalized = normalizeToken(value);
+  return normalized ? normalized.toLowerCase() : undefined;
+}
+
+function isExplicitNoGroundedAnswerReply(
+  reply: Pick<MahiloAskAroundReply, "message" | "payloadType">
+): boolean {
+  const structuredOutcome = readStructuredAskAroundReplyOutcome(reply.message, reply.payloadType);
+  if (structuredOutcome === "no_grounded_answer") {
+    return true;
+  }
+
+  const normalizedMessage = normalizeAskAroundOutcomeMessage(reply.message);
+  if (!normalizedMessage) {
+    return false;
+  }
+
+  return (
+    normalizedMessage === "i dont know" ||
+    normalizedMessage === "i do not know" ||
+    normalizedMessage === "no grounded answer" ||
+    normalizedMessage === "no grounded answer available" ||
+    normalizedMessage === "i do not have a grounded answer"
+  );
+}
+
+function readStructuredAskAroundReplyOutcome(
+  message: string,
+  payloadType: string | undefined
+): MahiloAskAroundReplyOutcome | undefined {
+  const normalizedPayloadType = normalizeToken(payloadType)?.toLowerCase();
+  if (
+    normalizedPayloadType &&
+    !normalizedPayloadType.includes("json") &&
+    !message.trim().startsWith("{")
+  ) {
+    return undefined;
+  }
+
+  if (!normalizedPayloadType && !message.trim().startsWith("{")) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(message) as unknown;
+  } catch {
+    return undefined;
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return undefined;
+  }
+
+  const root = parsed as Record<string, unknown>;
+  const candidates = [
+    root.outcome,
+    root.answer_status,
+    root.answerStatus,
+    root.kind,
+    root.status
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeAskAroundOutcomeToken(candidate);
+    if (normalized === "no_grounded_answer" || normalized === "i_dont_know") {
+      return "no_grounded_answer";
+    }
+
+    if (normalized === "direct_reply") {
+      return "direct_reply";
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeAskAroundOutcomeToken(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[\s-]+/g, "_");
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeAskAroundOutcomeMessage(value: string): string | undefined {
+  const normalized = normalizeToken(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized
+    .toLowerCase()
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ");
 }
 
 function normalizeToken(value: string | undefined): string | undefined {

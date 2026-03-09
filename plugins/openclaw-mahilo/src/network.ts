@@ -51,6 +51,11 @@ export type MahiloAskAroundDeliveryStatus =
   | "send_failed"
   | "skipped";
 
+export type MahiloAskAroundReplyOutcome =
+  | "attribution_unverified"
+  | "direct_reply"
+  | "no_grounded_answer";
+
 export interface MahiloAskAroundDelivery {
   connectionState?: MahiloContactConnectionState;
   decision?: "allow" | "ask" | "deny";
@@ -89,6 +94,7 @@ export interface MahiloAskAroundActionResult {
   error?: MahiloNetworkError;
   question?: string;
   replyExpectation?: string;
+  replyOutcomeKinds: MahiloAskAroundReplyOutcome[];
   senderConnectionId?: string;
   source: "mahilo_server";
   status: "error" | "success";
@@ -99,6 +105,12 @@ export interface MahiloAskAroundActionResult {
 export type MahiloNetworkActionResult =
   | MahiloAskAroundActionResult
   | MahiloRelationshipActionResult;
+
+const DEFAULT_MAHILO_ASK_AROUND_REPLY_OUTCOME_KINDS: MahiloAskAroundReplyOutcome[] = [
+  "direct_reply",
+  "no_grounded_answer",
+  "attribution_unverified"
+];
 
 export async function executeMahiloNetworkAction(
   client: MahiloContractClient,
@@ -254,6 +266,7 @@ async function executeMahiloContactAskAround(
       replyExpectation: options.roles.length > 0
         ? "No contacts matched that role filter yet."
         : "Add Mahilo contacts first, then ask around from the same tool.",
+      replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
       senderConnectionId: context.senderConnectionId,
       source: "mahilo_server",
       status: "success",
@@ -286,6 +299,7 @@ async function executeMahiloContactAskAround(
     deliveries,
     question: options.question,
     replyExpectation,
+    replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
     senderConnectionId: context.senderConnectionId,
     source: "mahilo_server",
     status: "success",
@@ -351,6 +365,7 @@ async function executeMahiloGroupAskAround(
       deliveries: [delivery],
       question: options.question,
       replyExpectation: formatGroupReplyExpectation(delivery, resolvedGroup.group),
+      replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
       senderConnectionId: context.senderConnectionId,
       source: "mahilo_server",
       status: "success",
@@ -791,7 +806,7 @@ function formatGroupAskAroundSummary(
 
 function formatReplyExpectation(counts: MahiloAskAroundCounts): string | undefined {
   if (counts.awaitingReplies > 0) {
-    return "Replies will show up in this thread with attribution and a running summary as your contacts respond. If someone stays silent, nothing is stuck.";
+    return 'Replies will show up in this thread with attribution and a running summary as your contacts respond. If someone does not have grounded info, Mahilo will show a clear "I don\'t know" instead of inventing an opinion. If someone stays silent, nothing is stuck.';
   }
 
   if (counts.reviewRequired > 0) {
@@ -814,7 +829,7 @@ function formatGroupReplyExpectation(
       typeof group.memberCount === "number" && group.memberCount > 0
         ? ` (${group.memberCount} members)`
         : "";
-    return `Replies will show up in this thread with attribution and a running summary as ${formatGroupLabel(group)}${memberCountSuffix} responds. If nobody replies, nothing is stuck.`;
+    return `Replies will show up in this thread with attribution and a running summary as ${formatGroupLabel(group)}${memberCountSuffix} responds. If someone does not have grounded info, Mahilo will show a clear "I don't know" instead of inventing an opinion. If nobody replies, nothing is stuck.`;
   }
 
   if (delivery.status === "review_required") {
@@ -933,10 +948,15 @@ function createNetworkErrorResult(
       retryable,
       technicalMessage
     },
+    replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
     source: "mahilo_server",
     status: "error",
     summary
   };
+}
+
+function createAskAroundReplyOutcomeKinds(): MahiloAskAroundReplyOutcome[] {
+  return DEFAULT_MAHILO_ASK_AROUND_REPLY_OUTCOME_KINDS.slice();
 }
 
 function normalizeToken(value: string | undefined): string | undefined {

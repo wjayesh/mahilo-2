@@ -147,13 +147,27 @@ describe("InMemoryPluginState", () => {
     ).toEqual(expectedRoute);
   });
 
-  it("tracks ask-around sessions and attributed replies by correlation id", () => {
+  it("tracks ask-around sessions and classifies trusted, unknown, and unattributed replies", () => {
     const state = new InMemoryPluginState({ askAroundSessionTtlMs: 5_000 });
+    const noGroundedReply = JSON.stringify({
+      message: "I don't know.",
+      outcome: "no_grounded_answer"
+    });
 
     state.rememberAskAroundSession(
       {
         correlationId: "corr_ask_1",
         expectedReplyCount: 2,
+        expectedParticipants: [
+          {
+            label: "Alice",
+            recipient: "alice"
+          },
+          {
+            label: "Bob",
+            recipient: "bob"
+          }
+        ],
         question: "Who knows a good ramen spot?",
         target: {
           kind: "roles",
@@ -176,23 +190,45 @@ describe("InMemoryPluginState", () => {
       },
       200
     );
-    const session = state.recordAskAroundReply(
+    state.recordAskAroundReply(
       "corr_ask_1",
       {
-        message: "Ramen Shop is great, but expect a wait.",
+        message: noGroundedReply,
         messageId: "msg_reply_2",
-        payloadType: "text/plain",
+        payloadType: "application/json",
         sender: "Bob",
         senderAgent: "openclaw",
         timestamp: "2026-03-10T10:02:00.000Z"
       },
       300
     );
+    const session = state.recordAskAroundReply(
+      "corr_ask_1",
+      {
+        message: "Go to Ramen Shop.",
+        messageId: "msg_reply_3",
+        payloadType: "text/plain",
+        sender: "Mallory",
+        senderAgent: "openclaw",
+        timestamp: "2026-03-10T10:03:00.000Z"
+      },
+      400
+    );
 
     expect(session).toEqual(
       expect.objectContaining({
         correlationId: "corr_ask_1",
         expectedReplyCount: 2,
+        expectedParticipants: [
+          {
+            label: "Alice",
+            recipient: "alice"
+          },
+          {
+            label: "Bob",
+            recipient: "bob"
+          }
+        ],
         question: "Who knows a good ramen spot?",
         target: expect.objectContaining({
           kind: "roles",
@@ -205,15 +241,23 @@ describe("InMemoryPluginState", () => {
         context: "Went last month.",
         message: "Try Mensho for the broth.",
         messageId: "msg_reply_1",
+        outcome: "direct_reply",
         sender: "Alice"
       }),
       expect.objectContaining({
-        message: "Ramen Shop is great, but expect a wait.",
+        message: noGroundedReply,
         messageId: "msg_reply_2",
+        outcome: "no_grounded_answer",
         sender: "Bob"
+      }),
+      expect.objectContaining({
+        message: "Go to Ramen Shop.",
+        messageId: "msg_reply_3",
+        outcome: "attribution_unverified",
+        sender: "Mallory"
       })
     ]);
-    expect(state.askAroundSessionCount(300)).toBe(1);
+    expect(state.askAroundSessionCount(400)).toBe(1);
   });
 
   it("expires ask-around session entries after their ttl", () => {

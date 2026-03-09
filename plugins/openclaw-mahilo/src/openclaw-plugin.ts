@@ -1088,11 +1088,38 @@ function rememberMahiloAskAroundInboundRoutes(
     readOptionalString(event.params.sender_connection_id);
   const deliveries = Array.isArray(resultDetails.deliveries) ? resultDetails.deliveries : [];
   const target = readMahiloAskAroundTarget(resultDetails.target);
+  const expectedParticipants: Array<{ label?: string; recipient: string }> = [];
+
+  for (const rawDelivery of deliveries) {
+    const delivery = readOptionalObject(rawDelivery);
+    if (!delivery || readOptionalString(delivery.status) !== "awaiting_reply") {
+      continue;
+    }
+
+    const recipient = readOptionalString(delivery.recipient);
+    const recipientType =
+      readRecipientType(delivery.recipientType) ??
+      readRecipientType(delivery.recipient_type) ??
+      (target?.kind === "group" ? "group" : "user");
+
+    if (recipientType !== "user" || !recipient) {
+      continue;
+    }
+
+    expectedParticipants.push({
+      label:
+        readOptionalString(delivery.recipientLabel) ??
+        readOptionalString(delivery.recipient_label),
+      recipient
+    });
+  }
 
   if (correlationId) {
     pluginState.rememberAskAroundSession({
       correlationId,
       expectedReplyCount: readMahiloAskAroundExpectedReplyCount(resultDetails, deliveries, target),
+      expectedParticipants:
+        expectedParticipants.length > 0 ? expectedParticipants : undefined,
       question:
         readOptionalString(resultDetails.question) ??
         readOptionalString(event.params.question) ??
@@ -1406,8 +1433,11 @@ function formatMahiloAskAroundSummary(session: MahiloAskAroundSession): string {
     return "No direct replies are recorded yet.";
   }
 
+  const replyCounts = countMahiloAskAroundReplyOutcomes(session);
   const respondentCount = countMahiloAskAroundRespondents(session);
-  const directMessageCount = session.replies.length;
+  const attributedMessageCount = session.replies.filter(
+    (reply) => readMahiloAskAroundReplyOutcome(reply) !== "attribution_unverified"
+  ).length;
   let overview: string;
 
   if (session.target?.kind === "group") {
@@ -1432,11 +1462,22 @@ function formatMahiloAskAroundSummary(session: MahiloAskAroundSession): string {
         : `${respondentCount} contacts have replied so far.`;
   }
 
-  if (directMessageCount > respondentCount) {
-    overview = `${overview} ${directMessageCount} direct messages are on record.`;
+  if (attributedMessageCount > respondentCount) {
+    overview = `${overview} ${attributedMessageCount} attributed direct messages are on record.`;
+  }
+
+  if (replyCounts.noGroundedAnswer > 1) {
+    overview = `${overview} ${replyCounts.noGroundedAnswer} contacts explicitly reported no grounded answer.`;
+  }
+
+  if (replyCounts.attributionUnverified > 0) {
+    const replyWord = replyCounts.attributionUnverified === 1 ? "reply" : "replies";
+    const verb = replyCounts.attributionUnverified === 1 ? "is" : "are";
+    overview = `${overview} ${replyCounts.attributionUnverified} ${replyWord} could not be safely attributed to a contacted friend and ${verb} kept separate below.`;
   }
 
   const replySnippets = session.replies
+    .filter((reply) => readMahiloAskAroundReplyOutcome(reply) !== "attribution_unverified")
     .map((reply) => formatMahiloAskAroundReplySnippet(reply))
     .join(" ");
 
@@ -1446,6 +1487,7 @@ function formatMahiloAskAroundSummary(session: MahiloAskAroundSession): string {
 function formatMahiloAskAroundReplySnippet(
   reply: MahiloAskAroundSession["replies"][number]
 ): string {
+  const outcome = readMahiloAskAroundReplyOutcome(reply);
   const contextText = normalizeInlineText(reply.context);
   const timeText = normalizeInlineText(reply.timestamp);
   const attributionSuffix = contextText
@@ -1454,15 +1496,42 @@ function formatMahiloAskAroundReplySnippet(
       ? ` (${timeText})`
       : "";
 
-  return `${reply.sender}${attributionSuffix} said: ${formatMahiloInboundBodyContent(
-    reply.message,
-    reply.payloadType
-  )}`;
+  if (outcome === "no_grounded_answer") {
+    return `${reply.sender}${attributionSuffix} reported no grounded answer.`;
+  }
+
+  if (outcome === "attribution_unverified") {
+    return "An unattributed Mahilo reply was received and kept separate from trusted contact attribution.";
+  }
+
+  return `${reply.sender}${attributionSuffix} said: ${formatMahiloAskAroundReplyBody(reply)}`;
 }
 
 function formatMahiloAskAroundDirectReply(
   reply: MahiloAskAroundSession["replies"][number]
 ): string {
+  const outcome = readMahiloAskAroundReplyOutcome(reply);
+  if (outcome === "attribution_unverified") {
+    const details = [
+      `- Unverified sender claim ${formatQuotedLabel(reply.sender)}`,
+      `via ${reply.senderAgent}`,
+      reply.timestamp ? `at ${reply.timestamp}` : undefined,
+      `[message ${reply.messageId}]`,
+      reply.deliveryId ? `[delivery ${reply.deliveryId}]` : undefined
+    ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+    let line = `${details.join(" ")}. Mahilo couldn't confirm this sender was one of the contacts asked in this thread.`;
+    const contextText = normalizeInlineText(reply.context);
+    if (contextText) {
+      line = `${line} Claimed context: ${contextText}.`;
+    }
+
+    return `${line} Raw reply: ${formatMahiloInboundBodyContent(
+      reply.message,
+      reply.payloadType
+    )}`;
+  }
+
   const details = [
     `- ${reply.sender}`,
     `via ${reply.senderAgent}`,
@@ -1477,20 +1546,107 @@ function formatMahiloAskAroundDirectReply(
     line = `${line} Experience context: ${contextText}.`;
   }
 
-  return `${line} Direct reply: ${formatMahiloInboundBodyContent(
-    reply.message,
-    reply.payloadType
-  )}`;
+  if (outcome === "no_grounded_answer") {
+    return `${line} Outcome: no grounded answer. Direct reply: ${formatMahiloAskAroundReplyBody(
+      reply
+    )}`;
+  }
+
+  return `${line} Direct reply: ${formatMahiloAskAroundReplyBody(reply)}`;
 }
 
 function countMahiloAskAroundRespondents(session: MahiloAskAroundSession): number {
   const respondents = new Set(
     session.replies
+      .filter((reply) => readMahiloAskAroundReplyOutcome(reply) !== "attribution_unverified")
       .map((reply) => normalizeInlineText(reply.sender)?.toLowerCase())
       .filter((sender): sender is string => Boolean(sender))
   );
 
   return respondents.size;
+}
+
+function countMahiloAskAroundReplyOutcomes(session: MahiloAskAroundSession): {
+  attributionUnverified: number;
+  directReply: number;
+  noGroundedAnswer: number;
+} {
+  return session.replies.reduce(
+    (counts, reply) => {
+      switch (readMahiloAskAroundReplyOutcome(reply)) {
+        case "attribution_unverified":
+          counts.attributionUnverified += 1;
+          break;
+        case "no_grounded_answer":
+          counts.noGroundedAnswer += 1;
+          break;
+        default:
+          counts.directReply += 1;
+          break;
+      }
+
+      return counts;
+    },
+    {
+      attributionUnverified: 0,
+      directReply: 0,
+      noGroundedAnswer: 0
+    }
+  );
+}
+
+function readMahiloAskAroundReplyOutcome(
+  reply: MahiloAskAroundSession["replies"][number]
+): "attribution_unverified" | "direct_reply" | "no_grounded_answer" {
+  const outcome = readOptionalString(reply.outcome);
+  switch (outcome) {
+    case "attribution_unverified":
+    case "no_grounded_answer":
+      return outcome;
+    default:
+      return "direct_reply";
+  }
+}
+
+function formatMahiloAskAroundReplyBody(
+  reply: MahiloAskAroundSession["replies"][number]
+): string {
+  if (readMahiloAskAroundReplyOutcome(reply) !== "no_grounded_answer") {
+    return formatMahiloInboundBodyContent(reply.message, reply.payloadType);
+  }
+
+  const structuredBody = readMahiloAskAroundStructuredBody(reply.message, reply.payloadType);
+  const explicitText = normalizeInlineText(
+    readOptionalString(structuredBody?.message) ??
+      readOptionalString(structuredBody?.text) ??
+      readOptionalString(structuredBody?.reason)
+  );
+
+  return explicitText ?? normalizeInlineText(reply.message) ?? "No grounded answer.";
+}
+
+function readMahiloAskAroundStructuredBody(
+  message: string,
+  payloadType: string | undefined
+): Record<string, unknown> | undefined {
+  const normalizedPayloadType = readOptionalString(payloadType)?.toLowerCase();
+  if (
+    normalizedPayloadType &&
+    !normalizedPayloadType.includes("json") &&
+    !message.trim().startsWith("{")
+  ) {
+    return undefined;
+  }
+
+  if (!normalizedPayloadType && !message.trim().startsWith("{")) {
+    return undefined;
+  }
+
+  try {
+    return readOptionalObject(JSON.parse(message) as unknown);
+  } catch {
+    return undefined;
+  }
 }
 
 function formatQuotedLabel(value: string): string {

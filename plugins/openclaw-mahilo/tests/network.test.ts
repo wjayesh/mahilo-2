@@ -179,6 +179,12 @@ describe("executeMahiloNetworkAction", () => {
         roles: ["close_friends"]
       }
     });
+    expect(result.replyOutcomeKinds).toEqual([
+      "direct_reply",
+      "no_grounded_answer",
+      "attribution_unverified"
+    ]);
+    expect(String(result.replyExpectation)).toContain('clear "I don\'t know"');
     expect(state.friendshipCalls).toEqual([{ status: "accepted" }]);
     expect(state.friendConnectionCalls).toEqual(["alice", "bob", "carol"]);
     expect(state.sendCalls.map((call) => call.payload.recipient)).toEqual(["alice", "carol"]);
