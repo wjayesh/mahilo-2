@@ -399,14 +399,19 @@ It is:
 
 ### 3.3 Outcome Reporting
 - **ID**: `PLG2-032`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-042
 - **Description**:
   - After send / escalation / rejection / partial share, report the outcome back to Mahilo.
 - **Acceptance Criteria**:
-  - [ ] Outcome round-trip is implemented
-  - [ ] Mahilo history can learn from plugin activity
+  - [x] Outcome round-trip is implemented
+  - [x] Mahilo history can learn from plugin activity
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-032 by mapping current send/review/rejection flows and contract requirements for `POST /api/v1/plugin/outcomes`.
+  - 2026-03-09: Updated `plugins/openclaw-mahilo/src/tools.ts` outcome reporting to derive/send contract outcomes from actual `/api/v1/messages/send` responses (including `review_requested`, `blocked`, `partial_sent`, and `sent`) and to include normalized `recipient_results` for history learning.
+  - 2026-03-09: Removed preflight-only early exits so policy escalation/rejection paths still execute final send and can round-trip `message_id` + outcome reports back to Mahilo.
+  - 2026-03-09: Added/updated send-tool tests for escalation/rejection/partial outcome mapping and validated with `bun run test` (101 passing) and `bun run build` from `plugins/openclaw-mahilo/`.
 
 ### 3.4 Temporary Override Flows
 - **ID**: `PLG2-033`

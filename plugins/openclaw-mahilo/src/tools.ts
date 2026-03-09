@@ -5,8 +5,6 @@ import {
   extractDecision,
   extractResolutionId,
   normalizeDeclaredSelectors,
-  shouldSendForDecision,
-  toToolStatus,
   type DeclaredSelectors,
   type LocalPolicyGuardResult,
   type PolicyDecision
@@ -61,7 +59,27 @@ export interface MahiloContact {
 
 export type ContactsProvider = () => Promise<MahiloContact[]>;
 
-const DEFAULT_REVIEW_MODE: ReviewMode = "ask";
+type ReportedOutcome =
+  | "blocked"
+  | "partial_sent"
+  | "review_approved"
+  | "review_rejected"
+  | "review_requested"
+  | "send_failed"
+  | "sent"
+  | "withheld";
+
+interface RecipientOutcome {
+  outcome: ReportedOutcome;
+  recipient: string;
+}
+
+interface SendOutcomeSummary {
+  outcome: ReportedOutcome;
+  recipientResults?: RecipientOutcome[];
+  reason?: string;
+  status: MahiloToolResult["status"];
+}
 
 export async function talkToAgent(
   client: MahiloContractClient,
@@ -100,7 +118,6 @@ async function executeSendTool(
   context: MahiloToolContext,
   options: ToolExecutionOptions
 ): Promise<MahiloToolResult> {
-  const reviewMode = options.reviewMode ?? context.reviewMode ?? DEFAULT_REVIEW_MODE;
   const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
 
   const localPolicyGuard = options.skipLocalPolicyGuard
@@ -123,38 +140,26 @@ async function executeSendTool(
   });
 
   const resolveResponse = await client.resolveDraft(resolvePayload);
-  const serverDecision = extractDecision(resolveResponse);
-  const resolutionId = extractResolutionId(resolveResponse);
-
-  // Local policy guard remains optional advisory signal; server preflight is send-time truth.
-  if (!shouldSendForDecision(serverDecision, reviewMode)) {
-    return {
-      decision: serverDecision,
-      localPolicyGuard,
-      reason: serverDecision === "deny" ? "request denied by policy" : "policy review required",
-      resolutionId,
-      response: resolveResponse,
-      status: toToolStatus(serverDecision, reviewMode)
-    };
-  }
+  const preflightDecision = extractDecision(resolveResponse);
+  const preflightResolutionId = extractResolutionId(resolveResponse);
 
   const sendPayload = compactObject({
     ...resolvePayload,
-    resolution_id: resolutionId
+    resolution_id: preflightResolutionId
   });
 
   const sendResponse = await client.sendMessage(sendPayload, input.idempotencyKey);
+  const sendDecision = extractDecision(sendResponse, preflightDecision);
+  const resolutionId = extractResolutionId(sendResponse) ?? preflightResolutionId;
   const messageId = extractMessageId(sendResponse);
   const deduplicated = extractDeduplicated(sendResponse);
+  const sendOutcomeSummary = summarizeSendOutcome(sendResponse, sendDecision, input.recipient);
 
-  if (options.reportOutcomes ?? true) {
+  if ((options.reportOutcomes ?? true) && messageId) {
     const outcomePayload = compactObject({
-      decision: serverDecision,
-      declared_selectors: normalizedSelectors,
       message_id: messageId,
-      outcome: "sent",
-      recipient: input.recipient,
-      recipient_type: recipientType,
+      outcome: sendOutcomeSummary.outcome,
+      recipient_results: sendOutcomeSummary.recipientResults,
       resolution_id: resolutionId,
       sender_connection_id: context.senderConnectionId
     });
@@ -163,13 +168,14 @@ async function executeSendTool(
   }
 
   return {
-    decision: serverDecision,
+    decision: sendDecision,
     deduplicated,
     localPolicyGuard,
     messageId,
+    reason: sendOutcomeSummary.reason,
     resolutionId,
     response: sendResponse,
-    status: "sent"
+    status: sendOutcomeSummary.status
   };
 }
 
@@ -237,6 +243,241 @@ function extractDeduplicated(value: unknown): boolean | undefined {
   }
 
   return undefined;
+}
+
+function summarizeSendOutcome(
+  response: unknown,
+  fallbackDecision: PolicyDecision,
+  fallbackRecipient: string
+): SendOutcomeSummary {
+  const root = readObject(response);
+  const result = root ? readObject(root.result) : undefined;
+  const inferredOutcome = inferOutcomeFromResponse(root, result, fallbackDecision);
+  const recipientResults = readRecipientOutcomes(root, result, inferredOutcome, fallbackRecipient);
+  const outcome = deriveAggregateOutcome(recipientResults, inferredOutcome);
+  const reason = deriveOutcomeReason(outcome, root, result);
+
+  return {
+    outcome,
+    reason,
+    recipientResults,
+    status: outcomeToToolStatus(outcome)
+  };
+}
+
+function inferOutcomeFromResponse(
+  root: Record<string, unknown> | undefined,
+  result: Record<string, unknown> | undefined,
+  fallbackDecision: PolicyDecision
+): ReportedOutcome {
+  const status = readString(root?.status) ?? readString(result?.status);
+  if (status === "review_required" || status === "approval_pending") {
+    return "review_requested";
+  }
+  if (status === "rejected" || status === "blocked") {
+    return "blocked";
+  }
+  if (status === "failed") {
+    return "send_failed";
+  }
+  if (status === "partial_sent") {
+    return "partial_sent";
+  }
+
+  const deliveryStatus = readString(root?.delivery_status) ?? readString(result?.delivery_status);
+  if (deliveryStatus === "review_required" || deliveryStatus === "approval_pending") {
+    return "review_requested";
+  }
+  if (deliveryStatus === "rejected") {
+    return "blocked";
+  }
+  if (deliveryStatus === "failed") {
+    return "send_failed";
+  }
+
+  const resolution = readObject(root?.resolution) ?? readObject(result?.resolution);
+  const deliveryMode = readString(resolution?.delivery_mode);
+  if (deliveryMode === "review_required" || deliveryMode === "hold_for_approval") {
+    return "review_requested";
+  }
+  if (deliveryMode === "blocked") {
+    return "blocked";
+  }
+
+  if (fallbackDecision === "ask") {
+    return "review_requested";
+  }
+  if (fallbackDecision === "deny") {
+    return "blocked";
+  }
+
+  return "sent";
+}
+
+function readRecipientOutcomes(
+  root: Record<string, unknown> | undefined,
+  result: Record<string, unknown> | undefined,
+  fallbackOutcome: ReportedOutcome,
+  fallbackRecipient: string
+): RecipientOutcome[] | undefined {
+  const rawResults = Array.isArray(root?.recipient_results)
+    ? root.recipient_results
+    : Array.isArray(result?.recipient_results)
+      ? result.recipient_results
+      : [];
+
+  const normalizedResults: RecipientOutcome[] = [];
+  for (const rawResult of rawResults) {
+    const recipientResult = readObject(rawResult);
+    if (!recipientResult) {
+      continue;
+    }
+
+    const recipient = readString(recipientResult.recipient);
+    if (!recipient) {
+      continue;
+    }
+
+    normalizedResults.push({
+      outcome: inferRecipientOutcome(recipientResult, fallbackOutcome),
+      recipient
+    });
+  }
+
+  if (normalizedResults.length > 0) {
+    return normalizedResults;
+  }
+
+  if (fallbackRecipient.length > 0) {
+    return [
+      {
+        outcome: fallbackOutcome,
+        recipient: fallbackRecipient
+      }
+    ];
+  }
+
+  return undefined;
+}
+
+function inferRecipientOutcome(
+  recipientResult: Record<string, unknown>,
+  fallbackOutcome: ReportedOutcome
+): ReportedOutcome {
+  const deliveryStatus = readString(recipientResult.delivery_status);
+  if (deliveryStatus === "delivered") {
+    return "sent";
+  }
+  if (deliveryStatus === "review_required" || deliveryStatus === "approval_pending") {
+    return "review_requested";
+  }
+  if (deliveryStatus === "rejected") {
+    return "blocked";
+  }
+  if (deliveryStatus === "failed") {
+    return "send_failed";
+  }
+
+  const deliveryMode = readString(recipientResult.delivery_mode);
+  if (deliveryMode === "review_required" || deliveryMode === "hold_for_approval") {
+    return "review_requested";
+  }
+  if (deliveryMode === "blocked") {
+    return "blocked";
+  }
+
+  const decision = extractDecision(recipientResult);
+  if (decision === "ask") {
+    return "review_requested";
+  }
+  if (decision === "deny") {
+    return "blocked";
+  }
+
+  return fallbackOutcome;
+}
+
+function deriveAggregateOutcome(
+  recipientResults: RecipientOutcome[] | undefined,
+  fallbackOutcome: ReportedOutcome
+): ReportedOutcome {
+  if (!recipientResults || recipientResults.length === 0) {
+    return fallbackOutcome;
+  }
+
+  const outcomes = new Set(recipientResults.map((result) => result.outcome));
+  if (outcomes.size === 1) {
+    return recipientResults[0].outcome;
+  }
+
+  if (outcomes.has("sent")) {
+    return "partial_sent";
+  }
+
+  return fallbackOutcome;
+}
+
+function deriveOutcomeReason(
+  outcome: ReportedOutcome,
+  root: Record<string, unknown> | undefined,
+  result: Record<string, unknown> | undefined
+): string | undefined {
+  const summary =
+    readResolutionSummary(root) ??
+    readResolutionSummary(result) ??
+    readString(root?.rejection_reason) ??
+    readString(result?.rejection_reason);
+
+  if (outcome === "review_requested") {
+    return summary ?? "policy review required";
+  }
+  if (outcome === "blocked") {
+    return summary ?? "request denied by policy";
+  }
+  if (outcome === "send_failed") {
+    return summary ?? "message delivery failed";
+  }
+
+  return undefined;
+}
+
+function outcomeToToolStatus(outcome: ReportedOutcome): MahiloToolResult["status"] {
+  if (outcome === "review_requested") {
+    return "review_required";
+  }
+
+  if (
+    outcome === "blocked" ||
+    outcome === "review_rejected" ||
+    outcome === "send_failed" ||
+    outcome === "withheld"
+  ) {
+    return "denied";
+  }
+
+  return "sent";
+}
+
+function readResolutionSummary(value: Record<string, unknown> | undefined): string | undefined {
+  const resolution = readObject(value?.resolution);
+  if (!resolution) {
+    return undefined;
+  }
+
+  return (
+    readString(resolution.summary) ??
+    readString(resolution.reason) ??
+    readString(resolution.resolution_summary)
+  );
+}
+
+function readString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {

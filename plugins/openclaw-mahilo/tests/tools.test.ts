@@ -90,7 +90,24 @@ describe("send tools", () => {
 
   it("returns review_required for ask decisions in ask mode", async () => {
     const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("ask")
+      resolveResponse: createResolveResponse("ask"),
+      sendResponse: {
+        message_id: "msg_review",
+        recipient_results: [
+          {
+            decision: "ask",
+            delivery_mode: "review_required",
+            delivery_status: "review_required",
+            recipient: "alice"
+          }
+        ],
+        resolution: {
+          decision: "ask",
+          delivery_mode: "review_required",
+          summary: "Message requires review before delivery."
+        },
+        status: "review_required"
+      }
     });
 
     const result = await talkToAgent(
@@ -107,13 +124,32 @@ describe("send tools", () => {
 
     expect(result.status).toBe("review_required");
     expect(result.decision).toBe("ask");
-    expect(state.sendCalls).toHaveLength(0);
-    expect(state.outcomeCalls).toHaveLength(0);
+    expect(result.reason).toContain("requires review");
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.outcomeCalls).toHaveLength(1);
+    expect(state.outcomeCalls[0]?.payload.outcome).toBe("review_requested");
   });
 
-  it("returns denied without sending when server denies", async () => {
+  it("returns denied and reports blocked outcome when server rejects delivery", async () => {
     const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("deny")
+      resolveResponse: createResolveResponse("deny"),
+      sendResponse: {
+        message_id: "msg_blocked",
+        recipient_results: [
+          {
+            decision: "deny",
+            delivery_mode: "blocked",
+            delivery_status: "rejected",
+            recipient: "alice"
+          }
+        ],
+        resolution: {
+          decision: "deny",
+          delivery_mode: "blocked",
+          summary: "Message blocked by policy."
+        },
+        status: "rejected"
+      }
     });
 
     const result = await talkToAgent(
@@ -128,14 +164,27 @@ describe("send tools", () => {
     );
 
     expect(result.status).toBe("denied");
-    expect(result.reason).toContain("denied");
-    expect(state.sendCalls).toHaveLength(0);
-    expect(state.outcomeCalls).toHaveLength(0);
+    expect(result.reason).toContain("blocked");
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.outcomeCalls).toHaveLength(1);
+    expect(state.outcomeCalls[0]?.payload.outcome).toBe("blocked");
   });
 
-  it("sends ask decisions automatically in auto review mode", async () => {
+  it("keeps ask decisions review_required even in auto review mode", async () => {
     const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("ask")
+      resolveResponse: createResolveResponse("ask"),
+      sendResponse: {
+        message_id: "msg_auto_review",
+        recipient_results: [
+          {
+            decision: "ask",
+            delivery_mode: "review_required",
+            delivery_status: "review_required",
+            recipient: "alice"
+          }
+        ],
+        status: "review_required"
+      }
     });
 
     const result = await talkToAgent(
@@ -150,10 +199,11 @@ describe("send tools", () => {
       }
     );
 
-    expect(result.status).toBe("sent");
+    expect(result.status).toBe("review_required");
     expect(result.decision).toBe("ask");
     expect(state.sendCalls).toHaveLength(1);
     expect(state.outcomeCalls).toHaveLength(1);
+    expect(state.outcomeCalls[0]?.payload.outcome).toBe("review_requested");
   });
 
   it("keeps local policy guard as advisory while server allow drives send behavior", async () => {
@@ -182,7 +232,7 @@ describe("send tools", () => {
     expect(result.localPolicyGuard?.decision).toBe("ask");
     expect(result.localPolicyGuard?.reason).toContain("sensitive resource");
     expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls[0]?.payload.decision).toBe("allow");
+    expect(state.outcomeCalls[0]?.payload.outcome).toBe("sent");
   });
 
   it("can skip local policy guard when requested", async () => {
@@ -327,6 +377,18 @@ describe("send tools", () => {
 
     expect(state.outcomeCalls).toHaveLength(1);
     expect(state.outcomeCalls[0].idempotencyKey).toBe("idem_123");
+    expect(state.outcomeCalls[0].payload).toEqual({
+      message_id: "msg_123",
+      outcome: "sent",
+      recipient_results: [
+        {
+          outcome: "sent",
+          recipient: "alice"
+        }
+      ],
+      resolution_id: "res_123",
+      sender_connection_id: "conn_sender"
+    });
   });
 
   it("extracts message id and dedupe flag from nested send result", async () => {
@@ -358,7 +420,25 @@ describe("send tools", () => {
 
   it("can send group messages", async () => {
     const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("allow")
+      resolveResponse: createResolveResponse("allow"),
+      sendResponse: {
+        message_id: "msg_group_partial",
+        recipient_results: [
+          {
+            decision: "allow",
+            delivery_mode: "full_send",
+            delivery_status: "delivered",
+            recipient: "alice"
+          },
+          {
+            decision: "ask",
+            delivery_mode: "review_required",
+            delivery_status: "review_required",
+            recipient: "bob"
+          }
+        ],
+        status: "delivered"
+      }
     });
 
     const result = await talkToGroup(
@@ -375,6 +455,12 @@ describe("send tools", () => {
     expect(result.status).toBe("sent");
     expect(state.sendCalls).toHaveLength(1);
     expect(state.sendCalls[0].payload.recipient_type).toBe("group");
+    expect(state.outcomeCalls).toHaveLength(1);
+    expect(state.outcomeCalls[0]?.payload.outcome).toBe("partial_sent");
+    expect(state.outcomeCalls[0]?.payload.recipient_results).toEqual([
+      { outcome: "sent", recipient: "alice" },
+      { outcome: "review_requested", recipient: "bob" }
+    ]);
   });
 });
 
