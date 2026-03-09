@@ -104,7 +104,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T22:09:45.889Z: PLG3-001 completed via orchestrator integration.
 ### 1.2 Default Sender Connection Resolution
 - **ID**: `PLG3-004`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-080
 - **Description**:
@@ -117,6 +117,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Default sender resolution is deterministic and documented
   - [ ] Advanced/explicit sender-connection override remains possible when needed
 
+- **Notes**:
+  - 2026-03-09T22:33:11.406Z: PLG3-004 completed via orchestrator integration.
 ### 1.3 Mahilo Social Client Expansion
 - **ID**: `PLG3-005`
 - **Status**: `pending`
