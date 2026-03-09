@@ -401,7 +401,7 @@ The task ordering below supersedes any older sequencing in this document when th
 
 ### 1.1 Narrative and ICP Refresh
 - **ID**: `PAL-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: none
 - **Description**:
@@ -472,6 +472,8 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
 - Supporting promise: "Ask around, see who said what, and keep boundaries intact."
 - Proof statement: "Mahilo makes the trust model operational by handling identity, network state, policy decisions, and final enforcement behind the plugin."
 
+- **Notes**:
+  - 2026-03-09T23:55:28.610Z: PAL-001 completed via orchestrator integration.
 ### 1.2 Documentation Surface Refresh
 - **ID**: `PAL-002`
 - **Status**: `pending`
