@@ -7,6 +7,22 @@ export interface MahiloClientOptions {
   contractVersion?: string;
 }
 
+export type MahiloRequestErrorKind = "http" | "network";
+
+export class MahiloRequestError extends Error {
+  readonly kind: MahiloRequestErrorKind;
+  readonly retryable: boolean;
+  readonly status?: number;
+
+  constructor(message: string, options: { kind: MahiloRequestErrorKind; status?: number }) {
+    super(message);
+    this.name = "MahiloRequestError";
+    this.kind = options.kind;
+    this.status = options.status;
+    this.retryable = options.kind === "network" || isRetryableStatus(options.status);
+  }
+}
+
 export class MahiloContractClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -99,15 +115,26 @@ export class MahiloContractClient {
   }
 
   private async request(endpoint: string, init: RequestInit) {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      ...init,
-      headers: init.headers ?? this.buildHeaders()
-    });
+    let response: Response;
+
+    try {
+      response = await fetch(`${this.baseUrl}${endpoint}`, {
+        ...init,
+        headers: init.headers ?? this.buildHeaders()
+      });
+    } catch (error) {
+      throw new MahiloRequestError(`Mahilo request failed: ${toErrorMessage(error)}`, {
+        kind: "network"
+      });
+    }
 
     if (!response.ok) {
       const body = await response.text();
       const detail = body.length > 0 ? `: ${body}` : "";
-      throw new Error(`Mahilo request failed with status ${response.status}${detail}`);
+      throw new MahiloRequestError(`Mahilo request failed with status ${response.status}${detail}`, {
+        kind: "http",
+        status: response.status
+      });
     }
 
     if (response.status === 204) {
@@ -116,4 +143,20 @@ export class MahiloContractClient {
 
     return (await response.json()) as unknown;
   }
+}
+
+function isRetryableStatus(status: number | undefined): boolean {
+  if (typeof status !== "number") {
+    return false;
+  }
+
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return "network error";
 }

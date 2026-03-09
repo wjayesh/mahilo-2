@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { createMahiloOpenClawPlugin } from "../src";
+import { createMahiloOpenClawPlugin, MahiloRequestError } from "../src";
 
 interface MockClientState {
   blockedEventCalls: number[];
   listReviewCalls: Array<{ limit?: number; status?: string }>;
+  overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   promptContextCalls: Array<Record<string, unknown>>;
   resolveCalls: Array<Record<string, unknown>>;
@@ -35,10 +36,16 @@ interface RegisteredHook {
   name: string;
 }
 
-function createMockContractClient(options: { promptContextResponse?: Record<string, unknown> } = {}) {
+function createMockContractClient(options: {
+  createOverrideError?: Error;
+  promptContextError?: Error;
+  promptContextResponse?: Record<string, unknown>;
+  resolveError?: Error;
+} = {}) {
   const state: MockClientState = {
     blockedEventCalls: [],
     listReviewCalls: [],
+    overrideCalls: [],
     outcomeCalls: [],
     promptContextCalls: [],
     resolveCalls: [],
@@ -70,8 +77,24 @@ function createMockContractClient(options: { promptContextResponse?: Record<stri
   };
 
   const client = {
+    createOverride: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+      state.overrideCalls.push({ idempotencyKey, payload });
+      if (options.createOverrideError) {
+        throw options.createOverrideError;
+      }
+
+      return {
+        created: true,
+        kind: "one_time",
+        policy_id: "pol_789"
+      };
+    },
     getPromptContext: async (payload: Record<string, unknown>) => {
       state.promptContextCalls.push(payload);
+      if (options.promptContextError) {
+        throw options.promptContextError;
+      }
+
       return promptContextResponse;
     },
     listBlockedEvents: async (limit?: number) => {
@@ -92,6 +115,10 @@ function createMockContractClient(options: { promptContextResponse?: Record<stri
     },
     resolveDraft: async (payload: Record<string, unknown>) => {
       state.resolveCalls.push(payload);
+      if (options.resolveError) {
+        throw options.resolveError;
+      }
+
       return {
         decision: "allow",
         resolution_id: "res_123"
@@ -297,7 +324,7 @@ function findHook(hooks: RegisteredHook[], name: string): RegisteredHook {
 }
 
 describe("createMahiloOpenClawPlugin", () => {
-  it("registers current OpenClaw tool names and diagnostics commands", async () => {
+  it("registers stable OpenClaw-native tool names and diagnostics commands", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -310,7 +337,10 @@ describe("createMahiloOpenClawPlugin", () => {
     await plugin.register?.(api);
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "create_mahilo_override",
+      "get_mahilo_context",
       "list_mahilo_contacts",
+      "preview_mahilo_send",
       "talk_to_agent",
       "talk_to_group"
     ]);
@@ -392,7 +422,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.outcomeCalls).toHaveLength(1);
   });
 
-  it("requires senderConnectionId for send tools", async () => {
+  it("returns graceful input errors for invalid send tool calls", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -405,12 +435,20 @@ describe("createMahiloOpenClawPlugin", () => {
     await plugin.register?.(api);
 
     const tool = findTool(tools, "talk_to_agent");
-    await expect(
-      tool.execute("tool_call_2", {
-        message: "hello",
-        recipient: "alice"
-      })
-    ).rejects.toThrow("senderConnectionId is required");
+    const result = await tool.execute("tool_call_2", {
+      message: "hello",
+      recipient: "alice"
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        error: "senderConnectionId is required (pass senderConnectionId or sender_connection_id)",
+        errorType: "input",
+        retryable: false,
+        status: "error",
+        tool: "talk_to_agent"
+      }
+    });
   });
 
   it("lists contacts through the provided contacts provider", async () => {
@@ -443,6 +481,175 @@ describe("createMahiloOpenClawPlugin", () => {
           type: "user"
         }
       ]
+    });
+  });
+
+  it("executes get_mahilo_context through the context contract", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "get_mahilo_context");
+    const result = await tool.execute("tool_call_4", {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current"
+      },
+      interactionLimit: 10,
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        ok: true,
+        source: "live"
+      }
+    });
+    expect(state.promptContextCalls).toHaveLength(1);
+    expect(state.promptContextCalls[0]).toEqual({
+      draft_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "location.current"
+      },
+      include_recent_interactions: true,
+      interaction_limit: 5,
+      recipient: "alice",
+      recipient_type: "user",
+      sender_connection_id: "conn_sender"
+    });
+  });
+
+  it("executes preview_mahilo_send without creating a send record", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "preview_mahilo_send");
+    const result = await tool.execute("tool_call_5", {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current"
+      },
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        decision: "allow",
+        resolutionId: "res_123",
+        serverSelectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        }
+      }
+    });
+    expect(state.resolveCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
+    expect(state.outcomeCalls).toHaveLength(0);
+  });
+
+  it("executes create_mahilo_override against the override contract", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "create_mahilo_override");
+    const result = await tool.execute("tool_call_6", {
+      effect: "allow",
+      kind: "one_time",
+      reason: "User approved a one-time share.",
+      scope: "user",
+      selectors: {
+        action: "share",
+        resource: "location.current"
+      },
+      senderConnectionId: "conn_sender",
+      sourceResolutionId: "res_123",
+      targetId: "usr_alice"
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        created: true,
+        kind: "one_time",
+        policyId: "pol_789"
+      }
+    });
+    expect(state.overrideCalls).toHaveLength(1);
+    expect(state.overrideCalls[0]?.payload).toEqual({
+      effect: "allow",
+      kind: "one_time",
+      reason: "User approved a one-time share.",
+      scope: "user",
+      selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "location.current"
+      },
+      sender_connection_id: "conn_sender",
+      source_resolution_id: "res_123",
+      target_id: "usr_alice"
+    });
+  });
+
+  it("returns graceful server failures for preview_mahilo_send", async () => {
+    const { client } = createMockContractClient({
+      resolveError: new MahiloRequestError("Mahilo request failed with status 503", {
+        kind: "http",
+        status: 503
+      })
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "preview_mahilo_send");
+    const result = await tool.execute("tool_call_7", {
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        error: "Mahilo request failed with status 503",
+        errorType: "server",
+        retryable: true,
+        status: "error",
+        tool: "preview_mahilo_send"
+      }
     });
   });
 

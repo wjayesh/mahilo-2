@@ -3,7 +3,7 @@ import type {
   OpenClawPluginApi
 } from "openclaw/plugin-sdk/core";
 
-import type { MahiloContractClient } from "./client";
+import { MahiloRequestError, type MahiloContractClient } from "./client";
 import {
   registerMahiloDiagnosticsCommands,
   type MahiloDiagnosticsCommandOptions
@@ -19,12 +19,18 @@ import { fetchMahiloPromptContext } from "./prompt-context";
 import { InMemoryPluginState } from "./state";
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
+  createMahiloOverride,
+  getMahiloContext,
   listMahiloContacts,
+  previewMahiloSend,
   talkToAgent,
   talkToGroup,
+  type CreateMahiloOverrideInput,
   type ContactsProvider,
+  type GetMahiloContextInput,
   type MahiloSendToolInput,
   type MahiloToolContext,
+  type PreviewMahiloSendInput,
   type TalkToGroupInput
 } from "./tools";
 import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./webhook-route";
@@ -46,6 +52,21 @@ export interface MahiloOpenClawPluginDefinition {
 
 const MAHILO_PROMPT_CONTEXT_MARKER = "[MahiloContext/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
+
+interface MahiloToolFailure {
+  error: string;
+  errorType: "input" | "network" | "server" | "unknown";
+  retryable: boolean;
+  status: "error";
+  tool: string;
+}
+
+class MahiloToolInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MahiloToolInputError";
+  }
+}
 
 export function createMahiloOpenClawPlugin(
   options: MahiloOpenClawPluginOptions = {}
@@ -91,6 +112,9 @@ export function registerMahiloOpenClawPlugin(
   api.registerTool(createTalkToAgentTool(client, config));
   api.registerTool(createTalkToGroupTool(client, config));
   api.registerTool(createListMahiloContactsTool(options.contactsProvider));
+  api.registerTool(createGetMahiloContextTool(client, pluginState));
+  api.registerTool(createPreviewMahiloSendTool(client, config));
+  api.registerTool(createCreateMahiloOverrideTool(client));
   registerPromptContextHook(api, client, config, pluginState);
   registerMahiloWebhookRoute(api, config, webhookRouteOptions);
   registerMahiloDiagnosticsCommands(api, config, client, diagnosticsCommandOptions);
@@ -102,12 +126,13 @@ export default defaultMahiloOpenClawPlugin;
 function createTalkToAgentTool(client: MahiloContractClient, config: MahiloPluginConfig): AnyAgentTool {
   return {
     description: "Send a policy-aware message to a Mahilo user.",
-    execute: async (_toolCallId: string, rawInput: unknown) => {
-      const input = parseSendToolInput(rawInput, { allowGroupAliases: false });
-      const context = parseToolContext(rawInput, config);
-      const result = await talkToAgent(client, input, context);
-      return toAgentToolResult(result, `Mahilo send status: ${result.status}`);
-    },
+    execute: async (_toolCallId: string, rawInput: unknown) =>
+      executeMahiloTool("talk_to_agent", async () => {
+        const input = parseSendToolInput(rawInput, { allowGroupAliases: false });
+        const context = parseToolContext(rawInput, config);
+        const result = await talkToAgent(client, input, context);
+        return toAgentToolResult(result, `Mahilo send status: ${result.status}`);
+      }),
     label: "Talk To Agent",
     name: "talk_to_agent",
     parameters: {
@@ -147,12 +172,13 @@ function createTalkToAgentTool(client: MahiloContractClient, config: MahiloPlugi
 function createTalkToGroupTool(client: MahiloContractClient, config: MahiloPluginConfig): AnyAgentTool {
   return {
     description: "Send a policy-aware message to a Mahilo group.",
-    execute: async (_toolCallId: string, rawInput: unknown) => {
-      const input = parseSendToolInput(rawInput, { allowGroupAliases: true });
-      const context = parseToolContext(rawInput, config);
-      const result = await talkToGroup(client, input as TalkToGroupInput, context);
-      return toAgentToolResult(result, `Mahilo group send status: ${result.status}`);
-    },
+    execute: async (_toolCallId: string, rawInput: unknown) =>
+      executeMahiloTool("talk_to_group", async () => {
+        const input = parseSendToolInput(rawInput, { allowGroupAliases: true });
+        const context = parseToolContext(rawInput, config);
+        const result = await talkToGroup(client, input as TalkToGroupInput, context);
+        return toAgentToolResult(result, `Mahilo group send status: ${result.status}`);
+      }),
     label: "Talk To Group",
     name: "talk_to_group",
     parameters: {
@@ -194,14 +220,167 @@ function createTalkToGroupTool(client: MahiloContractClient, config: MahiloPlugi
 function createListMahiloContactsTool(contactsProvider?: ContactsProvider): AnyAgentTool {
   return {
     description: "List known Mahilo contacts.",
-    execute: async () => {
-      const contacts = await listMahiloContacts(contactsProvider);
-      return toAgentToolResult(contacts, `Mahilo contacts returned: ${contacts.length}`);
-    },
+    execute: async () =>
+      executeMahiloTool("list_mahilo_contacts", async () => {
+        const contacts = await listMahiloContacts(contactsProvider);
+        return toAgentToolResult(contacts, `Mahilo contacts returned: ${contacts.length}`);
+      }),
     label: "List Mahilo Contacts",
     name: "list_mahilo_contacts",
     parameters: {
       additionalProperties: false,
+      type: "object"
+    }
+  } as unknown as AnyAgentTool;
+}
+
+function createGetMahiloContextTool(
+  client: MahiloContractClient,
+  pluginState: InMemoryPluginState
+): AnyAgentTool {
+  return {
+    description: "Fetch compact Mahilo context and prompt guidance for a contact.",
+    execute: async (_toolCallId: string, rawInput: unknown) =>
+      executeMahiloTool("get_mahilo_context", async () => {
+        const input = parseGetMahiloContextInput(rawInput);
+        const result = await getMahiloContext(client, input, {
+          cache: pluginState
+        });
+        const text = result.ok
+          ? `Mahilo context ready from ${result.source}.`
+          : `Mahilo context unavailable: ${result.error ?? "request failed"}`;
+
+        return toAgentToolResult(result, text);
+      }),
+    label: "Get Mahilo Context",
+    name: "get_mahilo_context",
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        declaredSelectors: createSelectorSchema(),
+        draftSelectors: createSelectorSchema(),
+        groupId: { type: "string" },
+        group_id: { type: "string" },
+        includeRecentInteractions: { type: "boolean" },
+        include_recent_interactions: { type: "boolean" },
+        interactionLimit: { type: "integer" },
+        interaction_limit: { type: "integer" },
+        recipient: { type: "string" },
+        recipientType: {
+          enum: ["group", "user"],
+          type: "string"
+        },
+        recipient_type: {
+          enum: ["group", "user"],
+          type: "string"
+        },
+        senderConnectionId: { type: "string" },
+        sender_connection_id: { type: "string" }
+      },
+      required: ["recipient", "senderConnectionId"],
+      type: "object"
+    }
+  } as unknown as AnyAgentTool;
+}
+
+function createPreviewMahiloSendTool(
+  client: MahiloContractClient,
+  config: MahiloPluginConfig
+): AnyAgentTool {
+  return {
+    description: "Preview Mahilo policy resolution for a draft without sending it.",
+    execute: async (_toolCallId: string, rawInput: unknown) =>
+      executeMahiloTool("preview_mahilo_send", async () => {
+        const input = parsePreviewMahiloSendInput(rawInput);
+        const context = parseToolContext(rawInput, config);
+        const result = await previewMahiloSend(client, input, context);
+        const text = result.deliveryMode
+          ? `Mahilo preview: ${result.decision} (${result.deliveryMode}).`
+          : `Mahilo preview: ${result.decision}.`;
+
+        return toAgentToolResult(result, text);
+      }),
+    label: "Preview Mahilo Send",
+    name: "preview_mahilo_send",
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        agentSessionId: { type: "string" },
+        context: { type: "string" },
+        correlationId: { type: "string" },
+        declaredSelectors: createSelectorSchema(),
+        groupId: { type: "string" },
+        group_id: { type: "string" },
+        idempotencyKey: { type: "string" },
+        message: { type: "string" },
+        payloadType: { type: "string" },
+        recipient: { type: "string" },
+        recipientConnectionId: { type: "string" },
+        recipientType: {
+          enum: ["group", "user"],
+          type: "string"
+        },
+        recipient_type: {
+          enum: ["group", "user"],
+          type: "string"
+        },
+        reviewMode: {
+          enum: ["auto", "ask", "manual"],
+          type: "string"
+        },
+        routingHints: { type: "object" },
+        senderConnectionId: { type: "string" },
+        sender_connection_id: { type: "string" }
+      },
+      required: ["message", "senderConnectionId"],
+      type: "object"
+    }
+  } as unknown as AnyAgentTool;
+}
+
+function createCreateMahiloOverrideTool(client: MahiloContractClient): AnyAgentTool {
+  return {
+    description: "Create a Mahilo override record using the documented server contract.",
+    execute: async (_toolCallId: string, rawInput: unknown) =>
+      executeMahiloTool("create_mahilo_override", async () => {
+        const input = parseCreateMahiloOverrideInput(rawInput);
+        const result = await createMahiloOverride(client, input);
+        return toAgentToolResult(
+          result,
+          result.created === true
+            ? "Mahilo override created."
+            : "Mahilo override request submitted."
+        );
+      }),
+    label: "Create Mahilo Override",
+    name: "create_mahilo_override",
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        declaredSelectors: createSelectorSchema(),
+        derivedFromMessageId: { type: "string" },
+        derived_from_message_id: { type: "string" },
+        effect: { type: "string" },
+        expiresAt: { type: "string" },
+        expires_at: { type: "string" },
+        idempotencyKey: { type: "string" },
+        kind: { type: "string" },
+        maxUses: { type: "integer" },
+        max_uses: { type: "integer" },
+        priority: { type: "integer" },
+        reason: { type: "string" },
+        scope: { type: "string" },
+        selectors: createSelectorSchema(),
+        senderConnectionId: { type: "string" },
+        sender_connection_id: { type: "string" },
+        sourceResolutionId: { type: "string" },
+        source_resolution_id: { type: "string" },
+        targetId: { type: "string" },
+        target_id: { type: "string" },
+        ttlSeconds: { type: "integer" },
+        ttl_seconds: { type: "integer" }
+      },
+      required: ["effect", "kind", "reason", "scope", "senderConnectionId"],
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -220,12 +399,12 @@ function parseSendToolInput(
       : undefined);
 
   if (!recipient) {
-    throw new Error("recipient is required");
+    throw new MahiloToolInputError("recipient is required");
   }
 
   const message = readOptionalString(input.message);
   if (!message) {
-    throw new Error("message is required");
+    throw new MahiloToolInputError("message is required");
   }
 
   return {
@@ -233,7 +412,8 @@ function parseSendToolInput(
     correlationId:
       readOptionalString(input.correlationId) ??
       readOptionalString(input.correlation_id),
-    declaredSelectors: parseDeclaredSelectors(input.declaredSelectors),
+    declaredSelectors:
+      parseDeclaredSelectors(input.declaredSelectors ?? input.declared_selectors),
     idempotencyKey:
       readOptionalString(input.idempotencyKey) ??
       readOptionalString(input.idempotency_key),
@@ -254,7 +434,7 @@ function parseToolContext(rawInput: unknown, config: MahiloPluginConfig): Mahilo
     readOptionalString(input.sender_connection_id);
 
   if (!senderConnectionId) {
-    throw new Error(
+    throw new MahiloToolInputError(
       "senderConnectionId is required (pass senderConnectionId or sender_connection_id)"
     );
   }
@@ -265,6 +445,103 @@ function parseToolContext(rawInput: unknown, config: MahiloPluginConfig): Mahilo
       readOptionalString(input.agent_session_id),
     reviewMode: parseReviewMode(input.reviewMode ?? input.review_mode) ?? config.reviewMode,
     senderConnectionId
+  };
+}
+
+function parseGetMahiloContextInput(rawInput: unknown): GetMahiloContextInput {
+  const input = readInputObject(rawInput);
+  const senderConnectionId = readRequiredSenderConnectionId(input);
+  const recipientType =
+    readRecipientType(input.recipientType) ??
+    readRecipientType(input.recipient_type) ??
+    "user";
+  const recipient =
+    readOptionalString(input.recipient) ??
+    (recipientType === "group"
+      ? readOptionalString(input.groupId) ?? readOptionalString(input.group_id)
+      : undefined);
+
+  if (!recipient) {
+    throw new MahiloToolInputError("recipient is required");
+  }
+
+  return {
+    declaredSelectors:
+      parseDeclaredSelectors(input.draftSelectors ?? input.draft_selectors) ??
+      parseDeclaredSelectors(input.declaredSelectors ?? input.declared_selectors),
+    includeRecentInteractions:
+      readOptionalBoolean(input.includeRecentInteractions) ??
+      readOptionalBoolean(input.include_recent_interactions),
+    interactionLimit:
+      readOptionalInteger(input.interactionLimit) ??
+      readOptionalInteger(input.interaction_limit),
+    recipient,
+    recipientType,
+    senderConnectionId
+  };
+}
+
+function parsePreviewMahiloSendInput(rawInput: unknown): PreviewMahiloSendInput {
+  const input = readInputObject(rawInput);
+  const explicitRecipientType =
+    readRecipientType(input.recipientType) ?? readRecipientType(input.recipient_type);
+  const parsedInput = parseSendToolInput(rawInput, { allowGroupAliases: true });
+
+  return {
+    ...parsedInput,
+    recipientType:
+      explicitRecipientType ??
+      (readOptionalString(input.groupId) ?? readOptionalString(input.group_id) ? "group" : "user")
+  };
+}
+
+function parseCreateMahiloOverrideInput(rawInput: unknown): CreateMahiloOverrideInput {
+  const input = readInputObject(rawInput);
+  const effect = readOptionalString(input.effect);
+  const kind = readOptionalString(input.kind);
+  const reason = readOptionalString(input.reason);
+  const scope = readOptionalString(input.scope);
+  const senderConnectionId = readRequiredSenderConnectionId(input);
+
+  if (!kind) {
+    throw new MahiloToolInputError("kind is required");
+  }
+
+  if (!scope) {
+    throw new MahiloToolInputError("scope is required");
+  }
+
+  if (!effect) {
+    throw new MahiloToolInputError("effect is required");
+  }
+
+  if (!reason) {
+    throw new MahiloToolInputError("reason is required");
+  }
+
+  return {
+    derivedFromMessageId:
+      readOptionalString(input.derivedFromMessageId) ??
+      readOptionalString(input.derived_from_message_id),
+    effect,
+    expiresAt: readOptionalString(input.expiresAt) ?? readOptionalString(input.expires_at),
+    idempotencyKey:
+      readOptionalString(input.idempotencyKey) ??
+      readOptionalString(input.idempotency_key),
+    kind,
+    maxUses: readOptionalInteger(input.maxUses) ?? readOptionalInteger(input.max_uses),
+    priority: readOptionalInteger(input.priority),
+    reason,
+    scope,
+    selectors: parseDeclaredSelectors(
+      input.selectors ?? input.declaredSelectors ?? input.declared_selectors
+    ),
+    senderConnectionId,
+    sourceResolutionId:
+      readOptionalString(input.sourceResolutionId) ??
+      readOptionalString(input.source_resolution_id),
+    targetId: readOptionalString(input.targetId) ?? readOptionalString(input.target_id),
+    ttlSeconds: readOptionalInteger(input.ttlSeconds) ?? readOptionalInteger(input.ttl_seconds)
   };
 }
 
@@ -309,10 +586,24 @@ function parseReviewMode(value: unknown): ReviewMode | undefined {
 
 function readInputObject(rawInput: unknown): Record<string, unknown> {
   if (typeof rawInput !== "object" || rawInput === null || Array.isArray(rawInput)) {
-    throw new Error("tool input must be an object");
+    throw new MahiloToolInputError("tool input must be an object");
   }
 
   return rawInput as Record<string, unknown>;
+}
+
+function readRequiredSenderConnectionId(input: Record<string, unknown>): string {
+  const senderConnectionId =
+    readOptionalString(input.senderConnectionId) ??
+    readOptionalString(input.sender_connection_id);
+
+  if (!senderConnectionId) {
+    throw new MahiloToolInputError(
+      "senderConnectionId is required (pass senderConnectionId or sender_connection_id)"
+    );
+  }
+
+  return senderConnectionId;
 }
 
 function readOptionalObject(value: unknown): Record<string, unknown> | undefined {
@@ -330,6 +621,46 @@ function readOptionalString(value: unknown): string | undefined {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function readOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readOptionalInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.trunc(value);
+}
+
+function readRecipientType(value: unknown): "group" | "user" | undefined {
+  return value === "group" || value === "user" ? value : undefined;
+}
+
+async function executeMahiloTool<T>(
+  toolName: string,
+  execute: () => Promise<{ content: Array<{ text: string; type: "text" }>; details: T }>
+): Promise<{ content: Array<{ text: string; type: "text" }>; details: MahiloToolFailure | T }> {
+  try {
+    return await execute();
+  } catch (error) {
+    const failure = toMahiloToolFailure(toolName, error);
+    return toAgentToolResult(failure, `${toolName} failed: ${failure.error}`);
+  }
+}
+
+function createSelectorSchema(): Record<string, unknown> {
+  return {
+    additionalProperties: false,
+    properties: {
+      action: { type: "string" },
+      direction: { type: "string" },
+      resource: { type: "string" }
+    },
+    type: "object"
+  };
 }
 
 function toAgentToolResult<T>(details: T, text: string): { content: Array<{ text: string; type: "text" }>; details: T } {
@@ -691,6 +1022,36 @@ function readFirstString(
 
 function readOptionalArray(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
+}
+
+function toMahiloToolFailure(tool: string, error: unknown): MahiloToolFailure {
+  if (error instanceof MahiloToolInputError) {
+    return {
+      error: error.message,
+      errorType: "input",
+      retryable: false,
+      status: "error",
+      tool
+    };
+  }
+
+  if (error instanceof MahiloRequestError) {
+    return {
+      error: error.message,
+      errorType: error.kind === "network" ? "network" : "server",
+      retryable: error.retryable,
+      status: "error",
+      tool
+    };
+  }
+
+  return {
+    error: toErrorMessage(error),
+    errorType: "unknown",
+    retryable: false,
+    status: "error",
+    tool
+  };
 }
 
 function toErrorMessage(error: unknown): string {

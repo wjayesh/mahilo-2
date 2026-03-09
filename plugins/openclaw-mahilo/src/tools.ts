@@ -9,6 +9,12 @@ import {
   type LocalPolicyGuardResult,
   type PolicyDecision
 } from "./policy-helpers";
+import {
+  fetchMahiloPromptContext,
+  type FetchMahiloPromptContextInput,
+  type FetchMahiloPromptContextOptions,
+  type FetchMahiloPromptContextResult
+} from "./prompt-context";
 
 export interface MahiloToolContext {
   agentSessionId?: string;
@@ -58,6 +64,72 @@ export interface MahiloContact {
 }
 
 export type ContactsProvider = () => Promise<MahiloContact[]>;
+
+export interface GetMahiloContextInput extends FetchMahiloPromptContextInput {}
+
+export interface GetMahiloContextOptions extends FetchMahiloPromptContextOptions {}
+
+export type MahiloContextToolResult = FetchMahiloPromptContextResult;
+
+export interface PreviewMahiloSendInput extends MahiloSendToolInput {
+  recipientType?: "group" | "user";
+}
+
+export interface MahiloPreviewRecipientResult {
+  decision?: PolicyDecision;
+  deliveryMode?: string;
+  recipient: string;
+}
+
+export interface MahiloPreviewResolvedRecipient {
+  recipient: string;
+  recipientConnectionId?: string;
+  recipientType: "group" | "user";
+}
+
+export interface MahiloPreviewReview {
+  required?: boolean;
+  reviewId?: string;
+}
+
+export interface MahiloPreviewResult {
+  agentGuidance?: string;
+  decision: PolicyDecision;
+  deliveryMode?: string;
+  expiresAt?: string;
+  reasonCode?: string;
+  resolutionId?: string;
+  resolutionSummary?: string;
+  resolvedRecipient?: MahiloPreviewResolvedRecipient;
+  response: unknown;
+  review?: MahiloPreviewReview;
+  serverSelectors: DeclaredSelectors;
+  recipientResults: MahiloPreviewRecipientResult[];
+}
+
+export interface CreateMahiloOverrideInput {
+  derivedFromMessageId?: string;
+  effect: string;
+  expiresAt?: string;
+  idempotencyKey?: string;
+  kind: string;
+  maxUses?: number;
+  priority?: number;
+  reason: string;
+  scope: string;
+  selectors?: Partial<DeclaredSelectors>;
+  senderConnectionId: string;
+  sourceResolutionId?: string;
+  targetId?: string;
+  ttlSeconds?: number;
+}
+
+export interface MahiloOverrideResult {
+  created?: boolean;
+  kind?: string;
+  policyId?: string;
+  response: unknown;
+}
 
 type ReportedOutcome =
   | "blocked"
@@ -111,6 +183,61 @@ export async function listMahiloContacts(provider?: ContactsProvider): Promise<M
   }));
 }
 
+export async function getMahiloContext(
+  client: MahiloContractClient,
+  input: GetMahiloContextInput,
+  options: GetMahiloContextOptions = {}
+): Promise<MahiloContextToolResult> {
+  return fetchMahiloPromptContext(client, input, options);
+}
+
+export async function previewMahiloSend(
+  client: MahiloContractClient,
+  input: PreviewMahiloSendInput,
+  context: MahiloToolContext
+): Promise<MahiloPreviewResult> {
+  const recipientType = input.recipientType ?? "user";
+  const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
+  const response = await client.resolveDraft(
+    buildResolvePayload(recipientType, input, context, normalizedSelectors)
+  );
+
+  return summarizePreviewResponse(response, normalizedSelectors, input.recipient, recipientType);
+}
+
+export async function createMahiloOverride(
+  client: MahiloContractClient,
+  input: CreateMahiloOverrideInput
+): Promise<MahiloOverrideResult> {
+  const selectors = input.selectors
+    ? normalizeDeclaredSelectors(input.selectors, "outbound")
+    : undefined;
+  const payload = compactObject({
+    derived_from_message_id: input.derivedFromMessageId,
+    effect: input.effect,
+    expires_at: input.expiresAt,
+    kind: input.kind,
+    max_uses: input.maxUses,
+    priority: input.priority,
+    reason: input.reason,
+    scope: input.scope,
+    selectors,
+    sender_connection_id: input.senderConnectionId,
+    source_resolution_id: input.sourceResolutionId,
+    target_id: input.targetId,
+    ttl_seconds: input.ttlSeconds
+  });
+  const response = await client.createOverride(payload, input.idempotencyKey);
+  const root = readObject(response);
+
+  return {
+    created: readBoolean(root?.created),
+    kind: readString(root?.kind),
+    policyId: readString(root?.policy_id) ?? readString(root?.policyId),
+    response
+  };
+}
+
 async function executeSendTool(
   client: MahiloContractClient,
   recipientType: "group" | "user",
@@ -124,20 +251,7 @@ async function executeSendTool(
     ? undefined
     : applyLocalPolicyGuard({ message: input.message, selectors: normalizedSelectors });
 
-  const resolvePayload = compactObject({
-    agent_session_id: context.agentSessionId,
-    context: input.context,
-    correlation_id: input.correlationId,
-    declared_selectors: normalizedSelectors,
-    idempotency_key: input.idempotencyKey,
-    message: input.message,
-    payload_type: input.payloadType ?? "text/plain",
-    recipient: input.recipient,
-    recipient_connection_id: input.recipientConnectionId,
-    recipient_type: recipientType,
-    routing_hints: input.routingHints,
-    sender_connection_id: context.senderConnectionId
-  });
+  const resolvePayload = buildResolvePayload(recipientType, input, context, normalizedSelectors);
 
   const resolveResponse = await client.resolveDraft(resolvePayload);
   const preflightDecision = extractDecision(resolveResponse);
@@ -189,6 +303,28 @@ async function reportOutcomeSafely(
   } catch {
     // Outcome reporting should not fail the tool execution path.
   }
+}
+
+function buildResolvePayload(
+  recipientType: "group" | "user",
+  input: MahiloSendToolInput,
+  context: MahiloToolContext,
+  normalizedSelectors: DeclaredSelectors
+): Record<string, unknown> {
+  return compactObject({
+    agent_session_id: context.agentSessionId,
+    context: input.context,
+    correlation_id: input.correlationId,
+    declared_selectors: normalizedSelectors,
+    idempotency_key: input.idempotencyKey,
+    message: input.message,
+    payload_type: input.payloadType ?? "text/plain",
+    recipient: input.recipient,
+    recipient_connection_id: input.recipientConnectionId,
+    recipient_type: recipientType,
+    routing_hints: input.routingHints,
+    sender_connection_id: context.senderConnectionId
+  });
 }
 
 function compactObject(value: Record<string, unknown>): Record<string, unknown> {
@@ -243,6 +379,59 @@ function extractDeduplicated(value: unknown): boolean | undefined {
   }
 
   return undefined;
+}
+
+function summarizePreviewResponse(
+  response: unknown,
+  fallbackSelectors: DeclaredSelectors,
+  fallbackRecipient: string,
+  fallbackRecipientType: "group" | "user"
+): MahiloPreviewResult {
+  const root = readObject(response);
+  const result = root ? readObject(root.result) : undefined;
+  const resolution = readObject(root?.resolution) ?? readObject(result?.resolution);
+  const decision = extractDecision(response);
+  const deliveryMode =
+    readString(root?.delivery_mode) ??
+    readString(result?.delivery_mode) ??
+    readString(resolution?.delivery_mode);
+  const reasonCode =
+    readString(root?.reason_code) ??
+    readString(result?.reason_code) ??
+    readString(resolution?.reason_code);
+  const resolutionSummary =
+    readString(root?.resolution_summary) ??
+    readString(result?.resolution_summary) ??
+    readResolutionSummary(root) ??
+    readResolutionSummary(result);
+  const resolvedRecipient =
+    readPreviewResolvedRecipient(root?.resolved_recipient, fallbackRecipient, fallbackRecipientType) ??
+    readPreviewResolvedRecipient(result?.resolved_recipient, fallbackRecipient, fallbackRecipientType);
+  const review = readPreviewReview(root?.review) ?? readPreviewReview(result?.review);
+  const recipientResults = readPreviewRecipientResults(
+    root?.recipient_results ?? result?.recipient_results,
+    fallbackRecipient,
+    decision,
+    deliveryMode
+  );
+
+  return {
+    agentGuidance: readString(root?.agent_guidance) ?? readString(result?.agent_guidance),
+    decision,
+    deliveryMode,
+    expiresAt: readString(root?.expires_at) ?? readString(result?.expires_at),
+    reasonCode,
+    resolutionId: extractResolutionId(response),
+    resolutionSummary,
+    resolvedRecipient,
+    response,
+    review,
+    serverSelectors: readPreviewSelectors(
+      root?.server_selectors ?? result?.server_selectors,
+      fallbackSelectors
+    ),
+    recipientResults
+  };
 }
 
 function summarizeSendOutcome(
@@ -471,6 +660,125 @@ function readResolutionSummary(value: Record<string, unknown> | undefined): stri
   );
 }
 
+function readPreviewResolvedRecipient(
+  value: unknown,
+  fallbackRecipient: string,
+  fallbackRecipientType: "group" | "user"
+): MahiloPreviewResolvedRecipient | undefined {
+  const recipient = readObject(value);
+  const resolvedRecipient =
+    readString(recipient?.recipient) ??
+    readString(recipient?.id) ??
+    fallbackRecipient;
+
+  if (!resolvedRecipient) {
+    return undefined;
+  }
+
+  return {
+    recipient: resolvedRecipient,
+    recipientConnectionId:
+      readString(recipient?.recipient_connection_id) ??
+      readString(recipient?.recipientConnectionId),
+    recipientType:
+      readRecipientType(recipient?.recipient_type) ??
+      readRecipientType(recipient?.recipientType) ??
+      fallbackRecipientType
+  };
+}
+
+function readPreviewReview(value: unknown): MahiloPreviewReview | undefined {
+  const review = readObject(value);
+  if (!review) {
+    return undefined;
+  }
+
+  const normalized: MahiloPreviewReview = {};
+  const required = readBoolean(review.required);
+  const reviewId = readString(review.review_id) ?? readString(review.reviewId);
+
+  if (typeof required === "boolean") {
+    normalized.required = required;
+  }
+
+  if (reviewId) {
+    normalized.reviewId = reviewId;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function readPreviewSelectors(
+  value: unknown,
+  fallbackSelectors: DeclaredSelectors
+): DeclaredSelectors {
+  const selectors = readObject(value);
+  if (!selectors) {
+    return fallbackSelectors;
+  }
+
+  return normalizeDeclaredSelectors(
+    {
+      action: readString(selectors.action),
+      direction: readSelectorDirection(selectors.direction),
+      resource: readString(selectors.resource)
+    },
+    fallbackSelectors.direction
+  );
+}
+
+function readPreviewRecipientResults(
+  value: unknown,
+  fallbackRecipient: string,
+  fallbackDecision: PolicyDecision,
+  fallbackDeliveryMode?: string
+): MahiloPreviewRecipientResult[] {
+  const recipientResults: MahiloPreviewRecipientResult[] = [];
+  const rawResults = Array.isArray(value) ? value : [];
+
+  for (const rawResult of rawResults) {
+    const recipientResult = readObject(rawResult);
+    if (!recipientResult) {
+      continue;
+    }
+
+    const recipient = readString(recipientResult.recipient);
+    if (!recipient) {
+      continue;
+    }
+
+    recipientResults.push({
+      decision: extractDecision(recipientResult, fallbackDecision),
+      deliveryMode: readString(recipientResult.delivery_mode),
+      recipient
+    });
+  }
+
+  if (recipientResults.length > 0) {
+    return recipientResults;
+  }
+
+  if (!fallbackRecipient) {
+    return [];
+  }
+
+  return [
+    {
+      decision: fallbackDecision,
+      deliveryMode: fallbackDeliveryMode,
+      recipient: fallbackRecipient
+    }
+  ];
+}
+
+function readRecipientType(value: unknown): "group" | "user" | undefined {
+  return value === "group" || value === "user" ? value : undefined;
+}
+
+function readSelectorDirection(value: unknown): DeclaredSelectors["direction"] | undefined {
+  return value === "inbound" || value === "outbound" ? value : undefined;
+}
+
 function readString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -478,6 +786,10 @@ function readString(value: unknown): string | undefined {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {

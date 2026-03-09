@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import { CONTRACT_ENDPOINTS, MAHILO_CONTRACT_VERSION, MahiloContractClient } from "../src";
+import {
+  CONTRACT_ENDPOINTS,
+  MAHILO_CONTRACT_VERSION,
+  MahiloContractClient,
+  MahiloRequestError
+} from "../src";
 
 interface FetchCall {
   init?: RequestInit;
@@ -174,6 +179,23 @@ describe("MahiloContractClient", () => {
 
     await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(
       "Mahilo request failed with status 403: forbidden"
+    );
+  });
+
+  it("wraps network fetch failures in a stable request error", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("socket hang up");
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion: "0.0.1"
+    });
+
+    await expect(client.resolveDraft({ message: "hello" })).rejects.toBeInstanceOf(MahiloRequestError);
+    await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(
+      "Mahilo request failed: socket hang up"
     );
   });
 

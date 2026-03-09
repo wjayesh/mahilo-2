@@ -1,11 +1,22 @@
 import { describe, expect, it } from "bun:test";
 
-import { listMahiloContacts, talkToAgent, talkToGroup } from "../src";
+import {
+  createMahiloOverride,
+  getMahiloContext,
+  listMahiloContacts,
+  previewMahiloSend,
+  talkToAgent,
+  talkToGroup
+} from "../src";
 
 type Decision = "allow" | "ask" | "deny";
 
 interface MockClientState {
+  overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  overrideResponse: unknown;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  promptContextCalls: Array<Record<string, unknown>>;
+  promptContextResponse: unknown;
   reportOutcomeError?: Error;
   resolveCalls: Array<Record<string, unknown>>;
   resolveResponse: unknown;
@@ -14,12 +25,38 @@ interface MockClientState {
 }
 
 function createMockClient(options: {
+  overrideResponse?: unknown;
+  promptContextResponse?: unknown;
   reportOutcomeError?: Error;
   resolveResponse?: unknown;
   sendResponse?: unknown;
 } = {}) {
   const state: MockClientState = {
+    overrideCalls: [],
+    overrideResponse: options.overrideResponse ?? {
+      created: true,
+      kind: "one_time",
+      policy_id: "pol_789"
+    },
     outcomeCalls: [],
+    promptContextCalls: [],
+    promptContextResponse: options.promptContextResponse ?? {
+      policy_guidance: {
+        default_decision: "ask",
+        reason_code: "context.ask.role.structured",
+        summary: "Share only high-level details."
+      },
+      recipient: {
+        relationship: "friend",
+        roles: ["close_friends"],
+        username: "alice"
+      },
+      suggested_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general"
+      }
+    },
     reportOutcomeError: options.reportOutcomeError,
     resolveCalls: [],
     resolveResponse: options.resolveResponse ?? {
@@ -34,6 +71,14 @@ function createMockClient(options: {
   };
 
   const client = {
+    createOverride: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+      state.overrideCalls.push({ idempotencyKey, payload });
+      return state.overrideResponse;
+    },
+    getPromptContext: async (payload: Record<string, unknown>) => {
+      state.promptContextCalls.push(payload);
+      return state.promptContextResponse;
+    },
     reportOutcome: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.outcomeCalls.push({ idempotencyKey, payload });
       if (state.reportOutcomeError) {
@@ -461,6 +506,186 @@ describe("send tools", () => {
       { outcome: "sent", recipient: "alice" },
       { outcome: "review_requested", recipient: "bob" }
     ]);
+  });
+});
+
+describe("native contract tools", () => {
+  it("fetches compact Mahilo context through the prompt-context contract", async () => {
+    const { client, state } = createMockClient();
+
+    const result = await getMahiloContext(client, {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current"
+      },
+      includeRecentInteractions: true,
+      interactionLimit: 8,
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe("live");
+    expect(result.context?.guidance.decision).toBe("ask");
+    expect(state.promptContextCalls).toHaveLength(1);
+    expect(state.promptContextCalls[0]).toEqual({
+      draft_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "location.current"
+      },
+      include_recent_interactions: true,
+      interaction_limit: 5,
+      recipient: "alice",
+      recipient_type: "user",
+      sender_connection_id: "conn_sender"
+    });
+  });
+
+  it("previews send policy using the resolve contract without sending", async () => {
+    const { client, state } = createMockClient({
+      resolveResponse: {
+        agent_guidance: "Ask for approval before sending.",
+        decision: "ask",
+        delivery_mode: "review_required",
+        expires_at: "2026-03-08T12:40:00.000Z",
+        reason_code: "policy.ask.resolved",
+        resolution_id: "res_preview",
+        resolution_summary: "Message requires review before delivery.",
+        resolved_recipient: {
+          recipient: "alice",
+          recipient_connection_id: "conn_alice",
+          recipient_type: "user"
+        },
+        review: {
+          required: true,
+          review_id: "rev_123"
+        },
+        server_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        }
+      }
+    });
+
+    const result = await previewMahiloSend(
+      client,
+      {
+        context: "travel update",
+        correlationId: "corr_preview",
+        declaredSelectors: {
+          action: " Share ",
+          resource: "Location Current"
+        },
+        idempotencyKey: "idem_preview",
+        message: "Alice is at home right now.",
+        recipient: "alice",
+        recipientConnectionId: "conn_alice",
+        routingHints: { labels: ["friends"] }
+      },
+      {
+        agentSessionId: "sess_preview",
+        senderConnectionId: "conn_sender"
+      }
+    );
+
+    expect(result).toMatchObject({
+      agentGuidance: "Ask for approval before sending.",
+      decision: "ask",
+      deliveryMode: "review_required",
+      reasonCode: "policy.ask.resolved",
+      resolutionId: "res_preview",
+      resolvedRecipient: {
+        recipient: "alice",
+        recipientConnectionId: "conn_alice",
+        recipientType: "user"
+      },
+      review: {
+        required: true,
+        reviewId: "rev_123"
+      },
+      serverSelectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "location.current"
+      }
+    });
+    expect(state.resolveCalls).toHaveLength(1);
+    expect(state.resolveCalls[0]).toEqual({
+      agent_session_id: "sess_preview",
+      context: "travel update",
+      correlation_id: "corr_preview",
+      declared_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "location.current"
+      },
+      idempotency_key: "idem_preview",
+      message: "Alice is at home right now.",
+      payload_type: "text/plain",
+      recipient: "alice",
+      recipient_connection_id: "conn_alice",
+      recipient_type: "user",
+      routing_hints: { labels: ["friends"] },
+      sender_connection_id: "conn_sender"
+    });
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("creates overrides with normalized selectors and idempotency key", async () => {
+    const { client, state } = createMockClient({
+      overrideResponse: {
+        created: true,
+        kind: "temporary",
+        policy_id: "pol_temp_1"
+      }
+    });
+
+    const result = await createMahiloOverride(client, {
+      derivedFromMessageId: "msg_source",
+      effect: "allow",
+      idempotencyKey: "idem_override",
+      kind: "temporary",
+      priority: 90,
+      reason: "User approved sharing current location one time with Alice.",
+      scope: "user",
+      selectors: {
+        action: " Share ",
+        resource: "Location Current"
+      },
+      senderConnectionId: "conn_sender",
+      sourceResolutionId: "res_123",
+      targetId: "usr_alice",
+      ttlSeconds: 600
+    });
+
+    expect(result).toMatchObject({
+      created: true,
+      kind: "temporary",
+      policyId: "pol_temp_1"
+    });
+    expect(state.overrideCalls).toHaveLength(1);
+    expect(state.overrideCalls[0]).toEqual({
+      idempotencyKey: "idem_override",
+      payload: {
+        derived_from_message_id: "msg_source",
+        effect: "allow",
+        kind: "temporary",
+        priority: 90,
+        reason: "User approved sharing current location one time with Alice.",
+        scope: "user",
+        selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current"
+        },
+        sender_connection_id: "conn_sender",
+        source_resolution_id: "res_123",
+        target_id: "usr_alice",
+        ttl_seconds: 600
+      }
+    });
   });
 });
 

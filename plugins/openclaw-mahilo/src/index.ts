@@ -6,8 +6,8 @@ export {
   MAHILO_RUNTIME_PLUGIN_ID,
   MAHILO_RUNTIME_PLUGIN_NAME
 } from "./identity";
-export { MahiloContractClient } from "./client";
-export type { MahiloClientOptions } from "./client";
+export { MahiloContractClient, MahiloRequestError } from "./client";
+export type { MahiloClientOptions, MahiloRequestErrorKind } from "./client";
 export { registerMahiloDiagnosticsCommands } from "./commands";
 export type { MahiloDiagnosticsCommandOptions, MahiloDiagnosticsLogger } from "./commands";
 export { createClientOptionsFromConfig, createMahiloClientFromConfig, MahiloConfigError, parseMahiloPluginConfig, redactSensitiveConfig } from "./config";
@@ -33,8 +33,33 @@ export {
   toToolStatus
 } from "./policy-helpers";
 export type { DeclaredSelectors, LocalPolicyGuardInput, LocalPolicyGuardResult, PolicyDecision, SelectorDirection } from "./policy-helpers";
-export { listMahiloContacts, talkToAgent, talkToGroup } from "./tools";
-export type { ContactsProvider, MahiloContact, MahiloSendToolInput, MahiloToolContext, MahiloToolResult, TalkToGroupInput, ToolExecutionOptions } from "./tools";
+export {
+  createMahiloOverride,
+  getMahiloContext,
+  listMahiloContacts,
+  previewMahiloSend,
+  talkToAgent,
+  talkToGroup
+} from "./tools";
+export type {
+  ContactsProvider,
+  CreateMahiloOverrideInput,
+  GetMahiloContextInput,
+  GetMahiloContextOptions,
+  MahiloContact,
+  MahiloContextToolResult,
+  MahiloOverrideResult,
+  MahiloPreviewRecipientResult,
+  MahiloPreviewResolvedRecipient,
+  MahiloPreviewResult,
+  MahiloPreviewReview,
+  MahiloSendToolInput,
+  MahiloToolContext,
+  MahiloToolResult,
+  PreviewMahiloSendInput,
+  TalkToGroupInput,
+  ToolExecutionOptions
+} from "./tools";
 export { createMahiloOpenClawPlugin, registerMahiloOpenClawPlugin } from "./openclaw-plugin";
 export type { MahiloOpenClawPluginOptions } from "./openclaw-plugin";
 export { fetchMahiloPromptContext, formatMahiloPromptInjection } from "./prompt-context";
