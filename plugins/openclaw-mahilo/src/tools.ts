@@ -137,7 +137,7 @@ export interface MahiloOverrideResult {
   summary: string;
 }
 
-type ReportedOutcome =
+export type ReportedOutcome =
   | "blocked"
   | "partial_sent"
   | "review_approved"
@@ -147,14 +147,14 @@ type ReportedOutcome =
   | "sent"
   | "withheld";
 
-interface RecipientOutcome {
+export interface MahiloRecipientOutcome {
   outcome: ReportedOutcome;
   recipient: string;
 }
 
-interface SendOutcomeSummary {
+export interface MahiloSendOutcomeSummary {
   outcome: ReportedOutcome;
-  recipientResults?: RecipientOutcome[];
+  recipientResults?: MahiloRecipientOutcome[];
   reason?: string;
   status: MahiloToolResult["status"];
 }
@@ -602,7 +602,11 @@ async function executeSendTool(
   const resolutionId = extractResolutionId(sendResponse) ?? preflightResolutionId;
   const messageId = extractMessageId(sendResponse);
   const deduplicated = extractDeduplicated(sendResponse);
-  const sendOutcomeSummary = summarizeSendOutcome(sendResponse, sendDecision, input.recipient);
+  const sendOutcomeSummary = summarizeMahiloSendOutcome(
+    sendResponse,
+    sendDecision,
+    input.recipient
+  );
 
   if ((options.reportOutcomes ?? true) && messageId) {
     const outcomePayload = compactObject({
@@ -769,11 +773,11 @@ function summarizePreviewResponse(
   };
 }
 
-function summarizeSendOutcome(
+export function summarizeMahiloSendOutcome(
   response: unknown,
   fallbackDecision: PolicyDecision,
   fallbackRecipient: string
-): SendOutcomeSummary {
+): MahiloSendOutcomeSummary {
   const root = readObject(response);
   const result = root ? readObject(root.result) : undefined;
   const inferredOutcome = inferOutcomeFromResponse(root, result, fallbackDecision);
@@ -843,14 +847,14 @@ function readRecipientOutcomes(
   result: Record<string, unknown> | undefined,
   fallbackOutcome: ReportedOutcome,
   fallbackRecipient: string
-): RecipientOutcome[] | undefined {
+): MahiloRecipientOutcome[] | undefined {
   const rawResults = Array.isArray(root?.recipient_results)
     ? root.recipient_results
     : Array.isArray(result?.recipient_results)
       ? result.recipient_results
       : [];
 
-  const normalizedResults: RecipientOutcome[] = [];
+  const normalizedResults: MahiloRecipientOutcome[] = [];
   for (const rawResult of rawResults) {
     const recipientResult = readObject(rawResult);
     if (!recipientResult) {
@@ -922,7 +926,7 @@ function inferRecipientOutcome(
 }
 
 function deriveAggregateOutcome(
-  recipientResults: RecipientOutcome[] | undefined,
+  recipientResults: MahiloRecipientOutcome[] | undefined,
   fallbackOutcome: ReportedOutcome
 ): ReportedOutcome {
   if (!recipientResults || recipientResults.length === 0) {

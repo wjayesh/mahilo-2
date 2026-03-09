@@ -124,7 +124,10 @@ function createStatusCommand(
         runtimeState: options.pluginState
           ? {
               contextCacheEntries: options.pluginState.contextCacheSize(),
-              dedupeEntries: options.pluginState.dedupe.size()
+              dedupeEntries: options.pluginState.dedupe.size(),
+              novelDecisionEntries: options.pluginState.novelDecisionCount(),
+              pendingLearningSuggestions:
+                options.pluginState.pendingLearningSuggestionCount()
             }
           : null
       };

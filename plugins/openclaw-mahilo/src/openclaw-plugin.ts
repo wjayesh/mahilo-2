@@ -34,6 +34,12 @@ import {
   type TalkToGroupInput
 } from "./tools";
 import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./webhook-route";
+import {
+  extractMahiloPostSendEvent,
+  formatMahiloLearningSuggestion,
+  formatMahiloOutcomeSystemEvent,
+  shouldQueueMahiloLearningSuggestion
+} from "./post-send-hooks";
 
 export interface MahiloOpenClawPluginOptions {
   contactsProvider?: ContactsProvider;
@@ -116,6 +122,7 @@ export function registerMahiloOpenClawPlugin(
   api.registerTool(createPreviewMahiloSendTool(client, config));
   api.registerTool(createCreateMahiloOverrideTool(client));
   registerPromptContextHook(api, client, config, pluginState);
+  registerMahiloPostSendHooks(api, pluginState);
   registerMahiloWebhookRoute(api, config, webhookRouteOptions);
   registerMahiloDiagnosticsCommands(api, config, client, diagnosticsCommandOptions);
 }
@@ -719,6 +726,124 @@ function registerPromptContextHook(
       return rawHookInput;
     }
   });
+}
+
+function registerMahiloPostSendHooks(
+  api: OpenClawPluginApi,
+  pluginState: InMemoryPluginState
+): void {
+  api.on("after_tool_call", async (event, ctx) => {
+    try {
+      const params = readOptionalObject(event.params) ?? {};
+      const postSendEvent = extractMahiloPostSendEvent({
+        error: readOptionalString(event.error),
+        params,
+        result: event.result,
+        toolName: event.toolName
+      });
+
+      if (!postSendEvent) {
+        return;
+      }
+
+      const sessionKey = readOptionalString(ctx.sessionKey);
+      if (sessionKey) {
+        api.runtime.system.enqueueSystemEvent(
+          formatMahiloOutcomeSystemEvent(postSendEvent),
+          {
+            contextKey: buildMahiloOutcomeContextKey(
+              postSendEvent,
+              readOptionalString(ctx.runId),
+              readOptionalString(ctx.toolCallId)
+            ),
+            sessionKey
+          }
+        );
+      }
+
+      if (
+        postSendEvent.kind === "outcome" &&
+        sessionKey &&
+        shouldQueueMahiloLearningSuggestion(postSendEvent.observation) &&
+        pluginState.markNovelDecision(postSendEvent.observation.fingerprint)
+      ) {
+        pluginState.queueLearningSuggestion(
+          sessionKey,
+          postSendEvent.observation
+        );
+      }
+    } catch (error) {
+      api.logger?.warn?.(
+        `[Mahilo] after_tool_call hook failed: ${toErrorMessage(error)}`
+      );
+    }
+  });
+
+  api.on("agent_end", async (_event, ctx) => {
+    try {
+      const sessionKey = readOptionalString(ctx.sessionKey);
+      if (!sessionKey) {
+        return;
+      }
+
+      const suggestions = pluginState.consumeLearningSuggestions(sessionKey);
+      if (suggestions.length === 0) {
+        return;
+      }
+
+      for (const suggestion of suggestions) {
+        api.runtime.system.enqueueSystemEvent(
+          formatMahiloLearningSuggestion(suggestion),
+          {
+            contextKey: `mahilo:learning:${suggestion.fingerprint}`,
+            sessionKey
+          }
+        );
+      }
+
+      api.runtime.system.requestHeartbeatNow({
+        agentId: readOptionalString(ctx.agentId),
+        reason: "mahilo:learning-suggestion",
+        sessionKey
+      });
+    } catch (error) {
+      api.logger?.warn?.(
+        `[Mahilo] agent_end hook failed: ${toErrorMessage(error)}`
+      );
+    }
+  });
+}
+
+function buildMahiloOutcomeContextKey(
+  event: ReturnType<typeof extractMahiloPostSendEvent>,
+  runId: string | undefined,
+  toolCallId: string | undefined
+): string | undefined {
+  if (!event) {
+    return undefined;
+  }
+
+  if (event.kind === "failure") {
+    return [
+      "mahilo",
+      "outcome",
+      "failure",
+      event.failure.toolName,
+      event.failure.recipient,
+      toolCallId ?? runId ?? "unknown"
+    ].join(":");
+  }
+
+  return [
+    "mahilo",
+    "outcome",
+    event.observation.outcome,
+    event.observation.messageId ??
+      event.observation.resolutionId ??
+      toolCallId ??
+      runId ??
+      event.observation.fingerprint
+  ].join(":");
 }
 
 async function injectMahiloContextIntoPrompt(

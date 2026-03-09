@@ -32,8 +32,20 @@ interface RegisteredHttpRoute {
 }
 
 interface RegisteredHook {
-  execute: (payload: unknown) => Promise<unknown>;
+  execute: (...args: unknown[]) => Promise<unknown> | unknown;
   name: string;
+}
+
+interface RecordedSystemEvent {
+  contextKey?: string | null;
+  sessionKey: string;
+  text: string;
+}
+
+interface RecordedHeartbeatRequest {
+  agentId?: string;
+  reason?: string;
+  sessionKey?: string;
 }
 
 function createMockContractClient(options: {
@@ -144,14 +156,18 @@ function createMockPluginApi(
 ): {
   api: never;
   commands: RegisteredCommand[];
+  heartbeatRequests: RecordedHeartbeatRequest[];
   hooks: RegisteredHook[];
   routes: RegisteredHttpRoute[];
+  systemEvents: RecordedSystemEvent[];
   tools: RegisteredTool[];
 } {
   const commands: RegisteredCommand[] = [];
+  const heartbeatRequests: RecordedHeartbeatRequest[] = [];
   const hooks: RegisteredHook[] = [];
   const tools: RegisteredTool[] = [];
   const routes: RegisteredHttpRoute[] = [];
+  const systemEvents: RecordedSystemEvent[] = [];
 
   const api = {
     config: {},
@@ -163,7 +179,9 @@ function createMockPluginApi(
       warn: () => {}
     },
     name: "Mahilo",
-    on: () => {},
+    on: (name: string, execute: RegisteredHook["execute"]) => {
+      hooks.push({ execute, name });
+    },
     pluginConfig,
     registerChannel: () => {},
     registerCli: () => {},
@@ -190,7 +208,24 @@ function createMockPluginApi(
       tools.push(tool);
     },
     resolvePath: (input: string) => input,
-    runtime: {},
+    runtime: {
+      system: {
+        enqueueSystemEvent: (
+          text: string,
+          options: { contextKey?: string | null; sessionKey: string }
+        ) => {
+          systemEvents.push({
+            contextKey: options.contextKey,
+            sessionKey: options.sessionKey,
+            text
+          });
+          return true;
+        },
+        requestHeartbeatNow: (options?: RecordedHeartbeatRequest) => {
+          heartbeatRequests.push(options ?? {});
+        }
+      }
+    },
     source: "tests/openclaw-plugin",
     version: "1.2.3"
   };
@@ -198,8 +233,10 @@ function createMockPluginApi(
   return {
     api: api as never,
     commands,
+    heartbeatRequests,
     hooks,
     routes,
+    systemEvents,
     tools
   };
 }
@@ -351,7 +388,9 @@ describe("createMahiloOpenClawPlugin", () => {
       "mahilo review",
       "mahilo status"
     ]);
-    expect(hooks.map((hook) => hook.name)).toContain("before_prompt_build");
+    expect(hooks.map((hook) => hook.name)).toEqual(
+      expect.arrayContaining(["before_prompt_build", "after_tool_call", "agent_end"])
+    );
     expect(routes).toHaveLength(1);
   });
 
@@ -772,6 +811,214 @@ describe("createMahiloOpenClawPlugin", () => {
     });
     expect(state.listReviewCalls).toHaveLength(1);
     expect(state.blockedEventCalls).toHaveLength(1);
+  });
+
+  it("queues Mahilo outcome notes and learning suggestions after novel send results", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "talk_to_agent");
+    const input = {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current"
+      },
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_post_send_1", input);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: input,
+        result: toolResult,
+        toolName: "talk_to_agent"
+      },
+      {
+        agentId: "mahilo-agent",
+        runId: "run_1",
+        sessionKey: "session_1",
+        toolCallId: "tool_call_post_send_1",
+        toolName: "talk_to_agent"
+      }
+    );
+
+    expect(systemEvents).toHaveLength(1);
+    expect(systemEvents[0]?.sessionKey).toBe("session_1");
+    expect(String(systemEvents[0]?.text ?? "")).toContain(
+      "Mahilo outcome: sent to alice (location.current/share)"
+    );
+
+    const agentEnd = findHook(hooks, "agent_end");
+    await agentEnd.execute(
+      {
+        durationMs: 1_200,
+        messages: [],
+        success: true
+      },
+      {
+        agentId: "mahilo-agent",
+        sessionKey: "session_1"
+      }
+    );
+
+    expect(systemEvents).toHaveLength(2);
+    expect(systemEvents[1]?.sessionKey).toBe("session_1");
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "Mahilo learning opportunity:"
+    );
+    expect(String(systemEvents[1]?.text ?? "")).toContain("location.current/share");
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-agent",
+        reason: "mahilo:learning-suggestion",
+        sessionKey: "session_1"
+      }
+    ]);
+  });
+
+  it("does not repeat learning suggestions for the same Mahilo decision fingerprint", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "talk_to_agent");
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    const agentEnd = findHook(hooks, "agent_end");
+    const input = {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current"
+      },
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    };
+
+    const firstResult = await tool.execute("tool_call_post_send_2a", input);
+    await afterToolCall.execute(
+      {
+        params: input,
+        result: firstResult,
+        toolName: "talk_to_agent"
+      },
+      {
+        runId: "run_2a",
+        sessionKey: "session_2",
+        toolCallId: "tool_call_post_send_2a",
+        toolName: "talk_to_agent"
+      }
+    );
+    await agentEnd.execute(
+      {
+        messages: [],
+        success: true
+      },
+      {
+        sessionKey: "session_2"
+      }
+    );
+
+    const secondResult = await tool.execute("tool_call_post_send_2b", input);
+    await afterToolCall.execute(
+      {
+        params: input,
+        result: secondResult,
+        toolName: "talk_to_agent"
+      },
+      {
+        runId: "run_2b",
+        sessionKey: "session_2",
+        toolCallId: "tool_call_post_send_2b",
+        toolName: "talk_to_agent"
+      }
+    );
+    await agentEnd.execute(
+      {
+        messages: [],
+        success: true
+      },
+      {
+        sessionKey: "session_2"
+      }
+    );
+
+    const learningEvents = systemEvents.filter((event) =>
+      event.text.includes("Mahilo learning opportunity:")
+    );
+
+    expect(learningEvents).toHaveLength(1);
+    expect(heartbeatRequests).toHaveLength(1);
+  });
+
+  it("keeps routine message.general sends out of the learning-suggestion path", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "talk_to_agent");
+    const input = {
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_post_send_3", input);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: input,
+        result: toolResult,
+        toolName: "talk_to_agent"
+      },
+      {
+        sessionKey: "session_3",
+        toolCallId: "tool_call_post_send_3",
+        toolName: "talk_to_agent"
+      }
+    );
+
+    const agentEnd = findHook(hooks, "agent_end");
+    await agentEnd.execute(
+      {
+        messages: [],
+        success: true
+      },
+      {
+        sessionKey: "session_3"
+      }
+    );
+
+    expect(systemEvents).toHaveLength(1);
+    expect(JSON.stringify(systemEvents[0])).toContain("message.general/share");
+    expect(JSON.stringify(systemEvents[0])).not.toContain(
+      "Mahilo learning opportunity:"
+    );
+    expect(heartbeatRequests).toHaveLength(0);
   });
 
   it("injects bounded Mahilo context into prompt during before_prompt_build", async () => {

@@ -20,7 +20,7 @@ export {
 } from "./keys";
 export type { HeaderBag, SignatureFailureReason, SignatureVerificationOptions, SignatureVerificationResult, WebhookSignatureHeaders } from "./keys";
 export { InMemoryDedupeState, InMemoryPluginState } from "./state";
-export type { DedupeState } from "./state";
+export type { DedupeState, MahiloPendingLearningSuggestion } from "./state";
 export {
   applyLocalPolicyGuard,
   decisionBlocksSend,
@@ -38,6 +38,7 @@ export {
   getMahiloContext,
   listMahiloContacts,
   previewMahiloSend,
+  summarizeMahiloSendOutcome,
   talkToAgent,
   talkToGroup
 } from "./tools";
@@ -53,10 +54,13 @@ export type {
   MahiloPreviewResolvedRecipient,
   MahiloPreviewResult,
   MahiloPreviewReview,
+  MahiloRecipientOutcome,
+  MahiloSendOutcomeSummary,
   MahiloSendToolInput,
   MahiloToolContext,
   MahiloToolResult,
   PreviewMahiloSendInput,
+  ReportedOutcome,
   TalkToGroupInput,
   ToolExecutionOptions
 } from "./tools";

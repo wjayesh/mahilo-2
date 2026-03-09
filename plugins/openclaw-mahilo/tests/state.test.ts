@@ -66,4 +66,39 @@ describe("InMemoryPluginState", () => {
     expect(state.dedupe.markSeen("msg_1", 101)).toBe(false);
     expect(state.dedupe.markSeen("msg_1", 700)).toBe(true);
   });
+
+  it("tracks novel Mahilo decisions with TTL-based deduping", () => {
+    const state = new InMemoryPluginState({ novelDecisionTtlMs: 1_000 });
+
+    expect(state.markNovelDecision("conn|alice|location.current|share|sent", 100)).toBe(true);
+    expect(state.markNovelDecision("conn|alice|location.current|share|sent", 500)).toBe(false);
+    expect(state.novelDecisionCount(500)).toBe(1);
+
+    expect(state.markNovelDecision("conn|alice|location.current|share|sent", 1_200)).toBe(true);
+    expect(state.novelDecisionCount(1_200)).toBe(1);
+  });
+
+  it("queues and consumes learning suggestions per session without duplicate fingerprints", () => {
+    const state = new InMemoryPluginState({ learningSuggestionTtlMs: 5_000 });
+    const suggestion = {
+      decision: "allow" as const,
+      fingerprint: "fingerprint-1",
+      outcome: "sent" as const,
+      recipient: "alice",
+      selectors: {
+        action: "share",
+        direction: "outbound" as const,
+        resource: "location.current"
+      },
+      status: "sent" as const,
+      toolName: "talk_to_agent" as const
+    };
+
+    state.queueLearningSuggestion("session_1", suggestion, 100);
+    state.queueLearningSuggestion("session_1", suggestion, 200);
+
+    expect(state.pendingLearningSuggestionCount(200)).toBe(1);
+    expect(state.consumeLearningSuggestions("session_1", 200)).toEqual([suggestion]);
+    expect(state.pendingLearningSuggestionCount(200)).toBe(0);
+  });
 });
