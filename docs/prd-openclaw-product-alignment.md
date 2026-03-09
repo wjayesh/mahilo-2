@@ -59,6 +59,7 @@ The biggest remaining product gaps are:
 - Friend network flows need direct OpenClaw commands/tools.
 - Contact discovery should come from Mahilo server, not host-injected contact lists.
 - Normal plugin use should not require manual sender connection IDs.
+- The OpenClaw tool surface must stay compact; avoid a tool explosion and prefer a few high-signal actions.
 - "Ask around" needs to be first-class.
 - Response attribution and "I don't know" behavior need explicit implementation and tests.
 - Non-user nudges and connection visibility need product polish.
@@ -99,11 +100,45 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Default boundaries remain conservative
   - [ ] The setup flow reduces visible YAML/config burden for normal use
 
-### 1.2 Friend Request and Accept Flows
+### 1.2 Default Sender Connection Resolution
+- **ID**: `PLG3-004`
+- **Status**: `pending`
+- **Priority**: P0
+- **Depends on**: PLG2-080
+- **Description**:
+  - Stop treating `senderConnectionId` as normal user/model input.
+  - The plugin should discover the user's active Mahilo agent connections from Mahilo server, choose a default deterministically, cache it appropriately, and inject it when low-level routes still require it.
+  - Explicit sender-connection selection should remain available only for advanced routing cases.
+- **Acceptance Criteria**:
+  - [ ] Core Mahilo plugin flows work without a human or prompt author passing `senderConnectionId`
+  - [ ] The plugin can discover the user's own Mahilo agent connections from server state
+  - [ ] Default sender resolution is deterministic and documented
+  - [ ] Advanced/explicit sender-connection override remains possible when needed
+
+### 1.3 Mahilo Social Client Expansion
+- **ID**: `PLG3-005`
+- **Status**: `pending`
+- **Priority**: P0
+- **Depends on**: PLG2-080
+- **Description**:
+  - Expand the plugin client beyond policy/send primitives so it can represent the full Mahilo social product.
+  - Add typed client support for:
+    - list own agent connections
+    - list friends / friendships
+    - send friend request
+    - accept / reject friend request
+    - list a friend's active agent connections
+  - Remove `contactsProvider` from the primary product path.
+- **Acceptance Criteria**:
+  - [ ] Plugin client exposes typed methods for Mahilo friendship/contact/connection flows
+  - [ ] `list_mahilo_contacts` no longer depends on host-injected contacts as the normal path
+  - [ ] Client errors map cleanly to product-level states such as not found, already connected, and no active connections
+
+### 1.4 Friend Request and Accept Flows
 - **ID**: `PLG3-002`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: PLG3-001
+- **Depends on**: PLG3-001, PLG3-004, PLG3-005
 - **Description**:
   - Expose relationship management natively in OpenClaw.
   - Support:
@@ -117,11 +152,26 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Pending requests can be reviewed and acted on in OpenClaw
   - [ ] Errors are human-friendly and distinguish "not found", "already connected", and transport failures
 
-### 1.3 Boundary Management by Conversation
+### 1.5 Minimal Tool Surface and Routing
+- **ID**: `PLG3-006`
+- **Status**: `pending`
+- **Priority**: P0
+- **Depends on**: PLG3-002, PLG3-004, PLG3-005
+- **Description**:
+  - Keep the OpenClaw integration compact.
+  - Prefer a small number of high-signal tools/commands over a tool per Mahilo API route.
+  - Relationship flows, ask-around, boundaries, and diagnostics should be grouped into a stable surface that OpenClaw can use reliably without polluting tool context.
+- **Acceptance Criteria**:
+  - [ ] The plugin exposes a deliberately small, documented Mahilo tool set
+  - [ ] Relationship management and ask-around do not require a separate tool for every server endpoint
+  - [ ] Operational/debug flows prefer commands when that reduces tool-surface noise
+  - [ ] Tool naming and responsibilities are stable and non-overlapping
+
+### 1.6 Boundary Management by Conversation
 - **ID**: `PLG3-003`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: PLG2-033, PLG3-001, PLG3-002
+- **Depends on**: PLG2-033, PLG3-001, PLG3-002, PLG3-006
 - **Description**:
   - Turn the policy engine into user-facing "boundaries" management.
   - Focus on common categories first:
@@ -144,13 +194,14 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 - **ID**: `PLG3-010`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: PLG2-041, PLG2-042, PLG3-002
+- **Depends on**: PLG2-041, PLG2-042, PLG3-002, PLG3-005, PLG3-006
 - **Description**:
-  - Add a high-level ask-around tool/command for the core Mahilo wedge:
+  - Add a high-level ask-around action for the core Mahilo wedge:
     - "ask my contacts"
     - "ask my friends"
     - optional filters by role or group
   - The plugin should fan out to relevant contacts from Mahilo server rather than forcing the user into one-recipient sends or relying on injected host contact providers.
+  - This should be implemented as one compact user-facing capability, not a proliferation of low-level tools.
 - **Acceptance Criteria**:
   - [ ] A single OpenClaw action can fan out a question across contacts
   - [ ] Recipient discovery uses Mahilo server friendship/contact data as the source of truth
@@ -184,6 +235,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 - **Acceptance Criteria**:
   - [ ] Plugin does not attribute inferred opinions to real contacts
   - [ ] "No grounded answer" outcomes are explicit and user-friendly
+  - [ ] Plugin/tool result types include a first-class no-grounded-answer / I-don't-know outcome
   - [ ] Tests cover attribution failures, unknown responses, and provenance formatting
 
 ### 2.4 Missing-Contact and Not-On-Mahilo Nudges
@@ -295,7 +347,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ## Recommended Build Order
 
-1. PLG3-001 → PLG3-003
+1. PLG3-001 → PLG3-006
 2. PLG3-010 → PLG3-013
 3. PLG3-020 → PLG3-022
 4. PLG3-030
@@ -308,7 +360,10 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 This PRD is complete when:
 
 - Mahilo setup feels native inside OpenClaw
+- normal plugin use does not require manual sender connection IDs
+- contacts/friendships come from Mahilo server, not host-injected providers
 - relationship management happens inside OpenClaw
+- the Mahilo tool surface stays intentionally compact
 - "ask around" is a first-class user action
 - replies preserve attribution and honor the trust contract
 - missing-contact states support the viral loop cleanly
