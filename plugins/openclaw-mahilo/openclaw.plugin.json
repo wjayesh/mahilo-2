@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "id": "mahilo",
   "name": "Mahilo",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Mahilo policy-aware communication plugin for OpenClaw.",
   "entry": "./dist/index.js",
   "configSchema": {

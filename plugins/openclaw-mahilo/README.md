@@ -31,7 +31,7 @@ Expected keys inside `plugins.entries.mahilo.config`:
 
 ## Extractable Package Boundaries
 
-The package is structured so it can be published or extracted later with minimal changes:
+The package is structured as a standalone OpenClaw package for public npm release now and later extraction with minimal changes:
 
 - Standalone `package.json` and `tsconfig.json` inside this directory.
 - Standalone `openclaw.plugin.json` with plugin metadata and config schema.
@@ -44,6 +44,7 @@ The package is structured so it can be published or extracted later with minimal
 
 Run from `plugins/openclaw-mahilo/`:
 
+- `bun run sync:manifest-version`
 - `bun run build`
 - `bun run test`
 - `bun run validate:manifest`
@@ -51,8 +52,10 @@ Run from `plugins/openclaw-mahilo/`:
 
 ## Build/Test Story (Publish-Ready)
 
-This package stays `private: true` while migration is in progress, but publish readiness is maintained now:
+This package is configured for a first public scoped npm release:
 
+- `package.json` is publishable and sets `publishConfig.access` to `public`.
+- `package.json` is the canonical release-version source; `bun run sync:manifest-version` keeps `openclaw.plugin.json` aligned with it.
 - Build output is produced at `dist/index.js`.
 - `package.json` declares `openclaw.extensions` as `["./dist/index.js"]` so package installs resolve the built plugin entry.
 - `bun run check` runs the release-gate flow: build, tests, and manifest/package metadata validation.
@@ -116,14 +119,14 @@ bun run build
 
 4. Restart OpenClaw and confirm Mahilo tools register from the local package.
 
-## Future Publish Path
+## Public Release Workflow
 
-When moving from repo-local package to published package, keep this sequence:
+When preparing or cutting a public npm release, keep this sequence:
 
 1. Run `bun run check` and confirm all plugin-local checks pass.
-2. Update package release metadata (`version`, `private`) when publishing is approved.
+2. Bump `package.json` version and run `bun run sync:manifest-version` if you did not already build or check as part of the release flow.
 3. Build before packaging so `openclaw.extensions` points to a present built entry (`./dist/index.js`).
-4. Run a dry package inspection (`npm pack --dry-run`) and verify `dist/`, `openclaw.plugin.json`, and `README.md` are included.
+4. Publish the scoped package with public access after validating tarball contents and release notes.
 
 Legacy path and deprecation policy (PLG2-062, effective 2026-03-08):
 

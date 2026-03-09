@@ -1,8 +1,18 @@
 {
   "name": "@mahilo/openclaw-mahilo",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Mahilo plugin package for OpenClaw native integration",
+  "license": "UNLICENSED",
+  "author": "Jayesh Sharma <wjayesh@outlook.com>",
+  "homepage": "https://github.com/wjayesh/mahilo-2#readme",
+  "bugs": {
+    "url": "https://github.com/wjayesh/mahilo-2/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wjayesh/mahilo-2.git",
+    "directory": "plugins/openclaw-mahilo"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -13,7 +23,8 @@
   ],
   "pluginManifest": "./openclaw.plugin.json",
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "sync:manifest-version": "bun run scripts/sync-manifest-version.ts",
+    "build": "bun run sync:manifest-version && bun build src/index.ts --outdir dist --target bun",
     "test": "bun test",
     "test:ci": "bun test --reporter=dot",
     "test:run": "bun test",
@@ -29,6 +40,9 @@
   ],
   "engines": {
     "bun": ">=1.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "openclaw": {
     "extensions": [

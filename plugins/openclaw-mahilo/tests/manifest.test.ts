@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   MAHILO_PLUGIN_CONFIG_KEYS,
   MAHILO_PLUGIN_PACKAGE_NAME,
+  MAHILO_PLUGIN_RELEASE_VERSION,
   MAHILO_RUNTIME_PLUGIN_ID,
   MAHILO_RUNTIME_PLUGIN_NAME
 } from "../src";
@@ -23,6 +24,40 @@ describe("openclaw.plugin.json", () => {
     }
 
     expect(packageJson.name).toBe(MAHILO_PLUGIN_PACKAGE_NAME);
+    expect(packageJson.version).toBe(MAHILO_PLUGIN_RELEASE_VERSION);
+    expect(packageJson.private).not.toBe(true);
+    expect(packageJson.license).toBe("UNLICENSED");
+    expect(packageJson.author).toBe("Jayesh Sharma <wjayesh@outlook.com>");
+    expect(packageJson.homepage).toBe("https://github.com/wjayesh/mahilo-2#readme");
+
+    const repository = packageJson.repository;
+    expect(isRecord(repository)).toBe(true);
+
+    if (!isRecord(repository)) {
+      return;
+    }
+
+    expect(repository.type).toBe("git");
+    expect(repository.url).toBe("git+https://github.com/wjayesh/mahilo-2.git");
+    expect(repository.directory).toBe("plugins/openclaw-mahilo");
+
+    const bugs = packageJson.bugs;
+    expect(isRecord(bugs)).toBe(true);
+
+    if (!isRecord(bugs)) {
+      return;
+    }
+
+    expect(bugs.url).toBe("https://github.com/wjayesh/mahilo-2/issues");
+
+    const publishConfig = packageJson.publishConfig;
+    expect(isRecord(publishConfig)).toBe(true);
+
+    if (!isRecord(publishConfig)) {
+      return;
+    }
+
+    expect(publishConfig.access).toBe("public");
 
     const openclaw = packageJson.openclaw;
     expect(isRecord(openclaw)).toBe(true);
@@ -43,15 +78,21 @@ describe("openclaw.plugin.json", () => {
 
   it("loads manifest metadata", async () => {
     const manifest = (await Bun.file(manifestPath).json()) as unknown;
+    const packageJson = (await Bun.file(packageJsonPath).json()) as unknown;
 
     expect(isRecord(manifest)).toBe(true);
     if (!isRecord(manifest)) {
       return;
     }
 
+    expect(isRecord(packageJson)).toBe(true);
+    if (!isRecord(packageJson)) {
+      return;
+    }
+
     expect(manifest.id).toBe(MAHILO_RUNTIME_PLUGIN_ID);
     expect(manifest.name).toBe(MAHILO_RUNTIME_PLUGIN_NAME);
-    expect(manifest.version).toBe("0.0.0");
+    expect(manifest.version).toBe(packageJson.version);
     expect(manifest.entry).toBe("./dist/index.js");
   });
 

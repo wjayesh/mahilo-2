@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  MAHILO_PLUGIN_RELEASE_VERSION,
   MahiloConfigError,
   MahiloContractClient,
   createClientOptionsFromConfig,
@@ -21,6 +22,7 @@ describe("parseMahiloPluginConfig", () => {
     expect(config.cacheTtlSeconds).toBe(60);
     expect(config.promptContextEnabled).toBe(true);
     expect(config.contractVersion).toBe("1.0.0");
+    expect(config.pluginVersion).toBe(MAHILO_PLUGIN_RELEASE_VERSION);
   });
 
   it("throws for invalid baseUrl", () => {

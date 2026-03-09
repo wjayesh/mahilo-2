@@ -1,6 +1,7 @@
 import { MahiloContractClient } from "./client";
 import type { MahiloClientOptions } from "./client";
 import { MAHILO_CONTRACT_VERSION } from "./contract";
+import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
 
 export type ReviewMode = "auto" | "ask" | "manual";
 
@@ -26,7 +27,7 @@ export interface ParseConfigOptions {
 }
 
 const DEFAULT_CACHE_TTL_SECONDS = 60;
-const DEFAULT_PLUGIN_VERSION = "0.0.0";
+const DEFAULT_PLUGIN_VERSION = MAHILO_PLUGIN_RELEASE_VERSION;
 const DEFAULT_PROMPT_CONTEXT_ENABLED = true;
 const DEFAULT_REVIEW_MODE: ReviewMode = "ask";
 const REVIEW_MODES = new Set<ReviewMode>(["auto", "ask", "manual"]);

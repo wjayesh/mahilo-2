@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   CONTRACT_ENDPOINTS,
   MAHILO_CONTRACT_VERSION,
+  MAHILO_PLUGIN_RELEASE_VERSION,
   MahiloContractClient,
   MahiloRequestError
 } from "../src";
@@ -15,6 +16,7 @@ interface FetchCall {
 const nativeFetch = globalThis.fetch;
 
 const fetchCalls: FetchCall[] = [];
+const pluginVersion = MAHILO_PLUGIN_RELEASE_VERSION;
 
 describe("MahiloContractClient", () => {
   beforeEach(() => {
@@ -37,7 +39,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await client.getPromptContext({
@@ -55,7 +57,7 @@ describe("MahiloContractClient", () => {
     const headers = new Headers(call.init?.headers);
     expect(headers.get("authorization")).toBe("Bearer mahilo-key");
     expect(headers.get("x-mahilo-client")).toBe("openclaw-plugin");
-    expect(headers.get("x-mahilo-plugin-version")).toBe("0.0.1");
+    expect(headers.get("x-mahilo-plugin-version")).toBe(pluginVersion);
     expect(headers.get("x-mahilo-contract-version")).toBe(MAHILO_CONTRACT_VERSION);
   });
 
@@ -63,7 +65,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example/",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await client.sendMessage({ message: "hello" }, "idem-123");
@@ -81,7 +83,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await client.listReviews({ limit: 20, status: "open" });
@@ -97,7 +99,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await client.listReviews();
@@ -110,7 +112,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await client.decideReview("review/with space", { decision: "approve" });
@@ -126,7 +128,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await client.listBlockedEvents(25);
@@ -144,7 +146,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     const result = await client.reportOutcome({ outcome: "sent" }, "idem-204");
@@ -156,7 +158,7 @@ describe("MahiloContractClient", () => {
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
       contractVersion: "9.9.9",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await client.resolveDraft({ message: "hello" });
@@ -174,7 +176,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(
@@ -190,7 +192,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await expect(client.resolveDraft({ message: "hello" })).rejects.toBeInstanceOf(MahiloRequestError);
@@ -207,7 +209,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion: "0.0.1"
+      pluginVersion
     });
 
     await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(

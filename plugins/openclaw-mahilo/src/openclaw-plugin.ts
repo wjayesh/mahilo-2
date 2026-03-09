@@ -16,6 +16,7 @@ import {
 } from "./config";
 import type { DeclaredSelectors } from "./policy-helpers";
 import { fetchMahiloPromptContext } from "./prompt-context";
+import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
 import { InMemoryPluginState } from "./state";
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
@@ -95,7 +96,7 @@ export function registerMahiloOpenClawPlugin(
 ): void {
   const config = parseMahiloPluginConfig(api.pluginConfig ?? {}, {
     defaults: {
-      pluginVersion: readOptionalString(api.version) ?? "0.0.0"
+      pluginVersion: readOptionalString(api.version) ?? MAHILO_PLUGIN_RELEASE_VERSION
     }
   });
 

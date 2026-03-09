@@ -6,6 +6,7 @@ export {
   MAHILO_RUNTIME_PLUGIN_ID,
   MAHILO_RUNTIME_PLUGIN_NAME
 } from "./identity";
+export { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
 export { MahiloContractClient, MahiloRequestError } from "./client";
 export type { MahiloClientOptions, MahiloRequestErrorKind } from "./client";
 export { registerMahiloDiagnosticsCommands } from "./commands";
