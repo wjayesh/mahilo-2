@@ -19,6 +19,7 @@ describe("parseMahiloPluginConfig", () => {
     expect(config.baseUrl).toBe("https://mahilo.example");
     expect(config.reviewMode).toBe("ask");
     expect(config.cacheTtlSeconds).toBe(60);
+    expect(config.promptContextEnabled).toBe(true);
     expect(config.contractVersion).toBe("1.0.0");
   });
 
@@ -106,6 +107,26 @@ describe("parseMahiloPluginConfig", () => {
     ).toThrow("cacheTtlSeconds must be a non-negative integer");
   });
 
+  it("parses promptContextEnabled when explicitly provided", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      promptContextEnabled: false
+    });
+
+    expect(config.promptContextEnabled).toBe(false);
+  });
+
+  it("throws for non-boolean promptContextEnabled", () => {
+    expect(() =>
+      parseMahiloPluginConfig({
+        apiKey: "mahilo-key",
+        baseUrl: "https://mahilo.example",
+        promptContextEnabled: "false"
+      })
+    ).toThrow("promptContextEnabled must be a boolean");
+  });
+
   it("accepts explicit defaults override", () => {
     const config = parseMahiloPluginConfig(
       {
@@ -116,6 +137,7 @@ describe("parseMahiloPluginConfig", () => {
         defaults: {
           cacheTtlSeconds: 120,
           contractVersion: "2.0.0",
+          promptContextEnabled: false,
           pluginVersion: "1.2.3",
           reviewMode: "manual"
         }
@@ -124,6 +146,7 @@ describe("parseMahiloPluginConfig", () => {
 
     expect(config.cacheTtlSeconds).toBe(120);
     expect(config.contractVersion).toBe("2.0.0");
+    expect(config.promptContextEnabled).toBe(false);
     expect(config.pluginVersion).toBe("1.2.3");
     expect(config.reviewMode).toBe("manual");
   });

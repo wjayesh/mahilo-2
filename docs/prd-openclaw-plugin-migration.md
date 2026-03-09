@@ -433,15 +433,24 @@ It is:
 
 ### 4.1 Prompt Hook Integration
 - **ID**: `PLG2-040`
+<<<<<<< HEAD
 - **Status**: `blocked`
+=======
+- **Status**: `done`
+>>>>>>> cbb4d7e (orchestrator: complete PLG2-040 4.1 Prompt Hook Integration)
 - **Priority**: P0
 - **Depends on**: PLG2-031
 - **Description**:
   - Use `before_prompt_build` to inject Mahilo context natively.
 - **Acceptance Criteria**:
-  - [ ] Incoming messages get relationship/policy/history context
-  - [ ] Prompt size stays bounded
-  - [ ] Injection can be turned on/off cleanly
+  - [x] Incoming messages get relationship/policy/history context
+  - [x] Prompt size stays bounded
+  - [x] Injection can be turned on/off cleanly
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-040 by auditing existing prompt-context helpers (`fetchMahiloPromptContext`/`formatMahiloPromptInjection`) and OpenClaw plugin registration flow to wire native `before_prompt_build` injection.
+  - 2026-03-09: Integrated `before_prompt_build` hook in `plugins/openclaw-mahilo/src/openclaw-plugin.ts` to fetch Mahilo prompt context from inbound/outbound hook payloads, inject bounded `MahiloContext/v1` blocks into prompt payloads, and degrade safely when context is unavailable.
+  - 2026-03-09: Added clean enable/disable control via `promptContextEnabled` plugin config (`src/config.ts`, `openclaw.plugin.json`, README/config identity constants) and expanded plugin/config/manifest tests for hook registration, bounded injection behavior, and toggle-off behavior.
+  - 2026-03-09: Validated from `plugins/openclaw-mahilo/` with `bun run test` (105 passing) and `bun run build`.
 
 - **Notes**:
   - 2026-03-09T07:45:30.120Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-040 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-040-last-message.txt -

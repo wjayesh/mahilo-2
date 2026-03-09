@@ -6,6 +6,7 @@ interface MockClientState {
   blockedEventCalls: number[];
   listReviewCalls: Array<{ limit?: number; status?: string }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  promptContextCalls: Array<Record<string, unknown>>;
   resolveCalls: Array<Record<string, unknown>>;
   sendCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
 }
@@ -29,16 +30,50 @@ interface RegisteredHttpRoute {
   rawBody?: boolean;
 }
 
-function createMockContractClient() {
+interface RegisteredHook {
+  execute: (payload: unknown) => Promise<unknown>;
+  name: string;
+}
+
+function createMockContractClient(options: { promptContextResponse?: Record<string, unknown> } = {}) {
   const state: MockClientState = {
     blockedEventCalls: [],
     listReviewCalls: [],
     outcomeCalls: [],
+    promptContextCalls: [],
     resolveCalls: [],
     sendCalls: []
   };
+  const promptContextResponse = options.promptContextResponse ?? {
+    policy_guidance: {
+      default_decision: "ask",
+      reason_code: "context.ask.role.structured",
+      summary: "Share only high-level details."
+    },
+    recipient: {
+      relationship: "friend",
+      roles: ["close_friends"],
+      username: "alice"
+    },
+    recent_interactions: [
+      {
+        decision: "allow",
+        direction: "inbound",
+        summary: "Asked for travel timing."
+      }
+    ],
+    suggested_selectors: {
+      action: "share",
+      direction: "inbound",
+      resource: "message.general"
+    }
+  };
 
   const client = {
+    getPromptContext: async (payload: Record<string, unknown>) => {
+      state.promptContextCalls.push(payload);
+      return promptContextResponse;
+    },
     listBlockedEvents: async (limit?: number) => {
       state.blockedEventCalls.push(limit ?? 0);
       return {
@@ -78,8 +113,15 @@ function createMockContractClient() {
 
 function createMockPluginApi(
   pluginConfig: Record<string, unknown>
-): { api: never; commands: RegisteredCommand[]; routes: RegisteredHttpRoute[]; tools: RegisteredTool[] } {
+): {
+  api: never;
+  commands: RegisteredCommand[];
+  hooks: RegisteredHook[];
+  routes: RegisteredHttpRoute[];
+  tools: RegisteredTool[];
+} {
   const commands: RegisteredCommand[] = [];
+  const hooks: RegisteredHook[] = [];
   const tools: RegisteredTool[] = [];
   const routes: RegisteredHttpRoute[] = [];
 
@@ -105,7 +147,12 @@ function createMockPluginApi(
     },
     registerContextEngine: () => {},
     registerGatewayMethod: () => {},
-    registerHook: () => {},
+    registerHook: (...args: unknown[]) => {
+      const hook = parseRegisteredHook(args);
+      if (hook) {
+        hooks.push(hook);
+      }
+    },
     registerHttpRoute: (route: RegisteredHttpRoute) => {
       routes.push(route);
     },
@@ -123,6 +170,7 @@ function createMockPluginApi(
   return {
     api: api as never,
     commands,
+    hooks,
     routes,
     tools
   };
@@ -142,6 +190,41 @@ function parseRegisteredCommand(args: unknown[]): RegisteredCommand | undefined 
 
     return {
       execute: execute as RegisteredCommand["execute"],
+      name
+    };
+  }
+
+  const candidate = args[0];
+  if (!isRecord(candidate)) {
+    return undefined;
+  }
+
+  const name = typeof candidate.name === "string" ? candidate.name : undefined;
+  const execute = resolveCommandExecutor(candidate);
+  if (!name || !execute) {
+    return undefined;
+  }
+
+  return {
+    execute,
+    name
+  };
+}
+
+function parseRegisteredHook(args: unknown[]): RegisteredHook | undefined {
+  if (args.length === 0) {
+    return undefined;
+  }
+
+  if (typeof args[0] === "string") {
+    const name = args[0];
+    const execute = args[1];
+    if (typeof execute !== "function") {
+      return undefined;
+    }
+
+    return {
+      execute: execute as RegisteredHook["execute"],
       name
     };
   }
@@ -204,13 +287,22 @@ function findCommand(commands: RegisteredCommand[], name: string): RegisteredCom
   return command;
 }
 
+function findHook(hooks: RegisteredHook[], name: string): RegisteredHook {
+  const hook = hooks.find((candidate) => candidate.name === name);
+  if (!hook) {
+    throw new Error(`expected hook ${name} to be registered`);
+  }
+
+  return hook;
+}
+
 describe("createMahiloOpenClawPlugin", () => {
   it("registers current OpenClaw tool names and diagnostics commands", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
     });
-    const { api, commands, routes, tools } = createMockPluginApi({
+    const { api, commands, hooks, routes, tools } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example"
     });
@@ -227,6 +319,7 @@ describe("createMahiloOpenClawPlugin", () => {
       "mahilo review",
       "mahilo status"
     ]);
+    expect(hooks.map((hook) => hook.name)).toContain("before_prompt_build");
     expect(routes).toHaveLength(1);
   });
 
@@ -384,5 +477,100 @@ describe("createMahiloOpenClawPlugin", () => {
     });
     expect(state.listReviewCalls).toHaveLength(1);
     expect(state.blockedEventCalls).toHaveLength(1);
+  });
+
+  it("injects bounded Mahilo context into prompt during before_prompt_build", async () => {
+    const { client, state } = createMockContractClient({
+      promptContextResponse: {
+        policy_guidance: {
+          default_decision: "ask",
+          reason_code: "context.ask.role.structured",
+          summary:
+            "This is a very long summary intended to verify prompt-size controls remain bounded even when the server returns more context than needed."
+        },
+        recipient: {
+          relationship: "friend",
+          roles: ["close_friends", "trusted", "long_list_role"],
+          username: "alice"
+        },
+        recent_interactions: [
+          { direction: "inbound", decision: "allow", summary: "one" },
+          { direction: "outbound", decision: "ask", summary: "two" },
+          { direction: "inbound", decision: "deny", summary: "three" },
+          { direction: "outbound", decision: "allow", summary: "four" }
+        ],
+        suggested_selectors: {
+          action: "share",
+          direction: "inbound",
+          resource: "message.general"
+        }
+      }
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, hooks } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const hook = findHook(hooks, "before_prompt_build");
+    const result = await hook.execute({
+      message: {
+        recipient_connection_id: "conn_receiver",
+        sender: "alice",
+        selectors: {
+          action: "share",
+          direction: "inbound",
+          resource: "message.general"
+        }
+      },
+      prompt: "You are a helpful assistant."
+    });
+
+    expect(state.promptContextCalls).toHaveLength(1);
+    expect(state.promptContextCalls[0]).toMatchObject({
+      recipient: "alice",
+      recipient_type: "user",
+      sender_connection_id: "conn_receiver"
+    });
+
+    expect(isRecord(result)).toBe(true);
+    if (!isRecord(result)) {
+      throw new Error("expected before_prompt_build hook to return a payload object");
+    }
+
+    const promptValue = result.prompt;
+    if (typeof promptValue !== "string") {
+      throw new Error("expected before_prompt_build hook to return prompt as string");
+    }
+
+    const prompt = promptValue;
+    expect(prompt).toContain("[MahiloContext/v1]");
+    expect(prompt).toContain("guidance=ask:context.ask.role.structured");
+    expect(prompt).toContain("recipient=name=alice; relationship=friend; roles=close_friends,trusted,long_list_role");
+    expect(prompt).toContain("recent_1=");
+    expect(prompt).toContain("recent_2=");
+    expect(prompt).not.toContain("recent_3=");
+    expect(prompt).toContain("You are a helpful assistant.");
+    expect(prompt.length).toBeLessThan(1400);
+  });
+
+  it("does not register prompt hook when promptContextEnabled is false", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, hooks } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+      promptContextEnabled: false
+    });
+
+    await plugin.register?.(api);
+
+    expect(hooks.map((hook) => hook.name)).not.toContain("before_prompt_build");
   });
 });

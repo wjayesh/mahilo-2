@@ -8,6 +8,7 @@ export const MAHILO_PLUGIN_CONFIG_KEYS = [
   "apiKey",
   "callbackUrl",
   "callbackPath",
+  "promptContextEnabled",
   "reviewMode",
   "cacheTtlSeconds"
 ] as const;

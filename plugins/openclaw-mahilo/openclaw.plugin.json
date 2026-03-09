@@ -49,6 +49,11 @@
         "default": "ask",
         "description": "Optional local UX behavior for ask outcomes; this does not change server policy truth"
       },
+      "promptContextEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable native before_prompt_build Mahilo context injection"
+      },
       "cacheTtlSeconds": {
         "type": "integer",
         "minimum": 0,

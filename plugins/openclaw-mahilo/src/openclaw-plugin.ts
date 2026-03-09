@@ -15,6 +15,7 @@ import {
   type ReviewMode
 } from "./config";
 import type { DeclaredSelectors } from "./policy-helpers";
+import { fetchMahiloPromptContext } from "./prompt-context";
 import { InMemoryPluginState } from "./state";
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
@@ -42,6 +43,9 @@ export interface MahiloOpenClawPluginDefinition {
   name: string;
   register: (api: OpenClawPluginApi) => void | Promise<void>;
 }
+
+const MAHILO_PROMPT_CONTEXT_MARKER = "[MahiloContext/v1]";
+const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
 
 export function createMahiloOpenClawPlugin(
   options: MahiloOpenClawPluginOptions = {}
@@ -87,6 +91,7 @@ export function registerMahiloOpenClawPlugin(
   api.registerTool(createTalkToAgentTool(client, config));
   api.registerTool(createTalkToGroupTool(client, config));
   api.registerTool(createListMahiloContactsTool(options.contactsProvider));
+  registerPromptContextHook(api, client, config, pluginState);
   registerMahiloWebhookRoute(api, config, webhookRouteOptions);
   registerMahiloDiagnosticsCommands(api, config, client, diagnosticsCommandOptions);
 }
@@ -332,4 +337,366 @@ function toAgentToolResult<T>(details: T, text: string): { content: Array<{ text
     content: [{ text, type: "text" }],
     details
   };
+}
+
+function registerPromptContextHook(
+  api: OpenClawPluginApi,
+  client: MahiloContractClient,
+  config: MahiloPluginConfig,
+  pluginState: InMemoryPluginState
+): void {
+  if (!config.promptContextEnabled) {
+    return;
+  }
+
+  api.registerHook("before_prompt_build", async (rawHookInput: unknown) => {
+    try {
+      return await injectMahiloContextIntoPrompt(rawHookInput, client, pluginState);
+    } catch (error) {
+      api.logger?.warn?.(
+        `[Mahilo] before_prompt_build hook failed: ${toErrorMessage(error)}`
+      );
+      return rawHookInput;
+    }
+  });
+}
+
+async function injectMahiloContextIntoPrompt(
+  rawHookInput: unknown,
+  client: MahiloContractClient,
+  pluginState: InMemoryPluginState
+): Promise<unknown> {
+  const hookInput = readOptionalObject(rawHookInput);
+  if (!hookInput) {
+    return rawHookInput;
+  }
+
+  const promptContextInput = parsePromptContextInput(hookInput);
+  if (!promptContextInput) {
+    return rawHookInput;
+  }
+
+  const result = await fetchMahiloPromptContext(client, promptContextInput, {
+    cache: pluginState
+  });
+
+  if (!result.ok || result.injection.length === 0) {
+    return rawHookInput;
+  }
+
+  const boundedInjection = boundPromptInjection(result.injection);
+  if (boundedInjection.length === 0) {
+    return rawHookInput;
+  }
+
+  return injectPromptPayload(hookInput, boundedInjection);
+}
+
+function parsePromptContextInput(hookInput: Record<string, unknown>): {
+  declaredSelectors?: Partial<DeclaredSelectors>;
+  recipient: string;
+  recipientType: "group" | "user";
+  senderConnectionId: string;
+} | undefined {
+  const sources = collectPromptContextSources(hookInput);
+  const declaredSelectors = parseHookSelectors(sources);
+  const direction = readHookDirection(sources, declaredSelectors);
+  const senderConnectionId =
+    readFirstString(
+      sources,
+      "senderConnectionId",
+      "sender_connection_id",
+      "recipientConnectionId",
+      "recipient_connection_id"
+    ) ?? "";
+
+  if (senderConnectionId.length === 0) {
+    return undefined;
+  }
+
+  const explicitRecipientType = readFirstString(
+    sources,
+    "recipientType",
+    "recipient_type"
+  );
+  const groupId = readFirstString(sources, "groupId", "group_id");
+  const recipientType = normalizeRecipientType(explicitRecipientType, groupId);
+  const recipient = resolvePromptRecipient(sources, direction, recipientType, groupId);
+
+  if (!recipient) {
+    return undefined;
+  }
+
+  return {
+    declaredSelectors,
+    recipient,
+    recipientType,
+    senderConnectionId
+  };
+}
+
+function collectPromptContextSources(
+  hookInput: Record<string, unknown>
+): Record<string, unknown>[] {
+  const sources: Record<string, unknown>[] = [hookInput];
+  const addSource = (value: unknown) => {
+    const source = readOptionalObject(value);
+    if (source) {
+      sources.push(source);
+    }
+  };
+
+  addSource(hookInput.message);
+  addSource(hookInput.incomingMessage);
+  addSource(hookInput.incoming_message);
+  addSource(hookInput.payload);
+  addSource(hookInput.event);
+
+  const event = readOptionalObject(hookInput.event);
+  addSource(event?.payload);
+  addSource(hookInput.context);
+
+  return sources;
+}
+
+function parseHookSelectors(
+  sources: Record<string, unknown>[]
+): Partial<DeclaredSelectors> | undefined {
+  const candidates = [
+    readFirstObject(sources, "declaredSelectors", "declared_selectors"),
+    readFirstObject(sources, "draftSelectors", "draft_selectors"),
+    readFirstObject(sources, "selectors")
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    const parsed: Partial<DeclaredSelectors> = {};
+    const action = readOptionalString(candidate.action);
+    const direction = readOptionalString(candidate.direction);
+    const resource = readOptionalString(candidate.resource);
+
+    if (action) {
+      parsed.action = action;
+    }
+
+    if (direction === "inbound" || direction === "outbound") {
+      parsed.direction = direction;
+    }
+
+    if (resource) {
+      parsed.resource = resource;
+    }
+
+    if (Object.keys(parsed).length > 0) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function readHookDirection(
+  sources: Record<string, unknown>[],
+  declaredSelectors: Partial<DeclaredSelectors> | undefined
+): "inbound" | "outbound" | undefined {
+  if (declaredSelectors?.direction === "inbound" || declaredSelectors?.direction === "outbound") {
+    return declaredSelectors.direction;
+  }
+
+  const direction = readFirstString(sources, "direction");
+  return direction === "inbound" || direction === "outbound" ? direction : undefined;
+}
+
+function normalizeRecipientType(
+  explicitType: string | undefined,
+  groupId: string | undefined
+): "group" | "user" {
+  if (explicitType === "group") {
+    return "group";
+  }
+
+  if (explicitType === "user") {
+    return "user";
+  }
+
+  return groupId ? "group" : "user";
+}
+
+function resolvePromptRecipient(
+  sources: Record<string, unknown>[],
+  direction: "inbound" | "outbound" | undefined,
+  recipientType: "group" | "user",
+  groupId: string | undefined
+): string | undefined {
+  if (recipientType === "group") {
+    return groupId ?? readFirstString(sources, "recipient", "target");
+  }
+
+  const sender = readFirstString(
+    sources,
+    "sender",
+    "sender_user_id",
+    "senderUserId",
+    "from"
+  );
+  const recipient = readFirstString(sources, "recipient", "to", "target");
+
+  if (direction === "inbound") {
+    return sender ?? recipient;
+  }
+
+  return recipient ?? sender;
+}
+
+function injectPromptPayload(
+  hookInput: Record<string, unknown>,
+  injection: string
+): Record<string, unknown> {
+  const promptString = readOptionalString(hookInput.prompt);
+  if (typeof hookInput.prompt === "string") {
+    if (promptString?.includes(MAHILO_PROMPT_CONTEXT_MARKER)) {
+      return hookInput;
+    }
+
+    return {
+      ...hookInput,
+      prompt: prependContextBlock(promptString ?? "", injection)
+    };
+  }
+
+  const messages = readOptionalArray(hookInput.messages);
+  if (messages) {
+    const injected = prependPromptMessages(messages, injection);
+    if (injected !== messages) {
+      return {
+        ...hookInput,
+        messages: injected
+      };
+    }
+  }
+
+  const promptMessages = readOptionalArray(hookInput.promptMessages);
+  if (promptMessages) {
+    const injected = prependPromptMessages(promptMessages, injection);
+    if (injected !== promptMessages) {
+      return {
+        ...hookInput,
+        promptMessages: injected
+      };
+    }
+  }
+
+  const promptObject = readOptionalObject(hookInput.prompt);
+  if (promptObject) {
+    const promptObjectMessages = readOptionalArray(promptObject.messages);
+    if (promptObjectMessages) {
+      const injected = prependPromptMessages(promptObjectMessages, injection);
+      if (injected !== promptObjectMessages) {
+        return {
+          ...hookInput,
+          prompt: {
+            ...promptObject,
+            messages: injected
+          }
+        };
+      }
+    }
+  }
+
+  return hookInput;
+}
+
+function prependPromptMessages(messages: unknown[], injection: string): unknown[] {
+  for (const message of messages.slice(0, 3)) {
+    if (messageContainsMahiloContext(message)) {
+      return messages;
+    }
+  }
+
+  return [
+    {
+      content: injection,
+      role: "system"
+    },
+    ...messages
+  ];
+}
+
+function messageContainsMahiloContext(message: unknown): boolean {
+  const asObject = readOptionalObject(message);
+  if (!asObject) {
+    return false;
+  }
+
+  const candidates = [
+    readOptionalString(asObject.content),
+    readOptionalString(asObject.text),
+    readOptionalString(asObject.prompt)
+  ];
+
+  return candidates.some((entry) => entry?.includes(MAHILO_PROMPT_CONTEXT_MARKER) === true);
+}
+
+function prependContextBlock(prompt: string, injection: string): string {
+  if (prompt.length === 0) {
+    return injection;
+  }
+
+  return `${injection}\n\n${prompt}`;
+}
+
+function boundPromptInjection(injection: string): string {
+  const normalized = injection.trim();
+  if (normalized.length <= MAX_PROMPT_CONTEXT_INJECTION_LENGTH) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, MAX_PROMPT_CONTEXT_INJECTION_LENGTH - 3).trimEnd()}...`;
+}
+
+function readFirstObject(
+  sources: Record<string, unknown>[],
+  ...keys: string[]
+): Record<string, unknown> | undefined {
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = readOptionalObject(source[key]);
+      if (value) {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readFirstString(
+  sources: Record<string, unknown>[],
+  ...keys: string[]
+): string | undefined {
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = readOptionalString(source[key]);
+      if (value) {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readOptionalArray(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+
+  return "unknown error";
 }

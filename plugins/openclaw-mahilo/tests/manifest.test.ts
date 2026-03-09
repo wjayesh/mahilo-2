@@ -96,12 +96,19 @@ describe("openclaw.plugin.json", () => {
     const baseUrl = properties.baseUrl;
     const apiKey = properties.apiKey;
     const callbackPath = properties.callbackPath;
+    const promptContextEnabled = properties.promptContextEnabled;
 
     expect(isRecord(baseUrl)).toBe(true);
     expect(isRecord(apiKey)).toBe(true);
     expect(isRecord(callbackPath)).toBe(true);
+    expect(isRecord(promptContextEnabled)).toBe(true);
 
-    if (!isRecord(baseUrl) || !isRecord(apiKey) || !isRecord(callbackPath)) {
+    if (
+      !isRecord(baseUrl) ||
+      !isRecord(apiKey) ||
+      !isRecord(callbackPath) ||
+      !isRecord(promptContextEnabled)
+    ) {
       return;
     }
 
@@ -111,5 +118,7 @@ describe("openclaw.plugin.json", () => {
     expect(apiKey.writeOnly).toBe(true);
     expect(apiKey["x-sensitive"]).toBe(true);
     expect(callbackPath.pattern).toBe("^\\/.*");
+    expect(promptContextEnabled.type).toBe("boolean");
+    expect(promptContextEnabled.default).toBe(true);
   });
 });

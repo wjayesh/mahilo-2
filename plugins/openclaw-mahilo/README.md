@@ -25,6 +25,7 @@ Expected keys inside `plugins.entries.mahilo.config`:
 - `apiKey` (required, sensitive)
 - `callbackUrl` (optional)
 - `callbackPath` (optional)
+- `promptContextEnabled` (optional, default `true`)
 - `reviewMode` (optional)
 - `cacheTtlSeconds` (optional)
 

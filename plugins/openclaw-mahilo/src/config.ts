@@ -12,15 +12,22 @@ export interface MahiloPluginConfig {
   callbackUrl?: string;
   contractVersion: string;
   pluginVersion: string;
+  promptContextEnabled: boolean;
   reviewMode: ReviewMode;
 }
 
 export interface ParseConfigOptions {
-  defaults?: Partial<Pick<MahiloPluginConfig, "cacheTtlSeconds" | "contractVersion" | "pluginVersion" | "reviewMode">>;
+  defaults?: Partial<
+    Pick<
+      MahiloPluginConfig,
+      "cacheTtlSeconds" | "contractVersion" | "pluginVersion" | "promptContextEnabled" | "reviewMode"
+    >
+  >;
 }
 
 const DEFAULT_CACHE_TTL_SECONDS = 60;
 const DEFAULT_PLUGIN_VERSION = "0.0.0";
+const DEFAULT_PROMPT_CONTEXT_ENABLED = true;
 const DEFAULT_REVIEW_MODE: ReviewMode = "ask";
 const REVIEW_MODES = new Set<ReviewMode>(["auto", "ask", "manual"]);
 const ALLOWED_PLUGIN_CONFIG_KEYS = new Set<string>([
@@ -29,6 +36,7 @@ const ALLOWED_PLUGIN_CONFIG_KEYS = new Set<string>([
   "cacheTtlSeconds",
   "callbackPath",
   "callbackUrl",
+  "promptContextEnabled",
   "reviewMode"
 ]);
 const LEGACY_SERVER_OWNED_KEYS = new Set<string>([
@@ -58,6 +66,10 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
     config.cacheTtlSeconds,
     defaults.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS
   );
+  const promptContextEnabled = parsePromptContextEnabled(
+    config.promptContextEnabled,
+    defaults.promptContextEnabled ?? DEFAULT_PROMPT_CONTEXT_ENABLED
+  );
   const reviewMode = parseReviewMode(config.reviewMode, defaults.reviewMode ?? DEFAULT_REVIEW_MODE);
   const contractVersion = defaults.contractVersion ?? MAHILO_CONTRACT_VERSION;
   const pluginVersion = defaults.pluginVersion ?? DEFAULT_PLUGIN_VERSION;
@@ -70,6 +82,7 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
     callbackUrl,
     contractVersion,
     pluginVersion,
+    promptContextEnabled,
     reviewMode
   };
 }
@@ -165,6 +178,18 @@ function parseCacheTtlSeconds(value: unknown, fallback: number): number {
   }
 
   return parsed;
+}
+
+function parsePromptContextEnabled(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "undefined") {
+    return fallback;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new MahiloConfigError("promptContextEnabled must be a boolean");
+  }
+
+  return value;
 }
 
 function parseReviewMode(value: unknown, fallback: ReviewMode): ReviewMode {
