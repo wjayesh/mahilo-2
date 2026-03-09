@@ -142,7 +142,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T22:43:57.338Z: PLG3-005 completed via orchestrator integration.
 ### 1.4 Friend Request and Accept Flows
 - **ID**: `PLG3-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG3-001, PLG3-004, PLG3-005
 - **Description**:
@@ -158,6 +158,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Pending requests can be reviewed and acted on in OpenClaw
   - [ ] Errors are human-friendly and distinguish "not found", "already connected", and transport failures
 
+- **Notes**:
+  - 2026-03-09T22:55:24.396Z: PLG3-002 completed via orchestrator integration.
 ### 1.5 Minimal Tool Surface and Routing
 - **ID**: `PLG3-006`
 - **Status**: `pending`
