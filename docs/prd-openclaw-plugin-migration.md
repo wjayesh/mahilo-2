@@ -488,7 +488,7 @@ It is:
   - 2026-03-09T07:58:51.573Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
 ### 4.4 Post-Send Hooks
 - **ID**: `PLG2-043`
-- **Status**: `pending`
+- **Status**: `blocked`
 - **Priority**: P1
 - **Depends on**: PLG2-032
 - **Description**:
@@ -499,6 +499,7 @@ It is:
 
 - **Notes**:
   - 2026-03-09: Reset to `pending` after supervisor hardening; the earlier auto-block happened during unstable loop execution and should be retried under the current single-supervisor flow.
+  - 2026-03-09T07:58:59.645Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
 - **Status**: `done`
