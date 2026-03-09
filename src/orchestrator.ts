@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -59,6 +59,7 @@ export type OrchestratorState = {
   lastCommitSha: string | null;
   taskFailureCounts: Record<string, number>;
   taskRetryAfter: Record<string, string>;
+  taskWorkspaceRefreshReasons: Record<string, string>;
   history: Array<{
     iteration: number;
     taskId: string | null;
@@ -419,6 +420,7 @@ export function loadState(repoRoot: string, config: WorkflowConfig): Orchestrato
       lastCommitSha: null,
       taskFailureCounts: {},
       taskRetryAfter: {},
+      taskWorkspaceRefreshReasons: {},
       history: [],
     };
     writeFileSync(statePath, JSON.stringify(initialState, null, 2) + "\n");
@@ -440,6 +442,10 @@ export function loadState(repoRoot: string, config: WorkflowConfig): Orchestrato
     taskRetryAfter:
       state.taskRetryAfter && typeof state.taskRetryAfter === "object"
         ? state.taskRetryAfter
+        : {},
+    taskWorkspaceRefreshReasons:
+      state.taskWorkspaceRefreshReasons && typeof state.taskWorkspaceRefreshReasons === "object"
+        ? state.taskWorkspaceRefreshReasons
         : {},
     history: Array.isArray(state.history) ? state.history : [],
   };
@@ -505,6 +511,42 @@ export function ensureWorkspace(repoRoot: string, config: WorkflowConfig, task: 
   return { path: workspacePath, kind: "git_worktree", branchName };
 }
 
+function branchExists(repoRoot: string, branchName: string): boolean {
+  const result = runGit(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], repoRoot);
+  return result.status === 0;
+}
+
+export function removeWorkspace(repoRoot: string, config: WorkflowConfig, task: Task) {
+  if (config.workspaceMode === "shared") {
+    return;
+  }
+
+  const workspacePath = previewWorkspacePath(repoRoot, config, task);
+  const branchName = sanitizeBranchName(task.id);
+
+  if (existsSync(workspacePath)) {
+    const removeResult = runGit(["worktree", "remove", "--force", workspacePath], repoRoot);
+    if (removeResult.status !== 0 && existsSync(workspacePath)) {
+      throw new Error(
+        `Failed to remove git worktree for ${task.id}: ${gitError(removeResult, "git worktree remove failed")}`,
+      );
+    }
+  }
+
+  if (branchExists(repoRoot, branchName)) {
+    const deleteResult = runGit(["branch", "-D", branchName], repoRoot);
+    if (deleteResult.status !== 0) {
+      throw new Error(
+        `Failed to delete task branch ${branchName} for ${task.id}: ${gitError(deleteResult, "git branch -D failed")}`,
+      );
+    }
+  }
+
+  if (existsSync(workspacePath)) {
+    rmSync(workspacePath, { recursive: true, force: true });
+  }
+}
+
 export function buildTaskPrompt(config: WorkflowConfig, task: Task, workspacePath: string): string {
   const instructionList = config.instructionFiles.map((file) => `- ${file}`).join("\n");
   const workspaceNote = workspacePath === process.cwd() ? "shared repo workspace" : workspacePath;
@@ -528,7 +570,7 @@ export function buildTaskPrompt(config: WorkflowConfig, task: Task, workspacePat
     "",
     "Execution rules:",
     `1. Work only on the assigned task (${task.id}) and any strictly necessary dependencies inside the same repo.`,
-    `2. Update the task status in ${task.filePath} to \`in-progress\` or \`done\` as appropriate.`,
+    `2. Do not edit the task-tracker status metadata in ${task.filePath}; signal terminal state with TASK_DONE/TASK_BLOCKED and let the orchestrator update the tracker.`,
     "3. Do not edit the orchestrator progress/state files directly; the orchestrator records runtime progress for you.",
     "4. Run the most relevant tests or validation commands for the files you changed when feasible.",
     `5. If the task is fully complete, say \`TASK_DONE ${task.id}\` in the final message.`,

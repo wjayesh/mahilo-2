@@ -11,6 +11,7 @@ import {
   ensureWorkspace,
   formatHistoryNote,
   getCurrentBranch,
+  getHeadCommit,
   getPendingChanges,
   listUniqueCommits,
   loadState,
@@ -19,12 +20,15 @@ import {
   mergeTaskUniverses,
   previewWorkspacePath,
   pushBranch,
+  removeWorkspace,
   resolvePath,
   runAgentForTask,
   saveState,
   selectNextTask,
   type OrchestratorState,
   type Task,
+  type TaskStatus,
+  type WorkspaceHandle,
   type WorkflowConfig,
 } from "../src/orchestrator";
 
@@ -245,11 +249,11 @@ function findTaskById(tasks: Task[], taskId: string): Task | null {
 }
 
 function didTaskComplete(task: Task, lastMessage: string): boolean {
-  return task.status === "done" || lastMessage.includes(`TASK_DONE ${task.id}`);
+  return lastMessage.includes(`TASK_DONE ${task.id}`);
 }
 
 function didTaskBlock(task: Task, lastMessage: string): boolean {
-  return task.status === "blocked" || lastMessage.includes(`TASK_BLOCKED ${task.id}`);
+  return lastMessage.includes(`TASK_BLOCKED ${task.id}`);
 }
 
 function extractBlockedReason(taskId: string, lastMessage: string): string {
@@ -328,6 +332,10 @@ function clearTaskFailureState(state: OrchestratorState, taskId: string) {
   delete state.taskRetryAfter[taskId];
 }
 
+function clearTaskWorkspaceRefreshState(state: OrchestratorState, taskId: string) {
+  delete state.taskWorkspaceRefreshReasons[taskId];
+}
+
 function getTaskRetryAt(state: OrchestratorState, taskId: string): number | null {
   const raw = state.taskRetryAfter[taskId];
   if (!raw) {
@@ -376,6 +384,130 @@ function sleepMs(milliseconds: number) {
   }
 }
 
+function updateTaskStatusInSource(
+  repoRoot: string,
+  task: Task,
+  nextStatus: TaskStatus,
+  note?: string,
+) {
+  const filePath = resolvePath(repoRoot, task.filePath);
+  const lines = readFileSync(filePath, "utf8").split(/\r?\n/);
+  const headingLine = `${"#".repeat(task.headingLevel)} ${task.heading}`;
+  const startIndex = lines.findIndex((line) => line.trim() === headingLine);
+  if (startIndex === -1) {
+    throw new Error(`Could not find task heading ${headingLine} in ${task.filePath}.`);
+  }
+
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(#+)\s+/);
+    if (match && match[1].length <= task.headingLevel) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  let replaced = false;
+  for (let index = startIndex + 1; index < endIndex; index += 1) {
+    if (/^- \*\*Status\*\*: `.*`$/.test(lines[index])) {
+      lines[index] = `- **Status**: \`${nextStatus}\``;
+      replaced = true;
+      break;
+    }
+  }
+
+  if (!replaced) {
+    throw new Error(`Could not find status line for ${task.id} in ${task.filePath}.`);
+  }
+
+  if (note) {
+    const noteHeadingIndex = (() => {
+      for (let index = startIndex + 1; index < endIndex; index += 1) {
+        if (
+          lines[index].trim() === "- **Notes**:" ||
+          lines[index].trim() === "- **Progress Notes**:"
+        ) {
+          return index;
+        }
+      }
+      return -1;
+    })();
+
+    const timestampedNote = `  - ${new Date().toISOString()}: ${compactReason(note)}`;
+    if (noteHeadingIndex !== -1) {
+      let insertAt = noteHeadingIndex + 1;
+      while (insertAt < endIndex && /^  - /.test(lines[insertAt])) {
+        insertAt += 1;
+      }
+      lines.splice(insertAt, 0, timestampedNote);
+    } else {
+      lines.splice(endIndex, 0, "- **Notes**:", timestampedNote);
+    }
+  }
+
+  writeFileSync(filePath, lines.join("\n"));
+}
+
+function isCherryPickContentConflict(reason: string): boolean {
+  return /could not apply|CONFLICT \(|merge conflict|cherry-pick failed/i.test(reason);
+}
+
+function prepareWorkspaceForTask(params: {
+  repoRoot: string;
+  workflow: WorkflowConfig;
+  task: Task;
+  state: OrchestratorState;
+}): { workspace: WorkspaceHandle; note: string | null } {
+  const { repoRoot, workflow, task, state } = params;
+  const refreshReason = state.taskWorkspaceRefreshReasons[task.id];
+
+  if (refreshReason) {
+    removeWorkspace(repoRoot, workflow, task);
+    clearTaskWorkspaceRefreshState(state, task.id);
+    const workspace = ensureWorkspace(repoRoot, workflow, task);
+    return {
+      workspace,
+      note: `Refreshed ${task.id} workspace from latest integration after conflict: ${refreshReason}`,
+    };
+  }
+
+  const workspace = ensureWorkspace(repoRoot, workflow, task);
+  if (workspace.kind !== "git_worktree") {
+    return { workspace, note: null };
+  }
+
+  const integrationBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
+  if (!integrationBranch) {
+    return { workspace, note: null };
+  }
+
+  const integrationHead = getHeadCommit(repoRoot);
+  const workspaceHead = getHeadCommit(workspace.path);
+  if (!integrationHead || !workspaceHead || integrationHead === workspaceHead) {
+    return { workspace, note: null };
+  }
+
+  let uniqueCommits: string[] = [];
+  let pendingChanges: string[] = [];
+  try {
+    uniqueCommits = listUniqueCommits(workspace.path, integrationBranch);
+    pendingChanges = getPendingChanges(workspace.path);
+  } catch {
+    return { workspace, note: null };
+  }
+
+  if (uniqueCommits.length > 0 || pendingChanges.length > 0) {
+    return { workspace, note: null };
+  }
+
+  removeWorkspace(repoRoot, workflow, task);
+  const refreshedWorkspace = ensureWorkspace(repoRoot, workflow, task);
+  return {
+    workspace: refreshedWorkspace,
+    note: `Refreshed idle ${task.id} workspace to latest integration ${integrationHead}.`,
+  };
+}
+
 function handleTaskFailure(params: {
   workflow: WorkflowConfig;
   task: Task;
@@ -385,6 +517,20 @@ function handleTaskFailure(params: {
 }): TaskFailureResult {
   const { workflow, task, actionableTasks, state, reason } = params;
   const compact = compactReason(reason);
+
+  if (isCherryPickContentConflict(compact)) {
+    clearTaskFailureState(state, task.id);
+    state.activeTaskId = null;
+    state.taskWorkspaceRefreshReasons[task.id] = compact;
+    const retryAfter = new Date(Date.now() + 5000).toISOString();
+    state.taskRetryAfter[task.id] = retryAfter;
+    return {
+      historyStatus: "agent_error",
+      historyNote: `${compact} Refreshing ${task.id} workspace from latest integration and retrying after ${retryAfter}.`,
+      refreshedActionableTasks: actionableTasks,
+    };
+  }
+
   const retryLimit = Math.max(workflow.taskFailureRetryLimit, 1);
   const attempt = (state.taskFailureCounts[task.id] ?? 0) + 1;
   const cappedAttempt = Math.min(attempt, retryLimit);
@@ -447,37 +593,51 @@ function integrateTerminalTask(params: {
     }
 
     const uniqueCommits = listUniqueCommits(workspace.path, integrationBranch);
+    const statusToRecord: TaskStatus = terminalStatus === "completed" ? "done" : "blocked";
+    const rootTask = findTaskById(rootActionableTasks, task.id) ?? task;
+    let historyNote: string;
+
     if (uniqueCommits.length === 0) {
-      const rootTask = findTaskById(rootActionableTasks, task.id);
-      const rootAlreadyMatches =
-        (terminalStatus === "completed" && rootTask?.status === "done") ||
-        (terminalStatus === "blocked" && rootTask?.status === "blocked");
-      if (!rootAlreadyMatches) {
-        throw new Error(
-          `${task.id} reached ${terminalStatus} but produced no new task-branch commits to integrate.`,
-        );
+      historyNote = `${task.id} ${statusToRecord} with no code commits to integrate.`;
+    } else {
+      const cherryPickResult = cherryPickCommits(repoRoot, uniqueCommits);
+      if (cherryPickResult.error) {
+        throw new Error(`${task.id} integration failed: ${cherryPickResult.error}`);
       }
-      return {
-        historyNote: `${task.id} already reflected on ${integrationBranch}; no new commits to integrate.`,
-        refreshedActionableTasks: rootActionableTasks,
-      };
+
+      state.commitsSincePush += cherryPickResult.commitCount;
+      state.lastCommittedTaskId = task.id;
+      state.lastCommitSha = cherryPickResult.lastCommitSha;
+      const terminalLabel = terminalStatus === "completed" ? "completed" : "blocked";
+      historyNote = `${task.id} ${terminalLabel} and integrated ${cherryPickResult.commitCount} commit${
+        cherryPickResult.commitCount === 1 ? "" : "s"
+      }${cherryPickResult.lastCommitSha ? ` as ${cherryPickResult.lastCommitSha}` : ""}.`;
     }
 
-    const cherryPickResult = cherryPickCommits(repoRoot, uniqueCommits);
-    if (cherryPickResult.error) {
-      throw new Error(`${task.id} integration failed: ${cherryPickResult.error}`);
+    updateTaskStatusInSource(
+      repoRoot,
+      rootTask,
+      statusToRecord,
+      terminalStatus === "completed"
+        ? `${task.id} completed via orchestrator integration.`
+        : `${task.id} blocked via orchestrator integration.`,
+    );
+    const trackerCommitResult = commitPendingChanges(
+      repoRoot,
+      `orchestrator: record ${task.id} ${statusToRecord}`,
+    );
+    if (trackerCommitResult.error) {
+      throw new Error(`${task.id} tracker update failed: ${trackerCommitResult.error}`);
     }
-
-    state.commitsSincePush += cherryPickResult.commitCount;
-    state.lastCommittedTaskId = task.id;
-    state.lastCommitSha = cherryPickResult.lastCommitSha;
+    if (trackerCommitResult.committed) {
+      state.commitsSincePush += 1;
+      state.lastCommittedTaskId = task.id;
+      state.lastCommitSha = trackerCommitResult.commitSha;
+      historyNote = `${historyNote} Tracker updated${trackerCommitResult.commitSha ? ` as ${trackerCommitResult.commitSha}` : ""}.`;
+    }
 
     const refreshedActionableTasks = loadTasks(repoRoot, workflow.taskSources);
     const refreshedTask = findTaskById(refreshedActionableTasks, task.id);
-    const terminalLabel = terminalStatus === "completed" ? "completed" : "blocked";
-    let historyNote = `${task.id} ${terminalLabel} and integrated ${cherryPickResult.commitCount} commit${
-      cherryPickResult.commitCount === 1 ? "" : "s"
-    }${cherryPickResult.lastCommitSha ? ` as ${cherryPickResult.lastCommitSha}` : ""}.`;
 
     const shouldPush =
       workflow.autoPushEveryCommits > 0 &&
@@ -493,11 +653,8 @@ function integrateTerminalTask(params: {
       historyNote = `${historyNote} Pushed ${integrationBranch}.`;
     }
 
-    if (terminalStatus === "completed" && refreshedTask?.status !== "done") {
-      throw new Error(`${task.id} integrated successfully but root task status is not done.`);
-    }
-    if (terminalStatus === "blocked" && refreshedTask?.status !== "blocked") {
-      throw new Error(`${task.id} integrated successfully but root task status is not blocked.`);
+    if (refreshedTask?.status !== statusToRecord) {
+      throw new Error(`${task.id} integrated successfully but root task status is not ${statusToRecord}.`);
     }
 
     return { historyNote, refreshedActionableTasks };
@@ -679,21 +836,36 @@ async function main() {
       retryingTaskId: null,
       retryAfter: null,
     });
-    const workspace = ensureWorkspace(repoRoot, workflow, task);
-    const runResult = runAgentForTask(
-      repoRoot,
-      workflow,
-      task,
-      workspace.path,
-      buildTaskPrompt(workflow, task, workspace.path),
-    );
-
     let refreshedActionableTasks = actionable;
     let historyStatus: HistoryStatus = "continued";
-    let historyNote = `Agent exited with code ${runResult.exitCode}.`;
+    let historyNote = `Agent did not finish.`;
+    let runResultLastMessage = "";
 
     try {
-      const workspaceActionableTasks = loadTasks(workspace.path, workflow.taskSources);
+      const preparedWorkspace = prepareWorkspaceForTask({
+        repoRoot,
+        workflow,
+        task,
+        state,
+      });
+      if (preparedWorkspace.note) {
+        appendProgress(repoRoot, workflow, [
+          formatHistoryNote(task.id, "continued", preparedWorkspace.note),
+        ]);
+        saveState(repoRoot, workflow, state);
+      }
+
+      const runResult = runAgentForTask(
+        repoRoot,
+        workflow,
+        task,
+        preparedWorkspace.workspace.path,
+        buildTaskPrompt(workflow, task, preparedWorkspace.workspace.path),
+      );
+      runResultLastMessage = runResult.lastMessage;
+      historyNote = `Agent exited with code ${runResult.exitCode}.`;
+
+      const workspaceActionableTasks = loadTasks(preparedWorkspace.workspace.path, workflow.taskSources);
       const workspaceTask = findTaskById(workspaceActionableTasks, task.id) ?? task;
 
       if (runResult.exitCode !== 0) {
@@ -713,6 +885,7 @@ async function main() {
         historyStatus = "completed";
         state.activeTaskId = null;
         clearTaskFailureState(state, task.id);
+        clearTaskWorkspaceRefreshState(state, task.id);
         const integrationResult = integrateTerminalTask({
           repoRoot,
           workflow,
@@ -727,6 +900,7 @@ async function main() {
         historyStatus = "blocked";
         state.activeTaskId = null;
         clearTaskFailureState(state, task.id);
+        clearTaskWorkspaceRefreshState(state, task.id);
         const integrationResult = integrateTerminalTask({
           repoRoot,
           workflow,
@@ -742,7 +916,7 @@ async function main() {
         }
       } else {
         historyStatus = "continued";
-        historyNote = `${task.id} remains ${workspaceTask.status}.`;
+        historyNote = `${task.id} did not emit a terminal marker and remains active.`;
         state.activeTaskId = task.id;
         clearTaskFailureState(state, task.id);
       }
@@ -784,7 +958,7 @@ async function main() {
     );
 
     if (
-      runResult.lastMessage.includes(workflow.completionPhrase) ||
+      runResultLastMessage.includes(workflow.completionPhrase) ||
       areAllTasksComplete(refreshedActionableTasks)
     ) {
       const integrationBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
