@@ -204,7 +204,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ### 2.1 Ask My Contacts / Ask Around
 - **ID**: `PLG3-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-041, PLG2-042, PLG3-002, PLG3-005, PLG3-006
 - **Description**:
@@ -220,6 +220,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] The caller can target all contacts, selected roles, or a specific group
   - [ ] The flow handles timeouts/non-responses without feeling broken
 
+- **Notes**:
+  - 2026-03-09T23:33:44.114Z: PLG3-010 completed via orchestrator integration.
 ### 2.2 Trustworthy Response Synthesis and Attribution
 - **ID**: `PLG3-011`
 - **Status**: `pending`
