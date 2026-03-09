@@ -162,7 +162,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T22:55:24.396Z: PLG3-002 completed via orchestrator integration.
 ### 1.5 Minimal Tool Surface and Routing
 - **ID**: `PLG3-006`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG3-002, PLG3-004, PLG3-005
 - **Description**:
@@ -175,6 +175,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Operational/debug flows prefer commands when that reduces tool-surface noise
   - [ ] Tool naming and responsibilities are stable and non-overlapping
 
+- **Notes**:
+  - 2026-03-09T23:08:36.797Z: PLG3-006 completed via orchestrator integration.
 ### 1.6 Boundary Management by Conversation
 - **ID**: `PLG3-003`
 - **Status**: `pending`
