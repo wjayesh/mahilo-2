@@ -9,10 +9,12 @@ import {
 const CALLBACK_SECRET = "callback-secret";
 
 interface MockClientState {
+  acceptFriendRequestCalls: string[];
   agentConnectionCalls: number;
   agentConnectionsResponse: unknown;
   blockedEventCalls: number[];
   friendConnectionCalls: string[];
+  friendRequestCalls: string[];
   friendConnectionsByUsername: Record<string, unknown[]>;
   friendshipCalls: Array<{ status?: string }>;
   friendshipsResponse: unknown;
@@ -20,6 +22,7 @@ interface MockClientState {
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   promptContextCalls: Array<Record<string, unknown>>;
+  rejectFriendRequestCalls: string[];
   resolveCalls: Array<Record<string, unknown>>;
   sendCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
 }
@@ -61,16 +64,24 @@ interface RecordedHeartbeatRequest {
 }
 
 function createMockContractClient(options: {
+  acceptFriendRequestError?: Error;
+  acceptFriendRequestResponse?: Record<string, unknown>;
   agentConnectionsResponse?: unknown;
   createOverrideError?: Error;
   friendConnectionsByUsername?: Record<string, unknown[]>;
+  friendshipsByStatus?: Record<string, unknown>;
   friendshipsResponse?: unknown;
   promptContextError?: Error;
   promptContextResponse?: Record<string, unknown>;
+  rejectFriendRequestError?: Error;
+  rejectFriendRequestResponse?: Record<string, unknown>;
   resolveError?: Error;
   resolveResponse?: Record<string, unknown>;
+  sendFriendRequestError?: Error;
+  sendFriendRequestResponse?: Record<string, unknown>;
 } = {}) {
   const state: MockClientState = {
+    acceptFriendRequestCalls: [],
     agentConnectionCalls: 0,
     agentConnectionsResponse:
       options.agentConnectionsResponse ??
@@ -84,6 +95,7 @@ function createMockContractClient(options: {
       ],
     blockedEventCalls: [],
     friendConnectionCalls: [],
+    friendRequestCalls: [],
     friendConnectionsByUsername: options.friendConnectionsByUsername ?? {},
     friendshipCalls: [],
     friendshipsResponse:
@@ -103,6 +115,7 @@ function createMockContractClient(options: {
     overrideCalls: [],
     outcomeCalls: [],
     promptContextCalls: [],
+    rejectFriendRequestCalls: [],
     resolveCalls: [],
     sendCalls: []
   };
@@ -132,6 +145,24 @@ function createMockContractClient(options: {
   };
 
   const client = {
+    acceptFriendRequest: async (friendshipId: string) => {
+      state.acceptFriendRequestCalls.push(friendshipId);
+      if (options.acceptFriendRequestError) {
+        throw options.acceptFriendRequestError;
+      }
+
+      return (
+        options.acceptFriendRequestResponse ?? {
+          friendshipId,
+          raw: {
+            friendshipId,
+            status: "accepted"
+          },
+          status: "accepted",
+          success: true
+        }
+      );
+    },
     createOverride: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.overrideCalls.push({ idempotencyKey, payload });
       if (options.createOverrideError) {
@@ -168,7 +199,10 @@ function createMockContractClient(options: {
     },
     listFriendships: async (params?: { status?: string }) => {
       state.friendshipCalls.push(params ?? {});
-      return state.friendshipsResponse;
+      return (
+        (params?.status ? options.friendshipsByStatus?.[params.status] : undefined) ??
+        state.friendshipsResponse
+      );
     },
     listBlockedEvents: async (limit?: number) => {
       state.blockedEventCalls.push(limit ?? 0);
@@ -186,6 +220,24 @@ function createMockContractClient(options: {
       state.outcomeCalls.push({ idempotencyKey, payload });
       return { ok: true };
     },
+    rejectFriendRequest: async (friendshipId: string) => {
+      state.rejectFriendRequestCalls.push(friendshipId);
+      if (options.rejectFriendRequestError) {
+        throw options.rejectFriendRequestError;
+      }
+
+      return (
+        options.rejectFriendRequestResponse ?? {
+          friendshipId,
+          raw: {
+            friendshipId,
+            status: "declined"
+          },
+          status: "declined",
+          success: true
+        }
+      );
+    },
     resolveDraft: async (payload: Record<string, unknown>) => {
       state.resolveCalls.push(payload);
       if (options.resolveError) {
@@ -202,6 +254,24 @@ function createMockContractClient(options: {
       return {
         message_id: "msg_123"
       };
+    },
+    sendFriendRequest: async (username: string) => {
+      state.friendRequestCalls.push(username);
+      if (options.sendFriendRequestError) {
+        throw options.sendFriendRequestError;
+      }
+
+      return (
+        options.sendFriendRequestResponse ?? {
+          friendshipId: `fr_pending_${username}`,
+          raw: {
+            friendshipId: `fr_pending_${username}`,
+            status: "pending"
+          },
+          status: "pending",
+          success: true
+        }
+      );
     }
   };
 
@@ -495,6 +565,7 @@ describe("createMahiloOpenClawPlugin", () => {
       "create_mahilo_override",
       "get_mahilo_context",
       "list_mahilo_contacts",
+      "manage_mahilo_relationships",
       "preview_mahilo_send",
       "talk_to_agent",
       "talk_to_group"
@@ -502,6 +573,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(commands.map((command) => command.name).sort()).toEqual([
       "mahilo override",
       "mahilo reconnect",
+      "mahilo relationships",
       "mahilo review",
       "mahilo setup",
       "mahilo status"
@@ -855,6 +927,85 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(providerCalls).toBe(0);
     expect(state.friendshipCalls).toEqual([{ status: "accepted" }]);
     expect(state.friendConnectionCalls).toEqual(["alice"]);
+  });
+
+  it("executes manage_mahilo_relationships to send friend requests by @username", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "manage_mahilo_relationships");
+    const result = await tool.execute("tool_call_relationship_add", {
+      action: "send_request",
+      username: "@alice"
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        action: "send_request",
+        request: {
+          friendshipId: "fr_pending_alice",
+          status: "pending",
+          username: "alice"
+        },
+        status: "success",
+        summary: "Sent a Mahilo friend request to @alice."
+      }
+    });
+    expect(state.friendRequestCalls).toEqual(["alice"]);
+  });
+
+  it("accepts pending Mahilo requests from server-backed relationship state", async () => {
+    const { client, state } = createMockContractClient({
+      friendshipsByStatus: {
+        pending: [
+          {
+            direction: "received",
+            displayName: "Alice",
+            friendshipId: "fr_pending_alice",
+            status: "pending",
+            username: "alice"
+          }
+        ]
+      }
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "manage_mahilo_relationships");
+    const result = await tool.execute("tool_call_relationship_accept", {
+      action: "accept",
+      username: "alice"
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        action: "accept",
+        request: {
+          friendshipId: "fr_pending_alice",
+          status: "accepted",
+          username: "alice"
+        },
+        status: "success",
+        summary: "Accepted the Mahilo request from @alice."
+      }
+    });
+    expect(state.friendshipCalls).toEqual([{ status: "pending" }]);
+    expect(state.acceptFriendRequestCalls).toEqual(["fr_pending_alice"]);
   });
 
   it("executes get_mahilo_context through the context contract", async () => {

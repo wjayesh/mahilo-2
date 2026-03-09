@@ -38,6 +38,10 @@ import {
   type PreviewMahiloSendInput,
   type TalkToGroupInput
 } from "./tools-default-sender";
+import {
+  executeMahiloRelationshipAction,
+  type ExecuteMahiloRelationshipActionInput
+} from "./relationships";
 import type { MahiloInboundWebhookPayload } from "./webhook";
 import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./webhook-route";
 import {
@@ -132,6 +136,7 @@ export function registerMahiloOpenClawPlugin(
   api.registerTool(createTalkToAgentTool(client, config));
   api.registerTool(createTalkToGroupTool(client, config));
   api.registerTool(createListMahiloContactsTool(client, options.contactsProvider));
+  api.registerTool(createManageMahiloRelationshipsTool(client));
   api.registerTool(createGetMahiloContextTool(client, pluginState));
   api.registerTool(createPreviewMahiloSendTool(client, config));
   api.registerTool(createCreateMahiloOverrideTool(client));
@@ -254,6 +259,35 @@ function createListMahiloContactsTool(
     name: "list_mahilo_contacts",
     parameters: {
       additionalProperties: false,
+      type: "object"
+    }
+  } as unknown as AnyAgentTool;
+}
+
+function createManageMahiloRelationshipsTool(client: MahiloContractClient): AnyAgentTool {
+  return {
+    description:
+      "Manage Mahilo relationships: list contacts and pending requests, send a friend request, or accept/decline one by username or friendshipId. Usernames can include a leading @.",
+    execute: async (_toolCallId: string, rawInput: unknown) =>
+      executeMahiloTool("manage_mahilo_relationships", async () => {
+        const input = parseMahiloRelationshipInput(rawInput);
+        const result = await executeMahiloRelationshipAction(client, input);
+        return toAgentToolResult(result, result.summary);
+      }),
+    label: "Manage Mahilo Relationships",
+    name: "manage_mahilo_relationships",
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        action: {
+          enum: ["list", "send_request", "accept", "decline"],
+          type: "string"
+        },
+        friendshipId: { type: "string" },
+        friendship_id: { type: "string" },
+        recipient: { type: "string" },
+        username: { type: "string" }
+      },
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -577,6 +611,22 @@ function parseCreateMahiloOverrideInput(rawInput: unknown): CreateMahiloOverride
       readOptionalString(input.source_resolution_id),
     targetId: readOptionalString(input.targetId) ?? readOptionalString(input.target_id),
     ttlSeconds: readOptionalInteger(input.ttlSeconds) ?? readOptionalInteger(input.ttl_seconds)
+  };
+}
+
+function parseMahiloRelationshipInput(
+  rawInput: unknown
+): ExecuteMahiloRelationshipActionInput {
+  const input = rawInput === undefined ? {} : readInputObject(rawInput);
+
+  return {
+    action: readOptionalString(input.action),
+    friendshipId:
+      readOptionalString(input.friendshipId) ??
+      readOptionalString(input.friendship_id),
+    username:
+      readOptionalString(input.username) ??
+      readOptionalString(input.recipient)
   };
 }
 

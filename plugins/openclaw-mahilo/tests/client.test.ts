@@ -253,7 +253,7 @@ describe("MahiloContractClient", () => {
       pluginVersion
     });
 
-    const result = await client.sendFriendRequest("alice");
+    const result = await client.sendFriendRequest("@alice");
 
     expect(fetchCalls).toHaveLength(1);
     expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/friends/request");
@@ -342,7 +342,7 @@ describe("MahiloContractClient", () => {
       pluginVersion
     });
 
-    const result = await client.getFriendAgentConnections("alice");
+    const result = await client.getFriendAgentConnections("@alice");
 
     expect(fetchCalls).toHaveLength(1);
     expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/contacts/alice/connections");

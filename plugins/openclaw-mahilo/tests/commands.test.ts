@@ -78,6 +78,7 @@ describe("registerMahiloDiagnosticsCommands", () => {
     expect(Array.from(commandMap.keys()).sort()).toEqual([
       "mahilo override",
       "mahilo reconnect",
+      "mahilo relationships",
       "mahilo review",
       "mahilo status"
     ]);
@@ -99,6 +100,76 @@ describe("registerMahiloDiagnosticsCommands", () => {
         status: "open"
       }
     });
+  });
+
+  it("accepts pending Mahilo requests through the relationship command", async () => {
+    const commands: RegisteredCommand[] = [];
+    const acceptCalls: string[] = [];
+    const friendshipCalls: Array<{ status?: string }> = [];
+    const api = {
+      registerCommand: (name: string, execute: RegisteredCommand["execute"]) => {
+        commands.push({ execute, name });
+      }
+    };
+    const client = {
+      acceptFriendRequest: async (friendshipId: string) => {
+        acceptCalls.push(friendshipId);
+        return {
+          friendshipId,
+          raw: {
+            friendshipId,
+            status: "accepted"
+          },
+          status: "accepted",
+          success: true
+        };
+      },
+      listBlockedEvents: async () => ({ items: [] }),
+      listFriendships: async (params?: { status?: string }) => {
+        friendshipCalls.push(params ?? {});
+        return params?.status === "pending"
+          ? [
+              {
+                direction: "received",
+                friendshipId: "fr_alice",
+                status: "pending",
+                username: "alice"
+              }
+            ]
+          : [];
+      },
+      listReviews: async () => ({ items: [] }),
+      rejectFriendRequest: async () => ({ raw: {}, success: true }),
+      sendFriendRequest: async () => ({ raw: {}, success: true })
+    };
+
+    registerMahiloDiagnosticsCommands(api as never, createConfig(), client as never);
+
+    const relationshipCommand = requireCommand(toCommandMap(commands), "mahilo relationships");
+    const result = await relationshipCommand.execute({
+      action: "accept",
+      username: "alice"
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: "Accepted the Mahilo request from @alice."
+        }
+      ],
+      details: {
+        action: "accept",
+        command: "mahilo relationships",
+        request: {
+          friendshipId: "fr_alice",
+          status: "accepted",
+          username: "alice"
+        },
+        status: "success"
+      }
+    });
+    expect(friendshipCalls).toEqual([{ status: "pending" }]);
+    expect(acceptCalls).toEqual(["fr_alice"]);
   });
 
   it("creates user-scoped temporary overrides with recipient auto-resolution", async () => {

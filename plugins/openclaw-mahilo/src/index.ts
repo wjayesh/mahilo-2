@@ -7,10 +7,12 @@ export * from "./keys";
 export * from "./openclaw-plugin-wrapper";
 export * from "./policy-helpers";
 export * from "./prompt-context";
+export * from "./relationships";
 export * from "./release";
 export * from "./sender-resolution";
 export * from "./state";
 export * from "./tools-default-sender";
+export * from "./webhook";
 export * from "./webhook-route";
 
 export {

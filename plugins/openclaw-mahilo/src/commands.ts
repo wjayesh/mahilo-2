@@ -3,6 +3,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { MahiloContractClient } from "./client";
 import { redactSensitiveConfig, type MahiloPluginConfig } from "./config";
 import type { DeclaredSelectors } from "./policy-helpers";
+import { executeMahiloRelationshipAction } from "./relationships";
 import type { InMemoryPluginState } from "./state";
 import { createMahiloOverride } from "./tools";
 import { DEFAULT_WEBHOOK_ROUTE_PATH } from "./webhook-route";
@@ -52,6 +53,7 @@ export function registerMahiloDiagnosticsCommands(
   };
 
   const commands: MahiloCommand[] = [
+    createRelationshipsCommand(client, runtimeState, options),
     createStatusCommand(config, client, runtimeState, options),
     createReviewCommand(client, runtimeState, options),
     createOverrideCommand(client, runtimeState, options),
@@ -63,8 +65,80 @@ export function registerMahiloDiagnosticsCommands(
   }
 
   options.logger?.info?.(
-    "[Mahilo] Registered commands: mahilo status, mahilo review, mahilo override, mahilo reconnect"
+    "[Mahilo] Registered commands: mahilo relationships, mahilo status, mahilo review, mahilo override, mahilo reconnect"
   );
+}
+
+function createRelationshipsCommand(
+  client: MahiloContractClient,
+  runtimeState: MahiloDiagnosticsRuntimeState,
+  options: MahiloDiagnosticsCommandOptions
+): MahiloCommand {
+  return {
+    description:
+      "Manage Mahilo friendships: list contacts and pending requests, send requests, or accept/decline them by username or friendshipId.",
+    execute: async (rawInput?: unknown) => {
+      const checkedAt = toIsoTimestamp(options.now);
+
+      try {
+        const input = readInputObject(rawInput);
+        const result = await executeMahiloRelationshipAction(client, {
+          action: readOptionalString(input.action),
+          friendshipId:
+            readOptionalString(input.friendshipId) ??
+            readOptionalString(input.friendship_id),
+          username:
+            readOptionalString(input.username) ??
+            readOptionalString(input.recipient)
+        });
+
+        if (result.status === "success") {
+          runtimeState.lastSuccessfulContactAt = checkedAt;
+          runtimeState.lastContactError = undefined;
+        } else if (result.error?.productState === "transport_failure") {
+          runtimeState.lastContactError = result.error.message;
+        } else {
+          runtimeState.lastContactError = undefined;
+        }
+
+        return toCommandResult(result.summary, {
+          checkedAt,
+          command: "mahilo relationships",
+          ...result
+        });
+      } catch (error) {
+        const message = toErrorMessage(error);
+        runtimeState.lastContactError = message;
+
+        return toCommandResult("Mahilo relationships: failed to process the request.", {
+          checkedAt,
+          command: "mahilo relationships",
+          error: message,
+          hints: [
+            "Use action=list to review contacts and pending requests from Mahilo server.",
+            "Use action=send_request with username to add someone by Mahilo handle.",
+            "Use action=accept or action=decline with username or friendshipId to act on a pending request."
+          ]
+        });
+      }
+    },
+    label: "Mahilo Relationships",
+    name: "mahilo relationships",
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        action: {
+          enum: ["list", "send_request", "accept", "decline"],
+          type: "string"
+        },
+        friendshipId: { type: "string" },
+        friendship_id: { type: "string" },
+        recipient: { type: "string" },
+        username: { type: "string" }
+      },
+      type: "object"
+    }
+  };
 }
 
 function createStatusCommand(

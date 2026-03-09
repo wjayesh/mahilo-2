@@ -24,6 +24,7 @@ describe("tarball smoke test", () => {
       "create_mahilo_override",
       "get_mahilo_context",
       "list_mahilo_contacts",
+      "manage_mahilo_relationships",
       "preview_mahilo_send",
       "talk_to_agent",
       "talk_to_group"
@@ -31,7 +32,9 @@ describe("tarball smoke test", () => {
     expect(summary.commandNames).toEqual([
       "mahilo override",
       "mahilo reconnect",
+      "mahilo relationships",
       "mahilo review",
+      "mahilo setup",
       "mahilo status"
     ]);
     expect(summary.hookNames).toEqual([

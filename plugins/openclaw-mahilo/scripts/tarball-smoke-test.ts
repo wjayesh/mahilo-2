@@ -62,9 +62,11 @@ export interface TarballSmokeSummary {
 }
 
 const EXPECTED_COMMAND_NAMES = [
+  "mahilo relationships",
   "mahilo override",
   "mahilo reconnect",
   "mahilo review",
+  "mahilo setup",
   "mahilo status"
 ];
 
@@ -82,6 +84,7 @@ const EXPECTED_TOOL_NAMES = [
   "create_mahilo_override",
   "get_mahilo_context",
   "list_mahilo_contacts",
+  "manage_mahilo_relationships",
   "preview_mahilo_send",
   "talk_to_agent",
   "talk_to_group"

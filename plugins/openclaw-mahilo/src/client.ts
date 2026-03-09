@@ -258,7 +258,7 @@ export class MahiloContractClient {
   }
 
   async sendFriendRequest(username: string): Promise<MahiloFriendRequestResult> {
-    const normalizedUsername = normalizeRequiredString(username, "username");
+    const normalizedUsername = normalizeMahiloUsername(username, "username");
     const response = await this.postJson(FRIEND_REQUEST_ENDPOINT, {
       username: normalizedUsername
     });
@@ -297,7 +297,7 @@ export class MahiloContractClient {
   }
 
   async getFriendAgentConnections(username: string): Promise<MahiloFriendConnectionDirectory> {
-    const normalizedUsername = normalizeRequiredString(username, "username");
+    const normalizedUsername = normalizeMahiloUsername(username, "username");
     const response = await this.request(
       `${CONTACTS_ENDPOINT}/${encodeURIComponent(normalizedUsername)}/connections`,
       {
@@ -616,6 +616,15 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
   const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    throw new Error(`${fieldName} is required`);
+  }
+
+  return normalized;
+}
+
+function normalizeMahiloUsername(value: unknown, fieldName: string): string {
+  const normalized = normalizeRequiredString(value, fieldName).replace(/^@+/, "");
   if (!normalized) {
     throw new Error(`${fieldName} is required`);
   }
