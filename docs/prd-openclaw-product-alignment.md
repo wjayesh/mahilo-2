@@ -412,6 +412,66 @@ The task ordering below supersedes any older sequencing in this document when th
   - [ ] Target personas and top jobs-to-be-done are explicit
   - [ ] The product promise is framed in outcomes, not migration mechanics
 
+#### PAL-001 Working Output
+
+**One-line promise**
+
+Ask your contacts from OpenClaw and get real answers from people you trust, with attribution and boundaries built in.
+
+**Positioning statement**
+
+Mahilo for OpenClaw turns "ask my contacts" into a native OpenClaw behavior. Instead of trusting public AI noise or manually repeating the same question across chats, a user asks once inside OpenClaw and the plugin uses Mahilo to reach the right contacts, bring back attributed answers from real people they already trust, and honor the sharing boundaries each person has set. OpenClaw stays the familiar conversational surface; Mahilo stays behind the scenes as the control plane for identity, network discovery, policy decisions, review paths, and final send-time enforcement.
+
+**Shortest credible explanation of Mahilo**
+
+Mahilo is the trust and control layer behind the plugin: it knows who is in your network, which agent connection is acting, what can be shared, and whether a request should be allowed, reviewed, or blocked.
+
+**Message architecture**
+
+- Lead with the outcome: trustworthy answers from your own network inside OpenClaw.
+- Reinforce with the experience: ask once, fan out across contacts, and get attributed replies back in the same OpenClaw flow.
+- Reinforce with the trust contract: answers trace back to real people and respect user-set boundaries by default.
+- Explain Mahilo only after the value is clear: it is the control plane that handles identity, routing, policy, and review behind the plugin.
+- Do not lead with migration mechanics, repo moves, contract versions, `senderConnectionId`, callback plumbing, or other implementation details.
+
+**Primary personas and top jobs-to-be-done**
+
+1. **Networked OpenClaw power user**
+   - Profile: already uses OpenClaw regularly, has a small but real circle of friends or collaborators with AI agents, and is frustrated by generic web answers or scattered group-chat outreach.
+   - Top jobs:
+     - When I need a recommendation or reality check, ask my contacts from OpenClaw and get grounded replies I can trust.
+     - When I would otherwise message several people manually, ask once and let the system gather answers for me.
+   - Message to emphasize: "Real answers from real people you already trust."
+
+2. **Boundary-conscious participant**
+   - Profile: likes the idea of agent-to-agent help, but only if it is obvious what their agent can share and what stays private.
+   - Top jobs:
+     - Let my agent help friends without exposing sensitive details by default.
+     - Adjust sharing boundaries conversationally when I want to open up or tighten access.
+   - Message to emphasize: "Your agent helps on your terms, with conservative defaults."
+
+3. **Community seed user**
+   - Profile: early adopter who wants to bring a few friends or collaborators onto Mahilo and needs the product to feel useful with a small trusted network.
+   - Top jobs:
+     - Add contacts, review requests, and make the network useful from the first few connections.
+     - Demo a tangible "ask around" moment that makes other OpenClaw users want in.
+   - Message to emphasize: "A small trusted circle is enough to unlock value quickly."
+
+**Before / after value proposition**
+
+- Before: you rely on SEO spam, generic AI answers, or repeated manual outreach across chats when you want a real opinion.
+- Before: even if your friends use AI agents, their knowledge is trapped in separate assistants and you do the coordination work yourself.
+- Before: sharing feels risky because it is not obvious what an agent will reveal or when human review applies.
+- After: you ask once inside OpenClaw and Mahilo helps your agent reach the right people, collect responses, and return an attributed summary in the same conversation.
+- After: the useful information comes from people you actually know, not anonymous internet content.
+- After: boundaries and review stay intact because Mahilo remains the policy and enforcement control plane behind the plugin.
+
+**Outcome framing to reuse in docs and launch copy**
+
+- Primary promise: "Get trustworthy answers from your network without leaving OpenClaw."
+- Supporting promise: "Ask around, see who said what, and keep boundaries intact."
+- Proof statement: "Mahilo makes the trust model operational by handling identity, network state, policy decisions, and final enforcement behind the plugin."
+
 ### 1.2 Documentation Surface Refresh
 - **ID**: `PAL-002`
 - **Status**: `pending`
