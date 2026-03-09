@@ -3,6 +3,7 @@ export const MAHILO_CONTRACT_VERSION = "1.0.0";
 export const API_V1_BASE_PATH = "/api/v1";
 
 export const CONTRACT_ENDPOINTS = {
+  agents: `${API_V1_BASE_PATH}/agents`,
   context: `${API_V1_BASE_PATH}/plugin/context`,
   resolve: `${API_V1_BASE_PATH}/plugin/resolve`,
   sendMessage: `${API_V1_BASE_PATH}/messages/send`,

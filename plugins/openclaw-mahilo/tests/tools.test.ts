@@ -12,6 +12,8 @@ import {
 type Decision = "allow" | "ask" | "deny";
 
 interface MockClientState {
+  agentConnectionCalls: number;
+  agentConnectionsResponse: unknown;
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   overrideResponse: unknown;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -25,6 +27,7 @@ interface MockClientState {
 }
 
 function createMockClient(options: {
+  agentConnectionsResponse?: unknown;
   overrideResponse?: unknown;
   promptContextResponse?: unknown;
   reportOutcomeError?: Error;
@@ -32,6 +35,17 @@ function createMockClient(options: {
   sendResponse?: unknown;
 } = {}) {
   const state: MockClientState = {
+    agentConnectionCalls: 0,
+    agentConnectionsResponse:
+      options.agentConnectionsResponse ??
+      [
+        {
+          active: true,
+          framework: "openclaw",
+          id: "conn_sender_default",
+          label: "default"
+        }
+      ],
     overrideCalls: [],
     overrideResponse: options.overrideResponse ?? {
       created: true,
@@ -78,6 +92,10 @@ function createMockClient(options: {
     getPromptContext: async (payload: Record<string, unknown>) => {
       state.promptContextCalls.push(payload);
       return state.promptContextResponse;
+    },
+    listOwnAgentConnections: async () => {
+      state.agentConnectionCalls += 1;
+      return state.agentConnectionsResponse;
     },
     reportOutcome: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.outcomeCalls.push({ idempotencyKey, payload });
@@ -131,6 +149,40 @@ describe("send tools", () => {
     expect(result.messageId).toBe("msg_123");
     expect(state.sendCalls).toHaveLength(1);
     expect(state.outcomeCalls).toHaveLength(1);
+  });
+
+  it("resolves a default sender connection when send tools omit senderConnectionId", async () => {
+    const { client, state } = createMockClient({
+      agentConnectionsResponse: [
+        {
+          active: true,
+          framework: "other",
+          id: "conn_other",
+          label: "zeta"
+        },
+        {
+          active: true,
+          framework: "openclaw",
+          id: "conn_sender_default",
+          label: "primary"
+        }
+      ],
+      resolveResponse: createResolveResponse("allow")
+    });
+
+    const result = await talkToAgent(
+      client,
+      {
+        message: "hello",
+        recipient: "alice"
+      },
+      {}
+    );
+
+    expect(result.status).toBe("sent");
+    expect(state.agentConnectionCalls).toBe(1);
+    expect(state.resolveCalls[0]?.sender_connection_id).toBe("conn_sender_default");
+    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
   });
 
   it("returns review_required for ask decisions in ask mode", async () => {

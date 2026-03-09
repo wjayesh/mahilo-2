@@ -11,15 +11,15 @@ import {
 } from "./policy-helpers";
 import {
   fetchMahiloPromptContext,
-  type FetchMahiloPromptContextInput,
   type FetchMahiloPromptContextOptions,
   type FetchMahiloPromptContextResult
 } from "./prompt-context";
+import { resolveMahiloSenderConnection } from "./sender-resolution";
 
 export interface MahiloToolContext {
   agentSessionId?: string;
   reviewMode?: ReviewMode;
-  senderConnectionId: string;
+  senderConnectionId?: string;
 }
 
 export interface MahiloSendToolInput {
@@ -65,7 +65,14 @@ export interface MahiloContact {
 
 export type ContactsProvider = () => Promise<MahiloContact[]>;
 
-export interface GetMahiloContextInput extends FetchMahiloPromptContextInput {}
+export interface GetMahiloContextInput {
+  declaredSelectors?: Partial<DeclaredSelectors>;
+  includeRecentInteractions?: boolean;
+  interactionLimit?: number;
+  recipient: string;
+  recipientType?: "group" | "user";
+  senderConnectionId?: string;
+}
 
 export interface GetMahiloContextOptions extends FetchMahiloPromptContextOptions {}
 
@@ -194,7 +201,18 @@ export async function getMahiloContext(
   input: GetMahiloContextInput,
   options: GetMahiloContextOptions = {}
 ): Promise<MahiloContextToolResult> {
-  return fetchMahiloPromptContext(client, input, options);
+  const senderConnectionId =
+    input.senderConnectionId ??
+    (await resolveMahiloSenderConnection(client)).connectionId;
+
+  return fetchMahiloPromptContext(
+    client,
+    {
+      ...input,
+      senderConnectionId
+    },
+    options
+  );
 }
 
 export async function previewMahiloSend(

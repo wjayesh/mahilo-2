@@ -17,6 +17,10 @@ import {
 import type { DeclaredSelectors } from "./policy-helpers";
 import { fetchMahiloPromptContext } from "./prompt-context";
 import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
+import {
+  attachMahiloSenderResolutionCache,
+  resolveMahiloSenderConnection
+} from "./sender-resolution";
 import { InMemoryPluginState } from "./state";
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
@@ -33,7 +37,7 @@ import {
   type MahiloToolContext,
   type PreviewMahiloSendInput,
   type TalkToGroupInput
-} from "./tools";
+} from "./tools-default-sender";
 import type { MahiloInboundWebhookPayload } from "./webhook";
 import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./webhook-route";
 import {
@@ -130,6 +134,7 @@ export function registerMahiloOpenClawPlugin(
   api.registerTool(createPreviewMahiloSendTool(client, config));
   api.registerTool(createCreateMahiloOverrideTool(client));
   registerPromptContextHook(api, client, config, pluginState);
+  attachMahiloSenderResolutionCache(client, pluginState);
   registerMahiloPostSendHooks(api, pluginState);
   registerMahiloWebhookRoute(api, config, webhookRouteOptions);
   registerMahiloDiagnosticsCommands(api, config, client, diagnosticsCommandOptions);
@@ -178,7 +183,7 @@ function createTalkToAgentTool(client: MahiloContractClient, config: MahiloPlugi
         senderConnectionId: { type: "string" },
         sender_connection_id: { type: "string" }
       },
-      required: ["recipient", "message", "senderConnectionId"],
+      required: ["recipient", "message"],
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -226,7 +231,7 @@ function createTalkToGroupTool(client: MahiloContractClient, config: MahiloPlugi
         senderConnectionId: { type: "string" },
         sender_connection_id: { type: "string" }
       },
-      required: ["message", "senderConnectionId"],
+          required: ["message"],
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -292,7 +297,7 @@ function createGetMahiloContextTool(
         senderConnectionId: { type: "string" },
         sender_connection_id: { type: "string" }
       },
-      required: ["recipient", "senderConnectionId"],
+          required: ["recipient"],
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -343,7 +348,7 @@ function createPreviewMahiloSendTool(
         senderConnectionId: { type: "string" },
         sender_connection_id: { type: "string" }
       },
-      required: ["message", "senderConnectionId"],
+          required: ["message"],
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -453,12 +458,6 @@ function parseToolContext(rawInput: unknown, config: MahiloPluginConfig): Mahilo
     readOptionalString(input.senderConnectionId) ??
     readOptionalString(input.sender_connection_id);
 
-  if (!senderConnectionId) {
-    throw new MahiloToolInputError(
-      "senderConnectionId is required (pass senderConnectionId or sender_connection_id)"
-    );
-  }
-
   return {
     agentSessionId:
       readOptionalString(input.agentSessionId) ??
@@ -470,7 +469,9 @@ function parseToolContext(rawInput: unknown, config: MahiloPluginConfig): Mahilo
 
 function parseGetMahiloContextInput(rawInput: unknown): GetMahiloContextInput {
   const input = readInputObject(rawInput);
-  const senderConnectionId = readRequiredSenderConnectionId(input);
+  const senderConnectionId =
+    readOptionalString(input.senderConnectionId) ??
+    readOptionalString(input.sender_connection_id);
   const recipientType =
     readRecipientType(input.recipientType) ??
     readRecipientType(input.recipient_type) ??
@@ -1057,9 +1058,21 @@ async function injectMahiloContextIntoPrompt(
     return rawHookInput;
   }
 
-  const result = await fetchMahiloPromptContext(client, promptContextInput, {
-    cache: pluginState
+  const senderResolution = await resolveMahiloSenderConnection(client, {
+    cache: pluginState,
+    explicitSenderConnectionId: promptContextInput.senderConnectionId
   });
+
+  const result = await fetchMahiloPromptContext(
+    client,
+    {
+      ...promptContextInput,
+      senderConnectionId: senderResolution.connectionId
+    },
+    {
+      cache: pluginState
+    }
+  );
 
   if (!result.ok || result.injection.length === 0) {
     return rawHookInput;
@@ -1077,7 +1090,7 @@ function parsePromptContextInput(hookInput: Record<string, unknown>): {
   declaredSelectors?: Partial<DeclaredSelectors>;
   recipient: string;
   recipientType: "group" | "user";
-  senderConnectionId: string;
+  senderConnectionId?: string;
 } | undefined {
   const sources = collectPromptContextSources(hookInput);
   const declaredSelectors = parseHookSelectors(sources);
@@ -1089,11 +1102,7 @@ function parsePromptContextInput(hookInput: Record<string, unknown>): {
       "sender_connection_id",
       "recipientConnectionId",
       "recipient_connection_id"
-    ) ?? "";
-
-  if (senderConnectionId.length === 0) {
-    return undefined;
-  }
+    );
 
   const explicitRecipientType = readFirstString(
     sources,

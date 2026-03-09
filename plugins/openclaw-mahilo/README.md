@@ -77,6 +77,22 @@ Add the Mahilo plugin entry to the same OpenClaw config file:
 
 Do not add `contractVersion`, `pluginVersion`, or `callbackSecret` to plugin config. Those are server-owned and rejected by the plugin config parser.
 
+## Default Sender Resolution
+
+Core Mahilo plugin flows no longer require prompt authors or humans to pass `senderConnectionId`.
+
+When a send, preview, or context-fetch call omits `senderConnectionId`, the plugin:
+
+- Reads the current user's Mahilo agent connections from `/api/v1/agents`
+- Reuses a cached default sender when one is still fresh under `cacheTtlSeconds`
+- Chooses a default deterministically from active connections in this order:
+  1. server-default or `default`-labeled connections
+  2. `openclaw` framework connections
+  3. higher Mahilo connection priority
+  4. lexical fallback by label, then connection id
+
+`senderConnectionId` and `sender_connection_id` are still accepted as advanced overrides when you need to force a specific routing path.
+
 ## First Connectivity Check
 
 After saving the config, restart OpenClaw and run:

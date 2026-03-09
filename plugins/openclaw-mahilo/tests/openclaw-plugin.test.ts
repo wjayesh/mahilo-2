@@ -9,6 +9,8 @@ import {
 const CALLBACK_SECRET = "callback-secret";
 
 interface MockClientState {
+  agentConnectionCalls: number;
+  agentConnectionsResponse: unknown;
   blockedEventCalls: number[];
   listReviewCalls: Array<{ limit?: number; status?: string }>;
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -55,6 +57,7 @@ interface RecordedHeartbeatRequest {
 }
 
 function createMockContractClient(options: {
+  agentConnectionsResponse?: unknown;
   createOverrideError?: Error;
   promptContextError?: Error;
   promptContextResponse?: Record<string, unknown>;
@@ -62,6 +65,17 @@ function createMockContractClient(options: {
   resolveResponse?: Record<string, unknown>;
 } = {}) {
   const state: MockClientState = {
+    agentConnectionCalls: 0,
+    agentConnectionsResponse:
+      options.agentConnectionsResponse ??
+      [
+        {
+          active: true,
+          framework: "openclaw",
+          id: "conn_sender_default",
+          label: "default"
+        }
+      ],
     blockedEventCalls: [],
     listReviewCalls: [],
     overrideCalls: [],
@@ -115,6 +129,10 @@ function createMockContractClient(options: {
       }
 
       return promptContextResponse;
+    },
+    listOwnAgentConnections: async () => {
+      state.agentConnectionCalls += 1;
+      return state.agentConnectionsResponse;
     },
     listBlockedEvents: async (limit?: number) => {
       state.blockedEventCalls.push(limit ?? 0);
@@ -449,6 +467,7 @@ describe("createMahiloOpenClawPlugin", () => {
       "mahilo override",
       "mahilo reconnect",
       "mahilo review",
+      "mahilo setup",
       "mahilo status"
     ]);
     expect(hooks.map((hook) => hook.name)).toEqual(
@@ -690,8 +709,23 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.outcomeCalls).toHaveLength(1);
   });
 
-  it("returns graceful input errors for invalid send tool calls", async () => {
-    const { client } = createMockContractClient();
+  it("resolves a default sender connection for talk_to_agent when input omits it", async () => {
+    const { client, state } = createMockContractClient({
+      agentConnectionsResponse: [
+        {
+          active: true,
+          framework: "other",
+          id: "conn_other",
+          label: "zeta"
+        },
+        {
+          active: true,
+          framework: "openclaw",
+          id: "conn_sender_default",
+          label: "primary"
+        }
+      ]
+    });
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
     });
@@ -710,13 +744,12 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(result).toMatchObject({
       details: {
-        error: "senderConnectionId is required (pass senderConnectionId or sender_connection_id)",
-        errorType: "input",
-        retryable: false,
-        status: "error",
-        tool: "talk_to_agent"
+        status: "sent"
       }
     });
+    expect(state.agentConnectionCalls).toBe(1);
+    expect(state.resolveCalls[0]?.sender_connection_id).toBe("conn_sender_default");
+    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
   });
 
   it("lists contacts through the provided contacts provider", async () => {
@@ -1325,6 +1358,54 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(prompt).not.toContain("recent_3=");
     expect(prompt).toContain("You are a helpful assistant.");
     expect(prompt.length).toBeLessThan(1400);
+  });
+
+  it("resolves prompt-hook sender context from active Mahilo connections when none is passed", async () => {
+    const { client, state } = createMockContractClient({
+      agentConnectionsResponse: [
+        {
+          active: true,
+          framework: "other",
+          id: "conn_other",
+          label: "zeta"
+        },
+        {
+          active: true,
+          framework: "openclaw",
+          id: "conn_sender_default",
+          label: "primary"
+        }
+      ]
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, hooks } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const hook = findHook(hooks, "before_prompt_build");
+    await hook.execute({
+      message: {
+        sender: "alice",
+        selectors: {
+          action: "share",
+          direction: "inbound",
+          resource: "message.general"
+        }
+      },
+      prompt: "You are a helpful assistant."
+    });
+
+    expect(state.agentConnectionCalls).toBe(1);
+    expect(state.promptContextCalls[0]).toMatchObject({
+      recipient: "alice",
+      recipient_type: "user",
+      sender_connection_id: "conn_sender_default"
+    });
   });
 
   it("does not register prompt hook when promptContextEnabled is false", async () => {

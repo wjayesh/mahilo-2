@@ -63,7 +63,7 @@ export function registerMahiloOpenClawPlugin(
 ): void {
   const config = parseMahiloPluginConfig(api.pluginConfig ?? {}, {
     defaults: {
-      pluginVersion: readOptionalString((api as Record<string, unknown>).version) ?? "unknown",
+      pluginVersion: readOptionalString((api as unknown as Record<string, unknown>).version) ?? "unknown",
     },
   });
   const createClient = options.createClient ?? createMahiloClientFromConfig;
@@ -73,8 +73,8 @@ export function registerMahiloOpenClawPlugin(
 
   let commandRegistrationMode: CommandRegistrationMode | null = null;
   const originalRegisterCommand =
-    typeof (api as Record<string, unknown>).registerCommand === "function"
-      ? ((api as Record<string, unknown>).registerCommand as (...args: unknown[]) => unknown)
+    typeof (api as unknown as Record<string, unknown>).registerCommand === "function"
+      ? ((api as unknown as Record<string, unknown>).registerCommand as (...args: unknown[]) => unknown)
       : null;
   const originalRegisterTool = api.registerTool.bind(api);
   const wrappedRegisterCommand =
@@ -100,7 +100,7 @@ export function registerMahiloOpenClawPlugin(
           return originalRegisterCommand.apply(api, patchedArgs);
         };
 
-  if (wrappedRegisterCommand) {
+  if (wrappedRegisterCommand && originalRegisterCommand) {
     try {
       Object.defineProperty(wrappedRegisterCommand, "length", {
         configurable: true,
@@ -475,7 +475,10 @@ function patchToolDefinition(
   client: MahiloContractClient,
   senderResolver: MahiloSenderResolver,
 ): AnyAgentTool {
-  if (!AUTO_SENDER_TOOL_NAMES.has(tool.name)) {
+  const toolName = typeof tool.name === "string" ? tool.name : "";
+  const execute = tool.execute as AnyAgentTool["execute"];
+
+  if (!AUTO_SENDER_TOOL_NAMES.has(toolName) || typeof execute !== "function") {
     return tool;
   }
 
@@ -484,16 +487,16 @@ function patchToolDefinition(
     execute: async (toolCallId: string, rawInput: unknown) => {
       try {
         const nextInput = await ensureSenderInput(rawInput, client, senderResolver);
-        return await tool.execute(toolCallId, nextInput);
+        return await execute(toolCallId, nextInput);
       } catch (error) {
         return toToolResult(
-          `${tool.name} failed: ${toErrorMessage(error)}`,
+          `${toolName} failed: ${toErrorMessage(error)}`,
           {
             error: toErrorMessage(error),
             errorType: error instanceof MahiloRequestError ? "network" : "input",
             retryable: error instanceof MahiloRequestError,
             status: "error",
-            tool: tool.name,
+            tool: toolName,
           },
         );
       }
