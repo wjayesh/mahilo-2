@@ -1,111 +1,54 @@
 # OpenClaw Mahilo Plugin
 
-This directory is the dedicated home for the Mahilo OpenClaw plugin package.
+`@mahilo/openclaw-mahilo` is the published Mahilo plugin for OpenClaw. Install it as a normal npm package, register it in `openclaw.extensions`, and keep runtime settings under `plugins.entries.mahilo.config`.
 
-Canonical path:
+The plugin adds Mahilo-aware tools, diagnostics commands, prompt-time context injection, and inbound webhook handling while keeping Mahilo server as the policy source of truth.
 
-- `plugins/openclaw-mahilo/`
-
-Scope:
-
-- Plugin-specific code, config, tests, and packaging files only.
-- No Mahilo server implementation code.
-
-## Package and Runtime Identity
-
-Long-term identity decision (PLG2-021):
+## Compatibility
 
 - Package name: `@mahilo/openclaw-mahilo`
-- Runtime plugin ID: `mahilo` (stable)
-- OpenClaw config entry path: `plugins.entries.mahilo.config`
+- Runtime plugin ID: `mahilo`
+- Stable OpenClaw config entry: `plugins.entries.mahilo.config`
+- Mahilo server contract expected by this package: `1.0.0` on `/api/v1`
+- Supported OpenClaw runtime surface: the modern `openclaw/plugin-sdk/core` API used by this package (`registerTool`, `registerCommand`, `registerHook`, `registerHttpRoute`, and `runtime.system`)
+- Unsupported combinations:
+  - OpenClaw runtimes that predate `openclaw/plugin-sdk/core` or only expose legacy plugin APIs
+  - Mahilo server/plugin contract versions other than `1.0.0`
+  - Plugin config that tries to set server-owned keys such as `contractVersion`, `pluginVersion`, or `callbackSecret`
 
-Expected keys inside `plugins.entries.mahilo.config`:
+## Install From npm
 
-- `baseUrl` (required)
-- `apiKey` (required, sensitive)
-- `callbackUrl` (optional)
-- `callbackPath` (optional)
-- `promptContextEnabled` (optional, default `true`)
-- `reviewMode` (optional)
-- `cacheTtlSeconds` (optional)
-
-## Extractable Package Boundaries
-
-The package is structured as a standalone OpenClaw package for public npm release now and later extraction with minimal changes:
-
-- Standalone `package.json` and `tsconfig.json` inside this directory.
-- Standalone `openclaw.plugin.json` with plugin metadata and config schema.
-- Standalone `vitest.config.ts` for plugin-local test configuration.
-- Plugin-local `build` and `test` scripts.
-- HTTP-only client for Mahilo contract endpoints under `src/`.
-- No imports from repo-internal server source paths.
-
-## Local Commands
-
-Run from `plugins/openclaw-mahilo/`:
-
-- `bun run sync:manifest-version`
-- `bun run build`
-- `bun run test`
-- `bun run validate:manifest`
-- `bun run check`
-- `npm pack --dry-run`
-
-## Build/Test Story (Publish-Ready)
-
-This package is configured for a first public scoped npm release:
-
-- `package.json` is publishable and sets `publishConfig.access` to `public`.
-- `package.json` is the canonical release-version source; `bun run sync:manifest-version` keeps `openclaw.plugin.json` aligned with it.
-- Build output is produced at `dist/index.js`, with declarations at `dist/index.d.ts`.
-- The public type surface is explicit: root `index.d.ts` references the packaged OpenClaw SDK shim and re-exports the generated declarations from `dist/`.
-- `prepare` rebuilds runtime artifacts for source installs, `prepack` rebuilds before tarball creation, and `prepublishOnly` gates publish with `bun run check`.
-- `package.json` declares `openclaw.extensions` as `["./dist/index.js"]` so package installs resolve the built plugin entry.
-- `bun run check` runs the release-gate flow: build, tests, and manifest/package metadata validation.
-
-## Runtime Diagnostics Commands
-
-The plugin registers OpenClaw-native diagnostics/management commands:
-
-- `mahilo status`: show redacted plugin config, connectivity probe status, and local runtime state counters.
-- `mahilo review`: inspect Mahilo review queue items (supports optional `status` and `limit` input).
-- `mahilo override`: create a one-time or temporary override; defaults to a conservative one-time `allow`, and can resolve user `targetId` from `recipient`.
-- `mahilo reconnect`: retry Mahilo connectivity probes with configurable retry attempts and delay.
-
-Temporary override flow notes:
-
-- Use `preview_mahilo_send` first when you want Mahilo’s resolution summary and guidance before creating an override.
-- For user-scoped overrides, prefer passing `recipient` and `senderConnectionId`; the plugin will resolve the Mahilo user ID through prompt context when possible.
-- For expiring rules, use `durationMinutes`, `durationHours`, `ttlSeconds`, or `expiresAt`.
-
-## Local OpenClaw Development (Repo-First)
-
-Use this package as the only active development target.
-
-1. Build the local plugin package from this repo:
+From the OpenClaw runtime or project that loads your extensions:
 
 ```bash
-cd /absolute/path/to/mahilo-2/plugins/openclaw-mahilo
-bun install
-bun run build
+npm install @mahilo/openclaw-mahilo
 ```
 
-2. Point OpenClaw at this local package path by adding it to `openclaw.extensions` in your OpenClaw runtime config:
+Then add the installed package to `openclaw.extensions` in your OpenClaw runtime config:
 
 ```json
 {
   "openclaw": {
     "extensions": [
-      "/absolute/path/to/mahilo-2/plugins/openclaw-mahilo"
+      "@mahilo/openclaw-mahilo"
     ]
   }
 }
 ```
 
-3. Configure the `mahilo` plugin entry with this package's runtime keys:
+For a published npm install, point `openclaw.extensions` at the package name, not `dist/index.js`. The package already declares its packaged extension entry internally.
+
+## Minimal Working OpenClaw Config
+
+Add the Mahilo plugin entry to the same OpenClaw config file:
 
 ```json
 {
+  "openclaw": {
+    "extensions": [
+      "@mahilo/openclaw-mahilo"
+    ]
+  },
   "plugins": {
     "entries": {
       "mahilo": {
@@ -120,33 +63,90 @@ bun run build
 }
 ```
 
-4. Restart OpenClaw and confirm Mahilo tools register from the local package.
+`plugins.entries.mahilo.config` accepts:
 
-## Public Release Workflow
+- Required:
+  - `baseUrl`
+  - `apiKey`
+- Optional:
+  - `callbackPath` (defaults to `/mahilo/incoming`)
+  - `callbackUrl`
+  - `promptContextEnabled` (defaults to `true`)
+  - `reviewMode` (`auto`, `ask`, or `manual`; defaults to `ask`)
+  - `cacheTtlSeconds` (defaults to `60`)
 
-When preparing or cutting a public npm release, keep this sequence:
+Do not add `contractVersion`, `pluginVersion`, or `callbackSecret` to plugin config. Those are server-owned and rejected by the plugin config parser.
 
-1. Run `bun run check` and confirm all plugin-local checks pass.
-2. Bump `package.json` version and run `bun run sync:manifest-version` if you did not already build or check as part of the release flow.
-3. Run `npm pack --dry-run` to confirm the tarball contents; `prepack` rebuilds `dist/` so the packaged runtime and declarations stay current even from a clean source tree.
-4. Publish the scoped package with public access after validating tarball contents and release notes.
+## First Connectivity Check
 
-Legacy path and deprecation policy (PLG2-062, effective 2026-03-08):
+After saving the config, restart OpenClaw and run:
 
-- `plugins/openclaw-mahilo/` is the only active development source of truth.
-- Freeze `myclawd/extensions/mahilo/` for normal development (no new feature work, no routine fixes).
-- Keep only a minimal legacy stub/README redirect in `myclawd/extensions/mahilo/` that points contributors to this package.
-- If an emergency legacy backport is unavoidable, author and validate the fix in `plugins/openclaw-mahilo/` first, then backport explicitly.
-- Remove the remaining legacy plugin directory after downstream users are fully cut over to this package path.
+```text
+mahilo status
+```
 
-## Plugin Config Boundary
+A healthy install reports:
 
-`openclaw.plugin.json` intentionally keeps plugin config minimal and plugin-local:
+```text
+Mahilo status: connected; diagnostics snapshot available.
+```
 
-- `baseUrl`: Mahilo server base URL
-- `apiKey`: Mahilo API key (sensitive)
-- `callbackUrl` or `callbackPath`: optional callback registration override
-- `cacheTtlSeconds`: local cache tuning only
-- `reviewMode`: local UX behavior for `ask` outcomes only
+If the first probe fails:
 
-Server truth is not configurable in plugin config. Identity ownership, policy decisions, selector normalization, and callback secret lifecycle remain server-owned.
+1. Run `mahilo reconnect`.
+2. Verify `plugins.entries.mahilo.config.baseUrl` points to the active Mahilo server.
+3. Verify `plugins.entries.mahilo.config.apiKey` is valid and has plugin access.
+4. If inbound delivery is part of your setup, confirm Mahilo callbacks target `callbackUrl` or the default `callbackPath` of `/mahilo/incoming`.
+
+## Upgrade Notes
+
+When moving to a newer published version:
+
+```bash
+npm install @mahilo/openclaw-mahilo@latest
+```
+
+Then restart OpenClaw and rerun `mahilo status`.
+
+If you are moving from a repo-local install to the published package:
+
+- Replace any absolute plugin checkout path in `openclaw.extensions` with `@mahilo/openclaw-mahilo`.
+- Keep the runtime plugin entry name as `mahilo`.
+- Remove any legacy server-owned plugin config keys before restart.
+
+## Troubleshooting
+
+- `baseUrl must be a valid absolute URL`: use a full URL such as `http://localhost:8080` or `https://mahilo.example`, not a relative path.
+- `apiKey must be a non-empty string`: set `plugins.entries.mahilo.config.apiKey`.
+- `unsupported plugin config key(s)` or `Server-owned/deprecated keys are not allowed in plugin config`: remove unknown knobs and legacy keys such as `contractVersion`, `pluginVersion`, and `callbackSecret`.
+- `callbackPath must start with '/'`: use a route like `/mahilo/incoming`.
+- `promptContextEnabled must be a boolean`: set it to `true` or `false`, not a string value.
+- `reviewMode must be one of: auto, ask, manual`: choose one of the supported review modes exactly.
+- `Mahilo status: connectivity checks failed`: run `mahilo reconnect` and check server reachability, API key scope, and callback alignment.
+
+## Available Diagnostics Commands
+
+The plugin registers these OpenClaw-native commands:
+
+- `mahilo status`
+- `mahilo review`
+- `mahilo override`
+- `mahilo reconnect`
+
+## Local Development From This Repo
+
+For development against this repo instead of the published npm package:
+
+```bash
+cd /absolute/path/to/mahilo-2/plugins/openclaw-mahilo
+bun install
+bun run build
+```
+
+Then point `openclaw.extensions` at the absolute package directory path instead of `@mahilo/openclaw-mahilo`.
+
+`plugins/openclaw-mahilo/` is the only active development source of truth. Keep `myclawd/extensions/mahilo/` frozen except for explicit emergency backports.
+
+## Release Maintenance
+
+Package maintainers should use [`RELEASING.md`](./RELEASING.md) for tarball contents, build hooks, and publish checklist details.
