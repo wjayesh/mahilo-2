@@ -498,7 +498,7 @@ It is:
   - 2026-03-09T20:11:46.318Z: PLG2-042 completed via orchestrator integration.
 ### 4.4 Post-Send Hooks
 - **ID**: `PLG2-043`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-032
 - **Description**:
@@ -512,6 +512,7 @@ It is:
   - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
   - 2026-03-09T18:43:12.182Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
   - 2026-03-09T19:20:14.906Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
+  - 2026-03-09T20:40:18.978Z: PLG2-043 completed via orchestrator integration.
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
 - **Status**: `done`
