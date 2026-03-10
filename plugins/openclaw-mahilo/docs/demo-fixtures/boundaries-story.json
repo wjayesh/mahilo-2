@@ -1,0 +1,115 @@
+{
+  "id": "boundaries-story",
+  "order": 3,
+  "title": "Boundaries Story",
+  "persona": "Boundary-conscious participant",
+  "prompt": "Alice wants to meet after my appointment, but I only want to share precise location for the next hour.",
+  "summary": "Show conservative defaults first, keep a sensitive share in review, and then apply a conversational temporary exception before retrying the exact same request.",
+  "trustSignals": [
+    "Mahilo setup confirms conservative ask-mode defaults before any sensitive share is previewed.",
+    "The first preview stops on review instead of silently sending precise location data.",
+    "The boundary change is temporary, conversational, and scoped to Alice before the second preview becomes allow."
+  ],
+  "mock": {
+    "identity": {
+      "displayName": "Jay",
+      "raw": {
+        "username": "jay"
+      },
+      "userId": "usr_jay",
+      "username": "jay",
+      "verified": true
+    },
+    "agentConnections": [
+      {
+        "active": true,
+        "framework": "openclaw",
+        "id": "conn_sender_default",
+        "label": "default",
+        "raw": {
+          "id": "conn_sender_default",
+          "is_default": true
+        }
+      }
+    ],
+    "promptContextResponse": {
+      "policy_guidance": {
+        "default_decision": "ask",
+        "reason_code": "context.ask.role.structured",
+        "summary": "Location shares require explicit approval."
+      },
+      "recipient": {
+        "id": "usr_alice",
+        "relationship": "friend",
+        "roles": [
+          "close_friends"
+        ],
+        "username": "alice"
+      },
+      "suggested_selectors": {
+        "action": "share",
+        "direction": "outbound",
+        "resource": "location.current"
+      }
+    },
+    "resolveDraftResponses": [
+      {
+        "agent_guidance": "Ask for approval or adjust boundaries.",
+        "decision": "ask",
+        "delivery_mode": "review_required",
+        "reason_code": "policy.ask.location",
+        "resolution_id": "res_boundary_preview_1",
+        "resolution_summary": "Message requires review before delivery."
+      },
+      {
+        "decision": "allow",
+        "reason_code": "policy.allow.location_exception",
+        "resolution_id": "res_boundary_preview_2",
+        "resolution_summary": "Temporary location boundary lets this share go through."
+      }
+    ]
+  },
+  "steps": [
+    {
+      "kind": "command",
+      "label": "Attach identity and confirm conservative defaults",
+      "name": "mahilo setup",
+      "input": {
+        "username": "jay"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Preview a precise location share before sending anything",
+      "name": "mahilo_message",
+      "note": "This step intentionally omits senderConnectionId to demonstrate the setup-selected default sender.",
+      "input": {
+        "action": "preview",
+        "message": "I'm at the clinic on 3rd Street right now; meet me here after 5.",
+        "recipient": "alice"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Create a one-hour location exception for Alice",
+      "name": "mahilo_boundaries",
+      "input": {
+        "action": "exception",
+        "category": "location",
+        "durationMinutes": 60,
+        "recipient": "alice",
+        "sourceResolutionId": "res_boundary_preview_1"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Retry the same preview after the temporary boundary change",
+      "name": "mahilo_message",
+      "input": {
+        "action": "preview",
+        "message": "I'm at the clinic on 3rd Street right now; meet me here after 5.",
+        "recipient": "alice"
+      }
+    }
+  ]
+}

@@ -26,6 +26,16 @@ describe("documentation surface", () => {
     expect(buildYourCircle).toContain("action=send_request");
   });
 
+  it("ships a runnable demo story pack for the launch narratives", () => {
+    const demoStoryPack = readDoc("docs/demo-story-pack.md");
+
+    expect(demoStoryPack).toContain("bun run demo:stories");
+    expect(demoStoryPack).toContain("restaurant-question");
+    expect(demoStoryPack).toContain("weekend-plan-coordination");
+    expect(demoStoryPack).toContain("boundaries-story");
+    expect(demoStoryPack).toContain("real plugin registration path");
+  });
+
   it("keeps listing copy aligned with package and manifest descriptions", async () => {
     const listingCopy = readDoc("docs/listing-copy.md");
     const packageJson = (await Bun.file(join(process.cwd(), "package.json")).json()) as {

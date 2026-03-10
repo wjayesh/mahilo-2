@@ -22,6 +22,7 @@ describe("README install docs", () => {
     const askYourContactsIndex = readme.indexOf("./docs/ask-your-contacts.md");
     const boundariesAndTrustIndex = readme.indexOf("./docs/boundaries-and-trust.md");
     const buildYourCircleIndex = readme.indexOf("./docs/build-your-circle.md");
+    const demoStoryPackIndex = readme.indexOf("./docs/demo-story-pack.md");
 
     expect(opening).toContain("Ask your contacts from OpenClaw");
     expect(opening).toContain("real answers from people you trust");
@@ -30,8 +31,10 @@ describe("README install docs", () => {
     expect(askYourContactsIndex).toBeGreaterThan(-1);
     expect(boundariesAndTrustIndex).toBeGreaterThan(-1);
     expect(buildYourCircleIndex).toBeGreaterThan(-1);
+    expect(demoStoryPackIndex).toBeGreaterThan(-1);
     expect(askYourContactsIndex).toBeLessThan(boundariesAndTrustIndex);
     expect(boundariesAndTrustIndex).toBeLessThan(buildYourCircleIndex);
+    expect(buildYourCircleIndex).toBeLessThan(demoStoryPackIndex);
   });
 
   it("documents the published npm install flow and minimal OpenClaw config", () => {
@@ -61,6 +64,7 @@ describe("README install docs", () => {
     expect(readme).toContain("mahilo reconnect");
     expect(readme).toContain(DEFAULT_WEBHOOK_ROUTE_PATH);
     expect(readme).toContain("mahilo review");
+    expect(readme).toContain("bun run demo:stories");
     expect(readme).toContain("unsupported plugin config key(s)");
     expect(readme).toContain("contractVersion");
     expect(readme).toContain("pluginVersion");

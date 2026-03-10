@@ -195,6 +195,10 @@ function assertPackContents(packageDir: string, dryRunFiles: string[]): void {
   requiredPaths.add("docs/ask-your-contacts.md");
   requiredPaths.add("docs/boundaries-and-trust.md");
   requiredPaths.add("docs/build-your-circle.md");
+  requiredPaths.add("docs/demo-fixtures/boundaries-story.json");
+  requiredPaths.add("docs/demo-fixtures/restaurant-question.json");
+  requiredPaths.add("docs/demo-fixtures/weekend-plan-coordination.json");
+  requiredPaths.add("docs/demo-story-pack.md");
   requiredPaths.add("docs/listing-copy.md");
   requiredPaths.add("dist/index.d.ts");
   requiredPaths.add("dist/openclaw-plugin-sdk-core.d.ts");

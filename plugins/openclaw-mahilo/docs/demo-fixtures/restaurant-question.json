@@ -1,0 +1,171 @@
+{
+  "id": "restaurant-question",
+  "order": 1,
+  "title": "Restaurant Question",
+  "persona": "Networked OpenClaw power user",
+  "prompt": "Who knows a good ramen spot near the Mission for tonight?",
+  "summary": "Ask once inside OpenClaw, collect grounded dinner advice from trusted contacts, and keep the trust contract visible when someone has no grounded answer.",
+  "trustSignals": [
+    "Direct replies stay separate from the plugin-generated running summary.",
+    "Bob is marked as no grounded answer instead of being turned into attributed advice.",
+    "Carol never replies in this fixture, so the flow proves that partial progress stays useful instead of getting stuck."
+  ],
+  "mock": {
+    "identity": {
+      "displayName": "Jay",
+      "raw": {
+        "username": "jay"
+      },
+      "userId": "usr_jay",
+      "username": "jay",
+      "verified": true
+    },
+    "agentConnections": [
+      {
+        "active": true,
+        "framework": "openclaw",
+        "id": "conn_sender_default",
+        "label": "default",
+        "raw": {
+          "id": "conn_sender_default",
+          "is_default": true
+        }
+      }
+    ],
+    "friendships": [
+      {
+        "direction": "sent",
+        "displayName": "Alice",
+        "friendshipId": "fr_alice",
+        "raw": {
+          "friendshipId": "fr_alice"
+        },
+        "roles": [
+          "foodies",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_alice",
+        "username": "alice"
+      },
+      {
+        "direction": "sent",
+        "displayName": "Bob",
+        "friendshipId": "fr_bob",
+        "raw": {
+          "friendshipId": "fr_bob"
+        },
+        "roles": [
+          "foodies",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_bob",
+        "username": "bob"
+      },
+      {
+        "direction": "sent",
+        "displayName": "Carol",
+        "friendshipId": "fr_carol",
+        "raw": {
+          "friendshipId": "fr_carol"
+        },
+        "roles": [
+          "foodies",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_carol",
+        "username": "carol"
+      }
+    ],
+    "friendConnectionsByUsername": {
+      "alice": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_alice",
+          "label": "default",
+          "raw": {
+            "id": "conn_alice"
+          }
+        }
+      ],
+      "bob": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_bob",
+          "label": "default",
+          "raw": {
+            "id": "conn_bob"
+          }
+        }
+      ],
+      "carol": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_carol",
+          "label": "default",
+          "raw": {
+            "id": "conn_carol"
+          }
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "command",
+      "label": "Connect Mahilo and pick the default sender",
+      "name": "mahilo setup",
+      "input": {
+        "username": "jay"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Ask the network once instead of DMing three people",
+      "name": "mahilo_network",
+      "note": "The fixture explicitly targets three accepted contacts, but only two ever answer.",
+      "input": {
+        "action": "ask_around",
+        "correlationId": "corr_demo_restaurant",
+        "question": "Who knows a good ramen spot near the Mission for tonight?",
+        "senderConnectionId": "conn_sender_default"
+      }
+    },
+    {
+      "kind": "webhook",
+      "label": "Alice replies with direct experience",
+      "payload": {
+        "context": "Went last month",
+        "correlation_id": "corr_demo_restaurant",
+        "message": "Try Mensho for the broth.",
+        "message_id": "msg_demo_restaurant_1",
+        "recipient_connection_id": "conn_sender_default",
+        "sender": "Alice",
+        "sender_connection_id": "conn_alice",
+        "timestamp": "2026-03-08T12:15:00.000Z"
+      }
+    },
+    {
+      "kind": "webhook",
+      "label": "Bob explicitly says he has no grounded answer",
+      "payload": {
+        "correlation_id": "corr_demo_restaurant",
+        "message": {
+          "message": "I don't know.",
+          "outcome": "no_grounded_answer"
+        },
+        "message_id": "msg_demo_restaurant_2",
+        "payload_type": "application/json",
+        "recipient_connection_id": "conn_sender_default",
+        "sender": "Bob",
+        "sender_connection_id": "conn_bob",
+        "timestamp": "2026-03-08T12:16:00.000Z"
+      }
+    }
+  ]
+}

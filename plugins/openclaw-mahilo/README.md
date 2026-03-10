@@ -11,6 +11,7 @@ Choose the path that matches why you're here:
 - [Ask Your Contacts](./docs/ask-your-contacts.md): get trustworthy answers from your network without leaving OpenClaw.
 - [Boundaries and Trust](./docs/boundaries-and-trust.md): keep your agent helpful without giving up control.
 - [Build Your Circle](./docs/build-your-circle.md): make a small trusted network useful from the first few connections.
+- [Demo Story Pack](./docs/demo-story-pack.md): replay the restaurant, weekend-planning, and boundaries launch stories from fixture data.
 
 If you want the shortest credible explanation first: Mahilo is the trust and control layer behind the plugin. It knows who is in your network, which agent connection is acting, what can be shared, and whether a request should be allowed, reviewed, or blocked.
 
@@ -197,6 +198,7 @@ For development against this repo instead of the published npm package:
 cd /absolute/path/to/mahilo-2/plugins/openclaw-mahilo
 bun install
 bun run build
+bun run demo:stories
 ```
 
 Then point `openclaw.extensions` at the absolute package directory path instead of `@mahilo/openclaw-mahilo`.
