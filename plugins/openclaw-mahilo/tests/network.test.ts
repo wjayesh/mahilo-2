@@ -361,6 +361,70 @@ describe("executeMahiloNetworkAction", () => {
     expect(String(result.replyExpectation)).toContain("Send or accept a Mahilo request from this same tool");
   });
 
+  it("matches conversational group references for ask-around", async () => {
+    const { client, state } = createMockClient({
+      groupsResponse: [
+        {
+          groupId: "grp_hiking",
+          memberCount: 4,
+          name: "Hiking Crew",
+          role: "owner",
+          status: "active"
+        }
+      ],
+      sendResponseByRecipient: {
+        grp_hiking: {
+          message_id: "msg_group_hiking_alias",
+          recipient_results: [
+            {
+              delivery_status: "pending",
+              recipient: "grp_hiking"
+            }
+          ]
+        }
+      }
+    });
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        correlationId: "corr_group_alias_1",
+        group: "the hiking group",
+        question: "Which trailhead has the easiest parking?"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      }
+    );
+
+    expect(result).toMatchObject({
+      action: "ask_around",
+      correlationId: "corr_group_alias_1",
+      counts: {
+        awaitingReplies: 1,
+        blocked: 0,
+        reviewRequired: 0,
+        sendFailed: 0,
+        skipped: 0
+      },
+      status: "success",
+      target: {
+        groupId: "grp_hiking",
+        groupName: "Hiking Crew",
+        kind: "group",
+        memberCount: 4
+      }
+    });
+    expect(state.groupCalls).toBe(1);
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      correlation_id: "corr_group_alias_1",
+      recipient: "grp_hiking",
+      recipient_type: "group",
+      sender_connection_id: "conn_sender"
+    });
+  });
+
   it("resolves a named group from Mahilo server data and sends one group ask-around request", async () => {
     const { client, state } = createMockClient({
       sendResponseByRecipient: {

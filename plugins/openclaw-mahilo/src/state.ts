@@ -146,7 +146,7 @@ export class InMemoryPluginState {
   private readonly contextCache = new Map<string, CacheEntry>();
   private readonly correlationRoutes = new Map<string, CacheEntry>();
   readonly dedupe: InMemoryDedupeState;
-  private readonly groupRoutes = new Map<string, CacheEntry>();
+  private readonly groupRoutes = new Map<string, CacheEntry[]>();
   private readonly inboundRouteTtlMs: number;
   private readonly messageRoutes = new Map<string, CacheEntry>();
   private readonly participantRoutes = new Map<string, CacheEntry>();
@@ -241,7 +241,7 @@ export class InMemoryPluginState {
     }
 
     if (normalizedRoute.groupId) {
-      this.groupRoutes.set(normalizedRoute.groupId, entry);
+      rememberGroupedInboundRoute(this.groupRoutes, normalizedRoute.groupId, entry, nowMs);
     }
 
     if (normalizedRoute.localConnectionId && normalizedRoute.remoteConnectionId) {
@@ -276,6 +276,15 @@ export class InMemoryPluginState {
       return undefined;
     }
 
+    const groupedRoute =
+      normalizedLookup.groupId
+        ? resolveGroupedInboundRoute(
+            this.groupRoutes,
+            normalizedLookup.groupId,
+            normalizedLookup.localConnectionId,
+            nowMs
+          )
+        : undefined;
     const candidates: Array<CacheEntry | undefined> = [
       normalizedLookup.inResponseToMessageId
         ? this.messageRoutes.get(normalizedLookup.inResponseToMessageId)
@@ -283,9 +292,7 @@ export class InMemoryPluginState {
       normalizedLookup.correlationId
         ? this.correlationRoutes.get(normalizedLookup.correlationId)
         : undefined,
-      normalizedLookup.groupId
-        ? this.groupRoutes.get(normalizedLookup.groupId)
-        : undefined,
+      groupedRoute,
       normalizedLookup.localConnectionId && normalizedLookup.remoteConnectionId
         ? this.connectionPairRoutes.get(
             buildInboundConnectionPairKey(
@@ -320,7 +327,7 @@ export class InMemoryPluginState {
 
     removed += pruneCacheMap(this.correlationRoutes, nowMs);
     removed += pruneCacheMap(this.messageRoutes, nowMs);
-    removed += pruneCacheMap(this.groupRoutes, nowMs);
+    removed += pruneGroupedInboundRoutes(this.groupRoutes, nowMs);
     removed += pruneCacheMap(this.connectionPairRoutes, nowMs);
     removed += pruneCacheMap(this.participantRoutes, nowMs);
 
@@ -333,7 +340,7 @@ export class InMemoryPluginState {
     return (
       this.correlationRoutes.size +
       this.messageRoutes.size +
-      this.groupRoutes.size +
+      countGroupedInboundRoutes(this.groupRoutes) +
       this.connectionPairRoutes.size +
       this.participantRoutes.size
     );
@@ -984,6 +991,106 @@ function normalizeStringArray(values: string[] | undefined): string[] | undefine
     .filter((value): value is string => Boolean(value));
 
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function rememberGroupedInboundRoute(
+  map: Map<string, CacheEntry[]>,
+  groupId: string,
+  entry: CacheEntry,
+  nowMs: number
+): void {
+  const groupedEntries = pruneGroupedInboundRouteEntries(map.get(groupId), nowMs);
+  const nextRoute = entry.value as MahiloInboundSessionRoute;
+  const dedupedEntries = groupedEntries.filter(
+    (candidate) =>
+      !isSameGroupedInboundRouteIdentity(
+        candidate.value as MahiloInboundSessionRoute,
+        nextRoute
+      )
+  );
+
+  map.set(groupId, [entry, ...dedupedEntries]);
+}
+
+function resolveGroupedInboundRoute(
+  map: Map<string, CacheEntry[]>,
+  groupId: string,
+  localConnectionId: string | undefined,
+  nowMs: number
+): CacheEntry | undefined {
+  const groupedEntries = pruneGroupedInboundRouteEntries(map.get(groupId), nowMs);
+  if (groupedEntries.length === 0) {
+    map.delete(groupId);
+    return undefined;
+  }
+
+  map.set(groupId, groupedEntries);
+
+  const localMatches =
+    localConnectionId
+      ? groupedEntries.filter(
+          (entry) =>
+            (entry.value as MahiloInboundSessionRoute).localConnectionId ===
+            localConnectionId
+        )
+      : groupedEntries;
+
+  return localMatches.length === 1 ? localMatches[0] : undefined;
+}
+
+function pruneGroupedInboundRoutes(
+  map: Map<string, CacheEntry[]>,
+  nowMs: number
+): number {
+  let removed = 0;
+
+  for (const [groupId, entries] of map.entries()) {
+    const groupedEntries = pruneGroupedInboundRouteEntries(entries, nowMs);
+    removed += entries.length - groupedEntries.length;
+
+    if (groupedEntries.length === 0) {
+      map.delete(groupId);
+      continue;
+    }
+
+    if (groupedEntries.length !== entries.length) {
+      map.set(groupId, groupedEntries);
+    }
+  }
+
+  return removed;
+}
+
+function countGroupedInboundRoutes(map: Map<string, CacheEntry[]>): number {
+  let count = 0;
+  for (const entries of map.values()) {
+    count += entries.length;
+  }
+
+  return count;
+}
+
+function pruneGroupedInboundRouteEntries(
+  entries: CacheEntry[] | undefined,
+  nowMs: number
+): CacheEntry[] {
+  if (!entries || entries.length === 0) {
+    return [];
+  }
+
+  return entries.filter((entry) => entry.expiresAt > nowMs);
+}
+
+function isSameGroupedInboundRouteIdentity(
+  left: MahiloInboundSessionRoute,
+  right: MahiloInboundSessionRoute
+): boolean {
+  return (
+    left.sessionKey === right.sessionKey &&
+    left.correlationId === right.correlationId &&
+    left.localConnectionId === right.localConnectionId &&
+    left.outboundMessageId === right.outboundMessageId
+  );
 }
 
 function pruneCacheMap(map: Map<string, CacheEntry>, nowMs: number): number {

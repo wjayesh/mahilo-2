@@ -18,6 +18,8 @@ interface MockClientState {
   friendConnectionsByUsername: Record<string, unknown[]>;
   friendshipCalls: Array<{ status?: string }>;
   friendshipsResponse: unknown;
+  groupCalls: number;
+  groupsResponse: unknown;
   listReviewCalls: Array<{ limit?: number; status?: string }>;
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -72,6 +74,7 @@ function createMockContractClient(options: {
   friendConnectionsByUsername?: Record<string, unknown[]>;
   friendshipsByStatus?: Record<string, unknown>;
   friendshipsResponse?: unknown;
+  groupsResponse?: unknown;
   promptContextError?: Error;
   promptContextResponse?: Record<string, unknown>;
   rejectFriendRequestError?: Error;
@@ -110,6 +113,18 @@ function createMockContractClient(options: {
           status: "accepted",
           userId: "usr_alice",
           username: "alice"
+        }
+      ],
+    groupCalls: 0,
+    groupsResponse:
+      options.groupsResponse ??
+      [
+        {
+          groupId: "grp_hiking",
+          memberCount: 4,
+          name: "Hiking Crew",
+          role: "owner",
+          status: "active"
         }
       ],
     listReviewCalls: [],
@@ -198,6 +213,10 @@ function createMockContractClient(options: {
         state: connections.length > 0 ? "available" : "no_active_connections",
         username
       };
+    },
+    listGroups: async () => {
+      state.groupCalls += 1;
+      return state.groupsResponse;
     },
     listOwnAgentConnections: async () => {
       state.agentConnectionCalls += 1;
@@ -871,6 +890,115 @@ describe("createMahiloOpenClawPlugin", () => {
         agentId: "mahilo-network-agent",
         reason: "mahilo:inbound-message",
         sessionKey: "session_network_route_1"
+      }
+    ]);
+  });
+
+  it("routes group ask-around replies back into the originating OpenClaw thread with attribution", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "mahilo_network");
+    const outboundInput = {
+      action: "ask_around",
+      question: "Has anyone done Half Dome recently?",
+      recipient: "the hiking group",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_group_route_1", outboundInput);
+
+    expect(state.groupCalls).toBe(1);
+    expect(toolResult).toMatchObject({
+      details: {
+        action: "ask_around",
+        target: {
+          groupId: "grp_hiking",
+          groupName: "Hiking Crew",
+          kind: "group",
+          memberCount: 4
+        }
+      }
+    });
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "mahilo_network"
+      },
+      {
+        agentId: "mahilo-group-agent",
+        runId: "run_group_route_1",
+        sessionKey: "session_group_route_1",
+        toolCallId: "tool_call_group_route_1",
+        toolName: "mahilo_network"
+      }
+    );
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const rawBody = buildInboundWebhookRawBody({
+      group_id: "grp_hiking",
+      group_name: "Hiking Crew",
+      message: "We went last weekend; cables were crowded.",
+      message_id: "msg_inbound_group_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice",
+      timestamp: "2026-03-10T12:15:00.000Z"
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_group_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp)
+      },
+      rawBody
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        contextKey: "mahilo:inbound:group:msg_inbound_group_1",
+        sessionKey: "session_group_route_1",
+        text: expect.stringContaining("Mahilo ask-around update")
+      })
+    ]);
+    const eventText = systemEvents[0]?.text ?? "";
+    expect(eventText).toContain("Question: Has anyone done Half Dome recently?");
+    expect(eventText).toContain('Asked: group "Hiking Crew" (4 members).');
+    expect(eventText).toContain(
+      'Synthesized summary (plugin-generated): 1 contact has replied so far from group "Hiking Crew".'
+    );
+    expect(eventText).toContain(
+      "Alice (2026-03-10T12:15:00.000Z) said: We went last weekend; cables were crowded."
+    );
+    expect(eventText).toContain(
+      "- Alice via openclaw at 2026-03-10T12:15:00.000Z [message msg_inbound_group_1]. Direct reply: We went last weekend; cables were crowded."
+    );
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-group-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_group_route_1"
       }
     ]);
   });

@@ -599,9 +599,19 @@ function parseMahiloNetworkInput(
   rawInput: unknown
 ): ExecuteMahiloNetworkActionInput {
   const input = rawInput === undefined ? {} : readInputObject(rawInput);
+  const action = readOptionalString(input.action);
+  const normalizedAction = normalizeMahiloNetworkAction(action);
+  const recipient = readOptionalString(input.recipient);
+  const group = readOptionalString(input.group);
+  const groupId =
+    readOptionalString(input.groupId) ??
+    readOptionalString(input.group_id);
+  const groupName =
+    readOptionalString(input.groupName) ??
+    readOptionalString(input.group_name);
 
   return {
-    action: readOptionalString(input.action),
+    action,
     correlationId:
       readOptionalString(input.correlationId) ??
       readOptionalString(input.correlation_id),
@@ -610,13 +620,13 @@ function parseMahiloNetworkInput(
     friendshipId:
       readOptionalString(input.friendshipId) ??
       readOptionalString(input.friendship_id),
-    group: readOptionalString(input.group),
-    groupId:
-      readOptionalString(input.groupId) ??
-      readOptionalString(input.group_id),
-    groupName:
-      readOptionalString(input.groupName) ??
-      readOptionalString(input.group_name),
+    group:
+      group ??
+      (normalizedAction === "ask_around" && !groupId && !groupName
+        ? recipient
+        : undefined),
+    groupId,
+    groupName,
     idempotencyKey:
       readOptionalString(input.idempotencyKey) ??
       readOptionalString(input.idempotency_key),
@@ -626,7 +636,7 @@ function parseMahiloNetworkInput(
     roles: readStringArray(input.roles),
     username:
       readOptionalString(input.username) ??
-      readOptionalString(input.recipient)
+      (normalizedAction === "ask_around" ? undefined : recipient)
   };
 }
 

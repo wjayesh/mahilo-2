@@ -147,6 +147,69 @@ describe("InMemoryPluginState", () => {
     ).toEqual(expectedRoute);
   });
 
+  it("does not guess between multiple active routes for the same group thread", () => {
+    const state = new InMemoryPluginState({ inboundRouteTtlMs: 5_000 });
+
+    state.rememberInboundRoute(
+      {
+        correlationId: "corr_group_1",
+        groupId: "grp_hiking",
+        localConnectionId: "conn_sender",
+        outboundMessageId: "msg_group_1",
+        sessionKey: "session_group_1"
+      },
+      100
+    );
+    state.rememberInboundRoute(
+      {
+        correlationId: "corr_group_2",
+        groupId: "grp_hiking",
+        localConnectionId: "conn_sender",
+        outboundMessageId: "msg_group_2",
+        sessionKey: "session_group_2"
+      },
+      200
+    );
+
+    expect(
+      state.resolveInboundRoute(
+        {
+          groupId: "grp_hiking",
+          localConnectionId: "conn_sender"
+        },
+        300
+      )
+    ).toBeUndefined();
+    expect(
+      state.resolveInboundRoute(
+        {
+          correlationId: "corr_group_1",
+          groupId: "grp_hiking",
+          localConnectionId: "conn_sender"
+        },
+        300
+      )
+    ).toEqual(
+      expect.objectContaining({
+        sessionKey: "session_group_1"
+      })
+    );
+    expect(
+      state.resolveInboundRoute(
+        {
+          correlationId: "corr_group_2",
+          groupId: "grp_hiking",
+          localConnectionId: "conn_sender"
+        },
+        300
+      )
+    ).toEqual(
+      expect.objectContaining({
+        sessionKey: "session_group_2"
+      })
+    );
+  });
+
   it("tracks ask-around sessions and classifies trusted, unknown, and unattributed replies", () => {
     const state = new InMemoryPluginState({ askAroundSessionTtlMs: 5_000 });
     const noGroundedReply = JSON.stringify({

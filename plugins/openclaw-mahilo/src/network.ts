@@ -524,24 +524,49 @@ async function resolveAskAroundGroup(
     };
   }
 
-  const match = groups.find((group) => {
+  const exactMatch = groups.find((group) => {
     if (normalizedGroupId && group.groupId === normalizedGroupId) {
+      return true;
+    }
+
+    if (group.groupId === normalizedGroupRef) {
       return true;
     }
 
     return group.name.localeCompare(normalizedGroupRef, undefined, { sensitivity: "accent" }) === 0;
   });
+  if (exactMatch) {
+    return { group: exactMatch };
+  }
 
-  if (!match) {
+  const canonicalGroupRef = canonicalizeAskAroundGroupReference(normalizedGroupRef);
+  const fuzzyMatches =
+    canonicalGroupRef
+      ? groups.filter((group) =>
+          canonicalizeAskAroundGroupReference(group.name) === canonicalGroupRef
+        )
+      : [];
+  if (fuzzyMatches.length === 1) {
+    return { group: fuzzyMatches[0]! };
+  }
+
+  if (fuzzyMatches.length > 1) {
     return {
       error: createNetworkErrorResult(
-        `Mahilo could not find group ${formatQuotedLabel(normalizedGroupRef)}.`,
-        "not_found"
+        `Mahilo found multiple groups matching ${formatQuotedLabel(normalizedGroupRef)}: ${formatQuotedGroupList(
+          fuzzyMatches
+        )}. Use the exact group name or groupId.`,
+        "invalid_request"
       )
     };
   }
 
-  return { group: match };
+  return {
+    error: createNetworkErrorResult(
+      `Mahilo could not find group ${formatQuotedLabel(normalizedGroupRef)}.`,
+      "not_found"
+    )
+  };
 }
 
 function hasMahiloGroupSupport(
@@ -550,6 +575,60 @@ function hasMahiloGroupSupport(
   listGroups: () => Promise<MahiloGroupSummary[]>;
 } {
   return typeof (client as MahiloContractClient & { listGroups?: unknown }).listGroups === "function";
+}
+
+const ASK_AROUND_GROUP_REFERENCE_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "chat",
+  "channel",
+  "circle",
+  "crew",
+  "group",
+  "mahilo",
+  "my",
+  "our",
+  "team",
+  "the"
+]);
+
+function canonicalizeAskAroundGroupReference(value: string | undefined): string | undefined {
+  const normalized = normalizeToken(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const tokens = normalized
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .split(/[^a-z0-9]+/)
+    .map((token) => normalizeAskAroundGroupReferenceToken(token))
+    .filter((token): token is string => Boolean(token))
+    .filter((token) => !ASK_AROUND_GROUP_REFERENCE_STOP_WORDS.has(token));
+
+  return tokens.length > 0 ? tokens.join(" ") : undefined;
+}
+
+function normalizeAskAroundGroupReferenceToken(token: string): string | undefined {
+  if (token.length === 0) {
+    return undefined;
+  }
+
+  if (token.endsWith("ies") && token.length > 3) {
+    return `${token.slice(0, -3)}y`;
+  }
+
+  if (token.endsWith("s") && token.length > 3 && !token.endsWith("ss")) {
+    return token.slice(0, -1);
+  }
+
+  return token;
+}
+
+function formatQuotedGroupList(groups: Pick<MahiloGroupSummary, "groupId" | "name">[]): string {
+  return groups
+    .map((group) => formatQuotedLabel(group.name || group.groupId))
+    .join(", ");
 }
 
 function normalizeDeclaredSelectors(
