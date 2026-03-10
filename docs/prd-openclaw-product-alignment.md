@@ -580,7 +580,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - 2026-03-10T01:48:53.153Z: PAL-011 completed via orchestrator integration.
 ### 1.7 Launch Collateral and Validation Loop
 - **ID**: `PAL-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P2`
 - **Depends on**: `PAL-002`, `PAL-011`
 - **Description**:
@@ -591,6 +591,8 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] Early-adopter feedback capture is planned
   - [ ] The collateral reinforces the refreshed positioning without reopening migration work
 
+- **Notes**:
+  - 2026-03-10T01:53:20.830Z: PAL-020 completed via orchestrator integration.
 ## Recommended Execution Order
 
 1. `PAL-001` -> `PAL-002`
