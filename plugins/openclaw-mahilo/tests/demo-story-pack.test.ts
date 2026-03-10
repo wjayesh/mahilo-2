@@ -14,10 +14,11 @@ function readDoc(relativePath: string): string {
 }
 
 describe("demo story pack", () => {
-  it("loads the three launch story fixtures from disk", () => {
+  it("loads the guided first run plus the launch story fixtures from disk", () => {
     const fixtures = loadBundledDemoStoryFixtures();
 
     expect(fixtures.map((fixture) => fixture.id)).toEqual([
+      "guided-first-run",
       "restaurant-question",
       "weekend-plan-coordination",
       "boundaries-story",
@@ -30,6 +31,10 @@ describe("demo story pack", () => {
     const runs = await runDemoStoryFixturePack();
     const rendered = renderDemoStoryPack(runs);
 
+    expect(rendered).toContain("Guided First Run");
+    expect(rendered).toContain("Mahilo status: connected; diagnostics snapshot available.");
+    expect(rendered).toContain("Ask the network for one recommendation using the sender chosen in setup");
+    expect(rendered).toContain("Mahilo ask-around update");
     expect(rendered).toContain("Restaurant Question");
     expect(rendered).toContain("Try Mensho for the broth.");
     expect(rendered).toContain("reported no grounded answer");
@@ -46,6 +51,7 @@ describe("demo story pack", () => {
     const demoDoc = readDoc("docs/demo-story-pack.md");
 
     expect(demoDoc).toContain("bun run demo:stories");
+    expect(demoDoc).toContain("guided-first-run");
     expect(demoDoc).toContain("restaurant-question");
     expect(demoDoc).toContain("weekend-plan-coordination");
     expect(demoDoc).toContain("boundaries-story");

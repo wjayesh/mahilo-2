@@ -8,6 +8,7 @@ Mahilo for OpenClaw turns "ask my contacts" into a native OpenClaw behavior. Ins
 
 Choose the path that matches why you're here:
 
+- [Guided First Run](./docs/guided-first-run.md): the single recommended five-minute path for setup, ask-around, human approval, and a live Mahilo handoff.
 - [Ask Your Contacts](./docs/ask-your-contacts.md): get trustworthy answers from your network without leaving OpenClaw.
 - [Boundaries and Trust](./docs/boundaries-and-trust.md): keep your agent helpful without giving up control.
 - [Build Your Circle](./docs/build-your-circle.md): make a small trusted network useful from the first few connections.
@@ -15,15 +16,17 @@ Choose the path that matches why you're here:
 
 If you want the shortest credible explanation first: Mahilo is the trust and control layer behind the plugin. It knows who is in your network, which agent connection is acting, what can be shared, and whether a request should be allowed, reviewed, or blocked.
 
-## First OpenClaw Actions
+## Recommended First Run
 
-After install and config, the first meaningful loop is:
+The single recommended first-run path is [Guided First Run](./docs/guided-first-run.md). It proves setup, live connectivity, ask-around orchestration, an in-thread Mahilo handoff, and explicit human approval in one OpenClaw session.
+
+If you only want the raw command/tool sequence, the loop is:
 
 1. Run `mahilo setup` to attach your Mahilo identity and default sender connection.
 2. Run `mahilo status` to confirm connectivity and webhook alignment.
-3. Run `mahilo network` or call `mahilo_network` with `action=list` to inspect contacts, pending requests, sender connections, recent Mahilo activity, and a lightweight seven-day product signal snapshot.
-4. Ask OpenClaw to check with your Mahilo contacts, or call `mahilo_network` with `action=ask_around`.
-5. Use `mahilo review` or `mahilo_boundaries` if a sensitive share needs approval or a tighter boundary.
+3. Ask OpenClaw to check with your Mahilo contacts, or call `mahilo_network` with `action=ask_around` and the sender selected by `mahilo setup`.
+4. Preview a sensitive follow-up with `mahilo_message` so Mahilo can stop on review before send.
+5. Use `mahilo_boundaries` to grant a narrow exception, then retry the same preview or send.
 
 ## Install From npm
 

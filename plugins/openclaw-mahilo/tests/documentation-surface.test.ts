@@ -8,6 +8,21 @@ function readDoc(relativePath: string): string {
 }
 
 describe("documentation surface", () => {
+  it("ships one canonical guided first-run path with measurable success criteria", () => {
+    const guidedFirstRun = readDoc("docs/guided-first-run.md");
+
+    expect(guidedFirstRun).toContain("single recommended quickstart path");
+    expect(guidedFirstRun).toContain("Five-Minute");
+    expect(guidedFirstRun).toContain("mahilo setup");
+    expect(guidedFirstRun).toContain("mahilo status");
+    expect(guidedFirstRun).toContain("mahilo_network");
+    expect(guidedFirstRun).toContain("Mahilo ask-around update");
+    expect(guidedFirstRun).toContain("mahilo_message");
+    expect(guidedFirstRun).toContain("mahilo_boundaries");
+    expect(guidedFirstRun).toContain("senderConnectionId");
+    expect(guidedFirstRun).toContain("Success Scorecard");
+  });
+
   it("ships persona docs for the first three documentation hops", () => {
     const askYourContacts = readDoc("docs/ask-your-contacts.md");
     const boundariesAndTrust = readDoc("docs/boundaries-and-trust.md");
@@ -30,6 +45,7 @@ describe("documentation surface", () => {
     const demoStoryPack = readDoc("docs/demo-story-pack.md");
 
     expect(demoStoryPack).toContain("bun run demo:stories");
+    expect(demoStoryPack).toContain("guided-first-run");
     expect(demoStoryPack).toContain("restaurant-question");
     expect(demoStoryPack).toContain("weekend-plan-coordination");
     expect(demoStoryPack).toContain("boundaries-story");

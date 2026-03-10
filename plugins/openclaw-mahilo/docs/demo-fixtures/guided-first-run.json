@@ -1,0 +1,214 @@
+{
+  "id": "guided-first-run",
+  "order": 0,
+  "title": "Guided First Run",
+  "persona": "First-time OpenClaw evaluator",
+  "prompt": "Can Mahilo prove setup, orchestration, and trust in one OpenClaw run?",
+  "summary": "Start from setup, confirm live connectivity, ask the network once, watch an attributed reply land in-thread, then hit a review gate on a sensitive follow-up and approve it narrowly.",
+  "trustSignals": [
+    "The only explicit sender reuse is the setup-selected sender on the ask-around step; the later preview and approval steps omit it.",
+    "The ask-around reply lands back in the same OpenClaw thread as a Mahilo system update with attribution.",
+    "The precise location follow-up stops on review first and only becomes allow after a one-hour exception scoped to Alice."
+  ],
+  "mock": {
+    "identity": {
+      "displayName": "Jay",
+      "raw": {
+        "username": "jay"
+      },
+      "userId": "usr_jay",
+      "username": "jay",
+      "verified": true
+    },
+    "agentConnections": [
+      {
+        "active": true,
+        "framework": "openclaw",
+        "id": "conn_sender_default",
+        "label": "default",
+        "raw": {
+          "id": "conn_sender_default",
+          "is_default": true
+        }
+      }
+    ],
+    "friendships": [
+      {
+        "direction": "sent",
+        "displayName": "Alice",
+        "friendshipId": "fr_alice",
+        "raw": {
+          "friendshipId": "fr_alice"
+        },
+        "roles": [
+          "foodies",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_alice",
+        "username": "alice"
+      },
+      {
+        "direction": "sent",
+        "displayName": "Bob",
+        "friendshipId": "fr_bob",
+        "raw": {
+          "friendshipId": "fr_bob"
+        },
+        "roles": [
+          "foodies",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_bob",
+        "username": "bob"
+      }
+    ],
+    "friendConnectionsByUsername": {
+      "alice": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_alice",
+          "label": "default",
+          "raw": {
+            "id": "conn_alice"
+          }
+        }
+      ],
+      "bob": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_bob",
+          "label": "default",
+          "raw": {
+            "id": "conn_bob"
+          }
+        }
+      ]
+    },
+    "promptContextResponse": {
+      "policy_guidance": {
+        "default_decision": "ask",
+        "reason_code": "context.ask.role.structured",
+        "summary": "Location shares require explicit approval."
+      },
+      "recipient": {
+        "id": "usr_alice",
+        "relationship": "friend",
+        "roles": [
+          "close_friends"
+        ],
+        "username": "alice"
+      },
+      "suggested_selectors": {
+        "action": "share",
+        "direction": "outbound",
+        "resource": "location.current"
+      }
+    },
+    "resolveDraftResponses": [
+      {
+        "decision": "allow",
+        "reason_code": "policy.allow.ask_around",
+        "resolution_id": "res_guided_ask_1",
+        "resolution_summary": "Ask-around can send to Alice."
+      },
+      {
+        "decision": "allow",
+        "reason_code": "policy.allow.ask_around",
+        "resolution_id": "res_guided_ask_2",
+        "resolution_summary": "Ask-around can send to Bob."
+      },
+      {
+        "agent_guidance": "Ask for approval or adjust boundaries.",
+        "decision": "ask",
+        "delivery_mode": "review_required",
+        "reason_code": "policy.ask.location",
+        "resolution_id": "res_guided_preview_1",
+        "resolution_summary": "Message requires review before delivery."
+      },
+      {
+        "decision": "allow",
+        "reason_code": "policy.allow.location_exception",
+        "resolution_id": "res_guided_preview_2",
+        "resolution_summary": "Temporary location boundary lets this share go through."
+      }
+    ]
+  },
+  "steps": [
+    {
+      "kind": "command",
+      "label": "Attach identity and select the default sender",
+      "name": "mahilo setup",
+      "input": {
+        "username": "jay"
+      }
+    },
+    {
+      "kind": "command",
+      "label": "Confirm Mahilo server connectivity",
+      "name": "mahilo status"
+    },
+    {
+      "kind": "tool",
+      "label": "Ask the network for one recommendation using the sender chosen in setup",
+      "name": "mahilo_network",
+      "note": "This is the canonical orchestration moment: one ask fans out and waits for a live reply in the same thread.",
+      "input": {
+        "action": "ask_around",
+        "correlationId": "corr_demo_guided_first_run",
+        "question": "Who knows a good ramen spot near the Mission for tonight?",
+        "senderConnectionId": "conn_sender_default"
+      }
+    },
+    {
+      "kind": "webhook",
+      "label": "Alice replies back into the same OpenClaw thread",
+      "payload": {
+        "context": "Went last month",
+        "correlation_id": "corr_demo_guided_first_run",
+        "message": "Try Mensho for the broth.",
+        "message_id": "msg_demo_guided_1",
+        "recipient_connection_id": "conn_sender_default",
+        "sender": "Alice",
+        "sender_connection_id": "conn_alice",
+        "timestamp": "2026-03-10T09:15:00.000Z"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Preview a precise location follow-up before sending",
+      "name": "mahilo_message",
+      "note": "The first preview should stop on review instead of silently sending the location.",
+      "input": {
+        "action": "preview",
+        "message": "I'm at 18th and Valencia right now; meet me here at 7.",
+        "recipient": "alice"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Approve only this share for one hour",
+      "name": "mahilo_boundaries",
+      "input": {
+        "action": "exception",
+        "category": "location",
+        "durationMinutes": 60,
+        "recipient": "alice",
+        "sourceResolutionId": "res_guided_preview_1"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Retry the same preview after the explicit approval",
+      "name": "mahilo_message",
+      "input": {
+        "action": "preview",
+        "message": "I'm at 18th and Valencia right now; meet me here at 7.",
+        "recipient": "alice"
+      }
+    }
+  ]
+}
