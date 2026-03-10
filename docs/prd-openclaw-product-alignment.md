@@ -337,7 +337,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ### 4.1 Demo Fixture and Story Pack
 - **ID**: `PLG3-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG3-003, PLG3-010, PLG3-011, PLG3-012
 - **Description**:
@@ -353,6 +353,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ---
 
+- **Notes**:
+  - 2026-03-10T00:53:52.933Z: PLG3-030 completed via orchestrator integration.
 ## Phase 5: Keep The Loop Open-Ended
 
 ### 5.1 Positioning Reassessment and Next-Cycle Task Generation
