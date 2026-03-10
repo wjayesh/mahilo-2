@@ -651,7 +651,7 @@ describe("createMahiloOpenClawPlugin", () => {
         callbackSecret: CALLBACK_SECRET
       }
     });
-    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+    const { api, commands, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example"
     });
@@ -737,7 +737,7 @@ describe("createMahiloOpenClawPlugin", () => {
         callbackSecret: CALLBACK_SECRET
       }
     });
-    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+    const { api, commands, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example"
     });
@@ -819,7 +819,7 @@ describe("createMahiloOpenClawPlugin", () => {
         callbackSecret: CALLBACK_SECRET
       }
     });
-    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+    const { api, commands, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example"
     });
@@ -895,6 +895,44 @@ describe("createMahiloOpenClawPlugin", () => {
         sessionKey: "session_network_route_1"
       }
     ]);
+
+    const networkCommand = findCommand(commands, "mahilo network");
+    const networkResult = await networkCommand.execute();
+
+    expect(networkResult).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("Mahilo product signals (last 7 days):")
+        }
+      ],
+      details: {
+        command: "mahilo network",
+        productSignals: {
+          connectedContacts: 1,
+          queriesBySenderConnection: [
+            {
+              queriesSent: 1,
+              senderConnectionId: "conn_sender"
+            }
+          ],
+          queriesSent: 1,
+          repliesReceived: 1,
+          replyOutcomeCounts: {
+            directReplies: 1,
+            noGroundedAnswers: 0,
+            trustedReplies: 1,
+            unattributedReplies: 0
+          },
+          responseRate: {
+            contactsAsked: 1,
+            contactsReplied: 1,
+            contactReplyRate: 1,
+            queriesWithReplies: 1,
+            queryReplyRate: 1
+          }
+        }
+      }
+    });
   });
 
   it("routes group ask-around replies back into the originating OpenClaw thread with attribution", async () => {

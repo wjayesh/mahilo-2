@@ -39,6 +39,8 @@ function requireCommand(
 describe("registerMahiloDiagnosticsCommands", () => {
   it("supports name/handler registration and lists review queue items", async () => {
     const commands: RegisteredCommand[] = [];
+    const pluginState = new InMemoryPluginState();
+    const nowMs = Date.parse("2026-03-10T14:00:00.000Z");
     const api = {
       registerCommand: (name: string, execute: RegisteredCommand["execute"]) => {
         commands.push({ execute, name });
@@ -118,12 +120,50 @@ describe("registerMahiloDiagnosticsCommands", () => {
       })
     };
 
+    pluginState.rememberAskAroundSession(
+      {
+        correlationId: "corr_signal_command_1",
+        expectedReplyCount: 2,
+        expectedParticipants: [
+          {
+            label: "Alice",
+            recipient: "alice"
+          },
+          {
+            label: "Bob",
+            recipient: "bob"
+          }
+        ],
+        question: "Who knows a ramen spot?"
+      },
+      Date.parse("2026-03-10T12:00:00.000Z")
+    );
+    pluginState.recordAskAroundQuery(
+      {
+        correlationId: "corr_signal_command_1",
+        expectedReplyCount: 2,
+        senderConnectionId: "conn_sender_default"
+      },
+      Date.parse("2026-03-10T12:00:00.000Z")
+    );
+    pluginState.recordAskAroundReply(
+      "corr_signal_command_1",
+      {
+        message: "Try Mensho.",
+        messageId: "msg_signal_command_1",
+        sender: "Alice",
+        senderAgent: "openclaw"
+      },
+      Date.parse("2026-03-10T12:15:00.000Z")
+    );
+
     registerMahiloDiagnosticsCommands(
       api as never,
       createConfig(),
       client as never,
       {
-        pluginState: new InMemoryPluginState()
+        now: () => nowMs,
+        pluginState
       }
     );
 
@@ -139,6 +179,11 @@ describe("registerMahiloDiagnosticsCommands", () => {
     const networkResult = await networkCommand.execute({ activityLimit: 4 });
 
     expect(networkResult).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("Mahilo product signals (last 7 days):")
+        }
+      ],
       details: {
         action: "list",
         activityLimit: 4,
@@ -168,6 +213,30 @@ describe("registerMahiloDiagnosticsCommands", () => {
           blockedEvents: 1,
           reviews: 1,
           total: 2
+        },
+        productSignals: {
+          connectedContacts: 1,
+          queriesBySenderConnection: [
+            {
+              queriesSent: 1,
+              senderConnectionId: "conn_sender_default"
+            }
+          ],
+          queriesSent: 1,
+          repliesReceived: 1,
+          replyOutcomeCounts: {
+            directReplies: 1,
+            noGroundedAnswers: 0,
+            trustedReplies: 1,
+            unattributedReplies: 0
+          },
+          responseRate: {
+            contactsAsked: 2,
+            contactsReplied: 1,
+            contactReplyRate: 0.5,
+            queriesWithReplies: 1,
+            queryReplyRate: 1
+          }
         }
       }
     });

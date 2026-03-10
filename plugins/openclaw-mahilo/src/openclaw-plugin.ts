@@ -1115,6 +1115,7 @@ function rememberMahiloAskAroundInboundRoutes(
     readOptionalString(event.params.sender_connection_id);
   const deliveries = Array.isArray(resultDetails.deliveries) ? resultDetails.deliveries : [];
   const target = readMahiloAskAroundTarget(resultDetails.target);
+  const expectedReplyCount = readMahiloAskAroundExpectedReplyCount(resultDetails, deliveries, target);
   const expectedParticipants: Array<{ label?: string; recipient: string }> = [];
 
   for (const rawDelivery of deliveries) {
@@ -1144,7 +1145,7 @@ function rememberMahiloAskAroundInboundRoutes(
   if (correlationId) {
     pluginState.rememberAskAroundSession({
       correlationId,
-      expectedReplyCount: readMahiloAskAroundExpectedReplyCount(resultDetails, deliveries, target),
+      expectedReplyCount,
       expectedParticipants:
         expectedParticipants.length > 0 ? expectedParticipants : undefined,
       question:
@@ -1153,6 +1154,15 @@ function rememberMahiloAskAroundInboundRoutes(
         readOptionalString(event.params.message),
       target
     });
+
+    if (deliveries.some((rawDelivery) => readOptionalString(readOptionalObject(rawDelivery)?.status) === "awaiting_reply")) {
+      pluginState.recordAskAroundQuery({
+        correlationId,
+        expectedReplyCount,
+        senderConnectionId,
+        target
+      });
+    }
   }
 
   for (const rawDelivery of deliveries) {

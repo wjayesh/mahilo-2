@@ -123,12 +123,15 @@ function createStatusCommand(
         },
         runtimeState: options.pluginState
           ? {
+              askAroundSessions: options.pluginState.askAroundSessionCount(),
               contextCacheEntries: options.pluginState.contextCacheSize(),
               dedupeEntries: options.pluginState.dedupe.size(),
               inboundRouteEntries: options.pluginState.inboundRouteCount(),
               novelDecisionEntries: options.pluginState.novelDecisionCount(),
               pendingLearningSuggestions:
-                options.pluginState.pendingLearningSuggestionCount()
+                options.pluginState.pendingLearningSuggestionCount(),
+              productSignalQueries: options.pluginState.productSignalQueryCount(),
+              productSignalReplies: options.pluginState.productSignalReplyCount()
             }
           : null
       };
@@ -221,10 +224,11 @@ function createNetworkCommand(
 ): MahiloCommand {
   return {
     description:
-      "Inspect Mahilo contacts, pending requests, sender connections, and recent activity from inside OpenClaw.",
+      "Inspect Mahilo contacts, pending requests, sender connections, recent activity, and the last seven days of lightweight product signals from inside OpenClaw.",
     execute: async (rawInput?: unknown) => {
       const input = readInputObject(rawInput);
-      const checkedAt = toIsoTimestamp(options.now);
+      const nowMs = typeof options.now === "function" ? options.now() : Date.now();
+      const checkedAt = new Date(nowMs).toISOString();
       const activityLimit = readBoundedInteger(
         input.activityLimit ?? input.activity_limit ?? input.limit,
         DEFAULT_NETWORK_ACTIVITY_LIMIT,
@@ -242,10 +246,23 @@ function createNetworkCommand(
         runtimeState.lastContactError = result.error?.technicalMessage ?? result.error?.message;
       }
 
-      return toCommandResult(result.summary, {
+      const productSignals =
+        options.pluginState && result.status === "success"
+          ? options.pluginState.getProductSignalsSnapshot({
+              connectedContacts: result.counts?.contacts,
+              nowMs
+            })
+          : null;
+      const text =
+        productSignals && hasRecordedProductSignals(productSignals)
+          ? `${result.summary} ${productSignals.summary}`
+          : result.summary;
+
+      return toCommandResult(text, {
         checkedAt,
         command: "mahilo network",
         activityLimit,
+        productSignals,
         ...result
       });
     },
@@ -419,6 +436,15 @@ function toErrorMessage(error: unknown): string {
   }
 
   return String(error);
+}
+
+function hasRecordedProductSignals(
+  snapshot: {
+    queriesSent: number;
+    repliesReceived: number;
+  }
+): boolean {
+  return snapshot.queriesSent > 0 || snapshot.repliesReceived > 0;
 }
 
 function toIsoTimestamp(nowProvider?: () => number): string {

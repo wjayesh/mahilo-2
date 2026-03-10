@@ -323,6 +323,101 @@ describe("InMemoryPluginState", () => {
     expect(state.askAroundSessionCount(400)).toBe(1);
   });
 
+  it("derives a rolling weekly product signal snapshot from ask-around queries and replies", () => {
+    const state = new InMemoryPluginState();
+    const queryAt = Date.parse("2026-03-10T10:00:00.000Z");
+    const firstReplyAt = Date.parse("2026-03-10T10:05:00.000Z");
+    const secondReplyAt = Date.parse("2026-03-10T10:06:00.000Z");
+    const nowMs = Date.parse("2026-03-12T00:00:00.000Z");
+
+    state.rememberAskAroundSession(
+      {
+        correlationId: "corr_signals_1",
+        expectedReplyCount: 2,
+        expectedParticipants: [
+          {
+            label: "Alice",
+            recipient: "alice"
+          },
+          {
+            label: "Bob",
+            recipient: "bob"
+          }
+        ],
+        question: "Who knows a good ramen spot?"
+      },
+      queryAt
+    );
+    state.recordAskAroundQuery(
+      {
+        correlationId: "corr_signals_1",
+        expectedReplyCount: 2,
+        senderConnectionId: "conn_sender"
+      },
+      queryAt
+    );
+    state.recordAskAroundReply(
+      "corr_signals_1",
+      {
+        message: "Try Mensho.",
+        messageId: "msg_signal_reply_1",
+        sender: "Alice",
+        senderAgent: "openclaw"
+      },
+      firstReplyAt
+    );
+    state.recordAskAroundReply(
+      "corr_signals_1",
+      {
+        message: JSON.stringify({
+          message: "I don't know.",
+          outcome: "no_grounded_answer"
+        }),
+        messageId: "msg_signal_reply_2",
+        payloadType: "application/json",
+        sender: "Bob",
+        senderAgent: "openclaw"
+      },
+      secondReplyAt
+    );
+
+    const snapshot = state.getProductSignalsSnapshot({
+      connectedContacts: 3,
+      nowMs
+    });
+
+    expect(snapshot).toMatchObject({
+      connectedContacts: 3,
+      queriesBySenderConnection: [
+        {
+          queriesSent: 1,
+          senderConnectionId: "conn_sender"
+        }
+      ],
+      queriesSent: 1,
+      repliesReceived: 2,
+      replyOutcomeCounts: {
+        directReplies: 1,
+        noGroundedAnswers: 1,
+        trustedReplies: 2,
+        unattributedReplies: 0
+      },
+      responseRate: {
+        contactsAsked: 2,
+        contactsReplied: 2,
+        contactReplyRate: 1,
+        queriesWithReplies: 1,
+        queryReplyRate: 1
+      },
+      window: {
+        days: 7
+      }
+    });
+    expect(snapshot.summary).toContain("1 ask-around query sent");
+    expect(snapshot.summary).toContain("2 replies received");
+    expect(snapshot.summary).toContain("3 connected contacts");
+  });
+
   it("expires ask-around session entries after their ttl", () => {
     const state = new InMemoryPluginState({ askAroundSessionTtlMs: 500 });
 

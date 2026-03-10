@@ -88,11 +88,55 @@ export interface MahiloAskAroundSessionInput {
   target?: MahiloAskAroundTarget;
 }
 
+export interface MahiloAskAroundQuerySignal {
+  correlationId: string;
+  expectedReplyCount?: number;
+  senderConnectionId?: string;
+  target?: MahiloAskAroundTarget;
+}
+
+export interface MahiloProductSignalSenderBucket {
+  queriesSent: number;
+  senderConnectionId: string;
+}
+
+export interface MahiloProductSignalReplyOutcomeCounts {
+  directReplies: number;
+  noGroundedAnswers: number;
+  trustedReplies: number;
+  unattributedReplies: number;
+}
+
+export interface MahiloProductSignalResponseRate {
+  contactsAsked: number;
+  contactsReplied: number;
+  contactReplyRate: number | null;
+  queriesWithReplies: number;
+  queryReplyRate: number | null;
+}
+
+export interface MahiloProductSignalsSnapshot {
+  connectedContacts?: number;
+  generatedAt: string;
+  queriesBySenderConnection: MahiloProductSignalSenderBucket[];
+  queriesSent: number;
+  repliesReceived: number;
+  replyOutcomeCounts: MahiloProductSignalReplyOutcomeCounts;
+  responseRate: MahiloProductSignalResponseRate;
+  summary: string;
+  window: {
+    days: number;
+    endAt: string;
+    startAt: string;
+  };
+}
+
 const DEFAULT_DEDUPE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 60;
 const DEFAULT_INBOUND_ROUTE_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LEARNING_SUGGESTION_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_NOVEL_DECISION_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_PRODUCT_SIGNAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class InMemoryDedupeState implements DedupeState {
   private readonly entries = new Map<string, number>();
@@ -140,6 +184,8 @@ export class InMemoryDedupeState implements DedupeState {
 }
 
 export class InMemoryPluginState {
+  private readonly askAroundQuerySignals = new Map<string, CacheEntry>();
+  private readonly askAroundReplySignals = new Map<string, CacheEntry>();
   private readonly askAroundSessions = new Map<string, CacheEntry>();
   private readonly askAroundSessionTtlMs: number;
   private readonly connectionPairRoutes = new Map<string, CacheEntry>();
@@ -153,6 +199,7 @@ export class InMemoryPluginState {
   private readonly contextCacheTtlMs: number;
   private readonly learningSuggestionTtlMs: number;
   private readonly novelDecisionTtlMs: number;
+  private readonly productSignalTtlMs: number;
   private readonly novelDecisionEntries = new Map<string, number>();
   private readonly pendingLearningSuggestions = new Map<string, CacheEntry>();
 
@@ -164,6 +211,7 @@ export class InMemoryPluginState {
       inboundRouteTtlMs?: number;
       learningSuggestionTtlMs?: number;
       novelDecisionTtlMs?: number;
+      productSignalTtlMs?: number;
     } = {}
   ) {
     const contextCacheTtlSeconds = options.contextCacheTtlSeconds ?? DEFAULT_CONTEXT_CACHE_TTL_SECONDS;
@@ -181,6 +229,10 @@ export class InMemoryPluginState {
     this.novelDecisionTtlMs = Math.max(
       0,
       options.novelDecisionTtlMs ?? DEFAULT_NOVEL_DECISION_TTL_MS
+    );
+    this.productSignalTtlMs = Math.max(
+      0,
+      options.productSignalTtlMs ?? DEFAULT_PRODUCT_SIGNAL_TTL_MS
     );
   }
 
@@ -440,6 +492,10 @@ export class InMemoryPluginState {
       expiresAt: nowMs + this.askAroundSessionTtlMs,
       value: updatedSession
     });
+    rememberAskAroundReplySignal(this.askAroundReplySignals, normalizedCorrelationId, classifiedReply, {
+      nowMs,
+      ttlMs: this.productSignalTtlMs
+    });
 
     return updatedSession;
   }
@@ -451,6 +507,151 @@ export class InMemoryPluginState {
   askAroundSessionCount(nowMs: number = Date.now()): number {
     this.pruneAskAroundSessions(nowMs);
     return this.askAroundSessions.size;
+  }
+
+  recordAskAroundQuery(
+    signal: MahiloAskAroundQuerySignal,
+    nowMs: number = Date.now()
+  ): void {
+    const normalizedSignal = normalizeAskAroundQuerySignal(signal);
+    if (!normalizedSignal) {
+      return;
+    }
+
+    this.pruneProductSignals(nowMs);
+
+    const existingEntry = this.askAroundQuerySignals.get(normalizedSignal.correlationId);
+    const existingSignal =
+      existingEntry && existingEntry.expiresAt > nowMs
+        ? (existingEntry.value as StoredMahiloAskAroundQuerySignal)
+        : undefined;
+
+    this.askAroundQuerySignals.set(normalizedSignal.correlationId, {
+      expiresAt: nowMs + this.productSignalTtlMs,
+      value: {
+        correlationId: normalizedSignal.correlationId,
+        expectedReplyCount:
+          normalizedSignal.expectedReplyCount ?? existingSignal?.expectedReplyCount,
+        recordedAtMs: existingSignal?.recordedAtMs ?? nowMs,
+        senderConnectionId:
+          normalizedSignal.senderConnectionId ?? existingSignal?.senderConnectionId,
+        target: normalizedSignal.target ?? existingSignal?.target
+      } satisfies StoredMahiloAskAroundQuerySignal
+    });
+  }
+
+  getProductSignalsSnapshot(
+    options: {
+      connectedContacts?: number;
+      nowMs?: number;
+      windowDays?: number;
+    } = {}
+  ): MahiloProductSignalsSnapshot {
+    const nowMs = options.nowMs ?? Date.now();
+    const windowDays = normalizePositiveInteger(options.windowDays) ?? 7;
+    const windowStartMs = nowMs - windowDays * 24 * 60 * 60 * 1000;
+
+    this.pruneProductSignals(nowMs);
+
+    const queries = [...this.askAroundQuerySignals.values()]
+      .map((entry) => entry.value as StoredMahiloAskAroundQuerySignal)
+      .filter((entry) => entry.recordedAtMs >= windowStartMs && entry.recordedAtMs <= nowMs);
+    const replies = [...this.askAroundReplySignals.values()]
+      .map((entry) => entry.value as StoredMahiloAskAroundReplySignal)
+      .filter((entry) => entry.recordedAtMs >= windowStartMs && entry.recordedAtMs <= nowMs);
+
+    const repliesByCorrelationId = new Map<string, StoredMahiloAskAroundReplySignal[]>();
+    for (const reply of replies) {
+      const bucket = repliesByCorrelationId.get(reply.correlationId) ?? [];
+      bucket.push(reply);
+      repliesByCorrelationId.set(reply.correlationId, bucket);
+    }
+
+    const queriesBySenderConnection = summarizeAskAroundQueriesBySenderConnection(queries);
+    const queriesWithReplies = queries.filter((query) =>
+      (repliesByCorrelationId.get(query.correlationId) ?? []).some((reply) =>
+        isTrustedAskAroundReplyOutcome(reply.outcome)
+      )
+    ).length;
+
+    let contactsAsked = 0;
+    const uniqueRespondents = new Set<string>();
+    const queryIds = new Set(queries.map((query) => query.correlationId));
+
+    for (const query of queries) {
+      if (typeof query.expectedReplyCount === "number" && query.expectedReplyCount > 0) {
+        contactsAsked += query.expectedReplyCount;
+      }
+    }
+
+    for (const reply of replies) {
+      if (!queryIds.has(reply.correlationId) || !isTrustedAskAroundReplyOutcome(reply.outcome)) {
+        continue;
+      }
+
+      const correlationQuery = queries.find((query) => query.correlationId === reply.correlationId);
+      if (
+        !correlationQuery ||
+        typeof correlationQuery.expectedReplyCount !== "number" ||
+        correlationQuery.expectedReplyCount <= 0
+      ) {
+        continue;
+      }
+
+      const respondentKey =
+        normalizeAskAroundParticipantKey(reply.sender) ??
+        normalizeAskAroundParticipantLabel(reply.sender) ??
+        reply.messageId;
+      uniqueRespondents.add(`${reply.correlationId}::${respondentKey}`);
+    }
+
+    const replyOutcomeCounts = countAskAroundReplySignalOutcomes(replies);
+    const queryReplyRate = calculateRate(queriesWithReplies, queries.length);
+    const contactReplyRate = calculateRate(uniqueRespondents.size, contactsAsked);
+
+    const snapshot: MahiloProductSignalsSnapshot = {
+      connectedContacts: normalizeNonNegativeInteger(options.connectedContacts),
+      generatedAt: toIsoTimestamp(nowMs),
+      queriesBySenderConnection,
+      queriesSent: queries.length,
+      repliesReceived: replies.length,
+      replyOutcomeCounts,
+      responseRate: {
+        contactsAsked,
+        contactsReplied: uniqueRespondents.size,
+        contactReplyRate,
+        queriesWithReplies,
+        queryReplyRate
+      },
+      summary: "",
+      window: {
+        days: windowDays,
+        endAt: toIsoTimestamp(nowMs),
+        startAt: toIsoTimestamp(windowStartMs)
+      }
+    };
+
+    snapshot.summary = formatProductSignalsSummary(snapshot);
+    return snapshot;
+  }
+
+  pruneProductSignals(nowMs: number = Date.now()): number {
+    let removed = 0;
+
+    removed += pruneCacheMap(this.askAroundQuerySignals, nowMs);
+    removed += pruneCacheMap(this.askAroundReplySignals, nowMs);
+
+    return removed;
+  }
+
+  productSignalQueryCount(nowMs: number = Date.now()): number {
+    this.pruneProductSignals(nowMs);
+    return this.askAroundQuerySignals.size;
+  }
+
+  productSignalReplyCount(nowMs: number = Date.now()): number {
+    this.pruneProductSignals(nowMs);
+    return this.askAroundReplySignals.size;
   }
 
   markNovelDecision(signature: string, nowMs: number = Date.now()): boolean {
@@ -570,6 +771,19 @@ export class InMemoryPluginState {
   }
 }
 
+interface StoredMahiloAskAroundQuerySignal extends MahiloAskAroundQuerySignal {
+  recordedAtMs: number;
+}
+
+interface StoredMahiloAskAroundReplySignal {
+  correlationId: string;
+  messageId: string;
+  outcome: MahiloAskAroundReplyOutcome;
+  recordedAtMs: number;
+  sender: string;
+  senderConnectionId?: string;
+}
+
 function normalizeInboundRoute(route: MahiloInboundSessionRoute): MahiloInboundSessionRoute | undefined {
   const sessionKey = normalizeToken(route.sessionKey);
   if (!sessionKey) {
@@ -585,6 +799,22 @@ function normalizeInboundRoute(route: MahiloInboundSessionRoute): MahiloInboundS
     remoteConnectionId: normalizeToken(route.remoteConnectionId),
     remoteParticipant: normalizeParticipant(route.remoteParticipant),
     sessionKey
+  };
+}
+
+function normalizeAskAroundQuerySignal(
+  signal: MahiloAskAroundQuerySignal
+): MahiloAskAroundQuerySignal | undefined {
+  const correlationId = normalizeToken(signal.correlationId);
+  if (!correlationId) {
+    return undefined;
+  }
+
+  return {
+    correlationId,
+    expectedReplyCount: normalizeNonNegativeInteger(signal.expectedReplyCount),
+    senderConnectionId: normalizeToken(signal.senderConnectionId),
+    target: normalizeAskAroundTarget(signal.target)
   };
 }
 
@@ -689,6 +919,59 @@ function normalizeAskAroundReply(
     senderConnectionId: normalizeToken(reply.senderConnectionId),
     senderUserId: normalizeToken(reply.senderUserId),
     timestamp: normalizeToken(reply.timestamp)
+  };
+}
+
+function rememberAskAroundReplySignal(
+  map: Map<string, CacheEntry>,
+  correlationId: string,
+  reply: MahiloAskAroundReply,
+  options: {
+    nowMs: number;
+    ttlMs: number;
+  }
+): void {
+  const normalizedSignal = normalizeAskAroundReplySignal(correlationId, reply);
+  if (!normalizedSignal) {
+    return;
+  }
+
+  const existingEntry = map.get(normalizedSignal.messageId);
+  const existingSignal =
+    existingEntry && existingEntry.expiresAt > options.nowMs
+      ? (existingEntry.value as StoredMahiloAskAroundReplySignal)
+      : undefined;
+
+  map.set(normalizedSignal.messageId, {
+    expiresAt: options.nowMs + options.ttlMs,
+    value: {
+      ...normalizedSignal,
+      outcome: normalizedSignal.outcome ?? existingSignal?.outcome ?? "direct_reply",
+      recordedAtMs: existingSignal?.recordedAtMs ?? options.nowMs
+    } satisfies StoredMahiloAskAroundReplySignal
+  });
+}
+
+function normalizeAskAroundReplySignal(
+  correlationId: string,
+  reply: MahiloAskAroundReply
+): Omit<StoredMahiloAskAroundReplySignal, "recordedAtMs"> | undefined {
+  const normalizedCorrelationId = normalizeToken(correlationId);
+  const normalizedReply = normalizeAskAroundReply(reply);
+  if (
+    !normalizedCorrelationId ||
+    !normalizedReply ||
+    !normalizedReply.outcome
+  ) {
+    return undefined;
+  }
+
+  return {
+    correlationId: normalizedCorrelationId,
+    messageId: normalizedReply.messageId,
+    outcome: normalizedReply.outcome,
+    sender: normalizedReply.sender,
+    senderConnectionId: normalizedReply.senderConnectionId
   };
 }
 
@@ -805,6 +1088,95 @@ function normalizeAskAroundReplyOutcome(
     default:
       return undefined;
   }
+}
+
+function countAskAroundReplySignalOutcomes(
+  replies: StoredMahiloAskAroundReplySignal[]
+): MahiloProductSignalReplyOutcomeCounts {
+  return replies.reduce<MahiloProductSignalReplyOutcomeCounts>(
+    (counts, reply) => {
+      switch (reply.outcome) {
+        case "direct_reply":
+          counts.directReplies += 1;
+          counts.trustedReplies += 1;
+          break;
+        case "no_grounded_answer":
+          counts.noGroundedAnswers += 1;
+          counts.trustedReplies += 1;
+          break;
+        case "attribution_unverified":
+          counts.unattributedReplies += 1;
+          break;
+      }
+
+      return counts;
+    },
+    {
+      directReplies: 0,
+      noGroundedAnswers: 0,
+      trustedReplies: 0,
+      unattributedReplies: 0
+    }
+  );
+}
+
+function summarizeAskAroundQueriesBySenderConnection(
+  queries: StoredMahiloAskAroundQuerySignal[]
+): MahiloProductSignalSenderBucket[] {
+  const counts = new Map<string, number>();
+
+  for (const query of queries) {
+    if (!query.senderConnectionId) {
+      continue;
+    }
+
+    counts.set(query.senderConnectionId, (counts.get(query.senderConnectionId) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([senderConnectionId, queriesSent]) => ({
+      queriesSent,
+      senderConnectionId
+    }))
+    .sort((left, right) => {
+      const queryDelta = right.queriesSent - left.queriesSent;
+      return queryDelta !== 0
+        ? queryDelta
+        : left.senderConnectionId.localeCompare(right.senderConnectionId);
+    });
+}
+
+function isTrustedAskAroundReplyOutcome(
+  outcome: MahiloAskAroundReplyOutcome
+): boolean {
+  return outcome === "direct_reply" || outcome === "no_grounded_answer";
+}
+
+function calculateRate(numerator: number, denominator: number): number | null {
+  if (denominator <= 0) {
+    return null;
+  }
+
+  return Math.round((numerator / denominator) * 1000) / 1000;
+}
+
+function formatProductSignalsSummary(
+  snapshot: MahiloProductSignalsSnapshot
+): string {
+  const parts = [
+    `${snapshot.queriesSent} ask-around ${snapshot.queriesSent === 1 ? "query" : "queries"} sent`,
+    `${snapshot.repliesReceived} ${snapshot.repliesReceived === 1 ? "reply" : "replies"} received`,
+    typeof snapshot.connectedContacts === "number"
+      ? `${snapshot.connectedContacts} connected ${snapshot.connectedContacts === 1 ? "contact" : "contacts"}`
+      : undefined
+  ].filter((value): value is string => Boolean(value));
+
+  const rateSummary =
+    snapshot.responseRate.queryReplyRate === null
+      ? undefined
+      : `${formatRatePercentage(snapshot.responseRate.queryReplyRate)} of sent queries got at least one trusted reply`;
+
+  return `Mahilo product signals (last ${snapshot.window.days} days): ${parts.join(", ")}${rateSummary ? `, ${rateSummary}` : ""}.`;
 }
 
 function classifyAskAroundReply(
@@ -979,6 +1351,20 @@ function normalizeNonNegativeInteger(value: number | undefined): number | undefi
 
   const normalized = Math.trunc(value);
   return normalized >= 0 ? normalized : undefined;
+}
+
+function normalizePositiveInteger(value: number | undefined): number | undefined {
+  const normalized = normalizeNonNegativeInteger(value);
+  return typeof normalized === "number" && normalized > 0 ? normalized : undefined;
+}
+
+function formatRatePercentage(value: number): string {
+  const percentage = Math.round(value * 100);
+  return `${percentage}%`;
+}
+
+function toIsoTimestamp(value: number): string {
+  return new Date(value).toISOString();
 }
 
 function normalizeStringArray(values: string[] | undefined): string[] | undefined {
