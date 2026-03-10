@@ -33,7 +33,7 @@ describe("demo story pack", () => {
 
     expect(rendered).toContain("Guided First Run");
     expect(rendered).toContain("Mahilo status: connected; diagnostics snapshot available.");
-    expect(rendered).toContain("Ask the network for one recommendation using the sender chosen in setup");
+    expect(rendered).toContain("Ask the network for one recommendation using the sender selected by setup");
     expect(rendered).toContain("Mahilo ask-around update");
     expect(rendered).toContain("Restaurant Question");
     expect(rendered).toContain("Try Mensho for the broth.");

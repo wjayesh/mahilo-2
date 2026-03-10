@@ -1,5 +1,36 @@
 declare module "node:fs" {
+  export function mkdirSync(
+    path: string | URL,
+    options?: {
+      mode?: number;
+      recursive?: boolean;
+    }
+  ): void;
   export function readFileSync(path: string | URL, encoding: string): string;
+  export function rmSync(
+    path: string | URL,
+    options?: {
+      force?: boolean;
+      recursive?: boolean;
+    }
+  ): void;
+  export function writeFileSync(
+    path: string | URL,
+    data: string,
+    options?: {
+      encoding?: string;
+      mode?: number;
+    }
+  ): void;
+}
+
+declare module "node:os" {
+  export function homedir(): string;
+}
+
+declare module "node:path" {
+  export function dirname(path: string): string;
+  export function join(...parts: string[]): string;
 }
 
 declare module "node:crypto" {
@@ -26,3 +57,7 @@ declare function setTimeout(
   handler: (...args: never[]) => void,
   timeout?: number
 ): unknown;
+
+declare const process: {
+  env: Record<string, string | undefined>;
+};

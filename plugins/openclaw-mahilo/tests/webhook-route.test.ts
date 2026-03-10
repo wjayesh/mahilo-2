@@ -80,12 +80,12 @@ function createMockResponse(): {
 }
 
 describe("createMahiloWebhookRouteHandler", () => {
-  it("rejects non-POST requests", async () => {
+  it("rejects unsupported methods", async () => {
     const handler = createMahiloWebhookRouteHandler({
       callbackSecret: CALLBACK_SECRET
     });
     const req = createMockRequest({
-      method: "GET"
+      method: "PUT"
     });
     const res = createMockResponse();
 
@@ -94,6 +94,21 @@ describe("createMahiloWebhookRouteHandler", () => {
     expect(res.status()).toBe(405);
     expect(res.body()).toMatchObject({
       error: "method_not_allowed"
+    });
+  });
+
+  it("answers callback readiness probes without a callback secret", async () => {
+    const handler = createMahiloWebhookRouteHandler();
+    const req = createMockRequest({
+      method: "HEAD"
+    });
+    const res = createMockResponse();
+
+    await handler(req, res.response);
+
+    expect(res.status()).toBe(200);
+    expect(res.body()).toMatchObject({
+      status: "ready"
     });
   });
 

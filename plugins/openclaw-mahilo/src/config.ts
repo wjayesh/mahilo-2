@@ -6,7 +6,7 @@ import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
 export type ReviewMode = "auto" | "ask" | "manual";
 
 export interface MahiloPluginConfig {
-  apiKey: string;
+  apiKey?: string;
   baseUrl: string;
   cacheTtlSeconds: number;
   callbackPath?: string;
@@ -24,6 +24,7 @@ export interface ParseConfigOptions {
       "cacheTtlSeconds" | "contractVersion" | "pluginVersion" | "promptContextEnabled" | "reviewMode"
     >
   >;
+  requireApiKey?: boolean;
 }
 
 const DEFAULT_CACHE_TTL_SECONDS = 60;
@@ -57,9 +58,12 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
   const config = readObject(rawConfig);
   assertSupportedConfigKeys(config);
   const defaults = options.defaults ?? {};
+  const requireApiKey = options.requireApiKey ?? true;
 
   const baseUrl = normalizeBaseUrl(readRequiredString(config, "baseUrl"));
-  const apiKey = readRequiredString(config, "apiKey");
+  const apiKey = requireApiKey
+    ? readRequiredString(config, "apiKey")
+    : readOptionalString(config.apiKey);
   const callbackPath = readOptionalCallbackPath(config.callbackPath);
   const callbackUrl = readOptionalUrl(config.callbackUrl, "callbackUrl");
 
@@ -89,6 +93,10 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
 }
 
 export function createClientOptionsFromConfig(config: MahiloPluginConfig): MahiloClientOptions {
+  if (!config.apiKey) {
+    throw new MahiloConfigError("apiKey must be a non-empty string");
+  }
+
   return {
     apiKey: config.apiKey,
     baseUrl: config.baseUrl,
@@ -104,7 +112,7 @@ export function createMahiloClientFromConfig(config: MahiloPluginConfig): Mahilo
 export function redactSensitiveConfig(config: MahiloPluginConfig): Record<string, unknown> {
   return {
     ...config,
-    apiKey: maskSecret(config.apiKey)
+    apiKey: config.apiKey ? maskSecret(config.apiKey) : null
   };
 }
 

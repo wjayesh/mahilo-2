@@ -153,14 +153,13 @@
     },
     {
       "kind": "tool",
-      "label": "Ask the network for one recommendation using the sender chosen in setup",
+      "label": "Ask the network for one recommendation using the sender selected by setup",
       "name": "mahilo_network",
       "note": "This is the canonical orchestration moment: one ask fans out and waits for a live reply in the same thread.",
       "input": {
         "action": "ask_around",
         "correlationId": "corr_demo_guided_first_run",
-        "question": "Who knows a good ramen spot near the Mission for tonight?",
-        "senderConnectionId": "conn_sender_default"
+        "question": "Who knows a good ramen spot near the Mission for tonight?"
       }
     },
     {

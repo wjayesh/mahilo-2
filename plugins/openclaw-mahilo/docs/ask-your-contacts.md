@@ -12,8 +12,8 @@ Mahilo makes "ask around" a normal OpenClaw behavior. You ask once, Mahilo fans 
 
 ## Fast Path
 
-1. Follow the install and config steps in [README](../README.md#install-from-npm).
-2. Run `mahilo setup`.
+1. Follow the install and config steps in [README](../README.md#minimal-working-openclaw-config). The only required operator input for live inbound replies is the public `callbackUrl`.
+2. Run `mahilo setup`. If this runtime is new, include a username once so Mahilo can bootstrap the identity and store the issued key locally.
 3. Run `mahilo status`.
 4. Ask OpenClaw to check with your Mahilo contacts, or use `mahilo_network` with `action=ask_around`.
 

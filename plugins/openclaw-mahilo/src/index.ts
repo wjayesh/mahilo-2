@@ -10,6 +10,7 @@ export * from "./policy-helpers";
 export * from "./prompt-context";
 export * from "./relationships";
 export * from "./release";
+export * from "./runtime-bootstrap";
 export * from "./sender-resolution";
 export * from "./state";
 export * from "./tools-default-sender";

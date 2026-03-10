@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   createMahiloOpenClawPlugin,
   generateCallbackSignature,
-  MahiloRequestError
+  MahiloRequestError,
+  MahiloRuntimeBootstrapStore
 } from "../src";
 
 const CALLBACK_SECRET = "callback-secret";
@@ -13,6 +17,7 @@ interface MockClientState {
   agentConnectionCalls: number;
   agentConnectionsResponse: unknown;
   blockedEventCalls: number[];
+  currentIdentityCalls: number;
   friendConnectionCalls: string[];
   friendRequestCalls: string[];
   friendConnectionsByUsername: Record<string, unknown[]>;
@@ -23,7 +28,10 @@ interface MockClientState {
   listReviewCalls: Array<{ limit?: number; status?: string }>;
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  pingCalls: string[];
   promptContextCalls: Array<Record<string, unknown>>;
+  registerAgentConnectionCalls: Array<Record<string, unknown>>;
+  registerIdentityCalls: Array<Record<string, unknown>>;
   rejectFriendRequestCalls: string[];
   resolveCalls: Array<Record<string, unknown>>;
   sendCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -69,6 +77,8 @@ function createMockContractClient(options: {
   acceptFriendRequestError?: Error;
   acceptFriendRequestResponse?: Record<string, unknown>;
   agentConnectionsResponse?: unknown;
+  currentIdentityError?: Error;
+  currentIdentityResponse?: Record<string, unknown>;
   blockedEventsResponse?: unknown;
   createOverrideError?: Error;
   friendConnectionErrorsByUsername?: Record<string, Error>;
@@ -76,10 +86,15 @@ function createMockContractClient(options: {
   friendshipsByStatus?: Record<string, unknown>;
   friendshipsResponse?: unknown;
   groupsResponse?: unknown;
+  pingAgentConnectionError?: Error;
   promptContextError?: Error;
   promptContextResponse?: Record<string, unknown>;
   rejectFriendRequestError?: Error;
   rejectFriendRequestResponse?: Record<string, unknown>;
+  registerAgentConnectionError?: Error;
+  registerAgentConnectionResponse?: Record<string, unknown>;
+  registerIdentityError?: Error;
+  registerIdentityResponse?: Record<string, unknown>;
   resolveError?: Error;
   resolveResponse?: Record<string, unknown>;
   reviewsResponse?: unknown;
@@ -100,6 +115,7 @@ function createMockContractClient(options: {
         }
       ],
     blockedEventCalls: [],
+    currentIdentityCalls: 0,
     friendConnectionCalls: [],
     friendRequestCalls: [],
     friendConnectionsByUsername: options.friendConnectionsByUsername ?? {},
@@ -132,10 +148,19 @@ function createMockContractClient(options: {
     listReviewCalls: [],
     overrideCalls: [],
     outcomeCalls: [],
+    pingCalls: [],
     promptContextCalls: [],
+    registerAgentConnectionCalls: [],
+    registerIdentityCalls: [],
     rejectFriendRequestCalls: [],
     resolveCalls: [],
     sendCalls: []
+  };
+  const currentIdentityResponse = options.currentIdentityResponse ?? {
+    raw: {
+      username: "mahilo-user"
+    },
+    username: "mahilo-user"
   };
   const promptContextResponse = options.promptContextResponse ?? {
     policy_guidance: {
@@ -216,6 +241,14 @@ function createMockContractClient(options: {
         username
       };
     },
+    getCurrentIdentity: async () => {
+      state.currentIdentityCalls += 1;
+      if (options.currentIdentityError) {
+        throw options.currentIdentityError;
+      }
+
+      return currentIdentityResponse;
+    },
     listGroups: async () => {
       state.groupCalls += 1;
       return state.groupsResponse;
@@ -243,6 +276,14 @@ function createMockContractClient(options: {
         items: []
       };
     },
+    pingAgentConnection: async (connectionId: string) => {
+      state.pingCalls.push(connectionId);
+      if (options.pingAgentConnectionError) {
+        throw options.pingAgentConnectionError;
+      }
+
+      return { success: true };
+    },
     reportOutcome: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.outcomeCalls.push({ idempotencyKey, payload });
       return { ok: true };
@@ -262,6 +303,65 @@ function createMockContractClient(options: {
           },
           status: "declined",
           success: true
+        }
+      );
+    },
+    registerAgentConnection: async (payload: Record<string, unknown>) => {
+      state.registerAgentConnectionCalls.push(payload);
+      if (options.registerAgentConnectionError) {
+        throw options.registerAgentConnectionError;
+      }
+
+      const rawResponse =
+        options.registerAgentConnectionResponse ?? {
+          callback_secret: "callback-secret-from-server",
+          connection_id: "conn_registered_default",
+          mode: "webhook"
+        };
+      const connectionId =
+        typeof rawResponse.connectionId === "string"
+          ? rawResponse.connectionId
+          : typeof rawResponse.connection_id === "string"
+            ? rawResponse.connection_id
+            : "conn_registered_default";
+      const callbackSecret =
+        typeof rawResponse.callbackSecret === "string"
+          ? rawResponse.callbackSecret
+          : typeof rawResponse.callback_secret === "string"
+            ? rawResponse.callback_secret
+            : undefined;
+      state.agentConnectionsResponse = [
+        {
+          active: true,
+          callbackUrl:
+            typeof payload.callbackUrl === "string" ? payload.callbackUrl : undefined,
+          framework:
+            typeof payload.framework === "string" ? payload.framework : "openclaw",
+          id: connectionId,
+          label:
+            typeof payload.label === "string" ? payload.label : "default",
+          status: "active"
+        }
+      ];
+
+      return {
+        callbackSecret,
+        connectionId,
+        mode: typeof rawResponse.mode === "string" ? rawResponse.mode : undefined,
+        raw: rawResponse,
+        updated: rawResponse.updated === true
+      };
+    },
+    registerIdentity: async (payload: Record<string, unknown>) => {
+      state.registerIdentityCalls.push(payload);
+      if (options.registerIdentityError) {
+        throw options.registerIdentityError;
+      }
+
+      return (
+        options.registerIdentityResponse ?? {
+          api_key: "mhl_bootstrap",
+          username: payload.username
         }
       );
     },
@@ -395,6 +495,26 @@ function createMockPluginApi(
     routes,
     systemEvents,
     tools
+  };
+}
+
+function createTempRuntimeBootstrapStore(): {
+  cleanup: () => void;
+  store: MahiloRuntimeBootstrapStore;
+} {
+  const directory = mkdtempSync(join(tmpdir(), "mahilo-openclaw-bootstrap-"));
+  const path = join(directory, "runtime-store.json");
+
+  return {
+    cleanup: () => {
+      rmSync(directory, {
+        force: true,
+        recursive: true
+      });
+    },
+    store: new MahiloRuntimeBootstrapStore({
+      path
+    })
   };
 }
 
@@ -641,6 +761,179 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(routes).toHaveLength(1);
     expect(routes[0]?.path).toBe("/hooks/mahilo");
+  });
+
+  it("bootstraps identity and default sender from inside mahilo setup without a configured apiKey", async () => {
+    const runtimeStore = createTempRuntimeBootstrapStore();
+
+    try {
+      const { client, state } = createMockContractClient({
+        agentConnectionsResponse: [],
+        currentIdentityResponse: {
+          raw: {
+            username: "bootstrap-user"
+          },
+          username: "bootstrap-user"
+        },
+        registerAgentConnectionResponse: {
+          callback_secret: "callback-secret-from-server",
+          connection_id: "conn_registered_default",
+          mode: "webhook"
+        },
+        registerIdentityResponse: {
+          api_key: "mhl_bootstrap",
+          username: "bootstrap-user"
+        }
+      });
+      const plugin = createMahiloOpenClawPlugin({
+        createClient: () => client,
+        runtimeBootstrapStore: runtimeStore.store
+      });
+      const { api, commands, tools } = createMockPluginApi({
+        baseUrl: "https://mahilo.example",
+        callbackUrl: "https://openclaw.example/mahilo/incoming"
+      });
+
+      await plugin.register?.(api);
+
+      expect(commands.map((command) => command.name)).toEqual(["mahilo setup"]);
+      expect(tools).toHaveLength(0);
+
+      const setup = findCommand(commands, "mahilo setup");
+      const result = await setup.execute({
+        username: "bootstrap-user"
+      });
+
+      expect(state.registerIdentityCalls).toEqual([
+        {
+          displayName: undefined,
+          username: "bootstrap-user"
+        }
+      ]);
+      expect(state.registerAgentConnectionCalls).toEqual([
+        expect.objectContaining({
+          callbackUrl: "https://openclaw.example/mahilo/incoming",
+          framework: "openclaw",
+          label: "default",
+          mode: "webhook",
+          rotateSecret: true
+        })
+      ]);
+      expect(state.pingCalls).toEqual(["conn_registered_default"]);
+      expect(result).toMatchObject({
+        content: [
+          {
+            text: expect.stringContaining("saved in the local Mahilo runtime store"),
+            type: "text"
+          }
+        ],
+        details: {
+          blocker: null,
+          credentialSource: "fresh_registration",
+          identityBootstrap: {
+            created: true
+          },
+          senderRegistration: {
+            callbackSecretStored: true,
+            connectionId: "conn_registered_default"
+          },
+          status: "success"
+        }
+      });
+
+      expect(runtimeStore.store.read("https://mahilo.example")).toMatchObject({
+        apiKey: "mhl_bootstrap",
+        callbackConnectionId: "conn_registered_default",
+        callbackSecret: "callback-secret-from-server",
+        callbackUrl: "https://openclaw.example/mahilo/incoming",
+        username: "bootstrap-user"
+      });
+    } finally {
+      runtimeStore.cleanup();
+    }
+  });
+
+  it("uses stored bootstrap credentials to register the full plugin surface on restart", async () => {
+    const runtimeStore = createTempRuntimeBootstrapStore();
+
+    try {
+      runtimeStore.store.write("https://mahilo.example", {
+        apiKey: "mhl_cached_bootstrap",
+        callbackSecret: "callback-secret-from-store",
+        callbackUrl: "https://openclaw.example/mahilo/incoming",
+        username: "cached-user"
+      });
+
+      const { client } = createMockContractClient();
+      const plugin = createMahiloOpenClawPlugin({
+        createClient: (config) => {
+          expect(config.apiKey).toBe("mhl_cached_bootstrap");
+          return client;
+        },
+        runtimeBootstrapStore: runtimeStore.store
+      });
+      const { api, commands, tools } = createMockPluginApi({
+        baseUrl: "https://mahilo.example"
+      });
+
+      await plugin.register?.(api);
+
+      expect(commands.map((command) => command.name).sort()).toEqual([
+        "mahilo network",
+        "mahilo reconnect",
+        "mahilo review",
+        "mahilo setup",
+        "mahilo status"
+      ]);
+      expect(tools.map((tool) => tool.name).sort()).toEqual([
+        "mahilo_boundaries",
+        "mahilo_message",
+        "mahilo_network"
+      ]);
+    } finally {
+      runtimeStore.cleanup();
+    }
+  });
+
+  it("reports callback readiness as the single remaining blocker when no callbackUrl is configured", async () => {
+    const runtimeStore = createTempRuntimeBootstrapStore();
+
+    try {
+      const { client } = createMockContractClient({
+        agentConnectionsResponse: []
+      });
+      const plugin = createMahiloOpenClawPlugin({
+        createClient: () => client,
+        runtimeBootstrapStore: runtimeStore.store
+      });
+      const { api, commands } = createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example"
+      });
+
+      await plugin.register?.(api);
+
+      const setup = findCommand(commands, "mahilo setup");
+      const result = await setup.execute();
+
+      expect(result).toMatchObject({
+        content: [
+          {
+            text: expect.stringContaining("callbackUrl"),
+            type: "text"
+          }
+        ],
+        details: {
+          blocker: {
+            kind: "callback_readiness",
+            operatorOwned: true
+          },
+          status: "blocked"
+        }
+      });
+    } finally {
+      runtimeStore.cleanup();
+    }
   });
 
   it("routes inbound webhook callbacks back to the originating session by correlation id", async () => {

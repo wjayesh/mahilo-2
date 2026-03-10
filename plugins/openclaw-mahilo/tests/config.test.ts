@@ -59,6 +59,20 @@ describe("parseMahiloPluginConfig", () => {
     );
   });
 
+  it("allows apiKey to be omitted for setup bootstrap mode", () => {
+    const config = parseMahiloPluginConfig(
+      {
+        baseUrl: "https://mahilo.example"
+      },
+      {
+        requireApiKey: false
+      }
+    );
+
+    expect(config.apiKey).toBeUndefined();
+    expect(config.baseUrl).toBe("https://mahilo.example");
+  });
+
   it("parses callbackUrl as absolute URL", () => {
     const config = parseMahiloPluginConfig({
       apiKey: "mahilo-key",
@@ -195,6 +209,19 @@ describe("config helpers", () => {
       contractVersion: "1.1.0",
       pluginVersion: "9.9.9"
     });
+  });
+
+  it("throws when client options are requested without an apiKey", () => {
+    const config = parseMahiloPluginConfig(
+      {
+        baseUrl: "https://mahilo.example"
+      },
+      {
+        requireApiKey: false
+      }
+    );
+
+    expect(() => createClientOptionsFromConfig(config)).toThrow("apiKey must be a non-empty string");
   });
 
   it("creates Mahilo contract client from config", () => {

@@ -49,6 +49,8 @@ describe("README install docs", () => {
     expect(readme).toContain(`"${MAHILO_RUNTIME_PLUGIN_ID}"`);
     expect(readme).toContain('"baseUrl"');
     expect(readme).toContain('"apiKey"');
+    expect(readme).toContain('"callbackUrl"');
+    expect(readme).toContain("local runtime store");
   });
 
   it("documents compatibility, connectivity checks, and common failure modes", () => {

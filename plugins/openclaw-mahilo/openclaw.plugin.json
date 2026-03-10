@@ -12,8 +12,7 @@
     "type": "object",
     "additionalProperties": false,
     "required": [
-      "baseUrl",
-      "apiKey"
+      "baseUrl"
     ],
     "properties": {
       "baseUrl": {
@@ -27,12 +26,12 @@
         "format": "password",
         "writeOnly": true,
         "x-sensitive": true,
-        "description": "Sensitive Mahilo API key used for Authorization: Bearer <key>"
+        "description": "Optional existing Mahilo API key. `mahilo setup` can bootstrap and store one locally when this is omitted."
       },
       "callbackUrl": {
         "type": "string",
         "format": "uri",
-        "description": "Optional absolute callback URL override used when registering server-to-plugin delivery callbacks"
+        "description": "Recommended public callback URL for this OpenClaw runtime. `mahilo setup` uses it to register or repair the default Mahilo sender connection."
       },
       "callbackPath": {
         "type": "string",

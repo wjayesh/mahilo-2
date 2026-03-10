@@ -19,7 +19,8 @@ describe("documentation surface", () => {
     expect(guidedFirstRun).toContain("Mahilo ask-around update");
     expect(guidedFirstRun).toContain("mahilo_message");
     expect(guidedFirstRun).toContain("mahilo_boundaries");
-    expect(guidedFirstRun).toContain("senderConnectionId");
+    expect(guidedFirstRun).toContain("callbackUrl");
+    expect(guidedFirstRun).toContain("\"username\": \"your_handle\"");
     expect(guidedFirstRun).toContain("Success Scorecard");
   });
 

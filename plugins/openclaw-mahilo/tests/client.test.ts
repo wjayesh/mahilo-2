@@ -79,6 +79,28 @@ describe("MahiloContractClient", () => {
     expect(headers.get("idempotency-key")).toBe("idem-123");
   });
 
+  it("omits authorization when bootstrapping identity registration without an apiKey", async () => {
+    const client = new MahiloContractClient({
+      baseUrl: "https://mahilo.example/",
+      pluginVersion
+    });
+
+    await client.registerIdentity({
+      displayName: "Bootstrap User",
+      username: "bootstrap-user"
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    const headers = new Headers(fetchCalls[0]?.init?.headers);
+    expect(headers.get("authorization")).toBeNull();
+    expect(fetchCalls[0]?.init?.body).toBe(
+      JSON.stringify({
+        display_name: "Bootstrap User",
+        username: "bootstrap-user"
+      })
+    );
+  });
+
   it("supports listing reviews with query params", async () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
@@ -136,6 +158,66 @@ describe("MahiloContractClient", () => {
     expect(fetchCalls).toHaveLength(1);
     expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/plugin/events/blocked?limit=25");
     expect(fetchCalls[0].init?.method).toBe("GET");
+  });
+
+  it("registers or updates agent connections through the existing agents endpoint", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls.push({ init, input });
+
+      return new Response(
+        JSON.stringify({
+          callback_secret: "callback-secret-from-server",
+          connection_id: "conn_registered_default",
+          updated: true
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200
+        }
+      );
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion
+    });
+
+    const result = await client.registerAgentConnection({
+      callbackUrl: "https://openclaw.example/mahilo/incoming",
+      capabilities: ["chat"],
+      description: "OpenClaw sender",
+      framework: "openclaw",
+      label: "default",
+      mode: "webhook",
+      rotateSecret: true
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0]?.input)).toBe("https://mahilo.example/api/v1/agents");
+    expect(fetchCalls[0]?.init?.method).toBe("POST");
+    expect(fetchCalls[0]?.init?.body).toBe(
+      JSON.stringify({
+        callback_url: "https://openclaw.example/mahilo/incoming",
+        capabilities: ["chat"],
+        description: "OpenClaw sender",
+        framework: "openclaw",
+        label: "default",
+        mode: "webhook",
+        rotate_secret: true
+      })
+    );
+    expect(result).toEqual({
+      callbackSecret: "callback-secret-from-server",
+      connectionId: "conn_registered_default",
+      mode: undefined,
+      raw: {
+        callback_secret: "callback-secret-from-server",
+        connection_id: "conn_registered_default",
+        updated: true
+      },
+      updated: true
+    });
   });
 
   it("normalizes own agent connections into typed summaries", async () => {

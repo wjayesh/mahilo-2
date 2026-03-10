@@ -10,7 +10,7 @@ const FRIENDS_ENDPOINT = CONTRACT_ENDPOINTS.friends;
 const GROUPS_ENDPOINT = CONTRACT_ENDPOINTS.groups;
 
 export interface MahiloClientOptions {
-  apiKey: string;
+  apiKey?: string;
   baseUrl: string;
   contractVersion?: string;
   pluginVersion: string;
@@ -27,6 +27,28 @@ export interface MahiloIdentitySummary {
 export interface RegisterMahiloIdentityInput {
   displayName?: string;
   username: string;
+}
+
+export interface RegisterMahiloAgentConnectionInput {
+  callbackSecret?: string;
+  callbackUrl?: string;
+  capabilities?: string[];
+  description?: string;
+  framework: string;
+  label: string;
+  mode?: "polling" | "webhook";
+  publicKey?: string;
+  publicKeyAlgorithm?: "ed25519" | "x25519";
+  rotateSecret?: boolean;
+  routingPriority?: number;
+}
+
+export interface MahiloAgentRegistrationResult {
+  callbackSecret?: string;
+  connectionId: string;
+  mode?: "polling" | "webhook";
+  raw: unknown;
+  updated?: boolean;
 }
 
 export interface MahiloAgentConnectionSummary {
@@ -170,13 +192,13 @@ export class MahiloRequestError extends Error {
 }
 
 export class MahiloContractClient {
-  private readonly apiKey: string;
+  private readonly apiKey?: string;
   private readonly baseUrl: string;
   private readonly contractVersion: string;
   private readonly pluginVersion: string;
 
   constructor(options: MahiloClientOptions) {
-    this.apiKey = options.apiKey;
+    this.apiKey = normalizeOptionalString(options.apiKey);
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.contractVersion = options.contractVersion ?? MAHILO_CONTRACT_VERSION;
     this.pluginVersion = options.pluginVersion;
@@ -348,6 +370,29 @@ export class MahiloContractClient {
     }));
   }
 
+  async registerAgentConnection(
+    payload: RegisterMahiloAgentConnectionInput
+  ): Promise<MahiloAgentRegistrationResult> {
+    const response = await this.postJson(
+      AGENTS_ENDPOINT,
+      compactObject({
+        callback_secret: payload.callbackSecret,
+        callback_url: payload.callbackUrl,
+        capabilities: payload.capabilities,
+        description: payload.description,
+        framework: payload.framework,
+        label: payload.label,
+        mode: payload.mode,
+        public_key: payload.publicKey,
+        public_key_alg: payload.publicKeyAlgorithm,
+        rotate_secret: payload.rotateSecret,
+        routing_priority: payload.routingPriority
+      })
+    );
+
+    return normalizeAgentRegistrationResult(response);
+  }
+
   async pingAgentConnection(connectionId: string) {
     return this.postJson(`${AGENTS_ENDPOINT}/${encodeURIComponent(connectionId)}/ping`, {});
   }
@@ -367,10 +412,13 @@ export class MahiloContractClient {
   private buildHeaders(idempotencyKey?: string, includeContentType = false): Headers {
     const headers = new Headers();
     headers.set("accept", "application/json");
-    headers.set("authorization", `Bearer ${this.apiKey}`);
     headers.set("x-mahilo-client", DEFAULT_CLIENT_NAME);
     headers.set("x-mahilo-plugin-version", this.pluginVersion);
     headers.set("x-mahilo-contract-version", this.contractVersion);
+
+    if (this.apiKey) {
+      headers.set("authorization", `Bearer ${this.apiKey}`);
+    }
 
     if (includeContentType) {
       headers.set("content-type", "application/json");
@@ -536,6 +584,26 @@ function normalizeFriendRequestResult(
       (root ? readBoolean(root.success) : undefined) ??
       fallback.success ??
       (status === "accepted" || status === "pending")
+  };
+}
+
+function normalizeAgentRegistrationResult(value: unknown): MahiloAgentRegistrationResult {
+  const root = readObject(value);
+  const connectionId =
+    root ? readFirstString(root, ["connection_id", "connectionId", "id"]) : undefined;
+
+  if (!connectionId) {
+    throw new Error("Mahilo agent registration did not return a connection id");
+  }
+
+  const mode = root ? readFirstString(root, ["mode"]) : undefined;
+
+  return {
+    callbackSecret: root ? readFirstString(root, ["callback_secret", "callbackSecret"]) : undefined,
+    connectionId,
+    mode: mode === "polling" || mode === "webhook" ? mode : undefined,
+    raw: value,
+    updated: root ? readBoolean(root.updated) : undefined
   };
 }
 

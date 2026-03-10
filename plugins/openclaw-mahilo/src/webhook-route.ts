@@ -71,12 +71,20 @@ export function createMahiloWebhookRouteHandler(options: MahiloWebhookRouteOptio
     const request = req as HttpRequestLike;
     const response = res as HttpResponseLike;
 
+    if (isReadinessProbeMethod(request.method)) {
+      writeJson(response, 200, {
+        path: options.path ?? null,
+        status: "ready"
+      });
+      return;
+    }
+
     if (!isPostMethod(request.method)) {
       writeJson(response, 405, {
         error: "method_not_allowed",
         message: "Use POST for Mahilo webhook callbacks."
       }, {
-        Allow: "POST"
+        Allow: "GET, HEAD, POST"
       });
       return;
     }
@@ -178,7 +186,7 @@ function buildRouteRegistration(
     path,
     handler: handler as never,
     method: "POST",
-    methods: ["POST"],
+    methods: ["GET", "HEAD", "POST"],
     authMode,
     auth: {
       mode: authMode
@@ -219,6 +227,11 @@ function resolveNowSeconds(nowSeconds: MahiloWebhookRouteOptions["nowSeconds"]):
 
 function isPostMethod(method: string | undefined): boolean {
   return (method ?? "POST").toUpperCase() === "POST";
+}
+
+function isReadinessProbeMethod(method: string | undefined): boolean {
+  const normalized = (method ?? "POST").toUpperCase();
+  return normalized === "GET" || normalized === "HEAD";
 }
 
 async function readRawRequestBody(request: HttpRequestLike): Promise<string> {

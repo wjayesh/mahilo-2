@@ -75,7 +75,7 @@ const EXPECTED_HOOK_NAMES = [
   "before_prompt_build"
 ];
 
-const EXPECTED_REQUIRED_CONFIG_KEYS = ["baseUrl", "apiKey"];
+const EXPECTED_REQUIRED_CONFIG_KEYS = ["baseUrl"];
 
 const EXPECTED_ROUTE_PATHS = ["/mahilo/incoming"];
 

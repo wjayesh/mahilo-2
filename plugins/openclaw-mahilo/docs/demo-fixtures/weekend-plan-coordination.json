@@ -135,8 +135,7 @@
         "question": "What time should we leave for Saturday's Tahoe day trip?",
         "roles": [
           "weekend_planners"
-        ],
-        "senderConnectionId": "conn_sender_default"
+        ]
       }
     },
     {

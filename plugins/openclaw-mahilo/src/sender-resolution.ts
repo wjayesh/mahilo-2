@@ -1,5 +1,6 @@
 import type {
   MahiloAgentConnectionSummary,
+  MahiloAgentRegistrationResult,
   MahiloContractClient,
   MahiloIdentitySummary
 } from "./client";
@@ -171,12 +172,6 @@ export class MahiloSenderResolver {
     if (!sender) {
       notes.push(
         "No Mahilo sender connection is attached to this plugin yet. Attach an existing agent connection or register one on the Mahilo server, then rerun mahilo setup."
-      );
-    }
-
-    if (!config.callbackUrl) {
-      notes.push(
-        `callbackUrl is not configured. Mahilo will use the webhook route path ${config.callbackPath ?? DEFAULT_WEBHOOK_ROUTE_PATH} inside OpenClaw, but the server still needs a reachable callback URL for agent registration.`
       );
     }
 
@@ -518,6 +513,32 @@ async function pingAgentConnection(
   }
 
   return undefined;
+}
+
+export async function registerMahiloAgentConnection(
+  client: MahiloContractClient,
+  payload: {
+    callbackSecret?: string;
+    callbackUrl?: string;
+    capabilities?: string[];
+    description?: string;
+    framework: string;
+    label: string;
+    mode?: "polling" | "webhook";
+    publicKey?: string;
+    publicKeyAlgorithm?: "ed25519" | "x25519";
+    rotateSecret?: boolean;
+    routingPriority?: number;
+  }
+): Promise<MahiloAgentRegistrationResult> {
+  const typedClient = client as MahiloContractClient & {
+    registerAgentConnection?: (input: typeof payload) => Promise<MahiloAgentRegistrationResult>;
+  };
+  if (typeof typedClient.registerAgentConnection !== "function") {
+    throw new Error("Mahilo client does not support agent connection registration");
+  }
+
+  return typedClient.registerAgentConnection(payload);
 }
 
 async function readAgentConnections(

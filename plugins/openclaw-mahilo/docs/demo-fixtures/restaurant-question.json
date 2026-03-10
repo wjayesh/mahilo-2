@@ -132,8 +132,7 @@
       "input": {
         "action": "ask_around",
         "correlationId": "corr_demo_restaurant",
-        "question": "Who knows a good ramen spot near the Mission for tonight?",
-        "senderConnectionId": "conn_sender_default"
+        "question": "Who knows a good ramen spot near the Mission for tonight?"
       }
     },
     {
