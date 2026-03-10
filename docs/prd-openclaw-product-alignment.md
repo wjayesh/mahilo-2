@@ -534,7 +534,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - 2026-03-10T01:07:08.055Z: PAL-010 completed via orchestrator integration.
 ### 1.4 Native Setup Friction Reduction
 - **ID**: `PAL-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `PAL-010`
 - **Description**:
@@ -546,6 +546,8 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] `mahilo setup` reports the exact remaining blocker and next action when identity, sender attachment, or callback readiness cannot complete
   - [ ] First-run docs and demo paths no longer bounce the user between README/config snippets and setup retry loops
 
+- **Notes**:
+  - 2026-03-10T01:29:14.749Z: PAL-012 completed via orchestrator integration.
 ### 1.5 Empty-Network Invite Loop
 - **ID**: `PAL-013`
 - **Status**: `pending`
