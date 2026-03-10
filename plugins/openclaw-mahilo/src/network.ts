@@ -58,6 +58,7 @@ export type MahiloAskAroundReplyOutcome =
 
 export type MahiloAskAroundGapKind =
   | "blocked"
+  | "empty_network"
   | "needs_agent_connection"
   | "not_in_network"
   | "not_on_mahilo"
@@ -131,6 +132,7 @@ const DEFAULT_MAHILO_ASK_AROUND_REPLY_OUTCOME_KINDS: MahiloAskAroundReplyOutcome
 ];
 
 const ASK_AROUND_GAP_ORDER: MahiloAskAroundGapKind[] = [
+  "empty_network",
   "needs_agent_connection",
   "request_pending",
   "not_in_network",
@@ -139,6 +141,17 @@ const ASK_AROUND_GAP_ORDER: MahiloAskAroundGapKind[] = [
   "transport_failure",
   "unknown"
 ];
+
+const EMPTY_NETWORK_SUGGESTED_ACTION =
+  "Build your circle from this same tool: use action=send_request to invite one person you trust. Once they accept and finish Mahilo setup in OpenClaw, rerun this ask here for your first working reply.";
+const NEEDS_AGENT_CONNECTION_SUGGESTED_ACTION =
+  "Your circle is started. Ask them to finish Mahilo setup in OpenClaw, then rerun this ask here as soon as their agent is live.";
+const NOT_IN_NETWORK_SUGGESTED_ACTION =
+  "Build your circle from this same tool: use action=send_request, or accept their pending request here if they already invited you. Then rerun this ask once they show up as an accepted contact.";
+const NOT_ON_MAHILO_SUGGESTED_ACTION =
+  "Check the username. If they're new, ask them to run Mahilo setup in OpenClaw, then come back here and use action=send_request.";
+const REQUEST_PENDING_SUGGESTED_ACTION =
+  "Keep the invite loop moving from this same tool: use action=list to review the pending Mahilo request, accept it here if it's waiting on you, or wait for them to accept, then rerun this ask.";
 
 export async function executeMahiloNetworkAction(
   client: MahiloContractClient,
@@ -287,6 +300,27 @@ async function executeMahiloContactAskAround(
 
   if (matchingContacts.length === 0) {
     const roleSummary = formatRoleList(options.roles);
+    if (contacts.length === 0) {
+      const counts = emptyAskAroundCounts();
+      const gap = createAskAroundGap("empty_network", []);
+
+      return {
+        action: "ask_around",
+        correlationId: options.correlationId,
+        counts,
+        deliveries: [],
+        gaps: [gap],
+        question: options.question,
+        replyExpectation: formatReplyExpectation(counts, [gap]),
+        replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
+        senderConnectionId: context.senderConnectionId,
+        source: "mahilo_server",
+        status: "success",
+        summary: `Mahilo ask-around: ${gap.summary}.`,
+        target
+      };
+    }
+
     return {
       action: "ask_around",
       correlationId: options.correlationId,
@@ -940,20 +974,28 @@ function createAskAroundGap(
         suggestedAction: "Review the boundary decision before retrying this ask.",
         summary: `${subject.label} ${subject.plural ? "were" : "was"} blocked by Mahilo boundaries`
       };
+    case "empty_network":
+      return {
+        count: 0,
+        kind,
+        recipientLabels: [],
+        suggestedAction: EMPTY_NETWORK_SUGGESTED_ACTION,
+        summary: "your Mahilo circle is still empty"
+      };
     case "needs_agent_connection":
       return {
         count: labels.length,
         kind,
         recipientLabels: labels,
-        suggestedAction: "Ask them to finish Mahilo setup in OpenClaw, then try again.",
-        summary: `${subject.label} ${subject.plural ? "are" : "is"} on Mahilo but ${subject.plural ? "have" : "has"} not connected ${subject.plural ? "agents" : "an agent"} yet`
+        suggestedAction: NEEDS_AGENT_CONNECTION_SUGGESTED_ACTION,
+        summary: `${subject.label} ${subject.plural ? "are" : "is"} already in your Mahilo circle and still finishing setup`
       };
     case "not_in_network":
       return {
         count: labels.length,
         kind,
         recipientLabels: labels,
-        suggestedAction: "Send or accept a Mahilo request from this same tool before asking again.",
+        suggestedAction: NOT_IN_NETWORK_SUGGESTED_ACTION,
         summary: `${subject.label} ${subject.plural ? "are" : "is"} not in your Mahilo network yet`
       };
     case "not_on_mahilo":
@@ -961,8 +1003,7 @@ function createAskAroundGap(
         count: labels.length,
         kind,
         recipientLabels: labels,
-        suggestedAction:
-          "Check the username. If they are new to Mahilo, ask them to set up Mahilo in OpenClaw, then add them to your network.",
+        suggestedAction: NOT_ON_MAHILO_SUGGESTED_ACTION,
         summary: `${subject.label} could not be found on Mahilo right now`
       };
     case "request_pending":
@@ -970,8 +1011,7 @@ function createAskAroundGap(
         count: labels.length,
         kind,
         recipientLabels: labels,
-        suggestedAction:
-          "Use this tool to review or accept the pending Mahilo request, or wait for it to be accepted, then ask again.",
+        suggestedAction: REQUEST_PENDING_SUGGESTED_ACTION,
         summary: `${subject.label} ${subject.plural ? "still have" : "still has"} pending Mahilo request${subject.plural ? "s" : ""}`
       };
     case "transport_failure":
@@ -1168,13 +1208,13 @@ function formatUnavailableContactReason(
     case "blocked":
       return `Mahilo boundaries blocked asking ${contact.label} right now.`;
     case "no_active_connections":
-      return `${contact.label} is on Mahilo, but they have not connected an agent yet. Ask them to finish Mahilo setup in OpenClaw, then try again.`;
+      return `${contact.label} is already in your Mahilo circle and still finishing setup. ${NEEDS_AGENT_CONNECTION_SUGGESTED_ACTION}`;
     case "not_found":
-      return `${contact.label} could not be found on Mahilo right now. Check the username or, if they are new, ask them to set up Mahilo in OpenClaw first.`;
+      return `${contact.label} could not be found on Mahilo right now. ${NOT_ON_MAHILO_SUGGESTED_ACTION}`;
     case "not_friends":
-      return `${contact.label} is not in your Mahilo network yet. Send or accept a Mahilo request before asking.`;
+      return `${contact.label} is not in your Mahilo network yet. ${NOT_IN_NETWORK_SUGGESTED_ACTION}`;
     case "request_pending":
-      return `${contact.label} still has a pending Mahilo request. Once it is accepted, you can ask them here.`;
+      return `${contact.label} still has a pending Mahilo request. ${REQUEST_PENDING_SUGGESTED_ACTION}`;
     case "transport_failure":
       return `Mahilo could not reach ${contact.label}'s agent connection right now. Try again in a bit.`;
     default:
@@ -1192,13 +1232,13 @@ function formatAskAroundSendError(
     case "transport_failure":
       return `Mahilo could not reach ${recipientLabel}'s agent connection right now. Try again in a bit.`;
     case "no_active_connections":
-      return `${recipientLabel} is on Mahilo, but they have not connected an agent yet. Ask them to finish Mahilo setup in OpenClaw, then try again.`;
+      return `${recipientLabel} is already in your Mahilo circle and still finishing setup. ${NEEDS_AGENT_CONNECTION_SUGGESTED_ACTION}`;
     case "not_friends":
-      return `${recipientLabel} is not in your Mahilo network yet. Send or accept a Mahilo request before asking.`;
+      return `${recipientLabel} is not in your Mahilo network yet. ${NOT_IN_NETWORK_SUGGESTED_ACTION}`;
     case "not_found":
-      return `${recipientLabel} could not be found on Mahilo right now. Check the username or, if they are new, ask them to set up Mahilo in OpenClaw first.`;
+      return `${recipientLabel} could not be found on Mahilo right now. ${NOT_ON_MAHILO_SUGGESTED_ACTION}`;
     case "request_pending":
-      return `${recipientLabel} still has a pending Mahilo request. Once it is accepted, you can ask them here.`;
+      return `${recipientLabel} still has a pending Mahilo request. ${REQUEST_PENDING_SUGGESTED_ACTION}`;
     default:
       return `Mahilo couldn't deliver the ask to ${recipientLabel}.`;
   }

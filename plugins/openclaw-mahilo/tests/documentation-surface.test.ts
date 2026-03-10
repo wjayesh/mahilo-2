@@ -15,6 +15,10 @@ describe("documentation surface", () => {
     expect(guidedFirstRun).toContain("Five-Minute");
     expect(guidedFirstRun).toContain("mahilo setup");
     expect(guidedFirstRun).toContain("mahilo status");
+    expect(guidedFirstRun).toContain("mahilo network");
+    expect(guidedFirstRun).toContain('"action": "send_request"');
+    expect(guidedFirstRun).toContain("Build your circle");
+    expect(guidedFirstRun).toContain("first working reply");
     expect(guidedFirstRun).toContain("mahilo_network");
     expect(guidedFirstRun).toContain("Mahilo ask-around update");
     expect(guidedFirstRun).toContain("mahilo_message");
@@ -47,6 +51,7 @@ describe("documentation surface", () => {
 
     expect(demoStoryPack).toContain("bun run demo:stories");
     expect(demoStoryPack).toContain("guided-first-run");
+    expect(demoStoryPack).toContain("build-your-circle checkpoint");
     expect(demoStoryPack).toContain("restaurant-question");
     expect(demoStoryPack).toContain("weekend-plan-coordination");
     expect(demoStoryPack).toContain("boundaries-story");

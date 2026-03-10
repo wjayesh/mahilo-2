@@ -286,9 +286,58 @@ describe("executeMahiloNetworkAction", () => {
         recipientLabels: ["Carol"]
       })
     ]);
-    expect(String(result.summary)).toContain("Bob is on Mahilo but has not connected an agent yet");
+    expect(String(result.summary)).toContain(
+      "Bob is already in your Mahilo circle and still finishing setup"
+    );
     expect(String(result.summary)).toContain("Mahilo could not reach Carol right now");
     expect(String(result.replyExpectation)).toContain("Replies will show up in this thread");
+  });
+
+  it("turns an empty Mahilo circle into an invite-loop next step", async () => {
+    const { client } = createMockClient({
+      friendshipsResponse: []
+    });
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        question: "Who has a good dentist in SF?"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      }
+    );
+
+    expect(result).toMatchObject({
+      action: "ask_around",
+      counts: {
+        awaitingReplies: 0,
+        blocked: 0,
+        reviewRequired: 0,
+        sendFailed: 0,
+        skipped: 0
+      },
+      deliveries: [],
+      gaps: [
+        expect.objectContaining({
+          kind: "empty_network",
+          recipientLabels: [],
+          suggestedAction: expect.stringContaining("Build your circle from this same tool")
+        })
+      ],
+      status: "success",
+      summary: "Mahilo ask-around: your Mahilo circle is still empty.",
+      target: {
+        contactCount: 0,
+        kind: "all_contacts"
+      }
+    });
+    expect(String(result.replyExpectation)).toContain("Nothing is waiting on a reply.");
+    expect(String(result.replyExpectation)).toContain(
+      "Build your circle from this same tool: use action=send_request"
+    );
+    expect(String(result.replyExpectation)).toContain("first working reply");
   });
 
   it("distinguishes network gaps from no-answer states when nobody can be asked", async () => {
@@ -354,11 +403,17 @@ describe("executeMahiloNetworkAction", () => {
       })
     ]);
     expect(String(result.summary)).toContain("couldn't ask your 2 contacts right now");
-    expect(String(result.summary)).toContain("Alice is on Mahilo but has not connected an agent yet");
+    expect(String(result.summary)).toContain(
+      "Alice is already in your Mahilo circle and still finishing setup"
+    );
     expect(String(result.summary)).toContain("Bob is not in your Mahilo network yet");
     expect(String(result.replyExpectation)).toContain("Nothing is waiting on a reply.");
-    expect(String(result.replyExpectation)).toContain("Ask them to finish Mahilo setup in OpenClaw");
-    expect(String(result.replyExpectation)).toContain("Send or accept a Mahilo request from this same tool");
+    expect(String(result.replyExpectation)).toContain(
+      "Your circle is started. Ask them to finish Mahilo setup in OpenClaw"
+    );
+    expect(String(result.replyExpectation)).toContain(
+      "Build your circle from this same tool: use action=send_request"
+    );
   });
 
   it("matches conversational group references for ask-around", async () => {

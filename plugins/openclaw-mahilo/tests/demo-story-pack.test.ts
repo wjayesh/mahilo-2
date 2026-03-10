@@ -33,6 +33,8 @@ describe("demo story pack", () => {
 
     expect(rendered).toContain("Guided First Run");
     expect(rendered).toContain("Mahilo status: connected; diagnostics snapshot available.");
+    expect(rendered).toContain("Check that your first accepted contacts are ready before the first ask");
+    expect(rendered).toContain("The real empty-network loop is send_request -> accept -> mahilo setup on the other side.");
     expect(rendered).toContain("Ask the network for one recommendation using the sender selected by setup");
     expect(rendered).toContain("Mahilo ask-around update");
     expect(rendered).toContain("Restaurant Question");
@@ -52,6 +54,7 @@ describe("demo story pack", () => {
 
     expect(demoDoc).toContain("bun run demo:stories");
     expect(demoDoc).toContain("guided-first-run");
+    expect(demoDoc).toContain("build-your-circle checkpoint");
     expect(demoDoc).toContain("restaurant-question");
     expect(demoDoc).toContain("weekend-plan-coordination");
     expect(demoDoc).toContain("boundaries-story");

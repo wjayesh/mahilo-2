@@ -310,6 +310,66 @@ describe("executeMahiloRelationshipAction", () => {
     expect(result.recentActivity).toBeUndefined();
   });
 
+  it("turns a zero-contact directory into an invite-loop next step", async () => {
+    const { client } = createMockClient({
+      acceptedFriendships: [],
+      agentConnections: [
+        {
+          active: true,
+          id: "conn_sender_default",
+          label: "default",
+          priority: 10
+        }
+      ],
+      pendingFriendships: []
+    });
+
+    const result = await executeMahiloRelationshipAction(client, { action: "list" });
+
+    expect(result).toMatchObject({
+      action: "list",
+      counts: {
+        contacts: 0,
+        pendingIncoming: 0,
+        pendingOutgoing: 0
+      },
+      source: "mahilo_server",
+      status: "success",
+      summary:
+        "Mahilo network: 1 sender connection, 0 contacts, 0 incoming requests, 0 outgoing requests, no recent activity yet. Build your circle next: use action=send_request from mahilo_network to invite one person you trust. Once they accept and finish Mahilo setup in OpenClaw, ask around here for your first working reply."
+    });
+  });
+
+  it("tells the user how to keep the invite loop moving when requests are still pending", async () => {
+    const { client } = createMockClient({
+      acceptedFriendships: [],
+      pendingFriendships: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice_pending",
+          status: "pending",
+          username: "alice"
+        }
+      ]
+    });
+
+    const result = await executeMahiloRelationshipAction(client, { action: "list" });
+
+    expect(result).toMatchObject({
+      action: "list",
+      counts: {
+        contacts: 0,
+        pendingIncoming: 0,
+        pendingOutgoing: 1
+      },
+      source: "mahilo_server",
+      status: "success",
+      summary:
+        "Mahilo network: 0 sender connections, 0 contacts, 0 incoming requests, 1 outgoing request, no recent activity yet. Build your circle next: ask the person you invited to accept the pending Mahilo request and finish Mahilo setup in OpenClaw. Then ask around here for your first working reply."
+    });
+  });
+
   it("sends friend requests using usernames with a leading @", async () => {
     const { client, state } = createMockClient();
 

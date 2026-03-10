@@ -4,9 +4,10 @@
   "title": "Guided First Run",
   "persona": "First-time OpenClaw evaluator",
   "prompt": "Can Mahilo prove setup, orchestration, and trust in one OpenClaw run?",
-  "summary": "Start from setup, confirm live connectivity, ask the network once, watch an attributed reply land in-thread, then hit a review gate on a sensitive follow-up and approve it narrowly.",
+  "summary": "Start from setup, confirm live connectivity, check that the first accepted contacts are ready, ask the network once, watch an attributed reply land in-thread, then hit a review gate on a sensitive follow-up and approve it narrowly.",
   "trustSignals": [
     "The only explicit sender reuse is the setup-selected sender on the ask-around step; the later preview and approval steps omit it.",
+    "The replay includes the circle-ready checkpoint after the invite/setup loop, with accepted contacts already live before the first ask-around.",
     "The ask-around reply lands back in the same OpenClaw thread as a Mahilo system update with attribution.",
     "The precise location follow-up stops on review first and only becomes allow after a one-hour exception scoped to Alice."
   ],
@@ -150,6 +151,12 @@
       "kind": "command",
       "label": "Confirm Mahilo server connectivity",
       "name": "mahilo status"
+    },
+    {
+      "kind": "command",
+      "label": "Check that your first accepted contacts are ready before the first ask",
+      "name": "mahilo network",
+      "note": "The real empty-network loop is send_request -> accept -> mahilo setup on the other side. This replay starts after that checkpoint so you can rehearse the first working reply."
     },
     {
       "kind": "tool",

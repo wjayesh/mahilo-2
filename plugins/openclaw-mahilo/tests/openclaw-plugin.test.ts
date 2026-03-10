@@ -1751,22 +1751,30 @@ describe("createMahiloOpenClawPlugin", () => {
         action: "ask_around",
         deliveries: [
           expect.objectContaining({
-            reason: expect.stringContaining("Ask them to finish Mahilo setup in OpenClaw")
+            reason: expect.stringContaining(
+              "Your circle is started. Ask them to finish Mahilo setup in OpenClaw"
+            )
           }),
           expect.objectContaining({
-            reason: expect.stringContaining("Send or accept a Mahilo request before asking")
+            reason: expect.stringContaining(
+              "Build your circle from this same tool: use action=send_request"
+            )
           })
         ],
         gaps: [
           expect.objectContaining({
             kind: "needs_agent_connection",
             recipientLabels: ["Alice"],
-            suggestedAction: expect.stringContaining("finish Mahilo setup in OpenClaw")
+            suggestedAction: expect.stringContaining(
+              "Your circle is started. Ask them to finish Mahilo setup in OpenClaw"
+            )
           }),
           expect.objectContaining({
             kind: "not_in_network",
             recipientLabels: ["Bob"],
-            suggestedAction: expect.stringContaining("Send or accept a Mahilo request")
+            suggestedAction: expect.stringContaining(
+              "Build your circle from this same tool: use action=send_request"
+            )
           })
         ],
         replyExpectation: expect.stringContaining("Nothing is waiting on a reply."),

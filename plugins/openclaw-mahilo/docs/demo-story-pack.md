@@ -23,7 +23,7 @@ Useful variants:
 
 | Story ID | Launch story | What it proves |
 | --- | --- | --- |
-| `guided-first-run` | Guided first run | The single recommended first run: setup, connected status, ask-around, live reply handoff, review-required preview, and one explicit approval in one path. |
+| `guided-first-run` | Guided first run | The single recommended first run after the build-your-circle checkpoint: setup, connected status, circle-ready check, ask-around, live reply handoff, review-required preview, and one explicit approval in one path. |
 | `restaurant-question` | Restaurant question | Ask once, get attributed answers back in-thread, and keep `"I don't know"` explicit instead of fabricating advice. |
 | `weekend-plan-coordination` | Weekend plan / coordination | Fan out one coordination question to a role-filtered circle and keep partial progress useful even when someone stays silent. |
 | `boundaries-story` | Boundaries story | Start from conservative defaults, stop on review for a sensitive share, then apply a conversational temporary exception and retry cleanly. |
@@ -47,6 +47,7 @@ Each fixture is intentionally small:
 
 - The runner uses a mocked Mahilo contract client, so no server seed data is required.
 - The runner drives the actual plugin tools and webhook route, so provenance and boundary wording stay aligned with shipped behavior.
+- The guided first-run replay starts right after the first accepted contacts are live, so you can rehearse the working-reply loop quickly after practicing the invite step from [Build Your Circle](./build-your-circle.md).
 - Each story is self-describing and can be replayed individually by story id.
 
 ## Fast Validation

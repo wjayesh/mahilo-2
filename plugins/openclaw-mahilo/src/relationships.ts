@@ -771,11 +771,30 @@ function formatRelationshipDirectorySummary(
   }
 
   const summary = `Mahilo network: ${parts.join(", ")}.`;
-  if (counts.contacts === 0 && counts.pendingIncoming === 0 && counts.pendingOutgoing === 0) {
-    return `${summary} Add someone with action=send_request, then ask around once they connect an agent.`;
+  const zeroContactGuidance = formatZeroContactGuidance(counts);
+  if (zeroContactGuidance) {
+    return `${summary} ${zeroContactGuidance}`;
   }
 
   return summary;
+}
+
+function formatZeroContactGuidance(
+  counts: MahiloRelationshipCounts
+): string | undefined {
+  if (counts.contacts > 0) {
+    return undefined;
+  }
+
+  if (counts.pendingIncoming > 0) {
+    return `Build your circle next: accept the pending Mahilo request from this same tool. Once that contact finishes Mahilo setup in OpenClaw, ask around for your first working reply.`;
+  }
+
+  if (counts.pendingOutgoing > 0) {
+    return `Build your circle next: ask the person you invited to accept the pending Mahilo request and finish Mahilo setup in OpenClaw. Then ask around here for your first working reply.`;
+  }
+
+  return `Build your circle next: use action=send_request from mahilo_network to invite one person you trust. Once they accept and finish Mahilo setup in OpenClaw, ask around here for your first working reply.`;
 }
 
 function formatRelationshipMutationSummary(
