@@ -56,6 +56,23 @@ describe("documentation surface", () => {
     expect(demoStoryPack).toContain("weekend-plan-coordination");
     expect(demoStoryPack).toContain("boundaries-story");
     expect(demoStoryPack).toContain("real plugin registration path");
+    expect(demoStoryPack).toContain("Operator Walkthroughs");
+    expect(demoStoryPack).toContain("If someone stays silent, nothing is stuck.");
+  });
+
+  it("ships an operator-facing proof doc for governance, observability, and rollout confidence", () => {
+    const operatorProof = readDoc("docs/trust-and-operations-proof.md");
+
+    expect(operatorProof).toContain("skeptical operator or team lead");
+    expect(operatorProof).toContain("Governance And Observability Proof Points");
+    expect(operatorProof).toContain("mahilo status");
+    expect(operatorProof).toContain("mahilo network");
+    expect(operatorProof).toContain("mahilo review");
+    expect(operatorProof).toContain("guided-first-run");
+    expect(operatorProof).toContain("weekend-plan-coordination");
+    expect(operatorProof).toContain("reported no grounded answer");
+    expect(operatorProof).toContain("Team Adoption Concerns");
+    expect(operatorProof).toContain("node scripts/release-gate.mjs");
   });
 
   it("keeps listing copy aligned with package and manifest descriptions", async () => {

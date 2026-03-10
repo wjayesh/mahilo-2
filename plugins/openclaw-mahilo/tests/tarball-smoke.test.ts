@@ -21,6 +21,7 @@ describe("tarball smoke test", () => {
         "docs/demo-story-pack.md",
         "docs/guided-first-run.md",
         "docs/listing-copy.md",
+        "docs/trust-and-operations-proof.md",
         "dist/index.js",
         "openclaw.plugin.json",
         "PUBLISH-CHECKLIST.md",

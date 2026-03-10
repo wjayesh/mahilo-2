@@ -58,6 +58,9 @@ describe("demo story pack", () => {
     expect(demoDoc).toContain("restaurant-question");
     expect(demoDoc).toContain("weekend-plan-coordination");
     expect(demoDoc).toContain("boundaries-story");
+    expect(demoDoc).toContain("Operator Walkthroughs");
+    expect(demoDoc).toContain("Message requires review before delivery.");
+    expect(demoDoc).toContain("If someone stays silent, nothing is stuck.");
     expect(demoDoc).toContain("without a live Mahilo server");
   });
 });

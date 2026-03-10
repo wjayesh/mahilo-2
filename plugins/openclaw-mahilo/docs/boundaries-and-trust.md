@@ -9,6 +9,7 @@ Mahilo keeps sharing conservative by default. The plugin can help with opinions,
 - Sensitive categories stay tight by default.
 - Review flows stay visible through `mahilo review` and ask-mode behavior.
 - Boundary changes stay conversational through `mahilo_boundaries` instead of low-level policy editing.
+- Operators can inspect health, recent review activity, and blocked events through `mahilo status` and `mahilo network` without leaving OpenClaw.
 
 ## Common Actions
 
@@ -21,3 +22,4 @@ Mahilo keeps sharing conservative by default. The plugin can help with opinions,
 
 - Ready to use the network? Read [Ask Your Contacts](./ask-your-contacts.md).
 - Ready to invite or manage contacts? Read [Build Your Circle](./build-your-circle.md).
+- Need the rollout proof for a team lead or operator? Read [Trust and Operations Proof](./trust-and-operations-proof.md).

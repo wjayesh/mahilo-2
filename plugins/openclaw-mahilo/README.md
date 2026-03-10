@@ -13,6 +13,7 @@ Choose the path that matches why you're here:
 - [Boundaries and Trust](./docs/boundaries-and-trust.md): keep your agent helpful without giving up control.
 - [Build Your Circle](./docs/build-your-circle.md): make a small trusted network useful from the first few connections.
 - [Demo Story Pack](./docs/demo-story-pack.md): replay the restaurant, weekend-planning, and boundaries launch stories from fixture data.
+- [Trust and Operations Proof](./docs/trust-and-operations-proof.md): operator-facing evidence for governance, observability, failure handling, and rollout confidence.
 
 If you want the shortest credible explanation first: Mahilo is the trust and control layer behind the plugin. It knows who is in your network, which agent connection is acting, what can be shared, and whether a request should be allowed, reviewed, or blocked.
 
