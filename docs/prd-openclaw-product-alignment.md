@@ -297,7 +297,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-10T00:20:13.805Z: PLG3-020 completed via orchestrator integration.
 ### 3.2 Connection and Activity View
 - **ID**: `PLG3-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-044, PLG3-002
 - **Description**:
@@ -311,6 +311,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - [ ] Pending requests and recent activity are visible
   - [ ] Common debugging steps do not require reading server tables directly
 
+- **Notes**:
+  - 2026-03-10T00:32:09.153Z: PLG3-021 completed via orchestrator integration.
 ### 3.3 Lightweight Product Signals
 - **ID**: `PLG3-022`
 - **Status**: `pending`
