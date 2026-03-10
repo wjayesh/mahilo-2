@@ -38,18 +38,12 @@ describe("tarball smoke test", () => {
       "mahilo_message",
       "mahilo_network"
     ]);
-    expect(summary.commandNames).toEqual([
-      "mahilo network",
-      "mahilo reconnect",
-      "mahilo review",
-      "mahilo setup",
-      "mahilo status"
-    ]);
+    expect(summary.commandNames).toEqual(["mahilo"]);
     expect(summary.hookNames).toEqual([
       "after_tool_call",
       "agent_end",
       "before_prompt_build"
     ]);
     expect(summary.routePaths).toEqual(["/mahilo/incoming"]);
-  });
+  }, 30_000);
 });

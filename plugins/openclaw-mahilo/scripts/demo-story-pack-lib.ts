@@ -204,15 +204,15 @@ export async function runDemoStoryFixture(
   for (let index = 0; index < fixture.steps.length; index += 1) {
     const step = fixture.steps[index]!;
     if (step.kind === "command") {
-      const command = findCommand(commands, step.name);
-      const result = await command.execute(step.input);
+      const invocation = resolveCommandInvocation(commands, step.name, step.input);
+      const result = await invocation.command.execute(invocation.input);
       steps.push({
         details: readResultDetails(result),
         kind: step.kind,
         label: step.label,
         note: step.note,
         outputText: readResultText(result),
-        surface: command.name,
+        surface: invocation.surface,
       });
       continue;
     }
@@ -946,6 +946,57 @@ function findCommand(
   }
 
   return command;
+}
+
+function resolveCommandInvocation(
+  commands: RegisteredCommand[],
+  name: string,
+  input: unknown,
+): {
+  command: RegisteredCommand;
+  input: unknown;
+  surface: string;
+} {
+  const direct = commands.find((candidate) => candidate.name === name);
+  if (direct) {
+    return {
+      command: direct,
+      input,
+      surface: direct.name,
+    };
+  }
+
+  if (name.startsWith("mahilo ")) {
+    const operator = commands.find((candidate) => candidate.name === "mahilo");
+    if (operator) {
+      return {
+        command: operator,
+        input: {
+          args: buildMahiloOperatorArgs(name, input),
+        },
+        surface: operator.name,
+      };
+    }
+  }
+
+  throw new Error(`Expected command ${name} to be registered.`);
+}
+
+function buildMahiloOperatorArgs(name: string, input: unknown): string {
+  const subcommand = name.slice("mahilo ".length).trim();
+  if (subcommand.length === 0) {
+    return "";
+  }
+
+  if (input === undefined) {
+    return subcommand;
+  }
+
+  if (typeof input === "string") {
+    return `${subcommand} ${input}`.trim();
+  }
+
+  return `${subcommand} ${JSON.stringify(input)}`.trim();
 }
 
 function findOptionalHook(

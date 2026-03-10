@@ -42,8 +42,13 @@ declare module "openclaw/plugin-sdk/core" {
     pluginConfig?: unknown;
     registerCommand: (...args: unknown[]) => void;
     registerHook: (
-      name: string,
-      handler: (...args: unknown[]) => unknown | Promise<unknown>
+      name: string | string[],
+      handler: (...args: unknown[]) => unknown | Promise<unknown>,
+      options?: {
+        description?: string;
+        name?: string;
+        priority?: number;
+      }
     ) => void;
     registerHttpRoute: (route: Record<string, unknown>) => void;
     registerTool: (tool: AnyAgentTool) => void;

@@ -233,7 +233,7 @@ describe("openclaw.plugin.json", () => {
 
     expect(baseUrl.type).toBe("string");
     expect(apiKey.type).toBe("string");
-    expect(apiKey.format).toBe("password");
+    expect(apiKey.format).toBeUndefined();
     expect(apiKey.writeOnly).toBe(true);
     expect(apiKey["x-sensitive"]).toBe(true);
     expect(callbackPath.pattern).toBe("^\\/.*");

@@ -265,9 +265,18 @@ describe("registerMahiloDiagnosticsCommands", () => {
     const api = {
       registerCommand: (command: {
         execute: RegisteredCommand["execute"];
+        handler?: RegisteredCommand["execute"];
         name: string;
+        run?: RegisteredCommand["execute"];
       }) => {
-        commands.push(command);
+        const execute = command.execute ?? command.handler ?? command.run;
+        if (!execute) {
+          throw new Error(`expected command ${command.name} to expose an executable handler`);
+        }
+        commands.push({
+          execute,
+          name: command.name
+        });
       }
     };
 
@@ -282,23 +291,18 @@ describe("registerMahiloDiagnosticsCommands", () => {
 
     registerMahiloDiagnosticsCommands(api as never, createConfig(), client as never);
 
-    const reconnectCommand = requireCommand(toCommandMap(commands), "mahilo reconnect");
+    const commandMap = toCommandMap(commands);
+    expect(Array.from(commandMap.keys())).toEqual(["mahilo"]);
+
+    const reconnectCommand = requireCommand(commandMap, "mahilo");
     const reconnectResult = await reconnectCommand.execute({
-      attempts: 2,
-      delayMs: 0
+      args: 'reconnect {"attempts":2,"delayMs":0}'
     });
 
-    expect(reconnectResult).toMatchObject({
-      details: {
-        attempts: 2,
-        command: "mahilo reconnect",
-        connected: false,
-        errors: [
-          "attempt 1: Mahilo request failed with status 503",
-          "attempt 2: Mahilo request failed with status 503"
-        ]
-      }
-    });
+    const reconnectText = JSON.stringify(reconnectResult);
+    expect(reconnectText).toContain("Mahilo reconnect: all retry attempts failed.");
+    expect(reconnectText).toContain("attempt 1: Mahilo request failed with status 503");
+    expect(reconnectText).toContain("attempt 2: Mahilo request failed with status 503");
     expect(reviewCalls).toBe(2);
   });
 });

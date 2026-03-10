@@ -1,12 +1,10 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "id": "mahilo",
   "name": "Mahilo",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Ask your contacts from OpenClaw and get attributed answers with boundaries built in.",
   "entry": "./dist/index.js",
   "configSchema": {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Mahilo Plugin Config",
     "description": "Plugin-local runtime configuration only. Mahilo server is the source of truth for identity, policy decisions, selector normalization, and callback secret lifecycle.",
     "type": "object",
@@ -17,20 +15,17 @@
     "properties": {
       "baseUrl": {
         "type": "string",
-        "format": "uri",
         "description": "Mahilo server base URL, for example https://mahilo.example"
       },
       "apiKey": {
         "type": "string",
         "minLength": 1,
-        "format": "password",
         "writeOnly": true,
         "x-sensitive": true,
         "description": "Optional existing Mahilo API key. `mahilo setup` can bootstrap and store one locally when this is omitted."
       },
       "callbackUrl": {
         "type": "string",
-        "format": "uri",
         "description": "Recommended public callback URL for this OpenClaw runtime. `mahilo setup` uses it to register or repair the default Mahilo sender connection."
       },
       "callbackPath": {

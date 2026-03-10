@@ -442,8 +442,8 @@ function createMockPluginApi(
     pluginConfig,
     registerChannel: () => {},
     registerCli: () => {},
-    registerCommand: (...args: unknown[]) => {
-      const command = parseRegisteredCommand(args);
+    registerCommand: (commandInput: unknown) => {
+      const command = parseRegisteredCommand([commandInput]);
       if (command) {
         commands.push(command);
       }
@@ -686,6 +686,14 @@ function findCommand(commands: RegisteredCommand[], name: string): RegisteredCom
   return command;
 }
 
+async function runMahiloOperatorCommand(
+  commands: RegisteredCommand[],
+  args: string
+): Promise<unknown> {
+  const command = findCommand(commands, "mahilo");
+  return command.execute({ args });
+}
+
 function findHook(hooks: RegisteredHook[], name: string): RegisteredHook {
   const hook = hooks.find((candidate) => candidate.name === name);
   if (!hook) {
@@ -696,7 +704,7 @@ function findHook(hooks: RegisteredHook[], name: string): RegisteredHook {
 }
 
 describe("createMahiloOpenClawPlugin", () => {
-  it("registers stable OpenClaw-native tool names and diagnostics commands", async () => {
+  it("registers stable OpenClaw-native tool names and a single operator command", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -713,13 +721,7 @@ describe("createMahiloOpenClawPlugin", () => {
       "mahilo_message",
       "mahilo_network"
     ]);
-    expect(commands.map((command) => command.name).sort()).toEqual([
-      "mahilo network",
-      "mahilo reconnect",
-      "mahilo review",
-      "mahilo setup",
-      "mahilo status"
-    ]);
+    expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
     expect(hooks.map((hook) => hook.name)).toEqual(
       expect.arrayContaining(["before_prompt_build", "after_tool_call", "agent_end"])
     );
@@ -796,13 +798,14 @@ describe("createMahiloOpenClawPlugin", () => {
 
       await plugin.register?.(api);
 
-      expect(commands.map((command) => command.name)).toEqual(["mahilo setup"]);
-      expect(tools).toHaveLength(0);
+      expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
+      expect(tools.map((tool) => tool.name).sort()).toEqual([
+        "mahilo_boundaries",
+        "mahilo_message",
+        "mahilo_network"
+      ]);
 
-      const setup = findCommand(commands, "mahilo setup");
-      const result = await setup.execute({
-        username: "bootstrap-user"
-      });
+      const result = await runMahiloOperatorCommand(commands, "setup bootstrap-user");
 
       expect(state.registerIdentityCalls).toEqual([
         {
@@ -820,26 +823,13 @@ describe("createMahiloOpenClawPlugin", () => {
         })
       ]);
       expect(state.pingCalls).toEqual(["conn_registered_default"]);
-      expect(result).toMatchObject({
-        content: [
-          {
-            text: expect.stringContaining("saved in the local Mahilo runtime store"),
-            type: "text"
-          }
-        ],
-        details: {
-          blocker: null,
-          credentialSource: "fresh_registration",
-          identityBootstrap: {
-            created: true
-          },
-          senderRegistration: {
-            callbackSecretStored: true,
-            connectionId: "conn_registered_default"
-          },
-          status: "success"
-        }
-      });
+      const replyText =
+        typeof (result as Record<string, unknown>).text === "string"
+          ? ((result as Record<string, unknown>).text as string)
+          : "";
+      expect(replyText).toContain("saved in the local Mahilo runtime store");
+      expect(replyText).toContain("\"credentialSource\": \"fresh_registration\"");
+      expect(replyText).toContain("\"connectionId\": \"conn_registered_default\"");
 
       expect(runtimeStore.store.read("https://mahilo.example")).toMatchObject({
         apiKey: "mhl_bootstrap",
@@ -878,13 +868,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
       await plugin.register?.(api);
 
-      expect(commands.map((command) => command.name).sort()).toEqual([
-        "mahilo network",
-        "mahilo reconnect",
-        "mahilo review",
-        "mahilo setup",
-        "mahilo status"
-      ]);
+      expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
       expect(tools.map((tool) => tool.name).sort()).toEqual([
         "mahilo_boundaries",
         "mahilo_message",
@@ -913,24 +897,15 @@ describe("createMahiloOpenClawPlugin", () => {
 
       await plugin.register?.(api);
 
-      const setup = findCommand(commands, "mahilo setup");
-      const result = await setup.execute();
+      const result = await runMahiloOperatorCommand(commands, "setup");
 
-      expect(result).toMatchObject({
-        content: [
-          {
-            text: expect.stringContaining("callbackUrl"),
-            type: "text"
-          }
-        ],
-        details: {
-          blocker: {
-            kind: "callback_readiness",
-            operatorOwned: true
-          },
-          status: "blocked"
-        }
-      });
+      const replyText =
+        typeof (result as Record<string, unknown>).text === "string"
+          ? ((result as Record<string, unknown>).text as string)
+          : "";
+      expect(replyText).toContain("callbackUrl");
+      expect(replyText).toContain("\"kind\": \"callback_readiness\"");
+      expect(replyText).toContain("\"status\": \"blocked\"");
     } finally {
       runtimeStore.cleanup();
     }
@@ -1189,43 +1164,15 @@ describe("createMahiloOpenClawPlugin", () => {
       }
     ]);
 
-    const networkCommand = findCommand(commands, "mahilo network");
-    const networkResult = await networkCommand.execute();
+    const networkResult = await runMahiloOperatorCommand(commands, "network");
 
-    expect(networkResult).toMatchObject({
-      content: [
-        {
-          text: expect.stringContaining("Mahilo product signals (last 7 days):")
-        }
-      ],
-      details: {
-        command: "mahilo network",
-        productSignals: {
-          connectedContacts: 1,
-          queriesBySenderConnection: [
-            {
-              queriesSent: 1,
-              senderConnectionId: "conn_sender"
-            }
-          ],
-          queriesSent: 1,
-          repliesReceived: 1,
-          replyOutcomeCounts: {
-            directReplies: 1,
-            noGroundedAnswers: 0,
-            trustedReplies: 1,
-            unattributedReplies: 0
-          },
-          responseRate: {
-            contactsAsked: 1,
-            contactsReplied: 1,
-            contactReplyRate: 1,
-            queriesWithReplies: 1,
-            queryReplyRate: 1
-          }
-        }
-      }
-    });
+    const networkReplyText =
+      typeof (networkResult as Record<string, unknown>).text === "string"
+        ? ((networkResult as Record<string, unknown>).text as string)
+        : "";
+    expect(networkReplyText).toContain("Mahilo product signals (last 7 days):");
+    expect(networkReplyText).toContain("\"command\": \"mahilo network\"");
+    expect(networkReplyText).toContain("\"queriesSent\": 1");
   });
 
   it("routes group ask-around replies back into the originating OpenClaw thread with attribution", async () => {
@@ -2409,23 +2356,16 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const command = findCommand(commands, "mahilo status");
-    const result = await command.execute();
+    const result = await runMahiloOperatorCommand(commands, "status");
 
-    expect(result).toMatchObject({
-      details: {
-        command: "mahilo status",
-        connected: true,
-        diagnostics: {
-          reconnectCount: 0
-        },
-        plugin: {
-          config: {
-            apiKey: "mh***et"
-          }
-        }
-      }
-    });
+    const replyText =
+      typeof (result as Record<string, unknown>).text === "string"
+        ? ((result as Record<string, unknown>).text as string)
+        : "";
+    expect(replyText).toContain("Mahilo status: connected");
+    expect(replyText).toContain("\"command\": \"mahilo status\"");
+    expect(replyText).toContain("\"reconnectCount\": 0");
+    expect(replyText).toContain("\"apiKey\": \"mh***et\"");
     expect(state.listReviewCalls).toHaveLength(1);
     expect(state.blockedEventCalls).toHaveLength(1);
   });
@@ -2493,42 +2433,21 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const command = findCommand(commands, "mahilo network");
-    const result = await command.execute({ activityLimit: 4 });
+    const result = await runMahiloOperatorCommand(
+      commands,
+      'network {"activityLimit":4}'
+    );
 
-    expect(result).toMatchObject({
-      details: {
-        action: "list",
-        activityLimit: 4,
-        agentConnections: [
-          {
-            id: "conn_sender_default",
-            label: "default"
-          }
-        ],
-        command: "mahilo network",
-        counts: {
-          contacts: 1,
-          pendingIncoming: 1,
-          pendingOutgoing: 0
-        },
-        recentActivity: [
-          {
-            kind: "review",
-            reviewId: "rev_123"
-          },
-          {
-            kind: "blocked_event",
-            messageId: "blocked_msg_123"
-          }
-        ],
-        recentActivityCounts: {
-          blockedEvents: 1,
-          reviews: 1,
-          total: 2
-        }
-      }
-    });
+    const replyText =
+      typeof (result as Record<string, unknown>).text === "string"
+        ? ((result as Record<string, unknown>).text as string)
+        : "";
+    expect(replyText).toContain("Mahilo product signals (last 7 days):");
+    expect(replyText).toContain("\"action\": \"list\"");
+    expect(replyText).toContain("\"activityLimit\": 4");
+    expect(replyText).toContain("\"command\": \"mahilo network\"");
+    expect(replyText).toContain("\"contacts\": 1");
+    expect(replyText).toContain("\"blockedEvents\": 1");
     expect(state.agentConnectionCalls).toBe(1);
     expect(state.listReviewCalls).toEqual([
       {

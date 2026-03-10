@@ -61,13 +61,7 @@ export interface TarballSmokeSummary {
   toolNames: string[];
 }
 
-const EXPECTED_COMMAND_NAMES = [
-  "mahilo network",
-  "mahilo reconnect",
-  "mahilo review",
-  "mahilo setup",
-  "mahilo status"
-];
+const EXPECTED_COMMAND_NAMES = ["mahilo"];
 
 const EXPECTED_HOOK_NAMES = [
   "after_tool_call",
@@ -285,13 +279,7 @@ function createMockOpenClawApi(pluginConfig: Record<string, unknown>): {
     pluginConfig,
     registerChannel: () => {},
     registerCli: () => {},
-    registerCommand: (...args: unknown[]) => {
-      if (typeof args[0] === "string") {
-        commandNames.push(args[0]);
-        return;
-      }
-
-      const candidate = args[0];
+    registerCommand: (candidate: unknown) => {
       if (isRecord(candidate) && typeof candidate.name === "string") {
         commandNames.push(candidate.name);
       }

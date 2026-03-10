@@ -128,7 +128,8 @@ export function registerMahiloOpenClawPlugin(
   const config = parseMahiloPluginConfig(api.pluginConfig ?? {}, {
     defaults: {
       pluginVersion: readOptionalString(api.version) ?? MAHILO_PLUGIN_RELEASE_VERSION
-    }
+    },
+    requireApiKey: false
   });
 
   const createClient = options.createClient ?? createMahiloClientFromConfig;
@@ -889,6 +890,9 @@ function registerPromptContextHook(
       );
       return rawHookInput;
     }
+  }, {
+    description: "Injects bounded Mahilo relationship and policy context before prompt build.",
+    name: "mahilo.before_prompt_build",
   });
 }
 

@@ -11,6 +11,7 @@ import {
   type MahiloOpenClawPluginDefinition,
   type MahiloOpenClawPluginOptions as LegacyMahiloOpenClawPluginOptions,
 } from "./openclaw-plugin";
+import { registerMahiloOperatorCommand } from "./commands";
 import {
   MahiloContractClient,
   MahiloRequestError,
@@ -42,11 +43,15 @@ type CommandRegistrationMode =
     };
 
 interface CommandDefinitionLike {
+  acceptsArgs?: boolean;
   description: string;
   execute: (...args: unknown[]) => unknown;
+  handler?: (...args: unknown[]) => unknown;
   label: string;
   name: string;
   parameters?: unknown;
+  requireAuth?: boolean;
+  run?: (...args: unknown[]) => unknown;
 }
 
 type MahiloCredentialSource = "config" | "fresh_registration" | "store";
@@ -93,11 +98,17 @@ interface MahiloSetupResultDetails {
   summary?: MahiloSetupSummary;
 }
 
+interface MahiloCommandRouterState {
+  registered: boolean;
+  subcommands: Map<string, CommandDefinitionLike>;
+}
+
 const AUTO_SENDER_COMMAND_NAMES = new Set<string>();
 const AUTO_SENDER_TOOL_NAMES = new Set([
   "mahilo_boundaries",
   "mahilo_message",
 ]);
+const MAHILO_OPERATOR_COMMAND_NAME = "mahilo";
 const SETUP_MANAGED_SENDER_DESCRIPTION =
   "Default Mahilo sender registered by the OpenClaw plugin for in-product ask-around replies and review flows.";
 const SETUP_MANAGED_SENDER_FRAMEWORK = "openclaw";
@@ -146,7 +157,15 @@ export function registerMahiloOpenClawPlugin(
     runtimeBootstrapStore,
     options,
   );
-  const activeClient = effectiveConfig.apiKey ? createClient(effectiveConfig) : null;
+  const activeClient = createRuntimeAwareClient(
+    config,
+    runtimeBootstrapStore,
+    createClient,
+  );
+  const commandRouterState: MahiloCommandRouterState = {
+    registered: false,
+    subcommands: new Map(),
+  };
 
   let commandRegistrationMode: CommandRegistrationMode | null = null;
   const originalRegisterCommand =
@@ -155,7 +174,7 @@ export function registerMahiloOpenClawPlugin(
       : null;
   const originalRegisterTool = api.registerTool.bind(api);
   const wrappedRegisterCommand =
-    originalRegisterCommand === null || activeClient === null
+    originalRegisterCommand === null
       ? undefined
       : function (
           nameOrDefinition: unknown,
@@ -174,6 +193,14 @@ export function registerMahiloOpenClawPlugin(
           }
 
           const patchedArgs = patchCommandRegistrationArgs(args, activeClient, senderResolver);
+          if (registerObjectModeMahiloCommand(
+            api,
+            originalRegisterCommand,
+            commandRouterState,
+            patchedArgs,
+          )) {
+            return;
+          }
           return originalRegisterCommand.apply(api, patchedArgs);
         };
 
@@ -186,29 +213,36 @@ export function registerMahiloOpenClawPlugin(
     } catch {
       // Preserve legacy registration behavior when possible, but do not fail plugin startup if the runtime locks function metadata.
     }
+
+    try {
+      Object.defineProperty(wrappedRegisterCommand, "__mahiloObjectStyle", {
+        configurable: true,
+        value: originalRegisterCommand.length < 2,
+      });
+    } catch {
+      // Best-effort only; command registration still has runtime fallbacks.
+    }
   }
 
-  if (activeClient) {
-    const wrappedApi = Object.create(api) as OpenClawPluginApi;
-    wrappedApi.pluginConfig = buildPluginConfigInput(effectiveConfig);
-    wrappedApi.registerCommand =
-      (wrappedRegisterCommand ?? (api.registerCommand as OpenClawPluginApi["registerCommand"]));
-    wrappedApi.registerTool = (tool: AnyAgentTool) =>
-      originalRegisterTool(patchToolDefinition(tool, activeClient, senderResolver));
+  const wrappedApi = Object.create(api) as OpenClawPluginApi;
+  wrappedApi.pluginConfig = buildPluginConfigInput(effectiveConfig);
+  wrappedApi.registerCommand =
+    (wrappedRegisterCommand ?? (api.registerCommand as OpenClawPluginApi["registerCommand"]));
+  wrappedApi.registerTool = (tool: AnyAgentTool) =>
+    originalRegisterTool(patchToolDefinition(tool, activeClient, senderResolver));
 
-    registerLegacyMahiloOpenClawPlugin(wrappedApi, {
-      ...options,
-      createClient,
-      webhookRoute: {
-        ...options.webhookRoute,
-        getCallbackSecret: callbackSecretResolver,
-      },
-    });
-  }
+  registerLegacyMahiloOpenClawPlugin(wrappedApi, {
+    ...options,
+    createClient,
+    webhookRoute: {
+      ...options.webhookRoute,
+      getCallbackSecret: callbackSecretResolver,
+    },
+  });
 
   if (originalRegisterCommand && !registeredCommandNames.has("mahilo setup")) {
     registerSetupCommand(
-      api,
+      wrappedApi,
       originalRegisterCommand,
       commandRegistrationMode,
       createSetupCommand({
@@ -1090,7 +1124,15 @@ function patchCommandDefinition(
   return {
     ...definition,
     execute: wrapCommandExecute(definition.name, definition.execute, client, senderResolver),
+    handler:
+      typeof definition.handler === "function"
+        ? wrapCommandExecute(definition.name, definition.handler, client, senderResolver)
+        : definition.handler,
     parameters: patchParameterSchema(definition.parameters),
+    run:
+      typeof definition.run === "function"
+        ? wrapCommandExecute(definition.name, definition.run, client, senderResolver)
+        : definition.run,
   };
 }
 
@@ -1227,7 +1269,18 @@ function registerSetupCommand(
   definition: CommandDefinitionLike,
 ): void {
   if (!mode || mode.kind === "object") {
-    originalRegisterCommand.call(api, definition);
+    registerMahiloOperatorCommand(api, {
+      description: definition.description,
+      execute: async (rawInput?: unknown) => definition.execute(rawInput),
+      label: definition.label,
+      name: definition.name,
+      parameters: isRecord(definition.parameters)
+        ? (definition.parameters as Record<string, unknown>)
+        : {
+            additionalProperties: false,
+            type: "object",
+          },
+    });
     return;
   }
 
@@ -1249,6 +1302,193 @@ function registerSetupCommand(
   }
 
   originalRegisterCommand.call(api, definition.name, definition.description, definition.execute, metadata);
+}
+
+function createRuntimeAwareClient(
+  config: MahiloPluginConfig,
+  runtimeBootstrapStore: MahiloRuntimeBootstrapStore,
+  createClient: (config: MahiloPluginConfig) => MahiloContractClient,
+): MahiloContractClient {
+  return new Proxy({} as MahiloContractClient, {
+    get(_target, property) {
+      const currentClient = createClient({
+        ...config,
+        apiKey: resolveEffectiveApiKey(
+          config,
+          runtimeBootstrapStore.read(config.baseUrl),
+        ),
+      });
+      const value = Reflect.get(currentClient as unknown as object, property);
+      return typeof value === "function" ? value.bind(currentClient) : value;
+    },
+  });
+}
+
+function registerObjectModeMahiloCommand(
+  api: OpenClawPluginApi,
+  originalRegisterCommand: (...args: unknown[]) => unknown,
+  routerState: MahiloCommandRouterState,
+  args: unknown[],
+): boolean {
+  const mode = detectCommandRegistrationMode(args);
+  if (!mode) {
+    return false;
+  }
+
+  const currentRuntimeUsesObjectCommands = originalRegisterCommand.length < 2;
+  if (!currentRuntimeUsesObjectCommands && mode.kind !== "object") {
+    return false;
+  }
+
+  const definition = coerceCommandDefinitionFromArgs(args);
+  if (!definition) {
+    return false;
+  }
+
+  const subcommand = readMahiloSubcommand(definition.name);
+  if (!subcommand) {
+    return false;
+  }
+
+  routerState.subcommands.set(subcommand, definition);
+  if (routerState.registered) {
+    return true;
+  }
+
+  originalRegisterCommand.call(api, {
+    acceptsArgs: true,
+    description:
+      "Mahilo setup and diagnostics. Use /mahilo <setup|status|network|review|reconnect> [json].",
+    handler: async (ctx: unknown) => executeMahiloCommandRouter(routerState, ctx),
+    name: MAHILO_OPERATOR_COMMAND_NAME,
+    requireAuth: true,
+  });
+  routerState.registered = true;
+  return true;
+}
+
+async function executeMahiloCommandRouter(
+  routerState: MahiloCommandRouterState,
+  ctx: unknown,
+): Promise<Record<string, unknown>> {
+  const args = readOptionalString(readRecordValue(ctx, "args")) ?? "";
+  const [firstToken, ...restTokens] = args.split(/\s+/).filter(Boolean);
+  const subcommand = firstToken?.trim().toLowerCase();
+
+  if (!subcommand) {
+    return {
+      text: buildMahiloCommandHelp(routerState),
+    };
+  }
+
+  const definition = routerState.subcommands.get(subcommand);
+  if (!definition) {
+    return {
+      text: `${buildMahiloCommandHelp(routerState)}\n\nUnknown subcommand: ${subcommand}`,
+    };
+  }
+
+  try {
+    const input = parseMahiloCommandArgs(subcommand, restTokens.join(" "));
+    const result = await definition.execute(input);
+    return normalizeMahiloCommandReply(result);
+  } catch (error) {
+    return {
+      isError: true,
+      text: `Mahilo command failed: ${toErrorMessage(error)}`,
+    };
+  }
+}
+
+function buildMahiloCommandHelp(routerState: MahiloCommandRouterState): string {
+  const available = Array.from(routerState.subcommands.keys()).sort();
+  const base =
+    "Usage: /mahilo <setup|status|network|review|reconnect> [json]\n" +
+    "Examples:\n" +
+    "/mahilo setup bootstrap-user\n" +
+    "/mahilo status\n" +
+    "/mahilo network\n" +
+    "/mahilo review {\"status\":\"open\",\"limit\":10}";
+
+  if (available.length === 0) {
+    return base;
+  }
+
+  return `${base}\nAvailable: ${available.join(", ")}`;
+}
+
+function parseMahiloCommandArgs(
+  subcommand: string,
+  rawArgs: string,
+): unknown {
+  const trimmed = rawArgs.trim();
+  if (trimmed.length === 0) {
+    return {};
+  }
+
+  if (trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!isRecord(parsed)) {
+      throw new Error("JSON command arguments must decode to an object");
+    }
+
+    return parsed;
+  }
+
+  if (subcommand === "setup") {
+    return {
+      username: trimmed.replace(/^@+/, ""),
+    };
+  }
+
+  throw new Error("Pass command arguments as JSON, for example /mahilo review {\"status\":\"open\"}");
+}
+
+function normalizeMahiloCommandReply(result: unknown): Record<string, unknown> {
+  if (isRecord(result) && typeof result.text === "string") {
+    return {
+      isError: result.isError === true,
+      text: result.text,
+    };
+  }
+
+  const text = extractMahiloCommandText(result);
+  const details = isRecord(result) && isRecord(result.details) ? result.details : undefined;
+  return {
+    text:
+      details && Object.keys(details).length > 0
+        ? `${text}\n\n${JSON.stringify(details, null, 2)}`
+        : text,
+  };
+}
+
+function extractMahiloCommandText(result: unknown): string {
+  if (typeof result === "string" && result.trim().length > 0) {
+    return result;
+  }
+
+  if (isRecord(result)) {
+    const content = result.content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (isRecord(block) && typeof block.text === "string" && block.text.trim().length > 0) {
+          return block.text;
+        }
+      }
+    }
+  }
+
+  return "Mahilo command completed.";
+}
+
+function readMahiloSubcommand(name: string): string | null {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized.startsWith(`${MAHILO_OPERATOR_COMMAND_NAME} `)) {
+    return null;
+  }
+
+  const subcommand = normalized.slice(MAHILO_OPERATOR_COMMAND_NAME.length).trim();
+  return subcommand.length > 0 ? subcommand : null;
 }
 
 async function ensureSenderInput(
@@ -1289,21 +1529,88 @@ function coerceCommandDefinition(value: unknown): CommandDefinitionLike | null {
     return null;
   }
 
+  const execute =
+    typeof value.execute === "function"
+      ? (value.execute as (...args: unknown[]) => unknown)
+      : typeof value.handler === "function"
+        ? (value.handler as (...args: unknown[]) => unknown)
+        : typeof value.run === "function"
+          ? (value.run as (...args: unknown[]) => unknown)
+          : null;
   if (
     typeof value.name !== "string" ||
-    typeof value.label !== "string" ||
     typeof value.description !== "string" ||
-    typeof value.execute !== "function"
+    execute === null
   ) {
     return null;
   }
 
   return {
+    acceptsArgs: typeof value.acceptsArgs === "boolean" ? value.acceptsArgs : undefined,
     description: value.description,
-    execute: value.execute as (...args: unknown[]) => unknown,
-    label: value.label,
+    execute,
+    handler:
+      typeof value.handler === "function"
+        ? (value.handler as (...args: unknown[]) => unknown)
+        : undefined,
+    label: typeof value.label === "string" ? value.label : value.name,
     name: value.name,
     parameters: value.parameters,
+    requireAuth: typeof value.requireAuth === "boolean" ? value.requireAuth : undefined,
+    run:
+      typeof value.run === "function"
+        ? (value.run as (...args: unknown[]) => unknown)
+        : undefined,
+  };
+}
+
+function coerceCommandDefinitionFromArgs(args: unknown[]): CommandDefinitionLike | null {
+  const mode = detectCommandRegistrationMode(args);
+  if (!mode) {
+    return null;
+  }
+
+  if (mode.kind === "object") {
+    return coerceCommandDefinition(args[0]);
+  }
+
+  if (mode.kind === "name-handler") {
+    const name = readOptionalString(args[0]);
+    const execute =
+      typeof args[1] === "function" ? (args[1] as (...args: unknown[]) => unknown) : null;
+    if (!name || !execute) {
+      return null;
+    }
+
+    const metadata = isRecord(args[2]) ? args[2] : undefined;
+    return {
+      description: readOptionalString(metadata?.description) ?? name,
+      execute,
+      handler: execute,
+      label: readOptionalString(metadata?.label) ?? name,
+      name,
+      parameters: metadata?.parameters ?? args[2],
+      run: execute,
+    };
+  }
+
+  const name = readOptionalString(args[0]);
+  const description = readOptionalString(args[1]);
+  const execute =
+    typeof args[2] === "function" ? (args[2] as (...args: unknown[]) => unknown) : null;
+  if (!name || !description || !execute) {
+    return null;
+  }
+
+  const metadata = isRecord(args[3]) ? args[3] : undefined;
+  return {
+    description,
+    execute,
+    handler: execute,
+    label: readOptionalString(metadata?.label) ?? name,
+    name,
+    parameters: metadata?.parameters ?? args[3],
+    run: execute,
   };
 }
 
@@ -1321,6 +1628,10 @@ function readOptionalBoolean(value: unknown): boolean | undefined {
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readRecordValue(value: unknown, key: string): unknown {
+  return isRecord(value) ? value[key] : undefined;
 }
 
 function readSenderConnectionId(input: Record<string, unknown>): string | undefined {

@@ -20,12 +20,17 @@ export interface MahiloDiagnosticsCommandOptions {
   reconnectDelayMs?: number;
 }
 
-interface MahiloCommand {
+export interface MahiloCommandDefinition {
   description: string;
   execute: (rawInput?: unknown) => Promise<unknown>;
   label: string;
   name: string;
   parameters: Record<string, unknown>;
+}
+
+interface MahiloOperatorCommandRouter {
+  registered: boolean;
+  subcommands: Map<string, MahiloCommandDefinition>;
 }
 
 interface MahiloDiagnosticsRuntimeState {
@@ -39,7 +44,9 @@ const DEFAULT_RECONNECT_ATTEMPTS = 2;
 const DEFAULT_RECONNECT_DELAY_MS = 250;
 const DEFAULT_NETWORK_ACTIVITY_LIMIT = 6;
 const DEFAULT_REVIEW_LIMIT = 20;
+const MAHILO_OPERATOR_COMMAND_NAME = "mahilo";
 const MAX_LIMIT = 100;
+const operatorRouters = new WeakMap<object, MahiloOperatorCommandRouter>();
 
 export function registerMahiloDiagnosticsCommands(
   api: OpenClawPluginApi,
@@ -51,7 +58,7 @@ export function registerMahiloDiagnosticsCommands(
     reconnectCount: 0
   };
 
-  const commands: MahiloCommand[] = [
+  const commands: MahiloCommandDefinition[] = [
     createStatusCommand(config, client, runtimeState, options),
     createNetworkCommand(client, runtimeState, options),
     createReviewCommand(client, runtimeState, options),
@@ -72,7 +79,7 @@ function createStatusCommand(
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
   options: MahiloDiagnosticsCommandOptions
-): MahiloCommand {
+): MahiloCommandDefinition {
   return {
     description: "Inspect Mahilo plugin health, config, and local runtime state.",
     execute: async () => {
@@ -156,7 +163,7 @@ function createReviewCommand(
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
   options: MahiloDiagnosticsCommandOptions
-): MahiloCommand {
+): MahiloCommandDefinition {
   return {
     description: "Inspect Mahilo review queue items with optional status and limit filters.",
     execute: async (rawInput?: unknown) => {
@@ -221,7 +228,7 @@ function createNetworkCommand(
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
   options: MahiloDiagnosticsCommandOptions
-): MahiloCommand {
+): MahiloCommandDefinition {
   return {
     description:
       "Inspect Mahilo contacts, pending requests, sender connections, recent activity, and the last seven days of lightweight product signals from inside OpenClaw.",
@@ -284,7 +291,7 @@ function createReconnectCommand(
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
   options: MahiloDiagnosticsCommandOptions
-): MahiloCommand {
+): MahiloCommandDefinition {
   return {
     description: "Retry Mahilo connectivity checks and report actionable reconnect diagnostics.",
     execute: async (rawInput?: unknown) => {
@@ -360,10 +367,54 @@ function createReconnectCommand(
   };
 }
 
-function registerCommandCompat(api: OpenClawPluginApi, command: MahiloCommand): void {
+export function registerMahiloOperatorCommand(
+  api: OpenClawPluginApi,
+  command: MahiloCommandDefinition
+): void {
   const registerCommand = api.registerCommand as unknown as (...args: unknown[]) => void;
+  const router = getMahiloOperatorRouter(api);
+  const subcommand = readMahiloSubcommand(command.name);
+
+  if (!subcommand) {
+    registerCommand({
+      description: command.description,
+      execute: command.execute,
+      handler: async (ctx: unknown) => normalizeMahiloCommandReply(await command.execute(ctx)),
+      label: command.label,
+      name: command.name,
+      parameters: command.parameters,
+      run: command.execute
+    });
+    return;
+  }
+
+  router.subcommands.set(subcommand, command);
+  if (router.registered) {
+    return;
+  }
+
+  registerCommand({
+    acceptsArgs: true,
+    description:
+      "Mahilo setup and diagnostics. Use /mahilo <setup|status|network|review|reconnect> [json].",
+    handler: async (ctx: unknown) => executeMahiloOperatorRouter(router, ctx),
+    name: MAHILO_OPERATOR_COMMAND_NAME,
+    requireAuth: true
+  });
+  router.registered = true;
+}
+
+function registerCommandCompat(api: OpenClawPluginApi, command: MahiloCommandDefinition): void {
+  const registerCommand = api.registerCommand as unknown as (...args: unknown[]) => void;
+  const prefersObjectStyle =
+    Boolean((registerCommand as unknown as Record<string, unknown>).__mahiloObjectStyle);
 
   // Support both object-style and name/handler-style command registration surfaces.
+  if (prefersObjectStyle || registerCommand.length < 2) {
+    registerMahiloOperatorCommand(api, command);
+    return;
+  }
+
   if (registerCommand.length >= 2) {
     registerCommand(command.name, command.execute, {
       description: command.description,
@@ -470,6 +521,142 @@ async function probe(
   }
 }
 
+function getMahiloOperatorRouter(api: OpenClawPluginApi): MahiloOperatorCommandRouter {
+  const key = api as unknown as object;
+  const existing = operatorRouters.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const created: MahiloOperatorCommandRouter = {
+    registered: false,
+    subcommands: new Map()
+  };
+  operatorRouters.set(key, created);
+  return created;
+}
+
+function readMahiloSubcommand(name: string): string | null {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized.startsWith(`${MAHILO_OPERATOR_COMMAND_NAME} `)) {
+    return null;
+  }
+
+  const subcommand = normalized.slice(MAHILO_OPERATOR_COMMAND_NAME.length).trim();
+  return subcommand.length > 0 ? subcommand : null;
+}
+
+async function executeMahiloOperatorRouter(
+  router: MahiloOperatorCommandRouter,
+  ctx: unknown
+): Promise<Record<string, unknown>> {
+  const args = readOptionalString(readRecordValue(ctx, "args")) ?? "";
+  const [firstToken, ...restTokens] = args.split(/\s+/).filter(Boolean);
+  const subcommand = firstToken?.trim().toLowerCase();
+
+  if (!subcommand) {
+    return {
+      text: buildMahiloCommandHelp(router)
+    };
+  }
+
+  const command = router.subcommands.get(subcommand);
+  if (!command) {
+    return {
+      text: `${buildMahiloCommandHelp(router)}\n\nUnknown subcommand: ${subcommand}`
+    };
+  }
+
+  try {
+    const input = parseMahiloCommandArgs(subcommand, restTokens.join(" "));
+    return normalizeMahiloCommandReply(await command.execute(input));
+  } catch (error) {
+    return {
+      isError: true,
+      text: `Mahilo command failed: ${toErrorMessage(error)}`
+    };
+  }
+}
+
+function buildMahiloCommandHelp(router: MahiloOperatorCommandRouter): string {
+  const available = Array.from(router.subcommands.keys()).sort();
+  const base =
+    "Usage: /mahilo <setup|status|network|review|reconnect> [json]\n" +
+    "Examples:\n" +
+    "/mahilo setup bootstrap-user\n" +
+    "/mahilo status\n" +
+    "/mahilo network\n" +
+    "/mahilo review {\"status\":\"open\",\"limit\":10}";
+
+  if (available.length === 0) {
+    return base;
+  }
+
+  return `${base}\nAvailable: ${available.join(", ")}`;
+}
+
+function parseMahiloCommandArgs(subcommand: string, rawArgs: string): unknown {
+  const trimmed = rawArgs.trim();
+  if (trimmed.length === 0) {
+    return {};
+  }
+
+  if (trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!readObject(parsed)) {
+      throw new Error("JSON command arguments must decode to an object");
+    }
+
+    return parsed;
+  }
+
+  if (subcommand === "setup") {
+    return {
+      username: trimmed.replace(/^@+/, "")
+    };
+  }
+
+  throw new Error("Pass command arguments as JSON, for example /mahilo review {\"status\":\"open\"}");
+}
+
+function normalizeMahiloCommandReply(result: unknown): Record<string, unknown> {
+  const root = readObject(result);
+  if (root && typeof root.text === "string") {
+    return {
+      isError: root.isError === true,
+      text: root.text
+    };
+  }
+
+  const text = extractMahiloCommandText(result);
+  const details = root ? readObject(root.details) : undefined;
+  return {
+    text:
+      details && Object.keys(details).length > 0
+        ? `${text}\n\n${JSON.stringify(details, null, 2)}`
+        : text
+  };
+}
+
+function extractMahiloCommandText(result: unknown): string {
+  if (typeof result === "string" && result.trim().length > 0) {
+    return result;
+  }
+
+  const root = readObject(result);
+  const content = root?.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      const record = readObject(block);
+      if (record && typeof record.text === "string" && record.text.trim().length > 0) {
+        return record.text;
+      }
+    }
+  }
+
+  return "Mahilo command completed.";
+}
+
 function readItemCount(value: unknown): number | undefined {
   const root = readObject(value);
   if (!root) {
@@ -525,6 +712,11 @@ function normalizeReviewItems(response: unknown): Array<Record<string, unknown>>
   }
 
   return normalized;
+}
+
+function readRecordValue(value: unknown, key: string): unknown {
+  const root = readObject(value);
+  return root ? root[key] : undefined;
 }
 
 function toCommandResult(
