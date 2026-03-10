@@ -9,11 +9,12 @@ Confirm the user-facing copy still matches the intended OpenClaw story before yo
 ```bash
 sed -n '1,80p' README.md
 sed -n '1,120p' docs/listing-copy.md
+sed -n '1,220p' docs/launch-collateral.md
 node -p "require('./package.json').description"
 node -p "require('./openclaw.plugin.json').description"
 ```
 
-The README opening promise, the three Start Here links, and both package descriptions should stay aligned with `docs/listing-copy.md`.
+The README opening promise, the persona-oriented Start Here links, both package descriptions, and the comparison frame in `docs/launch-collateral.md` should stay aligned with `docs/listing-copy.md`.
 
 ## 1. Bump and review the version
 
@@ -51,6 +52,8 @@ npm publish --access public
 ```
 
 If npm prompts for a one-time password, finish the publish with the account's current OTP.
+
+For a first public announcement, use `docs/launch-collateral.md` as the source of truth for the screenshot set, short walkthrough clip, comparison framing, and early-adopter feedback loop.
 
 ## 4. Verify the live package
 

@@ -233,4 +233,4 @@ Then point `openclaw.extensions` at the absolute package directory path instead 
 
 ## Release Maintenance
 
-Package maintainers should use [`PUBLISH-CHECKLIST.md`](./PUBLISH-CHECKLIST.md), [`RELEASING.md`](./RELEASING.md), and [`docs/listing-copy.md`](./docs/listing-copy.md) for publish-surface copy, tarball contents, packed-artifact smoke-test steps, build hooks, and release checklist details.
+Package maintainers should use [`PUBLISH-CHECKLIST.md`](./PUBLISH-CHECKLIST.md), [`RELEASING.md`](./RELEASING.md), [`docs/listing-copy.md`](./docs/listing-copy.md), and [`docs/launch-collateral.md`](./docs/launch-collateral.md) for publish-surface copy, first-announce assets, tarball contents, packed-artifact smoke-test steps, build hooks, and release checklist details.

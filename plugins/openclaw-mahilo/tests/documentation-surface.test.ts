@@ -60,6 +60,22 @@ describe("documentation surface", () => {
     expect(demoStoryPack).toContain("If someone stays silent, nothing is stuck.");
   });
 
+  it("ships first-launch collateral with comparison framing and a feedback loop", () => {
+    const launchCollateral = readDoc("docs/launch-collateral.md");
+
+    expect(launchCollateral).toContain("first publish/announce cycle");
+    expect(launchCollateral).toContain("trust network for AI agents");
+    expect(launchCollateral).toContain("Do not lead with plugin migration");
+    expect(launchCollateral).toContain("Screenshot 1: guided first run");
+    expect(launchCollateral).toContain("guided-first-run");
+    expect(launchCollateral).toContain("restaurant-question");
+    expect(launchCollateral).toContain("boundaries-story");
+    expect(launchCollateral).toContain("public AI noise");
+    expect(launchCollateral).toContain("Early-Adopter Feedback Loop");
+    expect(launchCollateral).toContain("Did they reach the first working reply?");
+    expect(launchCollateral).toContain("3 of 5 people restate");
+  });
+
   it("ships an operator-facing proof doc for governance, observability, and rollout confidence", () => {
     const operatorProof = readDoc("docs/trust-and-operations-proof.md");
 

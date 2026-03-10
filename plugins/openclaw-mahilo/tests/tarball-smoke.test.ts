@@ -20,6 +20,7 @@ describe("tarball smoke test", () => {
         "docs/demo-fixtures/weekend-plan-coordination.json",
         "docs/demo-story-pack.md",
         "docs/guided-first-run.md",
+        "docs/launch-collateral.md",
         "docs/listing-copy.md",
         "docs/trust-and-operations-proof.md",
         "dist/index.js",
