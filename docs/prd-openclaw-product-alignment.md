@@ -565,7 +565,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - 2026-03-10T01:45:02.561Z: PAL-013 completed via orchestrator integration.
 ### 1.6 Trust and Operations Proof
 - **ID**: `PAL-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `PAL-010`, `PAL-012`, `PAL-013`
 - **Description**:
@@ -576,6 +576,8 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] The docs/demo plan includes at least one failure-path or approval-path walkthrough
   - [ ] Team-adoption concerns are addressed explicitly
 
+- **Notes**:
+  - 2026-03-10T01:48:53.153Z: PAL-011 completed via orchestrator integration.
 ### 1.7 Launch Collateral and Validation Loop
 - **ID**: `PAL-020`
 - **Status**: `pending`
