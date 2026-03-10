@@ -794,7 +794,7 @@ function formatZeroContactGuidance(
     return `Build your circle next: ask the person you invited to accept the pending Mahilo request and finish Mahilo setup in OpenClaw. Then ask around here for your first working reply.`;
   }
 
-  return `Build your circle next: use action=send_request from mahilo_network to invite one person you trust. Once they accept and finish Mahilo setup in OpenClaw, ask around here for your first working reply.`;
+  return `Build your circle next: use manage_network with action=send_friend_request to invite one person you trust. Once they accept and finish Mahilo setup in OpenClaw, use ask_network for your first working reply.`;
 }
 
 function formatRelationshipMutationSummary(

@@ -105,8 +105,9 @@ interface MahiloCommandRouterState {
 
 const AUTO_SENDER_COMMAND_NAMES = new Set<string>();
 const AUTO_SENDER_TOOL_NAMES = new Set([
-  "mahilo_boundaries",
-  "mahilo_message",
+  "ask_network",
+  "send_message",
+  "set_boundaries",
 ]);
 const MAHILO_OPERATOR_COMMAND_NAME = "mahilo";
 const SETUP_MANAGED_SENDER_DESCRIPTION =

@@ -6,10 +6,10 @@ import {
 import type { MahiloPendingLearningSuggestion } from "./state";
 import { summarizeMahiloSendOutcome } from "./tools";
 
-const MAHILO_MESSAGE_TOOL_NAME = "mahilo_message";
+const MAHILO_SEND_MESSAGE_TOOL_NAME = "send_message";
 
 type MahiloSendTargetType = "group" | "user";
-type SendToolName = typeof MAHILO_MESSAGE_TOOL_NAME;
+type SendToolName = typeof MAHILO_SEND_MESSAGE_TOOL_NAME;
 
 export interface MahiloPostSendFailure {
   error: string;
@@ -40,11 +40,6 @@ export function extractMahiloPostSendEvent(event: {
 }): MahiloPostSendEvent | undefined {
   const toolName = readToolName(event.toolName);
   if (!toolName) {
-    return undefined;
-  }
-
-  const action = readMahiloMessageAction(event.params);
-  if (action !== "send") {
     return undefined;
   }
 
@@ -191,7 +186,7 @@ export function formatMahiloLearningSuggestion(
     "Mahilo learning opportunity:",
     `${actionSummary} for ${targetLabel} on ${selectorLabel}.${reasonLine}`,
     `Decide whether this should apply just once, for a short time, for ${targetLabel}, for similar contacts, or as your normal rule.`,
-    "Use `mahilo_boundaries` to adjust boundaries or create a temporary boundary exception."
+    "Use `set_boundaries` to adjust boundaries or create a temporary boundary exception."
   ].join(" ");
 }
 
@@ -254,7 +249,11 @@ function formatSelectorLabel(selectors: DeclaredSelectors): string {
 }
 
 function readToolName(value: string): SendToolName | undefined {
-  return value === MAHILO_MESSAGE_TOOL_NAME ? value : undefined;
+  if (value === MAHILO_SEND_MESSAGE_TOOL_NAME || value === "mahilo_message") {
+    return MAHILO_SEND_MESSAGE_TOOL_NAME;
+  }
+
+  return undefined;
 }
 
 function resolveRecipient(
@@ -262,44 +261,26 @@ function resolveRecipient(
   recipientType: MahiloSendTargetType
 ): string | undefined {
   return (
+    readString(params.target) ??
     readString(params.recipient) ??
     (recipientType === "group"
-      ? readString(params.groupId) ?? readString(params.group_id)
+      ? readString(params.group) ??
+        readString(params.groupId) ??
+        readString(params.group_id)
       : undefined)
   );
 }
 
 function resolveRecipientType(params: Record<string, unknown>): MahiloSendTargetType {
   return (
+    readTargetType(params.targetType) ??
+    readTargetType(params.target_type) ??
     readRecipientType(params.recipientType) ??
     readRecipientType(params.recipient_type) ??
-    (readString(params.groupId) ?? readString(params.group_id) ? "group" : "user")
+    (readString(params.group) ?? readString(params.groupId) ?? readString(params.group_id)
+      ? "group"
+      : "user")
   );
-}
-
-function readMahiloMessageAction(
-  params: Record<string, unknown>
-): "context" | "preview" | "send" | undefined {
-  const normalized = readString(params.action)?.toLowerCase().replace(/[\s-]+/g, "_");
-  if (!normalized) {
-    return "send";
-  }
-
-  switch (normalized) {
-    case "context":
-    case "fetch_context":
-    case "get_context":
-      return "context";
-    case "preview":
-    case "preflight":
-    case "resolve":
-      return "preview";
-    case "message":
-    case "send":
-      return "send";
-    default:
-      return undefined;
-  }
 }
 
 function readLegacyRecipientType(value: string): MahiloSendTargetType | undefined {
@@ -328,6 +309,14 @@ function readStatus(
 
 function readRecipientType(value: unknown): MahiloSendTargetType | undefined {
   return value === "group" || value === "user" ? value : undefined;
+}
+
+function readTargetType(value: unknown): MahiloSendTargetType | undefined {
+  return value === "group"
+    ? "group"
+    : value === "person" || value === "user"
+      ? "user"
+      : undefined;
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {

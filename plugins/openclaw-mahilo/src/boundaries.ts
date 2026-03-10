@@ -658,7 +658,54 @@ async function resolveBoundaryTarget(
     );
   }
 
+  if (options.scope === "group") {
+    if (!options.recipient) {
+      throw new Error("group-scoped boundaries require group or targetId");
+    }
+
+    const groups = await client.listGroups();
+    const match = resolveBoundaryGroup(groups, options.recipient);
+    if (!match) {
+      throw new Error(
+        `Could not resolve a Mahilo group for ${options.recipient}. Pass targetId explicitly or use the exact group name.`
+      );
+    }
+
+    return {
+      id: match.groupId,
+      label: match.name
+    };
+  }
+
   throw new Error(`${options.scope}-scoped boundaries require targetId`);
+}
+
+function resolveBoundaryGroup(
+  groups: Array<{ groupId: string; name?: string }>,
+  rawGroup: string
+): { groupId: string; name?: string } | undefined {
+  const normalizedGroup = normalizeBoundaryLookupValue(rawGroup);
+  const exactMatch = groups.find((group) => {
+    return (
+      normalizeBoundaryLookupValue(group.groupId) === normalizedGroup ||
+      normalizeBoundaryLookupValue(group.name) === normalizedGroup
+    );
+  });
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const partialMatches = groups.filter((group) => {
+    const groupId = normalizeBoundaryLookupValue(group.groupId);
+    const groupName = normalizeBoundaryLookupValue(group.name);
+    return groupId.includes(normalizedGroup) || groupName.includes(normalizedGroup);
+  });
+
+  return partialMatches.length === 1 ? partialMatches[0] : undefined;
+}
+
+function normalizeBoundaryLookupValue(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
 }
 
 function buildBoundaryReason(options: {
