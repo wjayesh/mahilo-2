@@ -476,7 +476,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - 2026-03-09T23:55:28.610Z: PAL-001 completed via orchestrator integration.
 ### 1.2 Documentation Surface Refresh
 - **ID**: `PAL-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `PAL-001`
 - **Description**:
@@ -487,6 +487,8 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] Listing/packaging copy inputs are ready for publish surfaces
   - [ ] The first three documentation hops match the intended persona flow
 
+- **Notes**:
+  - 2026-03-10T00:01:45.701Z: PAL-002 completed via orchestrator integration.
 ### 1.3 Guided First-Run Story
 - **ID**: `PAL-010`
 - **Status**: `pending`
