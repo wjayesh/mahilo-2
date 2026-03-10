@@ -66,6 +66,7 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 - Only an explicit `TASK_BLOCKED <id>` from the worker marks a task `blocked` in the PRD.
 - Cherry-pick integration is refused when the shared integration checkout is dirty.
 - Cherry-pick content conflicts trigger task-workspace refresh from latest integration before retry.
+- A workflow that reaches terminal `COMPLETE` leaves the supervisor in `phase: completed` and does not restart.
 - The plugin workflow is scoped away from server implementation files to reduce overlap.
 
 ## Recommended Commands

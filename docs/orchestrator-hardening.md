@@ -22,6 +22,7 @@ Instead:
 - `scripts/orchestrator.ts` still owns task selection, task execution, retries, integration, and progress
 - `scripts/orchestrator-supervisor.ts` is only a process supervisor
 - the supervisor starts the orchestrator, watches runtime heartbeats, and restarts it if the process dies or stalls
+- once the worker reaches terminal workflow completion, the supervisor records `completed` and exits without restart
 
 This keeps the architecture simple:
 - orchestrator = workflow logic

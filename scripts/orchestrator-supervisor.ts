@@ -44,6 +44,21 @@ type RuntimeState = {
   lastExitReason?: string | null;
 };
 
+function runtimeReachedTerminalCompletion(
+  runtime: RuntimeState | null,
+  completionPhrase: string,
+): boolean {
+  if (!runtime) {
+    return false;
+  }
+
+  return (
+    runtime.phase === "completed" ||
+    runtime.lastExitReason === "complete" ||
+    runtime.lastNote === completionPhrase
+  );
+}
+
 function parseArgs(argv: string[]): CliOptions {
   const first = argv[0];
   const command: Command =
@@ -270,6 +285,7 @@ async function runSupervisor(repoRoot: string, workflow: WorkflowConfig, name: s
 
   let stopping = false;
   let childPid: number | null = null;
+  let completed = false;
 
   const stopChild = () => {
     if (childPid && isProcessAlive(childPid)) {
@@ -373,7 +389,8 @@ async function runSupervisor(repoRoot: string, workflow: WorkflowConfig, name: s
       }
 
       const runtime = readRuntimeState(repoRoot, workflow);
-      if (exitCode === 0 && runtime?.phase === "completed") {
+      if (exitCode === 0 && runtimeReachedTerminalCompletion(runtime, workflow.completionPhrase)) {
+        completed = true;
         writeSupervisorState(repoRoot, name, {
           workflowFile: workflow.workflowPath,
           workflowName: workflow.name,
@@ -382,9 +399,9 @@ async function runSupervisor(repoRoot: string, workflow: WorkflowConfig, name: s
           restartCount,
           lastExitCode: exitCode,
           lastExitSignal: exitSignal,
-          lastRuntimePhase: runtime.phase ?? null,
-          lastHeartbeatAt: runtime.lastHeartbeatAt ?? null,
-          lastNote: runtime.lastNote ?? workflow.completionPhrase,
+          lastRuntimePhase: runtime?.phase ?? null,
+          lastHeartbeatAt: runtime?.lastHeartbeatAt ?? null,
+          lastNote: runtime?.lastNote ?? workflow.completionPhrase,
           lastError: null,
         });
         break;
@@ -412,7 +429,7 @@ async function runSupervisor(repoRoot: string, workflow: WorkflowConfig, name: s
     }
   } finally {
     rmSync(pidPath, { force: true });
-    if (!stopping) {
+    if (!stopping && !completed) {
       writeSupervisorState(repoRoot, name, {
         workflowFile: workflow.workflowPath,
         workflowName: workflow.name,

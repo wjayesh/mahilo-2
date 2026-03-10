@@ -318,6 +318,19 @@ function writeRuntimeState(
   return runtimeState;
 }
 
+function readRuntimeState(repoRoot: string, workflow: WorkflowConfig): RuntimeState | null {
+  const runtimePath = getRuntimeStatePath(repoRoot, workflow);
+  if (!existsSync(runtimePath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(readFileSync(runtimePath, "utf8")) as RuntimeState;
+  } catch {
+    return null;
+  }
+}
+
 function updateRuntimeState(
   repoRoot: string,
   workflow: WorkflowConfig,
@@ -696,6 +709,16 @@ async function main() {
       return;
     }
     shuttingDown = true;
+    const currentRuntime = readRuntimeState(repoRoot, workflow);
+    const completionPreserved =
+      reason === "process_exit" &&
+      (currentRuntime?.phase === "completed" || currentRuntime?.lastExitReason === "complete");
+
+    if (completionPreserved) {
+      releaseRepoLock(workerLockPath);
+      return;
+    }
+
     updateRuntimeState(repoRoot, workflow, "stopped", {
       activeTaskId: state.activeTaskId,
       iteration: state.iteration,

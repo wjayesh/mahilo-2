@@ -61,6 +61,12 @@ A healthy loop should show:
 - either an active task or a clear idle/cooldown state
 - no stray raw `scripts/orchestrator.ts --workflow ...` worker outside the supervisor
 
+For a fully completed workflow, the expected terminal state is:
+- `supervisorPid: null`
+- `running: false`
+- `supervisorState.phase: "completed"`
+- `runtimeState.lastExitReason: "complete"`
+
 ## Restart Flow
 
 Use this when the orchestrator, supervisor, or workflow files changed.
@@ -85,6 +91,7 @@ The hardened loop now:
 - refreshes stale task workspaces after cherry-pick conflicts before retrying
 - takes a workflow-scoped worker lock so duplicate raw/supervised workers fail fast
 - restarts the worker if the supervised process dies or becomes stale
+- stops restarting once the workflow reaches terminal `COMPLETE`
 
 ## Fallback `screen` Usage
 
