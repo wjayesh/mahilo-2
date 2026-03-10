@@ -315,7 +315,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-10T00:32:09.153Z: PLG3-021 completed via orchestrator integration.
 ### 3.3 Lightweight Product Signals
 - **ID**: `PLG3-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG3-010, PLG3-021
 - **Description**:
@@ -331,6 +331,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ---
 
+- **Notes**:
+  - 2026-03-10T00:40:58.025Z: PLG3-022 completed via orchestrator integration.
 ## Phase 4: Demo and Launch Readiness
 
 ### 4.1 Demo Fixture and Story Pack
