@@ -62,6 +62,7 @@ export interface TarballSmokeSummary {
 }
 
 const EXPECTED_COMMAND_NAMES = [
+  "mahilo network",
   "mahilo reconnect",
   "mahilo review",
   "mahilo setup",

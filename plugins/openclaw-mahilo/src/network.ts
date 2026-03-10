@@ -159,6 +159,7 @@ export async function executeMahiloNetworkAction(
 
   return executeMahiloRelationshipAction(client, {
     action,
+    activityLimit: input.activityLimit,
     friendshipId: input.friendshipId,
     username: input.username
   });

@@ -2,6 +2,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 
 import type { MahiloContractClient } from "./client";
 import { redactSensitiveConfig, type MahiloPluginConfig } from "./config";
+import { getMahiloRelationshipView } from "./relationships";
 import type { InMemoryPluginState } from "./state";
 import { DEFAULT_WEBHOOK_ROUTE_PATH } from "./webhook-route";
 
@@ -36,6 +37,7 @@ interface MahiloDiagnosticsRuntimeState {
 
 const DEFAULT_RECONNECT_ATTEMPTS = 2;
 const DEFAULT_RECONNECT_DELAY_MS = 250;
+const DEFAULT_NETWORK_ACTIVITY_LIMIT = 6;
 const DEFAULT_REVIEW_LIMIT = 20;
 const MAX_LIMIT = 100;
 
@@ -51,6 +53,7 @@ export function registerMahiloDiagnosticsCommands(
 
   const commands: MahiloCommand[] = [
     createStatusCommand(config, client, runtimeState, options),
+    createNetworkCommand(client, runtimeState, options),
     createReviewCommand(client, runtimeState, options),
     createReconnectCommand(client, runtimeState, options)
   ];
@@ -60,7 +63,7 @@ export function registerMahiloDiagnosticsCommands(
   }
 
   options.logger?.info?.(
-    "[Mahilo] Registered commands: mahilo status, mahilo review, mahilo reconnect"
+    "[Mahilo] Registered commands: mahilo status, mahilo network, mahilo review, mahilo reconnect"
   );
 }
 
@@ -205,6 +208,55 @@ function createReviewCommand(
       properties: {
         limit: { type: "integer" },
         status: { type: "string" }
+      },
+      type: "object"
+    }
+  };
+}
+
+function createNetworkCommand(
+  client: MahiloContractClient,
+  runtimeState: MahiloDiagnosticsRuntimeState,
+  options: MahiloDiagnosticsCommandOptions
+): MahiloCommand {
+  return {
+    description:
+      "Inspect Mahilo contacts, pending requests, sender connections, and recent activity from inside OpenClaw.",
+    execute: async (rawInput?: unknown) => {
+      const input = readInputObject(rawInput);
+      const checkedAt = toIsoTimestamp(options.now);
+      const activityLimit = readBoundedInteger(
+        input.activityLimit ?? input.activity_limit ?? input.limit,
+        DEFAULT_NETWORK_ACTIVITY_LIMIT,
+        1,
+        MAX_LIMIT
+      );
+      const result = await getMahiloRelationshipView(client, {
+        activityLimit
+      });
+
+      if (result.status === "success") {
+        runtimeState.lastSuccessfulContactAt = checkedAt;
+        runtimeState.lastContactError = result.warnings?.[0];
+      } else {
+        runtimeState.lastContactError = result.error?.technicalMessage ?? result.error?.message;
+      }
+
+      return toCommandResult(result.summary, {
+        checkedAt,
+        command: "mahilo network",
+        activityLimit,
+        ...result
+      });
+    },
+    label: "Mahilo Network",
+    name: "mahilo network",
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        activityLimit: { type: "integer" },
+        activity_limit: { type: "integer" },
+        limit: { type: "integer" }
       },
       type: "object"
     }
@@ -398,22 +450,30 @@ function readItemCount(value: unknown): number | undefined {
     return undefined;
   }
 
-  const items = root.items;
-  if (!Array.isArray(items)) {
-    return undefined;
+  for (const key of ["items", "reviews", "blocked_events"]) {
+    const items = root[key];
+    if (Array.isArray(items)) {
+      return items.length;
+    }
   }
 
-  return items.length;
+  return undefined;
 }
 
 function normalizeReviewItems(response: unknown): Array<Record<string, unknown>> {
   const root = readObject(response);
-  if (!root || !Array.isArray(root.items)) {
+  if (!root) {
     return [];
   }
 
+  const items = Array.isArray(root.items)
+    ? root.items
+    : Array.isArray(root.reviews)
+      ? root.reviews
+      : [];
+
   const normalized: Array<Record<string, unknown>> = [];
-  for (const rawItem of root.items) {
+  for (const rawItem of items) {
     const item = readObject(rawItem);
     if (!item) {
       continue;

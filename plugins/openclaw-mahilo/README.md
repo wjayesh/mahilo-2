@@ -20,8 +20,9 @@ After install and config, the first meaningful loop is:
 
 1. Run `mahilo setup` to attach your Mahilo identity and default sender connection.
 2. Run `mahilo status` to confirm connectivity and webhook alignment.
-3. Ask OpenClaw to check with your Mahilo contacts, or call `mahilo_network` with `action=ask_around`.
-4. Use `mahilo review` or `mahilo_boundaries` if a sensitive share needs approval or a tighter boundary.
+3. Run `mahilo network` or call `mahilo_network` with `action=list` to inspect contacts, pending requests, sender connections, and recent Mahilo activity.
+4. Ask OpenClaw to check with your Mahilo contacts, or call `mahilo_network` with `action=ask_around`.
+5. Use `mahilo review` or `mahilo_boundaries` if a sensitive share needs approval or a tighter boundary.
 
 ## Install From npm
 
@@ -89,6 +90,7 @@ Do not add `contractVersion`, `pluginVersion`, or `callbackSecret` to plugin con
 The plugin registers these OpenClaw-native commands:
 
 - `mahilo setup`
+- `mahilo network`
 - `mahilo status`
 - `mahilo review`
 - `mahilo reconnect`
@@ -102,7 +104,7 @@ The plugin keeps the model-facing surface intentionally small:
   - `action=preview`: resolve a draft without sending it
   - `action=context`: fetch compact Mahilo context and prompt guidance for a contact
 - `mahilo_network`
-  - `action=list`: list contacts and pending requests from Mahilo server
+  - `action=list`: list contacts, pending requests, sender connections, and recent Mahilo activity from Mahilo server
   - `action=send_request`, `accept`, `decline`: manage Mahilo relationships without a separate tool per server route
   - `action=ask_around`: fan out one question across all contacts, selected roles, or a named Mahilo group while replies keep flowing back into the same OpenClaw thread
 - `mahilo_boundaries`

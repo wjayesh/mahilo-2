@@ -1,5 +1,6 @@
 import {
   MahiloRequestError,
+  type MahiloAgentConnectionSummary,
   type MahiloContractClient,
   type MahiloFriendRequestResult,
   type MahiloFriendshipSummary,
@@ -9,8 +10,12 @@ import { listMahiloContacts, type MahiloContact } from "./tools";
 
 export type MahiloRelationshipAction = "accept" | "decline" | "list" | "send_request";
 
+const DEFAULT_RECENT_ACTIVITY_LIMIT = 6;
+const MAX_RECENT_ACTIVITY_LIMIT = 20;
+
 export interface ExecuteMahiloRelationshipActionInput {
   action?: string;
+  activityLimit?: number;
   friendshipId?: string;
   username?: string;
 }
@@ -40,23 +45,70 @@ export interface MahiloRelationshipCounts {
   pendingOutgoing: number;
 }
 
+export type MahiloRecentActivityKind = "blocked_event" | "review";
+
+export interface MahiloRecentActivitySelectors {
+  action?: string;
+  direction?: string;
+  resource?: string;
+}
+
+export interface MahiloRecentActivityItem {
+  createdAt?: string;
+  decision?: string;
+  direction?: string;
+  kind: MahiloRecentActivityKind;
+  messageId?: string;
+  recipient?: string;
+  reasonCode?: string;
+  reviewId?: string;
+  selectors?: MahiloRecentActivitySelectors;
+  sender?: string;
+  status?: string;
+  summary: string;
+}
+
+export interface MahiloRecentActivityCounts {
+  blockedEvents: number;
+  reviews: number;
+  total: number;
+}
+
+export interface MahiloRelationshipListOptions {
+  activityLimit?: number;
+}
+
 export interface MahiloRelationshipActionResult {
   action: MahiloRelationshipAction;
+  agentConnections?: MahiloAgentConnectionSummary[];
   contacts?: MahiloContact[];
   counts?: MahiloRelationshipCounts;
   error?: MahiloRelationshipError;
   pendingIncoming?: MahiloPendingFriendRequest[];
   pendingOutgoing?: MahiloPendingFriendRequest[];
+  recentActivity?: MahiloRecentActivityItem[];
+  recentActivityCounts?: MahiloRecentActivityCounts;
   request?: MahiloPendingFriendRequest;
   response?: MahiloFriendRequestResult;
   source: "mahilo_server";
   status: "error" | "success";
   summary: string;
+  warnings?: string[];
 }
 
 interface PendingRequestDirectory {
   incoming: MahiloPendingFriendRequest[];
   outgoing: MahiloPendingFriendRequest[];
+}
+
+interface OptionalSectionResult<T> {
+  error?: string;
+  value?: T;
+}
+
+interface RecentActivityProbe {
+  counts: MahiloRecentActivityCounts;
+  items: MahiloRecentActivityItem[];
 }
 
 interface RelationshipErrorContext {
@@ -78,7 +130,9 @@ export async function executeMahiloRelationshipAction(
 
   switch (action) {
     case "list":
-      return listMahiloRelationships(client);
+      return getMahiloRelationshipView(client, {
+        activityLimit: input.activityLimit
+      });
     case "send_request":
       return sendMahiloFriendRequest(client, input.username);
     case "accept":
@@ -93,29 +147,49 @@ export async function executeMahiloRelationshipAction(
   }
 }
 
-async function listMahiloRelationships(
-  client: MahiloContractClient
+export async function getMahiloRelationshipView(
+  client: MahiloContractClient,
+  options: MahiloRelationshipListOptions = {}
 ): Promise<MahiloRelationshipActionResult> {
   try {
-    const [contacts, pendingDirectory] = await Promise.all([
+    const activityLimit = normalizeRecentActivityLimit(options?.activityLimit);
+    const [contacts, pendingDirectory, agentConnectionsProbe, recentActivityProbe] = await Promise.all([
       listMahiloContacts(client),
-      fetchPendingRequestDirectory(client)
+      fetchPendingRequestDirectory(client),
+      loadOptionalSection(async () => listOwnAgentConnectionsSorted(client)),
+      loadOptionalSection(async () => fetchRecentActivity(client, activityLimit))
     ]);
     const counts: MahiloRelationshipCounts = {
       contacts: contacts.length,
       pendingIncoming: pendingDirectory.incoming.length,
       pendingOutgoing: pendingDirectory.outgoing.length
     };
+    const warnings = [
+      agentConnectionsProbe.error
+        ? `Couldn't load sender connections: ${agentConnectionsProbe.error}`
+        : undefined,
+      recentActivityProbe.error
+        ? `Couldn't load recent Mahilo activity: ${recentActivityProbe.error}`
+        : undefined
+    ].filter((warning): warning is string => Boolean(warning));
 
     return {
       action: "list",
+      agentConnections: agentConnectionsProbe.value,
       contacts,
       counts,
       pendingIncoming: pendingDirectory.incoming,
       pendingOutgoing: pendingDirectory.outgoing,
+      recentActivity: recentActivityProbe.value?.items,
+      recentActivityCounts: recentActivityProbe.value?.counts,
       source: "mahilo_server",
       status: "success",
-      summary: formatRelationshipDirectorySummary(counts)
+      summary: formatRelationshipDirectorySummary(counts, {
+        activityCount: recentActivityProbe.value?.counts.total,
+        activityUnavailable: Boolean(recentActivityProbe.error),
+        agentConnectionCount: agentConnectionsProbe.value?.length
+      }),
+      warnings: warnings.length > 0 ? warnings : undefined
     };
   } catch (error) {
     return createRelationshipErrorResult("list", error);
@@ -274,6 +348,249 @@ async function fetchPendingRequestDirectory(
   };
 }
 
+async function loadOptionalSection<T>(
+  loader: () => Promise<T>
+): Promise<OptionalSectionResult<T>> {
+  try {
+    return {
+      value: await loader()
+    };
+  } catch (error) {
+    return {
+      error: toErrorMessage(error)
+    };
+  }
+}
+
+async function listOwnAgentConnectionsSorted(
+  client: MahiloContractClient
+): Promise<MahiloAgentConnectionSummary[]> {
+  const connections = await client.listOwnAgentConnections();
+  return [...connections].sort(compareAgentConnections);
+}
+
+function compareAgentConnections(
+  left: MahiloAgentConnectionSummary,
+  right: MahiloAgentConnectionSummary
+): number {
+  const activeDelta = Number(right.active) - Number(left.active);
+  if (activeDelta !== 0) {
+    return activeDelta;
+  }
+
+  const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  const labelComparison = (left.label ?? "").localeCompare(right.label ?? "");
+  if (labelComparison !== 0) {
+    return labelComparison;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+async function fetchRecentActivity(
+  client: MahiloContractClient,
+  limit: number
+): Promise<RecentActivityProbe> {
+  const [reviewsResponse, blockedEventsResponse] = await Promise.all([
+    client.listReviews({
+      limit,
+      status: "review_required,approval_pending"
+    }),
+    client.listBlockedEvents(limit)
+  ]);
+  const items = [
+    ...normalizeReviewActivityItems(reviewsResponse),
+    ...normalizeBlockedEventActivityItems(blockedEventsResponse)
+  ]
+    .sort(compareRecentActivityItems)
+    .slice(0, limit);
+
+  return {
+    counts: items.reduce<MahiloRecentActivityCounts>(
+      (counts, item) => {
+        if (item.kind === "blocked_event") {
+          counts.blockedEvents += 1;
+        } else {
+          counts.reviews += 1;
+        }
+
+        counts.total += 1;
+        return counts;
+      },
+      {
+        blockedEvents: 0,
+        reviews: 0,
+        total: 0
+      }
+    ),
+    items
+  };
+}
+
+function normalizeReviewActivityItems(value: unknown): MahiloRecentActivityItem[] {
+  return readCollection(value, ["reviews", "items", "results", "data"])
+    .map(toReviewActivityItem)
+    .filter((candidate): candidate is MahiloRecentActivityItem => candidate !== null);
+}
+
+function toReviewActivityItem(value: unknown): MahiloRecentActivityItem | null {
+  const root = readObject(value);
+  if (!root) {
+    return null;
+  }
+
+  return {
+    createdAt:
+      readOptionalString(root.created_at) ??
+      readOptionalString(root.createdAt) ??
+      readOptionalString(root.timestamp),
+    decision: readOptionalString(root.decision),
+    direction:
+      readOptionalString(root.queue_direction) ??
+      readOptionalString(root.queueDirection) ??
+      readOptionalString(root.direction),
+    kind: "review",
+    messageId:
+      readOptionalString(root.message_id) ??
+      readOptionalString(root.messageId),
+    recipient: readOptionalString(root.recipient),
+    reasonCode:
+      readOptionalString(root.reason_code) ??
+      readOptionalString(root.reasonCode),
+    reviewId:
+      readOptionalString(root.review_id) ??
+      readOptionalString(root.reviewId) ??
+      readOptionalString(root.id),
+    selectors: readRecentActivitySelectors(root),
+    status: readOptionalString(root.status),
+    summary:
+      readOptionalString(root.summary) ??
+      `Mahilo review item${readOptionalString(root.status) ? ` (${readOptionalString(root.status)})` : ""}.`
+  };
+}
+
+function normalizeBlockedEventActivityItems(value: unknown): MahiloRecentActivityItem[] {
+  return readCollection(value, ["blocked_events", "items", "results", "data"])
+    .map(toBlockedEventActivityItem)
+    .filter((candidate): candidate is MahiloRecentActivityItem => candidate !== null);
+}
+
+function toBlockedEventActivityItem(value: unknown): MahiloRecentActivityItem | null {
+  const root = readObject(value);
+  if (!root) {
+    return null;
+  }
+
+  return {
+    createdAt:
+      readOptionalString(root.timestamp) ??
+      readOptionalString(root.created_at) ??
+      readOptionalString(root.createdAt),
+    decision: "deny",
+    direction:
+      readOptionalString(root.queue_direction) ??
+      readOptionalString(root.queueDirection) ??
+      readOptionalString(root.direction),
+    kind: "blocked_event",
+    messageId:
+      readOptionalString(root.message_id) ??
+      readOptionalString(root.messageId) ??
+      readOptionalString(root.id),
+    reasonCode:
+      readOptionalString(root.reason_code) ??
+      readOptionalString(root.reasonCode),
+    selectors: readRecentActivitySelectors(root),
+    sender: readOptionalString(root.sender),
+    status: "blocked",
+    summary: readOptionalString(root.reason) ?? "Message blocked by Mahilo policy."
+  };
+}
+
+function readRecentActivitySelectors(
+  root: Record<string, unknown>
+): MahiloRecentActivitySelectors | undefined {
+  const selectors = readObject(root.selectors);
+  const action = readOptionalString(selectors?.action ?? root.action);
+  const direction = readOptionalString(selectors?.direction ?? root.direction);
+  const resource = readOptionalString(selectors?.resource ?? root.resource);
+
+  if (!action && !direction && !resource) {
+    return undefined;
+  }
+
+  return {
+    action,
+    direction,
+    resource
+  };
+}
+
+function compareRecentActivityItems(
+  left: MahiloRecentActivityItem,
+  right: MahiloRecentActivityItem
+): number {
+  const leftTime = toSortableTimestamp(left.createdAt);
+  const rightTime = toSortableTimestamp(right.createdAt);
+  if (leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+
+  const leftSummary = left.summary.toLowerCase();
+  const rightSummary = right.summary.toLowerCase();
+  const summaryComparison = leftSummary.localeCompare(rightSummary);
+  if (summaryComparison !== 0) {
+    return summaryComparison;
+  }
+
+  return (left.messageId ?? left.reviewId ?? "").localeCompare(
+    right.messageId ?? right.reviewId ?? ""
+  );
+}
+
+function toSortableTimestamp(value: string | undefined): number {
+  if (!value) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function readCollection(value: unknown, keys: string[]): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  const root = readObject(value);
+  if (!root) {
+    return [];
+  }
+
+  for (const key of keys) {
+    const candidate = root[key];
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+  }
+
+  return [];
+}
+
+function normalizeRecentActivityLimit(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_RECENT_ACTIVITY_LIMIT;
+  }
+
+  return Math.min(
+    MAX_RECENT_ACTIVITY_LIMIT,
+    Math.max(1, Math.trunc(value ?? DEFAULT_RECENT_ACTIVITY_LIMIT))
+  );
+}
+
 function normalizeRelationshipAction(value: string | undefined): MahiloRelationshipAction | undefined {
   const normalized = readOptionalString(value)?.toLowerCase().replace(/[\s-]+/g, "_");
   if (!normalized) {
@@ -421,18 +738,44 @@ function updateRequestRecordFromMutation(
   };
 }
 
-function formatRelationshipDirectorySummary(counts: MahiloRelationshipCounts): string {
-  if (counts.contacts === 0 && counts.pendingIncoming === 0 && counts.pendingOutgoing === 0) {
-    return "Mahilo network: no contacts or pending requests yet. Add someone with action=send_request, then ask around once they connect an agent."
+function formatRelationshipDirectorySummary(
+  counts: MahiloRelationshipCounts,
+  options: {
+    activityCount?: number;
+    activityUnavailable?: boolean;
+    agentConnectionCount?: number;
+  } = {}
+): string {
+  const parts: string[] = [];
+
+  if (typeof options.agentConnectionCount === "number") {
+    parts.push(
+      `${options.agentConnectionCount} sender connection${options.agentConnectionCount === 1 ? "" : "s"}`
+    );
   }
 
-  const parts = [
+  parts.push(
     `${counts.contacts} contact${counts.contacts === 1 ? "" : "s"}`,
     `${counts.pendingIncoming} incoming request${counts.pendingIncoming === 1 ? "" : "s"}`,
     `${counts.pendingOutgoing} outgoing request${counts.pendingOutgoing === 1 ? "" : "s"}`
-  ];
+  );
 
-  return `Mahilo network: ${parts.join(", ")}.`;
+  if (typeof options.activityCount === "number") {
+    parts.push(
+      options.activityCount === 0
+        ? "no recent activity yet"
+        : `${options.activityCount} recent activity item${options.activityCount === 1 ? "" : "s"}`
+    );
+  } else if (options.activityUnavailable) {
+    parts.push("recent activity unavailable");
+  }
+
+  const summary = `Mahilo network: ${parts.join(", ")}.`;
+  if (counts.contacts === 0 && counts.pendingIncoming === 0 && counts.pendingOutgoing === 0) {
+    return `${summary} Add someone with action=send_request, then ask around once they connect an agent.`;
+  }
+
+  return summary;
 }
 
 function formatRelationshipMutationSummary(
@@ -605,6 +948,14 @@ function readOptionalString(value: unknown): string | undefined {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function readObject(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, unknown>;
 }
 
 function toErrorMessage(error: unknown): string {

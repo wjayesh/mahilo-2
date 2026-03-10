@@ -69,6 +69,7 @@ function createMockContractClient(options: {
   acceptFriendRequestError?: Error;
   acceptFriendRequestResponse?: Record<string, unknown>;
   agentConnectionsResponse?: unknown;
+  blockedEventsResponse?: unknown;
   createOverrideError?: Error;
   friendConnectionErrorsByUsername?: Record<string, Error>;
   friendConnectionsByUsername?: Record<string, unknown[]>;
@@ -81,6 +82,7 @@ function createMockContractClient(options: {
   rejectFriendRequestResponse?: Record<string, unknown>;
   resolveError?: Error;
   resolveResponse?: Record<string, unknown>;
+  reviewsResponse?: unknown;
   sendFriendRequestError?: Error;
   sendFriendRequestResponse?: Record<string, unknown>;
 } = {}) {
@@ -231,13 +233,13 @@ function createMockContractClient(options: {
     },
     listBlockedEvents: async (limit?: number) => {
       state.blockedEventCalls.push(limit ?? 0);
-      return {
+      return options.blockedEventsResponse ?? {
         items: []
       };
     },
     listReviews: async (params?: { limit?: number; status?: string }) => {
       state.listReviewCalls.push(params ?? {});
-      return {
+      return options.reviewsResponse ?? {
         items: []
       };
     },
@@ -592,6 +594,7 @@ describe("createMahiloOpenClawPlugin", () => {
       "mahilo_network"
     ]);
     expect(commands.map((command) => command.name).sort()).toEqual([
+      "mahilo network",
       "mahilo reconnect",
       "mahilo review",
       "mahilo setup",
@@ -1519,6 +1522,15 @@ describe("createMahiloOpenClawPlugin", () => {
   it("lists contacts from Mahilo server data through mahilo_network instead of the host contacts provider", async () => {
     let providerCalls = 0;
     const { client, state } = createMockContractClient({
+      blockedEventsResponse: {
+        blocked_events: [
+          {
+            id: "blocked_msg_123",
+            reason: "Message blocked by policy.",
+            timestamp: "2026-03-09T10:00:00.000Z"
+          }
+        ]
+      },
       friendConnectionsByUsername: {
         alice: [
           {
@@ -1539,7 +1551,17 @@ describe("createMahiloOpenClawPlugin", () => {
           userId: "usr_alice",
           username: "alice"
         }
-      ]
+      ],
+      reviewsResponse: {
+        reviews: [
+          {
+            created_at: "2026-03-10T11:00:00.000Z",
+            review_id: "rev_123",
+            status: "review_required",
+            summary: "Current location share requires confirmation."
+          }
+        ]
+      }
     });
     const plugin = createMahiloOpenClawPlugin({
       contactsProvider: async () => {
@@ -1563,12 +1585,19 @@ describe("createMahiloOpenClawPlugin", () => {
 
     const tool = findTool(tools, "mahilo_network");
     const result = await tool.execute("tool_call_3", {
-      action: "list"
+      action: "list",
+      activityLimit: 4
     });
 
     expect(result).toMatchObject({
       details: {
         action: "list",
+        agentConnections: [
+          {
+            id: "conn_sender_default",
+            label: "default"
+          }
+        ],
         contacts: [
           {
             connectionId: "conn_alice_primary",
@@ -1583,12 +1612,35 @@ describe("createMahiloOpenClawPlugin", () => {
             type: "user"
           }
         ],
+        recentActivity: [
+          {
+            kind: "review",
+            reviewId: "rev_123"
+          },
+          {
+            kind: "blocked_event",
+            messageId: "blocked_msg_123"
+          }
+        ],
+        recentActivityCounts: {
+          blockedEvents: 1,
+          reviews: 1,
+          total: 2
+        },
         status: "success"
       }
     });
     expect(providerCalls).toBe(0);
     expect(state.friendshipCalls).toEqual([{ status: "accepted" }, { status: "pending" }]);
     expect(state.friendConnectionCalls).toEqual(["alice"]);
+    expect(state.agentConnectionCalls).toBe(1);
+    expect(state.listReviewCalls).toEqual([
+      {
+        limit: 4,
+        status: "review_required,approval_pending"
+      }
+    ]);
+    expect(state.blockedEventCalls).toEqual([4]);
   });
 
   it("executes mahilo_network to send friend requests by @username", async () => {
@@ -2037,6 +2089,115 @@ describe("createMahiloOpenClawPlugin", () => {
     });
     expect(state.listReviewCalls).toHaveLength(1);
     expect(state.blockedEventCalls).toHaveLength(1);
+  });
+
+  it("returns connection and activity details for mahilo network", async () => {
+    const { client, state } = createMockContractClient({
+      blockedEventsResponse: {
+        blocked_events: [
+          {
+            id: "blocked_msg_123",
+            reason: "Message blocked by policy.",
+            timestamp: "2026-03-09T12:00:00.000Z"
+          }
+        ]
+      },
+      friendConnectionsByUsername: {
+        alice: [
+          {
+            active: true,
+            id: "conn_alice_primary",
+            label: "primary",
+            priority: 5
+          }
+        ]
+      },
+      friendshipsByStatus: {
+        pending: [
+          {
+            direction: "received",
+            displayName: "Bob",
+            friendshipId: "fr_bob_pending",
+            status: "pending",
+            username: "bob"
+          }
+        ]
+      },
+      friendshipsResponse: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          username: "alice"
+        }
+      ],
+      reviewsResponse: {
+        reviews: [
+          {
+            created_at: "2026-03-10T12:00:00.000Z",
+            review_id: "rev_123",
+            status: "review_required",
+            summary: "Current location share requires confirmation."
+          }
+        ]
+      }
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, commands } = createMockPluginApi({
+      apiKey: "mhl_test_secret",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const command = findCommand(commands, "mahilo network");
+    const result = await command.execute({ activityLimit: 4 });
+
+    expect(result).toMatchObject({
+      details: {
+        action: "list",
+        activityLimit: 4,
+        agentConnections: [
+          {
+            id: "conn_sender_default",
+            label: "default"
+          }
+        ],
+        command: "mahilo network",
+        counts: {
+          contacts: 1,
+          pendingIncoming: 1,
+          pendingOutgoing: 0
+        },
+        recentActivity: [
+          {
+            kind: "review",
+            reviewId: "rev_123"
+          },
+          {
+            kind: "blocked_event",
+            messageId: "blocked_msg_123"
+          }
+        ],
+        recentActivityCounts: {
+          blockedEvents: 1,
+          reviews: 1,
+          total: 2
+        }
+      }
+    });
+    expect(state.agentConnectionCalls).toBe(1);
+    expect(state.listReviewCalls).toEqual([
+      {
+        limit: 4,
+        status: "review_required,approval_pending"
+      }
+    ]);
+    expect(state.blockedEventCalls).toEqual([4]);
   });
 
   it("queues Mahilo outcome notes and learning suggestions after novel send results", async () => {

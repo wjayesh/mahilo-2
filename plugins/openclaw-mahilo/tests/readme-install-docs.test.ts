@@ -56,6 +56,7 @@ describe("README install docs", () => {
     expect(readme).toContain("opinions/recommendations");
     expect(readme).toContain("health, financial, and contact details");
     expect(readme).toContain("mahilo setup");
+    expect(readme).toContain("mahilo network");
     expect(readme).toContain("mahilo status");
     expect(readme).toContain("mahilo reconnect");
     expect(readme).toContain(DEFAULT_WEBHOOK_ROUTE_PATH);

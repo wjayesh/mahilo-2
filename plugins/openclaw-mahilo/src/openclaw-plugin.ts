@@ -266,7 +266,7 @@ function createMahiloNetworkTool(
 ): AnyAgentTool {
   return {
     description:
-      "Mahilo network management: list contacts and pending requests, send or respond to friend requests, or ask around across contacts, roles, or a group without leaving the same tool.",
+      "Mahilo network management: inspect contacts, pending requests, sender connections, and recent Mahilo activity, or send/respond to friend requests and ask around across contacts, roles, or a group without leaving the same tool.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloNetworkToolDetails>(MAHILO_NETWORK_TOOL_NAME, async () => {
         const input = parseMahiloNetworkInput(rawInput);
@@ -282,6 +282,8 @@ function createMahiloNetworkTool(
           enum: ["list", "send_request", "accept", "decline", "ask_around"],
           type: "string"
         },
+        activityLimit: { type: "integer" },
+        activity_limit: { type: "integer" },
         correlationId: { type: "string" },
         correlation_id: { type: "string" },
         declaredSelectors: createSelectorSchema(),
@@ -612,6 +614,9 @@ function parseMahiloNetworkInput(
 
   return {
     action,
+    activityLimit:
+      readOptionalInteger(input.activityLimit) ??
+      readOptionalInteger(input.activity_limit),
     correlationId:
       readOptionalString(input.correlationId) ??
       readOptionalString(input.correlation_id),

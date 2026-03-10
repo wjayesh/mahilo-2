@@ -9,15 +9,24 @@ import {
 function createMockClient(options: {
   acceptFriendRequestError?: Error;
   acceptedFriendships?: unknown;
+  agentConnections?: unknown;
+  blockedEventsResponse?: unknown;
   friendConnectionsByUsername?: Record<string, unknown[]>;
+  listBlockedEventsError?: Error;
+  listOwnAgentConnectionsError?: Error;
+  listReviewsError?: Error;
   pendingFriendships?: unknown;
   rejectFriendRequestError?: Error;
+  reviewsResponse?: unknown;
   sendFriendRequestError?: Error;
 } = {}) {
   const state = {
     acceptFriendRequestCalls: [] as string[],
+    agentConnectionCalls: 0,
+    blockedEventCalls: [] as number[],
     friendConnectionCalls: [] as string[],
     friendshipCalls: [] as Array<{ status?: string }>,
+    listReviewCalls: [] as Array<{ limit?: number; status?: string }>,
     rejectFriendRequestCalls: [] as string[],
     sendFriendRequestCalls: [] as string[]
   };
@@ -49,6 +58,14 @@ function createMockClient(options: {
         username
       };
     },
+    listBlockedEvents: async (limit?: number) => {
+      state.blockedEventCalls.push(limit ?? 0);
+      if (options.listBlockedEventsError) {
+        throw options.listBlockedEventsError;
+      }
+
+      return options.blockedEventsResponse ?? { items: [] };
+    },
     listFriendships: async (params?: { status?: string }) => {
       state.friendshipCalls.push(params ?? {});
 
@@ -57,6 +74,22 @@ function createMockClient(options: {
       }
 
       return options.acceptedFriendships ?? [];
+    },
+    listOwnAgentConnections: async () => {
+      state.agentConnectionCalls += 1;
+      if (options.listOwnAgentConnectionsError) {
+        throw options.listOwnAgentConnectionsError;
+      }
+
+      return options.agentConnections ?? [];
+    },
+    listReviews: async (params?: { limit?: number; status?: string }) => {
+      state.listReviewCalls.push(params ?? {});
+      if (options.listReviewsError) {
+        throw options.listReviewsError;
+      }
+
+      return options.reviewsResponse ?? { items: [] };
     },
     rejectFriendRequest: async (friendshipId: string) => {
       state.rejectFriendRequestCalls.push(friendshipId);
@@ -123,6 +156,26 @@ describe("executeMahiloRelationshipAction", () => {
           username: "alice"
         }
       ],
+      agentConnections: [
+        {
+          active: true,
+          id: "conn_sender_default",
+          label: "default",
+          priority: 10
+        }
+      ],
+      blockedEventsResponse: {
+        blocked_events: [
+          {
+            action: "share",
+            id: "blocked_msg_123",
+            reason: "Message blocked by policy.",
+            reason_code: "policy.deny.user.structured",
+            resource: "location.current",
+            timestamp: "2026-03-09T12:00:00.000Z"
+          }
+        ]
+      },
       friendConnectionsByUsername: {
         alice: [
           {
@@ -148,13 +201,29 @@ describe("executeMahiloRelationshipAction", () => {
           status: "pending",
           username: "carol"
         }
-      ]
+      ],
+      reviewsResponse: {
+        reviews: [
+          {
+            created_at: "2026-03-10T12:00:00.000Z",
+            review_id: "rev_123",
+            status: "review_required",
+            summary: "Current location share requires confirmation."
+          }
+        ]
+      }
     });
 
     const result = await executeMahiloRelationshipAction(client, { action: "list" });
 
     expect(result).toMatchObject({
       action: "list",
+      agentConnections: [
+        {
+          id: "conn_sender_default",
+          label: "default"
+        }
+      ],
       counts: {
         contacts: 1,
         pendingIncoming: 1,
@@ -172,12 +241,73 @@ describe("executeMahiloRelationshipAction", () => {
           username: "carol"
         }
       ],
+      recentActivity: [
+        {
+          kind: "review",
+          reviewId: "rev_123",
+          summary: "Current location share requires confirmation."
+        },
+        {
+          kind: "blocked_event",
+          messageId: "blocked_msg_123",
+          summary: "Message blocked by policy."
+        }
+      ],
+      recentActivityCounts: {
+        blockedEvents: 1,
+        reviews: 1,
+        total: 2
+      },
       source: "mahilo_server",
       status: "success",
-      summary: "Mahilo network: 1 contact, 1 incoming request, 1 outgoing request."
+      summary:
+        "Mahilo network: 1 sender connection, 1 contact, 1 incoming request, 1 outgoing request, 2 recent activity items."
     });
     expect(state.friendshipCalls).toEqual([{ status: "accepted" }, { status: "pending" }]);
     expect(state.friendConnectionCalls).toEqual(["alice"]);
+    expect(state.agentConnectionCalls).toBe(1);
+    expect(state.blockedEventCalls).toEqual([6]);
+    expect(state.listReviewCalls).toEqual([
+      {
+        limit: 6,
+        status: "review_required,approval_pending"
+      }
+    ]);
+  });
+
+  it("keeps the network view usable when recent activity probes fail", async () => {
+    const { client } = createMockClient({
+      acceptedFriendships: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["close_friends"],
+          status: "accepted",
+          username: "alice"
+        }
+      ],
+      listReviewsError: new Error("review queue unavailable")
+    });
+
+    const result = await executeMahiloRelationshipAction(client, { action: "list" });
+
+    expect(result).toMatchObject({
+      action: "list",
+      counts: {
+        contacts: 1,
+        pendingIncoming: 0,
+        pendingOutgoing: 0
+      },
+      source: "mahilo_server",
+      status: "success",
+      summary:
+        "Mahilo network: 0 sender connections, 1 contact, 0 incoming requests, 0 outgoing requests, recent activity unavailable.",
+      warnings: [
+        "Couldn't load recent Mahilo activity: review queue unavailable"
+      ]
+    });
+    expect(result.recentActivity).toBeUndefined();
   });
 
   it("sends friend requests using usernames with a leading @", async () => {

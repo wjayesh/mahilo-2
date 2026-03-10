@@ -13,7 +13,7 @@ Mahilo is valuable as soon as a few friends or collaborators connect. The plugin
 ## Common Actions
 
 1. Follow the install and setup steps in [README](../README.md#install-from-npm).
-2. Use `mahilo_network` with `action=list` to see contacts and pending requests.
+2. Run `mahilo network` or use `mahilo_network` with `action=list` to see contacts, pending requests, sender connections, and recent activity.
 3. Use `action=send_request`, `accept`, or `decline` to manage the network.
 4. Return to [Ask Your Contacts](./ask-your-contacts.md) once the first connections are live.
 

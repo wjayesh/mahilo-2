@@ -45,9 +45,62 @@ describe("registerMahiloDiagnosticsCommands", () => {
       }
     };
     const client = {
-      listBlockedEvents: async () => ({ items: [] }),
+      getFriendAgentConnections: async (username: string) => ({
+        connections:
+          username === "alice"
+            ? [
+                {
+                  active: true,
+                  id: "conn_alice_primary",
+                  label: "primary",
+                  priority: 5
+                }
+              ]
+            : [],
+        raw: [],
+        state: username === "alice" ? "available" : "no_active_connections",
+        username
+      }),
+      listBlockedEvents: async () => ({
+        blocked_events: [
+          {
+            id: "blocked_msg_123",
+            reason: "Message blocked by policy.",
+            timestamp: "2026-03-08T12:05:00.000Z"
+          }
+        ]
+      }),
+      listFriendships: async (params?: { status?: string }) =>
+        params?.status === "pending"
+          ? [
+              {
+                direction: "received",
+                displayName: "Bob",
+                friendshipId: "fr_bob_pending",
+                status: "pending",
+                username: "bob"
+              }
+            ]
+          : [
+              {
+                direction: "sent",
+                displayName: "Alice",
+                friendshipId: "fr_alice",
+                roles: ["close_friends"],
+                status: "accepted",
+                username: "alice"
+              }
+            ],
+      listOwnAgentConnections: async () => [
+        {
+          active: true,
+          id: "conn_sender_default",
+          label: "default",
+          priority: 10
+        }
+      ],
       listReviews: async (_params?: { limit?: number; status?: string }) => ({
-        items: [
+        reviews: [
           {
             created_at: "2026-03-08T12:10:00.000Z",
             decision: "ask",
@@ -76,10 +129,48 @@ describe("registerMahiloDiagnosticsCommands", () => {
 
     const commandMap = toCommandMap(commands);
     expect(Array.from(commandMap.keys()).sort()).toEqual([
+      "mahilo network",
       "mahilo reconnect",
       "mahilo review",
       "mahilo status"
     ]);
+
+    const networkCommand = requireCommand(commandMap, "mahilo network");
+    const networkResult = await networkCommand.execute({ activityLimit: 4 });
+
+    expect(networkResult).toMatchObject({
+      details: {
+        action: "list",
+        activityLimit: 4,
+        agentConnections: [
+          {
+            id: "conn_sender_default",
+            label: "default"
+          }
+        ],
+        command: "mahilo network",
+        counts: {
+          contacts: 1,
+          pendingIncoming: 1,
+          pendingOutgoing: 0
+        },
+        recentActivity: [
+          {
+            kind: "review",
+            reviewId: "rev_123"
+          },
+          {
+            kind: "blocked_event",
+            messageId: "blocked_msg_123"
+          }
+        ],
+        recentActivityCounts: {
+          blockedEvents: 1,
+          reviews: 1,
+          total: 2
+        }
+      }
+    });
 
     const reviewCommand = requireCommand(commandMap, "mahilo review");
     const reviewResult = await reviewCommand.execute({ limit: 10, status: "open" });

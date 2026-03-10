@@ -31,6 +31,7 @@ describe("tarball smoke test", () => {
       "mahilo_network"
     ]);
     expect(summary.commandNames).toEqual([
+      "mahilo network",
       "mahilo reconnect",
       "mahilo review",
       "mahilo setup",
