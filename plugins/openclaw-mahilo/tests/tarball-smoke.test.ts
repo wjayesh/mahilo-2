@@ -11,8 +11,13 @@ describe("tarball smoke test", () => {
         "LICENSE",
         "README.md",
         "RELEASING.md",
+        "docs/ask-your-contacts.md",
+        "docs/boundaries-and-trust.md",
+        "docs/build-your-circle.md",
+        "docs/listing-copy.md",
         "dist/index.js",
         "openclaw.plugin.json",
+        "PUBLISH-CHECKLIST.md",
         "package.json"
       ])
     );

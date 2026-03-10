@@ -3,8 +3,10 @@
 The published package is expected to ship the runtime and release surface below:
 
 - `dist/` with the bundled runtime entry and generated declaration files
+- `docs/` with the packaged persona entry points and publish-surface copy
 - root `index.d.ts` that references the packaged OpenClaw SDK shim
 - `openclaw.plugin.json`
+- `PUBLISH-CHECKLIST.md`
 - `README.md`
 - `LICENSE`
 
@@ -26,7 +28,7 @@ The smoke harness stages a clean temp copy of the package, runs `npm pack --dry-
 
 For a manual reproduction path:
 
-1. Run `npm pack --dry-run --json` and confirm the packed files include `dist/`, `openclaw.plugin.json`, `README.md`, `LICENSE`, and `RELEASING.md` without pulling in `src/`, `tests/`, or other source-only directories.
+1. Run `npm pack --dry-run --json` and confirm the packed files include `dist/`, `docs/`, `openclaw.plugin.json`, `PUBLISH-CHECKLIST.md`, `README.md`, `LICENSE`, and `RELEASING.md` without pulling in `src/`, `tests/`, or other source-only directories.
 2. Run `npm pack --json` and keep the resulting `mahilo-openclaw-mahilo-<version>.tgz`.
 3. In an empty scratch directory, create a minimal `openclaw.config.json` that sets `openclaw.extensions` to `["@mahilo/openclaw-mahilo"]` and `plugins.entries.mahilo.config` with `baseUrl` and `apiKey`.
 4. Install the tarball into that scratch directory with `npm install /absolute/path/to/mahilo-openclaw-mahilo-<version>.tgz`.

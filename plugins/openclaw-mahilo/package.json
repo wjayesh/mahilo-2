@@ -1,7 +1,7 @@
 {
   "name": "@mahilo/openclaw-mahilo",
   "version": "0.1.0",
-  "description": "Mahilo plugin package for OpenClaw native integration",
+  "description": "Ask your contacts from OpenClaw and get attributed answers with boundaries built in.",
   "license": "MIT",
   "author": "Jayesh Sharma <wjayesh@outlook.com>",
   "homepage": "https://github.com/wjayesh/mahilo-2#readme",
@@ -28,9 +28,11 @@
   },
   "files": [
     "dist",
+    "docs",
     "index.d.ts",
     "LICENSE",
     "openclaw.plugin.json",
+    "PUBLISH-CHECKLIST.md",
     "README.md",
     "RELEASING.md"
   ],
@@ -56,7 +58,9 @@
     "mahilo",
     "openclaw",
     "plugin",
-    "policy"
+    "ask-around",
+    "trust-network",
+    "boundaries"
   ],
   "devDependencies": {
     "@types/bun": "^1.2.2",

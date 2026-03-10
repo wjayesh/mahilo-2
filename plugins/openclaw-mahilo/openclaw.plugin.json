@@ -3,7 +3,7 @@
   "id": "mahilo",
   "name": "Mahilo",
   "version": "0.1.0",
-  "description": "Mahilo policy-aware communication plugin for OpenClaw.",
+  "description": "Ask your contacts from OpenClaw and get attributed answers with boundaries built in.",
   "entry": "./dist/index.js",
   "configSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

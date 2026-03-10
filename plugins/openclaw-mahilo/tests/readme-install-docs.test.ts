@@ -16,6 +16,24 @@ function readReadme(): string {
 }
 
 describe("README install docs", () => {
+  it("opens with the positioning promise and persona entry links", () => {
+    const readme = readReadme();
+    const opening = readme.split("\n").slice(0, 24).join("\n");
+    const askYourContactsIndex = readme.indexOf("./docs/ask-your-contacts.md");
+    const boundariesAndTrustIndex = readme.indexOf("./docs/boundaries-and-trust.md");
+    const buildYourCircleIndex = readme.indexOf("./docs/build-your-circle.md");
+
+    expect(opening).toContain("Ask your contacts from OpenClaw");
+    expect(opening).toContain("real answers from people you trust");
+    expect(opening).toContain("trust and control layer behind the plugin");
+
+    expect(askYourContactsIndex).toBeGreaterThan(-1);
+    expect(boundariesAndTrustIndex).toBeGreaterThan(-1);
+    expect(buildYourCircleIndex).toBeGreaterThan(-1);
+    expect(askYourContactsIndex).toBeLessThan(boundariesAndTrustIndex);
+    expect(boundariesAndTrustIndex).toBeLessThan(buildYourCircleIndex);
+  });
+
   it("documents the published npm install flow and minimal OpenClaw config", () => {
     const readme = readReadme();
 
@@ -41,6 +59,7 @@ describe("README install docs", () => {
     expect(readme).toContain("mahilo status");
     expect(readme).toContain("mahilo reconnect");
     expect(readme).toContain(DEFAULT_WEBHOOK_ROUTE_PATH);
+    expect(readme).toContain("mahilo review");
     expect(readme).toContain("unsupported plugin config key(s)");
     expect(readme).toContain("contractVersion");
     expect(readme).toContain("pluginVersion");

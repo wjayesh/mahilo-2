@@ -2,6 +2,19 @@
 
 Run every command from `plugins/openclaw-mahilo/`.
 
+## 0. Review the publish surface narrative
+
+Confirm the user-facing copy still matches the intended OpenClaw story before you bump the version:
+
+```bash
+sed -n '1,80p' README.md
+sed -n '1,120p' docs/listing-copy.md
+node -p "require('./package.json').description"
+node -p "require('./openclaw.plugin.json').description"
+```
+
+The README opening promise, the three Start Here links, and both package descriptions should stay aligned with `docs/listing-copy.md`.
+
 ## 1. Bump and review the version
 
 Choose exactly one:
@@ -12,7 +25,7 @@ npm version minor --no-git-tag-version
 npm version major --no-git-tag-version
 ```
 
-Then rebuild and confirm the manifest stayed in sync with the package version:
+Then rebuild and confirm the manifest stayed in sync with the package version and copy surface:
 
 ```bash
 bun run build

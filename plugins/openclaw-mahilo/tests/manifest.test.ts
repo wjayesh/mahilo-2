@@ -39,6 +39,9 @@ describe("openclaw.plugin.json", () => {
     expect(packageJson.name).toBe(MAHILO_PLUGIN_PACKAGE_NAME);
     expect(packageJson.version).toBe(MAHILO_PLUGIN_RELEASE_VERSION);
     expect(packageJson.private).not.toBe(true);
+    expect(packageJson.description).toBe(
+      "Ask your contacts from OpenClaw and get attributed answers with boundaries built in."
+    );
     expect(packageJson.license).toBe("MIT");
     expect(packageJson.author).toBe("Jayesh Sharma <wjayesh@outlook.com>");
     expect(packageJson.homepage).toBe("https://github.com/wjayesh/mahilo-2#readme");
@@ -48,11 +51,21 @@ describe("openclaw.plugin.json", () => {
     expect(packageJson.pluginManifest).toBe("./openclaw.plugin.json");
     expect(packageJson.files).toEqual([
       "dist",
+      "docs",
       "index.d.ts",
       "LICENSE",
       "openclaw.plugin.json",
+      "PUBLISH-CHECKLIST.md",
       "README.md",
       "RELEASING.md"
+    ]);
+    expect(packageJson.keywords).toEqual([
+      "mahilo",
+      "openclaw",
+      "plugin",
+      "ask-around",
+      "trust-network",
+      "boundaries"
     ]);
 
     expectPackagedFileExists(packageJsonPath, packageJson.main);
@@ -154,6 +167,9 @@ describe("openclaw.plugin.json", () => {
     expect(manifest.id).toBe(MAHILO_RUNTIME_PLUGIN_ID);
     expect(manifest.name).toBe(MAHILO_RUNTIME_PLUGIN_NAME);
     expect(manifest.version).toBe(packageJson.version);
+    expect(manifest.description).toBe(
+      "Ask your contacts from OpenClaw and get attributed answers with boundaries built in."
+    );
     expect(manifest.entry).toBe("./dist/index.js");
     expectPackagedFileExists(manifestPath, manifest.entry);
   });

@@ -190,6 +190,11 @@ function assertPackContents(packageDir: string, dryRunFiles: string[]): void {
   requiredPaths.add("LICENSE");
   requiredPaths.add("README.md");
   requiredPaths.add("RELEASING.md");
+  requiredPaths.add("PUBLISH-CHECKLIST.md");
+  requiredPaths.add("docs/ask-your-contacts.md");
+  requiredPaths.add("docs/boundaries-and-trust.md");
+  requiredPaths.add("docs/build-your-circle.md");
+  requiredPaths.add("docs/listing-copy.md");
   requiredPaths.add("dist/index.d.ts");
   requiredPaths.add("dist/openclaw-plugin-sdk-core.d.ts");
   requiredPaths.add("index.d.ts");
