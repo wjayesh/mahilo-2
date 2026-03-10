@@ -145,7 +145,7 @@ const isoDateSchema = z
 
 const pluginOverrideRequestSchema = z.object({
   sender_connection_id: z.string().min(1),
-  source_resolution_id: z.string().min(1).max(120),
+  source_resolution_id: z.string().min(1).max(120).optional(),
   kind: z.enum(pluginOverrideKinds),
   scope: policyScopeSchema,
   target_id: z.string().min(1).nullable().optional(),
@@ -1804,9 +1804,11 @@ pluginRoutes.post(
         kind: data.kind as PluginOverrideKind,
         reason: data.reason,
         sender_connection_id: senderConnection.id,
-        source_resolution_id: data.source_resolution_id,
         created_via: "plugin.overrides",
         created_at: createdAt,
+        ...(data.source_resolution_id
+          ? { source_resolution_id: data.source_resolution_id }
+          : {}),
       },
     };
 
@@ -1831,7 +1833,9 @@ pluginRoutes.post(
       source: "override",
       derived_from_message_id: data.derived_from_message_id ?? null,
       learning_provenance: {
-        source_interaction_id: data.source_resolution_id,
+        ...(data.source_resolution_id
+          ? { source_interaction_id: data.source_resolution_id }
+          : {}),
         promoted_from_policy_ids: [],
       },
       priority: data.priority,

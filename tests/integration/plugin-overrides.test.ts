@@ -178,6 +178,68 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
     expect(stored?.expiresAt?.getTime()).toBeGreaterThan(beforeRequest.getTime());
   });
 
+  it("allows standalone boundary overrides without a source resolution id", async () => {
+    const db = getTestDb();
+    const { senderKey, senderConnection } = await setupParticipants(
+      "plugin_override_standalone"
+    );
+
+    const response = await app.request("/api/v1/plugin/overrides", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sender_connection_id: senderConnection.id,
+        kind: "temporary",
+        scope: "global",
+        selectors: {
+          direction: "outbound",
+          resource: "location.current",
+          action: "share",
+        },
+        effect: "ask",
+        reason: "Ask before sharing location during travel planning.",
+        ttl_seconds: 900,
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toEqual(
+      expect.objectContaining({
+        policy_id: expect.any(String),
+        kind: "temporary",
+        created: true,
+      })
+    );
+
+    const [stored] = await db
+      .select()
+      .from(schema.policies)
+      .where(eq(schema.policies.id, body.policy_id))
+      .limit(1);
+
+    expect(stored).toBeDefined();
+    expect(stored?.scope).toBe("global");
+    expect(stored?.effect).toBe("ask");
+    expect(stored?.resource).toBe("location.current");
+
+    const storagePayload = JSON.parse(stored!.policyContent);
+    expect(storagePayload.policy_content?._mahilo_override).toEqual(
+      expect.objectContaining({
+        kind: "temporary",
+        reason: "Ask before sharing location during travel planning.",
+        sender_connection_id: senderConnection.id,
+        created_via: "plugin.overrides",
+      })
+    );
+    expect(
+      storagePayload.policy_content?._mahilo_override?.source_resolution_id
+    ).toBeUndefined();
+  });
+
   it("rejects malformed override lifecycle payloads", async () => {
     const { senderKey, senderConnection, recipient } = await setupParticipants(
       "plugin_override_invalid"
