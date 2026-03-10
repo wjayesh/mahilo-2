@@ -390,20 +390,36 @@ Primary references for this refresh:
 - `/Users/wjayesh/apps/mahilo-2-product-positioning.md`
 - `docs/prd-openclaw-plugin-migration.md`
 
-This re-review assumes the publish-ready OpenClaw plugin now clears the migration PRD and reframes the next stage around Mahilo's product-positioning pillars: framework-agnostic agent integration, human-in-the-loop operations, and real-time multi-agent communication surfaced through OpenClaw.
+This re-review uses the shipped plugin surface in `plugins/openclaw-mahilo/`, not just the earlier task plan, and reframes the next stage around Mahilo's product-positioning pillars: framework-agnostic agent integration, human-in-the-loop operations, and real-time multi-agent communication surfaced through OpenClaw.
+
+### Shipped-State Evidence Used For This Re-review
+
+- `plugins/openclaw-mahilo/README.md`: published install/config flow, compact tool surface, and the first actions currently presented to a new OpenClaw user.
+- `plugins/openclaw-mahilo/src/openclaw-plugin-wrapper.ts`: native `mahilo setup` command, identity bootstrap fallback, and default-sender setup behavior.
+- `plugins/openclaw-mahilo/src/network.ts` plus `plugins/openclaw-mahilo/tests/openclaw-plugin.test.ts`: ask-around fan-out, network-gap nudges, in-thread reply routing, attribution, and explicit no-grounded-answer handling.
+- `plugins/openclaw-mahilo/docs/demo-story-pack.md`: repeatable restaurant, weekend-planning, and boundaries launch stories run through the shipped plugin code path.
 
 ### What The Shipped Plugin Already Proves
 
-- The plugin is installable through the OpenClaw extension flow from a packed artifact, so Mahilo now has a distribution-ready OpenClaw surface instead of a local-only port.
-- The Mahilo server remains the source of truth, which preserves the control-plane story instead of pushing orchestration state into the client.
-- OpenClaw-native hooks, tools, and diagnostics are first-class, which makes the integration positionable as a serious operator surface rather than a thin compatibility layer.
+- Mahilo has a publishable OpenClaw surface: packed-artifact install, stable manifest/package identity, and a compact native surface (`mahilo_message`, `mahilo_network`, `mahilo_boundaries` plus setup/status/review commands).
+- The core first-use mechanics now live inside OpenClaw: `mahilo setup` exists, default sender connection resolution no longer depends on humans passing `senderConnectionId`, and relationship management stays inside `mahilo network`.
+- The wedge is real: ask-around can fan out across contacts, roles, and groups; replies route back into the originating OpenClaw thread; and lightweight product signals are visible in-plugin.
+- The trust story is materially implemented: attributed replies stay separate from synthesized summary text, "I don't know" remains explicit, and review/boundary flows keep sensitive sharing conservative by default.
+- Launch proof is repeatable: the demo story pack exercises restaurant question, weekend coordination, and boundaries flows through the shipped plugin code path.
+
+### Reassessment Verdict
+
+- Mahilo now matches the intended trust story and the core "ask my contacts" wedge.
+- Mahilo does not yet fully match the intended first-use experience from the positioning document.
+- The next cycle should focus on making the first successful run feel inevitable and self-explanatory, not on more migration cleanup.
 
 ### Remaining Positioning Gaps
 
-- The current story is still migration-led and implementation-led; it needs a clear operator-facing narrative for why OpenClaw is the right Mahilo surface for teams adopting agent operations.
-- The first-run experience does not yet prove Mahilo's differentiators quickly enough for a new OpenClaw user: human approval loops, multi-agent coordination, and real-time communication should be obvious in the first guided workflow.
-- The documentation is still feature-shaped; it needs persona-shaped packaging for builders, operators, and evaluation stakeholders.
-- Proof points for governance, observability, and rollout confidence are still thinner than the product-positioning document implies, so the next stage should prioritize demonstrable outcomes over more migration cleanup.
+- The current install path still starts with `npm install` plus manual `baseUrl` / `apiKey` config before a user can run `mahilo setup`, which falls short of the positioning goal that setup should feel fully native inside OpenClaw.
+- When `mahilo setup` has to bootstrap identity, the user is still told to save the issued API key in plugin config and rerun the command; callback reachability is also still described as operator-facing plumbing rather than a guided product step.
+- The plugin has the ingredients for the launch story, but not one canonical quickstart that proves setup, friend addition, ask-around, review/approval, and live reply handoff in a single measured flow.
+- Zero-network / no-active-agent states are diagnosed well, but the product still needs an explicit invite/onboarding loop that turns those states into the next useful action.
+- Trust proof exists across `mahilo review`, `mahilo network`, and the demo pack, but it is not yet packaged into one operator-facing adoption walkthrough that answers "why should I trust this in production?"
 
 ## Current Priorities
 
@@ -512,11 +528,38 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] The path highlights human oversight and orchestration, not just connectivity
   - [ ] Success criteria for the first-run experience are measurable
 
-### 1.4 Trust and Operations Proof
-- **ID**: `PAL-011`
+### 1.4 Native Setup Friction Reduction
+- **ID**: `PAL-012`
 - **Status**: `pending`
 - **Priority**: `P1`
 - **Depends on**: `PAL-010`
+- **Description**:
+  - Collapse the current install/config/setup friction into the smallest credible operator path.
+  - Reduce the number of manual steps needed before a new OpenClaw user can complete Mahilo setup, and make any remaining operator-owned step explicit inside the product.
+  - Focus on the concrete shipped-flow gaps: credential bootstrap, default sender attachment, and callback readiness.
+- **Acceptance Criteria**:
+  - [ ] The first-run path identifies at most one explicit manual/operator step before Mahilo is ready, or fully handles that step inside OpenClaw
+  - [ ] `mahilo setup` reports the exact remaining blocker and next action when identity, sender attachment, or callback readiness cannot complete
+  - [ ] First-run docs and demo paths no longer bounce the user between README/config snippets and setup retry loops
+
+### 1.5 Empty-Network Invite Loop
+- **ID**: `PAL-013`
+- **Status**: `pending`
+- **Priority**: `P1`
+- **Depends on**: `PAL-010`, `PAL-012`
+- **Description**:
+  - Turn the existing network-gap states into a productized invite/onboarding loop.
+  - A user who has zero contacts, a contact who is not on Mahilo, or a contact who has not finished setup should always get one crisp next action that keeps the first-run flow moving.
+- **Acceptance Criteria**:
+  - [ ] Zero-contact and no-active-agent states are framed as invite/onboarding steps, not dead-end errors
+  - [ ] The recommended first-run path includes a concrete "build your circle" step that gets at least one other user to a working reply state
+  - [ ] The docs/demo path shows how Mahilo becomes useful with the first few accepted connections
+
+### 1.6 Trust and Operations Proof
+- **ID**: `PAL-011`
+- **Status**: `pending`
+- **Priority**: `P1`
+- **Depends on**: `PAL-010`, `PAL-012`, `PAL-013`
 - **Description**:
   - Package the operational proof needed for the positioning story: observability, approvals/policy surfaces, failure handling, and rollout confidence.
   - Focus on the evidence a skeptical operator or team lead would need before adopting the plugin.
@@ -525,7 +568,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] The docs/demo plan includes at least one failure-path or approval-path walkthrough
   - [ ] Team-adoption concerns are addressed explicitly
 
-### 1.5 Launch Collateral and Validation Loop
+### 1.7 Launch Collateral and Validation Loop
 - **ID**: `PAL-020`
 - **Status**: `pending`
 - **Priority**: `P2`
@@ -541,14 +584,22 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
 ## Recommended Execution Order
 
 1. `PAL-001` -> `PAL-002`
-2. `PAL-010` -> `PAL-011`
-3. `PAL-020`
+2. `PAL-010` -> `PAL-012` -> `PAL-013`
+3. `PAL-011`
+4. `PAL-020`
+
+## Workflow Continuation
+
+- `WORKFLOW.plugin.md` already lists `docs/prd-openclaw-product-alignment.md` as a task source, so after `PLG3-099` the plugin loop should continue in this same PRD.
+- The next pending task order is: `PAL-010`, `PAL-012`, `PAL-013`, `PAL-011`, `PAL-020`.
+- After `PAL-020`, rerun another positioning reassessment in this PRD instead of silently returning to migration work.
 
 ## Scope Guardrails
 
 - Do not reopen migration-parity work unless a concrete product-alignment task exposes a blocking regression in the shipped plugin.
 - Prefer proof-of-value work over additional infrastructure cleanup.
 - Treat the Mahilo server and shared contract as fixed inputs unless a future task explicitly routes a dependency back to the server workflow.
+- If native-setup cleanup requires new OpenClaw credential persistence or new server bootstrap support, record that dependency explicitly instead of hiding the gap in documentation work.
 
 ## Definition of Done
 
@@ -564,3 +615,4 @@ This PRD is complete when:
 - missing-contact states support the viral loop cleanly
 - basic product signals are visible without building a dashboard
 - the final task has either confirmed alignment or created the next task list
+- the loop has an explicit follow-on reassessment path instead of ending silently after one launch cycle

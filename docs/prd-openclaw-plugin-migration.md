@@ -797,6 +797,14 @@ It is:
 
 ---
 
+## Workflow Continuation After PLG3-099
+
+- `WORKFLOW.plugin.md` already includes `docs/prd-openclaw-product-alignment.md` as a plugin task source, so no manual workflow-file edit is required for the loop to continue.
+- After the 2026-03-10 positioning reassessment, the ordered continuation is: `PAL-010`, `PAL-012`, `PAL-013`, `PAL-011`, `PAL-020`.
+- Reopen this migration PRD only if one of those tasks exposes a packaging, SDK-compatibility, or release-readiness regression in `plugins/openclaw-mahilo/`.
+
+---
+
 ## Definition of Done
 
 This PRD is complete when:
