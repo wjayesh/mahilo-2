@@ -519,7 +519,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - 2026-03-10T00:01:45.701Z: PAL-002 completed via orchestrator integration.
 ### 1.3 Guided First-Run Story
 - **ID**: `PAL-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `PAL-001`
 - **Description**:
@@ -530,6 +530,8 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] The path highlights human oversight and orchestration, not just connectivity
   - [ ] Success criteria for the first-run experience are measurable
 
+- **Notes**:
+  - 2026-03-10T01:07:08.055Z: PAL-010 completed via orchestrator integration.
 ### 1.4 Native Setup Friction Reduction
 - **ID**: `PAL-012`
 - **Status**: `pending`
