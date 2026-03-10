@@ -258,7 +258,7 @@ Those are intentionally excluded because the positioning doc explicitly says to 
   - 2026-03-09T23:52:44.500Z: PLG3-012 completed via orchestrator integration.
 ### 2.4 Missing-Contact and Not-On-Mahilo Nudges
 - **ID**: `PLG3-013`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG3-010
 - **Description**:
@@ -274,6 +274,8 @@ Those are intentionally excluded because the positioning doc explicitly says to 
 
 ---
 
+- **Notes**:
+  - 2026-03-10T00:11:49.109Z: PLG3-013 completed via orchestrator integration.
 ## Phase 3: Social Utility Beyond Direct Messages
 
 ### 3.1 Group Ask-Around
