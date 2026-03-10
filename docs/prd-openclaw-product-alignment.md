@@ -550,7 +550,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - 2026-03-10T01:29:14.749Z: PAL-012 completed via orchestrator integration.
 ### 1.5 Empty-Network Invite Loop
 - **ID**: `PAL-013`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `PAL-010`, `PAL-012`
 - **Description**:
@@ -561,6 +561,8 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - [ ] The recommended first-run path includes a concrete "build your circle" step that gets at least one other user to a working reply state
   - [ ] The docs/demo path shows how Mahilo becomes useful with the first few accepted connections
 
+- **Notes**:
+  - 2026-03-10T01:45:02.561Z: PAL-013 completed via orchestrator integration.
 ### 1.6 Trust and Operations Proof
 - **ID**: `PAL-011`
 - **Status**: `pending`
