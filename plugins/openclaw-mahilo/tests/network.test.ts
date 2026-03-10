@@ -18,6 +18,7 @@ interface MockClientState {
 }
 
 function createMockClient(options: {
+  friendConnectionErrorsByUsername?: Record<string, Error>;
   friendConnectionsByUsername?: Record<string, unknown[]>;
   friendshipsResponse?: unknown;
   groupsResponse?: unknown;
@@ -66,6 +67,11 @@ function createMockClient(options: {
   const client = {
     getFriendAgentConnections: async (username: string) => {
       state.friendConnectionCalls.push(username);
+      const error = options.friendConnectionErrorsByUsername?.[username];
+      if (error) {
+        throw error;
+      }
+
       const connections = state.friendConnectionsByUsername[username] ?? [];
       return {
         connections,
@@ -270,8 +276,89 @@ describe("executeMahiloNetworkAction", () => {
         })
       ])
     );
-    expect(String(result.summary)).toContain("unavailable right now");
+    expect(result.gaps).toEqual([
+      expect.objectContaining({
+        kind: "needs_agent_connection",
+        recipientLabels: ["Bob"]
+      }),
+      expect.objectContaining({
+        kind: "transport_failure",
+        recipientLabels: ["Carol"]
+      })
+    ]);
+    expect(String(result.summary)).toContain("Bob is on Mahilo but has not connected an agent yet");
+    expect(String(result.summary)).toContain("Mahilo could not reach Carol right now");
     expect(String(result.replyExpectation)).toContain("Replies will show up in this thread");
+  });
+
+  it("distinguishes network gaps from no-answer states when nobody can be asked", async () => {
+    const { client } = createMockClient({
+      friendConnectionErrorsByUsername: {
+        bob: new MahiloRequestError("Mahilo request failed with status 403: Not friends", {
+          code: "NOT_FRIENDS",
+          kind: "http",
+          status: 403
+        })
+      },
+      friendConnectionsByUsername: {
+        alice: []
+      },
+      friendshipsResponse: [
+        {
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          username: "alice"
+        },
+        {
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: ["friends"],
+          status: "accepted",
+          username: "bob"
+        }
+      ]
+    });
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        question: "Who has a good dentist in SF?"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      }
+    );
+
+    expect(result).toMatchObject({
+      action: "ask_around",
+      counts: {
+        awaitingReplies: 0,
+        blocked: 0,
+        reviewRequired: 0,
+        sendFailed: 0,
+        skipped: 2
+      },
+      status: "success"
+    });
+    expect(result.gaps).toEqual([
+      expect.objectContaining({
+        kind: "needs_agent_connection",
+        recipientLabels: ["Alice"]
+      }),
+      expect.objectContaining({
+        kind: "not_in_network",
+        recipientLabels: ["Bob"]
+      })
+    ]);
+    expect(String(result.summary)).toContain("couldn't ask your 2 contacts right now");
+    expect(String(result.summary)).toContain("Alice is on Mahilo but has not connected an agent yet");
+    expect(String(result.summary)).toContain("Bob is not in your Mahilo network yet");
+    expect(String(result.replyExpectation)).toContain("Nothing is waiting on a reply.");
+    expect(String(result.replyExpectation)).toContain("Ask them to finish Mahilo setup in OpenClaw");
+    expect(String(result.replyExpectation)).toContain("Send or accept a Mahilo request from this same tool");
   });
 
   it("resolves a named group from Mahilo server data and sends one group ask-around request", async () => {

@@ -423,7 +423,7 @@ function updateRequestRecordFromMutation(
 
 function formatRelationshipDirectorySummary(counts: MahiloRelationshipCounts): string {
   if (counts.contacts === 0 && counts.pendingIncoming === 0 && counts.pendingOutgoing === 0) {
-    return "Mahilo network: no contacts or pending requests yet."
+    return "Mahilo network: no contacts or pending requests yet. Add someone with action=send_request, then ask around once they connect an agent."
   }
 
   const parts = [
@@ -559,8 +559,8 @@ function formatRelationshipErrorSummary(
   switch (productState) {
     case "already_connected":
       return target
-        ? `You're already connected with ${target} on Mahilo.`
-        : "You're already connected on Mahilo.";
+        ? `You're already connected with ${target} on Mahilo. Use action=list to check whether their agent is live before asking around.`
+        : "You're already connected on Mahilo. Use action=list to check whether their agent is live before asking around.";
     case "blocked":
       return target
         ? `Mahilo blocked the relationship update for ${target}.`
@@ -578,17 +578,17 @@ function formatRelationshipErrorSummary(
     case "not_found":
       if (action === "send_request") {
         return target
-          ? `Could not find ${target} on Mahilo. Check the username and try again.`
-          : "Could not find that Mahilo user. Check the username and try again.";
+          ? `Could not find ${target} on Mahilo. Check the username. If they have not joined yet, ask them to set up Mahilo in OpenClaw, then send the request again.`
+          : "Could not find that Mahilo user. Check the username. If they have not joined yet, ask them to set up Mahilo in OpenClaw, then send the request again.";
       }
 
       return target
-        ? `No pending Mahilo request found for ${target}.`
-        : "Could not find that pending Mahilo request.";
+        ? `No pending Mahilo request found for ${target}. Use action=list to review pending requests, then retry with the username or friendshipId shown there.`
+        : "Could not find that pending Mahilo request. Use action=list to review pending requests, then retry with the username or friendshipId shown there.";
     case "request_pending":
       return target
-        ? `There is already a pending Mahilo request with ${target}.`
-        : "There is already a pending Mahilo request.";
+        ? `There is already a pending Mahilo request with ${target}. Wait for it to be accepted, or use decline to cancel it before retrying.`
+        : "There is already a pending Mahilo request. Wait for it to be accepted, or use decline to cancel it before retrying.";
     case "transport_failure":
       return "Couldn't reach Mahilo right now. Check the server connection and try again.";
     default:

@@ -221,11 +221,14 @@ describe("executeMahiloRelationshipAction", () => {
     );
 
     expect(result.error).toMatchObject({
-      message: "You're already connected with @alice on Mahilo.",
+      message:
+        "You're already connected with @alice on Mahilo. Use action=list to check whether their agent is live before asking around.",
       productState: "already_connected",
       retryable: false
     });
-    expect(result.summary).toBe("You're already connected with @alice on Mahilo.");
+    expect(result.summary).toBe(
+      "You're already connected with @alice on Mahilo. Use action=list to check whether their agent is live before asking around."
+    );
   });
 
   it("returns a human-friendly not-found error", async () => {
@@ -248,7 +251,8 @@ describe("executeMahiloRelationshipAction", () => {
     );
 
     expect(result.error).toMatchObject({
-      message: "Could not find @alice on Mahilo. Check the username and try again.",
+      message:
+        "Could not find @alice on Mahilo. Check the username. If they have not joined yet, ask them to set up Mahilo in OpenClaw, then send the request again.",
       productState: "not_found",
       retryable: false
     });

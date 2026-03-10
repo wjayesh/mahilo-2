@@ -68,6 +68,7 @@ function createMockContractClient(options: {
   acceptFriendRequestResponse?: Record<string, unknown>;
   agentConnectionsResponse?: unknown;
   createOverrideError?: Error;
+  friendConnectionErrorsByUsername?: Record<string, Error>;
   friendConnectionsByUsername?: Record<string, unknown[]>;
   friendshipsByStatus?: Record<string, unknown>;
   friendshipsResponse?: unknown;
@@ -185,6 +186,11 @@ function createMockContractClient(options: {
     },
     getFriendAgentConnections: async (username: string) => {
       state.friendConnectionCalls.push(username);
+      const error = options.friendConnectionErrorsByUsername?.[username];
+      if (error) {
+        throw error;
+      }
+
       const connections = state.friendConnectionsByUsername[username] ?? [];
       return {
         connections,
@@ -1223,6 +1229,90 @@ describe("createMahiloOpenClawPlugin", () => {
     );
   });
 
+  it("surfaces setup nudges when ask-around cannot reach anyone yet", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionErrorsByUsername: {
+        bob: new MahiloRequestError("Mahilo request failed with status 403: Not friends", {
+          code: "NOT_FRIENDS",
+          kind: "http",
+          status: 403
+        })
+      },
+      friendConnectionsByUsername: {
+        alice: []
+      },
+      friendshipsResponse: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice"
+        },
+        {
+          direction: "sent",
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_bob",
+          username: "bob"
+        }
+      ]
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "mahilo_network");
+    const result = await tool.execute("tool_call_network_gap_1", {
+      action: "ask_around",
+      question: "Who has a good dentist in SF?",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("Nothing is waiting on a reply.")
+        }
+      ],
+      details: {
+        action: "ask_around",
+        deliveries: [
+          expect.objectContaining({
+            reason: expect.stringContaining("Ask them to finish Mahilo setup in OpenClaw")
+          }),
+          expect.objectContaining({
+            reason: expect.stringContaining("Send or accept a Mahilo request before asking")
+          })
+        ],
+        gaps: [
+          expect.objectContaining({
+            kind: "needs_agent_connection",
+            recipientLabels: ["Alice"],
+            suggestedAction: expect.stringContaining("finish Mahilo setup in OpenClaw")
+          }),
+          expect.objectContaining({
+            kind: "not_in_network",
+            recipientLabels: ["Bob"],
+            suggestedAction: expect.stringContaining("Send or accept a Mahilo request")
+          })
+        ],
+        replyExpectation: expect.stringContaining("Nothing is waiting on a reply."),
+        summary: expect.stringContaining("couldn't ask your 2 contacts right now")
+      }
+    });
+  });
+
   it("executes mahilo_message sends with sender_connection_id alias", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
@@ -1404,6 +1494,54 @@ describe("createMahiloOpenClawPlugin", () => {
       }
     });
     expect(state.friendRequestCalls).toEqual(["alice"]);
+  });
+
+  it("surfaces not-on-Mahilo nudges through mahilo_network send_request errors", async () => {
+    const { client } = createMockContractClient({
+      sendFriendRequestError: new MahiloRequestError(
+        "Mahilo request failed with status 404: User not found",
+        {
+          code: "USER_NOT_FOUND",
+          kind: "http",
+          status: 404
+        }
+      )
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "mahilo_network");
+    const result = await tool.execute("tool_call_relationship_add_missing", {
+      action: "send_request",
+      username: "@alice"
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining(
+            "If they have not joined yet, ask them to set up Mahilo in OpenClaw"
+          )
+        }
+      ],
+      details: {
+        action: "send_request",
+        error: {
+          message: expect.stringContaining(
+            "If they have not joined yet, ask them to set up Mahilo in OpenClaw"
+          ),
+          productState: "not_found"
+        },
+        status: "error"
+      }
+    });
   });
 
   it("accepts pending Mahilo requests from server-backed relationship state", async () => {

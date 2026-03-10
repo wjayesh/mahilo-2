@@ -56,6 +56,15 @@ export type MahiloAskAroundReplyOutcome =
   | "direct_reply"
   | "no_grounded_answer";
 
+export type MahiloAskAroundGapKind =
+  | "blocked"
+  | "needs_agent_connection"
+  | "not_in_network"
+  | "not_on_mahilo"
+  | "request_pending"
+  | "transport_failure"
+  | "unknown";
+
 export interface MahiloAskAroundDelivery {
   connectionState?: MahiloContactConnectionState;
   decision?: "allow" | "ask" | "deny";
@@ -67,6 +76,14 @@ export interface MahiloAskAroundDelivery {
   recipientType: "group" | "user";
   roles?: string[];
   status: MahiloAskAroundDeliveryStatus;
+}
+
+export interface MahiloAskAroundGap {
+  count: number;
+  kind: MahiloAskAroundGapKind;
+  recipientLabels: string[];
+  suggestedAction: string;
+  summary: string;
 }
 
 export interface MahiloAskAroundCounts {
@@ -92,6 +109,7 @@ export interface MahiloAskAroundActionResult {
   counts?: MahiloAskAroundCounts;
   deliveries?: MahiloAskAroundDelivery[];
   error?: MahiloNetworkError;
+  gaps: MahiloAskAroundGap[];
   question?: string;
   replyExpectation?: string;
   replyOutcomeKinds: MahiloAskAroundReplyOutcome[];
@@ -110,6 +128,16 @@ const DEFAULT_MAHILO_ASK_AROUND_REPLY_OUTCOME_KINDS: MahiloAskAroundReplyOutcome
   "direct_reply",
   "no_grounded_answer",
   "attribution_unverified"
+];
+
+const ASK_AROUND_GAP_ORDER: MahiloAskAroundGapKind[] = [
+  "needs_agent_connection",
+  "request_pending",
+  "not_in_network",
+  "not_on_mahilo",
+  "blocked",
+  "transport_failure",
+  "unknown"
 ];
 
 export async function executeMahiloNetworkAction(
@@ -257,23 +285,26 @@ async function executeMahiloContactAskAround(
   };
 
   if (matchingContacts.length === 0) {
+    const roleSummary = formatRoleList(options.roles);
     return {
       action: "ask_around",
       correlationId: options.correlationId,
       counts: emptyAskAroundCounts(),
       deliveries: [],
+      gaps: [],
       question: options.question,
-      replyExpectation: options.roles.length > 0
-        ? "No contacts matched that role filter yet."
-        : "Add Mahilo contacts first, then ask around from the same tool.",
+      replyExpectation:
+        options.roles.length > 0
+          ? `No contacts match roles ${roleSummary} yet. Add or tag the right Mahilo contacts, then try again.`
+          : "No contacts are waiting to reply because your Mahilo network is still empty. Add a few people first, then ask around from this same tool.",
       replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
       senderConnectionId: context.senderConnectionId,
       source: "mahilo_server",
       status: "success",
       summary:
         options.roles.length > 0
-          ? `Mahilo ask-around: no contacts matched roles ${formatRoleList(options.roles)}.`
-          : "Mahilo ask-around: no contacts are available to ask yet.",
+          ? `Mahilo ask-around: no contacts matched roles ${roleSummary} yet. Add or tag the right Mahilo contacts, then try again.`
+          : "Mahilo ask-around: no Mahilo contacts are available to ask yet. Add a few people to your Mahilo network, then ask around from this same tool.",
       target
     };
   }
@@ -290,20 +321,22 @@ async function executeMahiloContactAskAround(
   );
 
   const counts = countAskAroundDeliveries(deliveries);
-  const replyExpectation = formatReplyExpectation(counts);
+  const gaps = summarizeAskAroundGaps(deliveries);
+  const replyExpectation = formatReplyExpectation(counts, gaps);
 
   return {
     action: "ask_around",
     correlationId: options.correlationId,
     counts,
     deliveries,
+    gaps,
     question: options.question,
     replyExpectation,
     replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
     senderConnectionId: context.senderConnectionId,
     source: "mahilo_server",
     status: "success",
-    summary: formatContactAskAroundSummary(target, counts, matchingContacts.length),
+    summary: formatContactAskAroundSummary(target, counts, matchingContacts.length, gaps),
     target
   };
 }
@@ -363,6 +396,7 @@ async function executeMahiloGroupAskAround(
       correlationId: options.correlationId,
       counts,
       deliveries: [delivery],
+      gaps: [],
       question: options.question,
       replyExpectation: formatGroupReplyExpectation(delivery, resolvedGroup.group),
       replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
@@ -740,6 +774,146 @@ function countAskAroundDeliveries(
   );
 }
 
+function summarizeAskAroundGaps(
+  deliveries: MahiloAskAroundDelivery[]
+): MahiloAskAroundGap[] {
+  const buckets = new Map<MahiloAskAroundGapKind, string[]>();
+
+  for (const delivery of deliveries) {
+    const gapKind = classifyAskAroundGap(delivery);
+    if (!gapKind) {
+      continue;
+    }
+
+    const labels = buckets.get(gapKind) ?? [];
+    const recipientLabel = normalizeToken(delivery.recipientLabel) ?? normalizeToken(delivery.recipient);
+    if (recipientLabel && !labels.includes(recipientLabel)) {
+      labels.push(recipientLabel);
+    }
+    buckets.set(gapKind, labels);
+  }
+
+  return ASK_AROUND_GAP_ORDER.flatMap((gapKind) => {
+    const labels = buckets.get(gapKind);
+    if (!labels || labels.length === 0) {
+      return [];
+    }
+
+    return [createAskAroundGap(gapKind, labels)];
+  });
+}
+
+function classifyAskAroundGap(
+  delivery: MahiloAskAroundDelivery
+): MahiloAskAroundGapKind | undefined {
+  if (delivery.status === "awaiting_reply" || delivery.status === "review_required") {
+    return undefined;
+  }
+
+  if (delivery.status === "blocked") {
+    return "blocked";
+  }
+
+  const productState =
+    delivery.productState ??
+    (delivery.connectionState ? mapContactStateToProductState(delivery.connectionState) : undefined);
+
+  switch (productState) {
+    case "blocked":
+      return "blocked";
+    case "no_active_connections":
+      return "needs_agent_connection";
+    case "not_friends":
+      return "not_in_network";
+    case "not_found":
+      return "not_on_mahilo";
+    case "request_pending":
+      return "request_pending";
+    case "transport_failure":
+      return "transport_failure";
+    case "unknown":
+      return "unknown";
+    default:
+      break;
+  }
+
+  if (delivery.status === "send_failed" || delivery.status === "skipped") {
+    return "unknown";
+  }
+
+  return undefined;
+}
+
+function createAskAroundGap(
+  kind: MahiloAskAroundGapKind,
+  recipientLabels: string[]
+): MahiloAskAroundGap {
+  const labels = recipientLabels.slice();
+  const subject = formatAskAroundGapSubject(labels);
+
+  switch (kind) {
+    case "blocked":
+      return {
+        count: labels.length,
+        kind,
+        recipientLabels: labels,
+        suggestedAction: "Review the boundary decision before retrying this ask.",
+        summary: `${subject.label} ${subject.plural ? "were" : "was"} blocked by Mahilo boundaries`
+      };
+    case "needs_agent_connection":
+      return {
+        count: labels.length,
+        kind,
+        recipientLabels: labels,
+        suggestedAction: "Ask them to finish Mahilo setup in OpenClaw, then try again.",
+        summary: `${subject.label} ${subject.plural ? "are" : "is"} on Mahilo but ${subject.plural ? "have" : "has"} not connected ${subject.plural ? "agents" : "an agent"} yet`
+      };
+    case "not_in_network":
+      return {
+        count: labels.length,
+        kind,
+        recipientLabels: labels,
+        suggestedAction: "Send or accept a Mahilo request from this same tool before asking again.",
+        summary: `${subject.label} ${subject.plural ? "are" : "is"} not in your Mahilo network yet`
+      };
+    case "not_on_mahilo":
+      return {
+        count: labels.length,
+        kind,
+        recipientLabels: labels,
+        suggestedAction:
+          "Check the username. If they are new to Mahilo, ask them to set up Mahilo in OpenClaw, then add them to your network.",
+        summary: `${subject.label} could not be found on Mahilo right now`
+      };
+    case "request_pending":
+      return {
+        count: labels.length,
+        kind,
+        recipientLabels: labels,
+        suggestedAction:
+          "Use this tool to review or accept the pending Mahilo request, or wait for it to be accepted, then ask again.",
+        summary: `${subject.label} ${subject.plural ? "still have" : "still has"} pending Mahilo request${subject.plural ? "s" : ""}`
+      };
+    case "transport_failure":
+      return {
+        count: labels.length,
+        kind,
+        recipientLabels: labels,
+        suggestedAction: "Retry in a bit; Mahilo could not reach those agent connections right now.",
+        summary: `Mahilo could not reach ${subject.label} right now`
+      };
+    case "unknown":
+    default:
+      return {
+        count: labels.length,
+        kind: "unknown",
+        recipientLabels: labels,
+        suggestedAction: "Try again later.",
+        summary: `${subject.label} ${subject.plural ? "are" : "is"} not available on Mahilo right now`
+      };
+  }
+}
+
 function emptyAskAroundCounts(): MahiloAskAroundCounts {
   return {
     awaitingReplies: 0,
@@ -753,7 +927,8 @@ function emptyAskAroundCounts(): MahiloAskAroundCounts {
 function formatContactAskAroundSummary(
   target: MahiloAskAroundTarget,
   counts: MahiloAskAroundCounts,
-  contactCount: number
+  contactCount: number,
+  gaps: MahiloAskAroundGap[]
 ): string {
   const targetLabel =
     target.kind === "roles" && target.roles && target.roles.length > 0
@@ -763,24 +938,14 @@ function formatContactAskAroundSummary(
   const parts = [
     counts.awaitingReplies > 0
       ? `asked ${counts.awaitingReplies} of ${contactCount} ${targetLabel}`
-      : `reached 0 of ${contactCount} ${targetLabel}`
+      : `couldn't ask ${formatAskAroundContactScope(target, contactCount)} right now`
   ];
 
   if (counts.reviewRequired > 0) {
     parts.push(`${counts.reviewRequired} waiting on review`);
   }
 
-  if (counts.blocked > 0) {
-    parts.push(`${counts.blocked} blocked by boundaries`);
-  }
-
-  if (counts.skipped > 0) {
-    parts.push(`${counts.skipped} unavailable right now`);
-  }
-
-  if (counts.sendFailed > 0) {
-    parts.push(`${counts.sendFailed} failed to send`);
-  }
+  parts.push(...gaps.map((gap) => gap.summary));
 
   return `Mahilo ask-around: ${parts.join(", ")}.`;
 }
@@ -804,17 +969,24 @@ function formatGroupAskAroundSummary(
   }
 }
 
-function formatReplyExpectation(counts: MahiloAskAroundCounts): string | undefined {
+function formatReplyExpectation(
+  counts: MahiloAskAroundCounts,
+  gaps: MahiloAskAroundGap[]
+): string | undefined {
   if (counts.awaitingReplies > 0) {
     return 'Replies will show up in this thread with attribution and a running summary as your contacts respond. If someone does not have grounded info, Mahilo will show a clear "I don\'t know" instead of inventing an opinion. If someone stays silent, nothing is stuck.';
   }
 
   if (counts.reviewRequired > 0) {
-    return "Mahilo is waiting on review before those asks can go out.";
+    if (gaps.length === 0) {
+      return "Mahilo is waiting on review before those asks can go out.";
+    }
+
+    return `Nothing is waiting on a reply yet. ${counts.reviewRequired} ask${counts.reviewRequired === 1 ? "" : "s"} still need review. ${formatAskAroundGapGuidance(gaps)}`;
   }
 
-  if (counts.skipped > 0 && counts.sendFailed === 0 && counts.blocked === 0) {
-    return "Those contacts were unavailable, so ask-around finished without hanging.";
+  if (gaps.length > 0) {
+    return `Nothing is waiting on a reply. ${formatAskAroundGapGuidance(gaps)}`;
   }
 
   return undefined;
@@ -851,23 +1023,80 @@ function formatQuotedLabel(value: string): string {
   return `"${value}"`;
 }
 
+function formatAskAroundContactScope(
+  target: MahiloAskAroundTarget,
+  contactCount: number
+): string {
+  if (target.kind === "roles" && target.roles && target.roles.length > 0) {
+    const contactLabel = contactCount === 1 ? "the 1 contact" : `the ${contactCount} contacts`;
+    return `${contactLabel} in roles ${formatRoleList(target.roles)}`;
+  }
+
+  return contactCount === 1 ? "your 1 contact" : `your ${contactCount} contacts`;
+}
+
+function formatAskAroundGapSubject(
+  recipientLabels: string[]
+): { label: string; plural: boolean } {
+  if (recipientLabels.length === 0) {
+    return {
+      label: "Those contacts",
+      plural: true
+    };
+  }
+
+  if (recipientLabels.length === 1) {
+    return {
+      label: recipientLabels[0]!,
+      plural: false
+    };
+  }
+
+  if (recipientLabels.length === 2) {
+    return {
+      label: `${recipientLabels[0]} and ${recipientLabels[1]}`,
+      plural: true
+    };
+  }
+
+  return {
+    label: `${recipientLabels[0]} and ${recipientLabels.length - 1} others`,
+    plural: true
+  };
+}
+
+function formatAskAroundGapGuidance(gaps: MahiloAskAroundGap[]): string {
+  return gaps
+    .slice(0, 2)
+    .map((gap) => `${capitalizeSentence(gap.summary)}. ${gap.suggestedAction}`)
+    .join(" ");
+}
+
+function capitalizeSentence(value: string): string {
+  if (value.length === 0) {
+    return value;
+  }
+
+  return value[0]!.toUpperCase() + value.slice(1);
+}
+
 function formatUnavailableContactReason(
   contact: MahiloContact,
   connectionState: MahiloContactConnectionState
 ): string {
   switch (connectionState) {
     case "blocked":
-      return `${contact.label} is blocked on Mahilo right now.`;
+      return `Mahilo boundaries blocked asking ${contact.label} right now.`;
     case "no_active_connections":
-      return `${contact.label} has no active Mahilo agent connection right now.`;
+      return `${contact.label} is on Mahilo, but they have not connected an agent yet. Ask them to finish Mahilo setup in OpenClaw, then try again.`;
     case "not_found":
-      return `${contact.label} could not be resolved on Mahilo right now.`;
+      return `${contact.label} could not be found on Mahilo right now. Check the username or, if they are new, ask them to set up Mahilo in OpenClaw first.`;
     case "not_friends":
-      return `${contact.label} is not available through your Mahilo contact graph.`;
+      return `${contact.label} is not in your Mahilo network yet. Send or accept a Mahilo request before asking.`;
     case "request_pending":
-      return `${contact.label} still has a pending Mahilo request.`;
+      return `${contact.label} still has a pending Mahilo request. Once it is accepted, you can ask them here.`;
     case "transport_failure":
-      return `Mahilo could not reach ${contact.label}'s agent connection right now.`;
+      return `Mahilo could not reach ${contact.label}'s agent connection right now. Try again in a bit.`;
     default:
       return `${contact.label} is not available for Mahilo ask-around right now.`;
   }
@@ -878,12 +1107,18 @@ function formatAskAroundSendError(
   recipientLabel: string
 ): string {
   switch (error.productState) {
+    case "blocked":
+      return `Mahilo boundaries blocked asking ${recipientLabel} right now.`;
     case "transport_failure":
-      return `Couldn't reach Mahilo while asking ${recipientLabel}.`;
+      return `Mahilo could not reach ${recipientLabel}'s agent connection right now. Try again in a bit.`;
     case "no_active_connections":
-      return `${recipientLabel} has no active Mahilo agent connection right now.`;
+      return `${recipientLabel} is on Mahilo, but they have not connected an agent yet. Ask them to finish Mahilo setup in OpenClaw, then try again.`;
+    case "not_friends":
+      return `${recipientLabel} is not in your Mahilo network yet. Send or accept a Mahilo request before asking.`;
     case "not_found":
-      return `Mahilo could not find ${recipientLabel} right now.`;
+      return `${recipientLabel} could not be found on Mahilo right now. Check the username or, if they are new, ask them to set up Mahilo in OpenClaw first.`;
+    case "request_pending":
+      return `${recipientLabel} still has a pending Mahilo request. Once it is accepted, you can ask them here.`;
     default:
       return `Mahilo couldn't deliver the ask to ${recipientLabel}.`;
   }
@@ -948,6 +1183,7 @@ function createNetworkErrorResult(
       retryable,
       technicalMessage
     },
+    gaps: [],
     replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
     source: "mahilo_server",
     status: "error",

@@ -271,7 +271,7 @@ function createMahiloNetworkTool(
       executeMahiloTool<MahiloNetworkToolDetails>(MAHILO_NETWORK_TOOL_NAME, async () => {
         const input = parseMahiloNetworkInput(rawInput);
         const result = await executeMahiloNetworkAction(client, input, parseToolContext(rawInput, config));
-        return toAgentToolResult(result, result.summary);
+        return toAgentToolResult(result, formatMahiloNetworkToolText(result));
       }),
     label: "Mahilo Network",
     name: MAHILO_NETWORK_TOOL_NAME,
@@ -826,6 +826,18 @@ function toAgentToolResult<T>(details: T, text: string): { content: Array<{ text
     content: [{ text, type: "text" }],
     details
   };
+}
+
+function formatMahiloNetworkToolText(result: MahiloNetworkToolDetails): string {
+  if (result.action !== "ask_around") {
+    return result.summary;
+  }
+
+  if ((result.counts?.awaitingReplies ?? 0) > 0 || !result.replyExpectation) {
+    return result.summary;
+  }
+
+  return `${result.summary} ${result.replyExpectation}`;
 }
 
 function formatPreviewToolText(result: {
