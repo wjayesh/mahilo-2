@@ -29,10 +29,10 @@ The only operator-owned step that still happens outside OpenClaw is saving `plug
    Success looks like `attached @<username>` plus `selected sender <connection_id>` and callback readiness passing in the same run.
 2. Run `mahilo status`.
    Success looks like `Mahilo status: connected; diagnostics snapshot available.`
-3. Check whether your circle is ready with `mahilo network` or `mahilo_network` using `action=list`.
+3. Check whether your circle is ready with `mahilo network` or `manage_network` using `action=list`.
    If it reports `0 contacts`, stay in the same OpenClaw session for the next step instead of stopping.
 4. Build your circle with one concrete invite.
-   Send one request from `mahilo_network`:
+   Send one request from `manage_network`:
 
    ```json
    {
@@ -43,7 +43,7 @@ The only operator-owned step that still happens outside OpenClaw is saving `plug
 
    If they already invited you, use `action=accept` instead. Ask them to run `mahilo setup` in OpenClaw so their agent connection goes live.
    Success looks like `mahilo network` showing at least `1 contact`, and ask-around no longer returning a `needs_agent_connection` state for that person.
-5. Start one meaningful orchestration event with `mahilo_network`.
+5. Start one meaningful orchestration event with `ask_network`.
    Ask OpenClaw to check with your Mahilo contacts, or call:
 
    ```json
@@ -55,18 +55,17 @@ The only operator-owned step that still happens outside OpenClaw is saving `plug
 6. Wait for the live handoff in the same thread.
    Success looks like a `Mahilo ask-around update` with attributed text from at least one contact.
 7. Show the human-review gate before a sensitive share goes out.
-   Preview a precise follow-up with `mahilo_message`:
+   Send a precise follow-up with `send_message`:
 
    ```json
    {
-     "action": "preview",
      "recipient": "alice",
      "message": "I'm at 18th and Valencia right now; meet me here at 7."
    }
    ```
 
-   Success looks like `review_required` or `Message requires review before delivery.` No sensitive message should be sent yet.
-8. Approve narrowly with `mahilo_boundaries`.
+   Success looks like `Mahilo needs review before sending this person message.` No sensitive message should be sent yet.
+8. Approve narrowly with `set_boundaries`.
    Create a one-hour exception for that one recipient:
 
    ```json
@@ -79,8 +78,8 @@ The only operator-owned step that still happens outside OpenClaw is saving `plug
    }
    ```
 
-9. Retry the same `mahilo_message` preview.
-   Success looks like `allow`, which proves the human approval changed the outcome intentionally instead of bypassing Mahilo.
+9. Retry the same `send_message`.
+   Success looks like `Message sent through Mahilo.`, which proves the human approval changed the outcome intentionally instead of bypassing Mahilo.
 
 ## Success Scorecard
 
@@ -89,10 +88,10 @@ The only operator-owned step that still happens outside OpenClaw is saving `plug
 | Setup proof | `mahilo setup` reports an attached identity, selected sender, and no remaining setup blocker |
 | Connectivity proof | `mahilo status` reports `connected` |
 | Build-your-circle proof | `mahilo network` reports at least `1 contact`, and that contact has finished Mahilo setup before the first ask |
-| Orchestration proof | `mahilo_network` fans the question out across Mahilo contacts and returns waiting-for-reply state |
+| Orchestration proof | `ask_network` fans the question out across Mahilo contacts and returns waiting-for-reply state |
 | Live handoff proof | At least one attributed `Mahilo ask-around update` lands in the same thread |
-| Oversight proof | The first sensitive preview returns review-required instead of sending |
-| Approval proof | One explicit `mahilo_boundaries` exception changes the retry from review-required to allow |
+| Oversight proof | The first sensitive send returns review-required instead of delivering |
+| Approval proof | One explicit `set_boundaries` exception changes the retry from review-required to sent |
 | Time-to-value proof | The full path completes in 5 minutes or less after `baseUrl` and `callbackUrl` are in place and one invitee is available to accept/setup in parallel |
 
 ## Measurable Targets

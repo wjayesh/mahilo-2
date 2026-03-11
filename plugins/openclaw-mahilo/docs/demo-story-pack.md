@@ -33,7 +33,7 @@ Useful variants:
 When the audience cares about rollout safety more than feature sparkle, use this order:
 
 1. Approval path: `bun run demo:stories --story guided-first-run`
-   Stop on `Message requires review before delivery.`, then show `Boundary exception saved: allow sharing location with alice for 1 hour.` and `Mahilo preview: allow.` This is the clearest proof that Mahilo stops sensitive outbound sharing first and only changes outcome after a scoped approval.
+   Stop on `Mahilo needs review before sending this person message.`, then show `Boundary exception saved: allow sharing location with alice for 1 hour.` and `Message sent through Mahilo.` This is the clearest proof that Mahilo stops sensitive outbound sharing first and only changes outcome after a scoped approval.
 2. Failure and degraded path: `bun run demo:stories --story weekend-plan-coordination`
    Call out `If someone stays silent, nothing is stuck.` This proves ask-around stays useful when one or more contacts do not reply.
 3. Optional trust-path: `bun run demo:stories --story restaurant-question`

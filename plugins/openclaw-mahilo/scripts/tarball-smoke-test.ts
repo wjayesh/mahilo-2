@@ -74,9 +74,10 @@ const EXPECTED_REQUIRED_CONFIG_KEYS = ["baseUrl"];
 const EXPECTED_ROUTE_PATHS = ["/mahilo/incoming"];
 
 const EXPECTED_TOOL_NAMES = [
-  "mahilo_boundaries",
-  "mahilo_message",
-  "mahilo_network"
+  "ask_network",
+  "manage_network",
+  "send_message",
+  "set_boundaries"
 ];
 
 const FORBIDDEN_PACK_PATH_PREFIXES = [

@@ -6,7 +6,7 @@
   "prompt": "Can Mahilo prove setup, orchestration, and trust in one OpenClaw run?",
   "summary": "Start from setup, confirm live connectivity, check that the first accepted contacts are ready, ask the network once, watch an attributed reply land in-thread, then hit a review gate on a sensitive follow-up and approve it narrowly.",
   "trustSignals": [
-    "The only explicit sender reuse is the setup-selected sender on the ask-around step; the later preview and approval steps omit it.",
+    "The only explicit sender reuse is the setup-selected sender on the ask-around step; the later send and approval steps omit it.",
     "The replay includes the circle-ready checkpoint after the invite/setup loop, with accepted contacts already live before the first ask-around.",
     "The ask-around reply lands back in the same OpenClaw thread as a Mahilo system update with attribution.",
     "The precise location follow-up stops on review first and only becomes allow after a one-hour exception scoped to Alice."
@@ -109,32 +109,40 @@
         "resource": "location.current"
       }
     },
-    "resolveDraftResponses": [
+    "sendMessageResponses": [
       {
         "decision": "allow",
-        "reason_code": "policy.allow.ask_around",
-        "resolution_id": "res_guided_ask_1",
-        "resolution_summary": "Ask-around can send to Alice."
+        "message_id": "msg_guided_ask_1",
+        "resolution_id": "res_guided_ask_1"
       },
       {
         "decision": "allow",
-        "reason_code": "policy.allow.ask_around",
-        "resolution_id": "res_guided_ask_2",
-        "resolution_summary": "Ask-around can send to Bob."
+        "message_id": "msg_guided_ask_2",
+        "resolution_id": "res_guided_ask_2"
       },
       {
-        "agent_guidance": "Ask for approval or adjust boundaries.",
         "decision": "ask",
-        "delivery_mode": "review_required",
-        "reason_code": "policy.ask.location",
+        "message_id": "msg_guided_preview_1",
         "resolution_id": "res_guided_preview_1",
-        "resolution_summary": "Message requires review before delivery."
+        "recipient_results": [
+          {
+            "decision": "ask",
+            "delivery_mode": "review_required",
+            "delivery_status": "review_required",
+            "recipient": "alice"
+          }
+        ],
+        "resolution": {
+          "decision": "ask",
+          "delivery_mode": "review_required",
+          "summary": "Message requires review before delivery."
+        },
+        "status": "review_required"
       },
       {
         "decision": "allow",
-        "reason_code": "policy.allow.location_exception",
-        "resolution_id": "res_guided_preview_2",
-        "resolution_summary": "Temporary location boundary lets this share go through."
+        "message_id": "msg_guided_preview_2",
+        "resolution_id": "res_guided_preview_2"
       }
     ]
   },
@@ -161,7 +169,7 @@
     {
       "kind": "tool",
       "label": "Ask the network for one recommendation using the sender selected by setup",
-      "name": "mahilo_network",
+      "name": "ask_network",
       "note": "This is the canonical orchestration moment: one ask fans out and waits for a live reply in the same thread.",
       "input": {
         "action": "ask_around",
@@ -185,11 +193,10 @@
     },
     {
       "kind": "tool",
-      "label": "Preview a precise location follow-up before sending",
-      "name": "mahilo_message",
-      "note": "The first preview should stop on review instead of silently sending the location.",
+      "label": "Send a precise location follow-up",
+      "name": "send_message",
+      "note": "Preflight blocks the send because location sharing requires review.",
       "input": {
-        "action": "preview",
         "message": "I'm at 18th and Valencia right now; meet me here at 7.",
         "recipient": "alice"
       }
@@ -197,7 +204,7 @@
     {
       "kind": "tool",
       "label": "Approve only this share for one hour",
-      "name": "mahilo_boundaries",
+      "name": "set_boundaries",
       "input": {
         "action": "exception",
         "category": "location",
@@ -208,10 +215,9 @@
     },
     {
       "kind": "tool",
-      "label": "Retry the same preview after the explicit approval",
-      "name": "mahilo_message",
+      "label": "Retry the same send after the explicit approval",
+      "name": "send_message",
       "input": {
-        "action": "preview",
         "message": "I'm at 18th and Valencia right now; meet me here at 7.",
         "recipient": "alice"
       }

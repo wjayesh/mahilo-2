@@ -127,7 +127,7 @@
     {
       "kind": "tool",
       "label": "Ask the network once instead of DMing three people",
-      "name": "mahilo_network",
+      "name": "ask_network",
       "note": "The fixture explicitly targets three accepted contacts, but only two ever answer.",
       "input": {
         "action": "ask_around",

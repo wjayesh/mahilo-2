@@ -26,7 +26,7 @@ The goal is to validate the refreshed story with a small set of OpenClaw power u
 | --- | --- | --- |
 | Screenshot 1: guided first run | `bun run demo:stories --story guided-first-run` plus `docs/guided-first-run.md` | attached identity, selected sender, and `Mahilo status: connected; diagnostics snapshot available.` |
 | Screenshot 2: ask-around proof | `bun run demo:stories --story restaurant-question` plus `docs/ask-your-contacts.md` | attributed replies plus one explicit `reported no grounded answer` outcome |
-| Screenshot 3: boundary review proof | `bun run demo:stories --story boundaries-story` plus `docs/boundaries-and-trust.md` | `Message requires review before delivery.` followed by the scoped approval path |
+| Screenshot 3: boundary review proof | `bun run demo:stories --story boundaries-story` plus `docs/boundaries-and-trust.md` | `Mahilo needs review before sending this person message.` followed by the scoped approval path |
 | Short-form walkthrough clip | `guided-first-run` plus `restaurant-question` stories | one ask-around question, at least one attributed reply, and one trust signal without leaving OpenClaw |
 | Comparison frame card | approved copy in this doc plus `docs/listing-copy.md` | public AI noise versus real answers from people you trust |
 | Launch blurb / post draft | `docs/listing-copy.md` | the one-line promise and short package description unchanged across npm, GitHub, and announcement surfaces |

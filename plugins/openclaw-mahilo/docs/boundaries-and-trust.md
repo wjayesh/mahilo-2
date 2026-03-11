@@ -8,13 +8,13 @@ Mahilo keeps sharing conservative by default. The plugin can help with opinions,
 
 - Sensitive categories stay tight by default.
 - Review flows stay visible through `mahilo review` and ask-mode behavior.
-- Boundary changes stay conversational through `mahilo_boundaries` instead of low-level policy editing.
+- Boundary changes stay conversational through `set_boundaries` instead of low-level policy editing.
 - Operators can inspect health, recent review activity, and blocked events through `mahilo status` and `mahilo network` without leaving OpenClaw.
 
 ## Common Actions
 
 1. Follow the install and setup steps in [README](../README.md#install-from-npm).
-2. Use `mahilo_boundaries` to open up or tighten categories conversationally.
+2. Use `set_boundaries` to open up or tighten categories conversationally.
 3. Run `mahilo review` when Mahilo asks for explicit confirmation.
 4. Use `mahilo status` if you need to confirm the plugin is still connected after config changes.
 

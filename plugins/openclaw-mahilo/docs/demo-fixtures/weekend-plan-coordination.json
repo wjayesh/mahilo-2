@@ -127,7 +127,7 @@
     {
       "kind": "tool",
       "label": "Ask only the weekend planners for departure timing",
-      "name": "mahilo_network",
+      "name": "ask_network",
       "note": "Nina never replies in this fixture, so the story keeps moving with partial coordination data.",
       "input": {
         "action": "ask_around",

@@ -33,9 +33,9 @@ Use this sequence when the audience cares more about rollout risk than feature s
 ### Approval Path
 
 1. Run `bun run demo:stories --story guided-first-run`.
-2. Stop on `Message requires review before delivery.`
+2. Stop on `Mahilo needs review before sending this person message.`
 3. Show the scoped exception: `Boundary exception saved: allow sharing location with alice for 1 hour.`
-4. End on `Mahilo preview: allow.`
+4. End on `Message sent through Mahilo.`
 
 What this proves: sensitive data does not go out silently, the operator can see the review stop clearly, and the retry succeeds only because the approval changed policy intentionally.
 

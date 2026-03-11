@@ -45,7 +45,7 @@ export interface DemoStoryMockConfig {
   groups?: MahiloGroupSummary[];
   identity?: MahiloIdentitySummary;
   promptContextResponse?: Record<string, unknown>;
-  resolveDraftResponses?: Array<Record<string, unknown>>;
+  sendMessageResponses?: Array<Record<string, unknown>>;
   reviewsResponse?: unknown;
 }
 
@@ -424,8 +424,8 @@ function createMockContractClient(options: DemoStoryMockConfig): {
     sendMessageCalls: [],
   };
 
-  const resolveDraftResponses =
-    options.resolveDraftResponses?.slice() ?? [];
+  const sendMessageResponses =
+    options.sendMessageResponses?.slice() ?? [];
   let createOverrideCount = 0;
 
   const identity: MahiloIdentitySummary =
@@ -594,8 +594,10 @@ function createMockContractClient(options: DemoStoryMockConfig): {
       idempotencyKey?: string,
     ) => {
       state.sendMessageCalls.push({ idempotencyKey, payload });
+      const next = sendMessageResponses.shift();
       return {
         message_id: `msg_demo_${state.sendMessageCalls.length}`,
+        ...next,
       };
     },
   };
@@ -774,7 +776,7 @@ function readMockConfig(value: unknown, filePath: string): DemoStoryMockConfig {
     groups: readOptionalStructuredRecordArray<MahiloGroupSummary>(root.groups),
     identity: readOptionalStructuredRecord<MahiloIdentitySummary>(root.identity),
     promptContextResponse: readOptionalRecord(root.promptContextResponse),
-    resolveDraftResponses: readOptionalRecordArray(root.resolveDraftResponses),
+    sendMessageResponses: readOptionalRecordArray(root.sendMessageResponses),
     reviewsResponse: root.reviewsResponse,
   };
 }
