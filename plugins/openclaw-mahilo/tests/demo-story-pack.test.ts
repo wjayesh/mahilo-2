@@ -43,9 +43,9 @@ describe("demo story pack", () => {
     expect(rendered).toContain("What time should we leave for Saturday's Tahoe day trip?");
     expect(rendered).toContain('Asked: Mahilo contacts in roles "weekend_planners".');
     expect(rendered).toContain("If someone stays silent, nothing is stuck.");
-    expect(rendered).toContain("Message requires review before delivery.");
+    expect(rendered).toContain("Mahilo needs review before sending this person message.");
     expect(rendered).toContain("Boundary exception saved: allow sharing location with alice for 1 hour.");
-    expect(rendered).toContain("Mahilo preview: allow.");
+    expect(rendered).toContain("Message sent through Mahilo.");
     expect(rendered).toContain("This step intentionally omits senderConnectionId");
   });
 
@@ -59,7 +59,7 @@ describe("demo story pack", () => {
     expect(demoDoc).toContain("weekend-plan-coordination");
     expect(demoDoc).toContain("boundaries-story");
     expect(demoDoc).toContain("Operator Walkthroughs");
-    expect(demoDoc).toContain("Message requires review before delivery.");
+    expect(demoDoc).toContain("Mahilo needs review before sending this person message.");
     expect(demoDoc).toContain("If someone stays silent, nothing is stuck.");
     expect(demoDoc).toContain("without a live Mahilo server");
   });

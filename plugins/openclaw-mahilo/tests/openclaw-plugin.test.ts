@@ -98,6 +98,7 @@ function createMockContractClient(options: {
   resolveError?: Error;
   resolveResponse?: Record<string, unknown>;
   reviewsResponse?: unknown;
+  sendError?: Error;
   sendFriendRequestError?: Error;
   sendFriendRequestResponse?: Record<string, unknown>;
 } = {}) {
@@ -378,6 +379,10 @@ function createMockContractClient(options: {
     },
     sendMessage: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.sendCalls.push({ idempotencyKey, payload });
+      if (options.sendError) {
+        throw options.sendError;
+      }
+
       return {
         message_id: "msg_123"
       };
@@ -717,9 +722,10 @@ describe("createMahiloOpenClawPlugin", () => {
     await plugin.register?.(api);
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
-      "mahilo_boundaries",
-      "mahilo_message",
-      "mahilo_network"
+      "ask_network",
+      "manage_network",
+      "send_message",
+      "set_boundaries"
     ]);
     expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
     expect(hooks.map((hook) => hook.name)).toEqual(
@@ -800,9 +806,10 @@ describe("createMahiloOpenClawPlugin", () => {
 
       expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
       expect(tools.map((tool) => tool.name).sort()).toEqual([
-        "mahilo_boundaries",
-        "mahilo_message",
-        "mahilo_network"
+        "ask_network",
+        "manage_network",
+        "send_message",
+        "set_boundaries"
       ]);
 
       const result = await runMahiloOperatorCommand(commands, "setup bootstrap-user");
@@ -870,9 +877,10 @@ describe("createMahiloOpenClawPlugin", () => {
 
       expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
       expect(tools.map((tool) => tool.name).sort()).toEqual([
-        "mahilo_boundaries",
-        "mahilo_message",
-        "mahilo_network"
+        "ask_network",
+        "manage_network",
+        "send_message",
+        "set_boundaries"
       ]);
     } finally {
       runtimeStore.cleanup();
@@ -926,7 +934,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const outboundInput = {
       correlationId: "corr_routing_1",
       message: "hello",
@@ -940,14 +948,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "mahilo_message"
+        toolName: "send_message"
       },
       {
         agentId: "mahilo-agent",
         runId: "run_route_1",
         sessionKey: "session_route_1",
         toolCallId: "tool_call_route_1",
-        toolName: "mahilo_message"
+        toolName: "send_message"
       }
     );
 
@@ -1012,7 +1020,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const outboundInput = {
       message: "hello",
       recipient: "alice",
@@ -1025,14 +1033,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "mahilo_message"
+        toolName: "send_message"
       },
       {
         agentId: "mahilo-agent-2",
         runId: "run_route_2",
         sessionKey: "session_route_2",
         toolCallId: "tool_call_route_2",
-        toolName: "mahilo_message"
+        toolName: "send_message"
       }
     );
 
@@ -1075,7 +1083,7 @@ describe("createMahiloOpenClawPlugin", () => {
     ]);
   });
 
-  it("routes inbound webhook callbacks back to the originating session after mahilo_network ask-around fan-out", async () => {
+  it("routes inbound webhook callbacks back to the originating session after ask_network fan-out", async () => {
     const { client } = createMockContractClient({
       friendConnectionsByUsername: {
         alice: [{ active: true, id: "conn_alice" }]
@@ -1094,9 +1102,8 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "ask_network");
     const outboundInput = {
-      action: "ask_around",
       correlationId: "corr_network_route_1",
       question: "Who knows a good ramen spot?",
       senderConnectionId: "conn_sender"
@@ -1108,14 +1115,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_route_1",
         sessionKey: "session_network_route_1",
         toolCallId: "tool_call_network_route_1",
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       }
     );
 
@@ -1190,11 +1197,10 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "ask_network");
     const outboundInput = {
-      action: "ask_around",
+      group: "the hiking group",
       question: "Has anyone done Half Dome recently?",
-      recipient: "the hiking group",
       senderConnectionId: "conn_sender"
     };
     const toolResult = await tool.execute("tool_call_group_route_1", outboundInput);
@@ -1217,14 +1223,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       },
       {
         agentId: "mahilo-group-agent",
         runId: "run_group_route_1",
         sessionKey: "session_group_route_1",
         toolCallId: "tool_call_group_route_1",
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       }
     );
 
@@ -1324,9 +1330,8 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "ask_network");
     const outboundInput = {
-      action: "ask_around",
       correlationId: "corr_network_summary_1",
       question: "Who knows a good ramen spot?",
       senderConnectionId: "conn_sender"
@@ -1338,14 +1343,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_summary_1",
         sessionKey: "session_network_summary_1",
         toolCallId: "tool_call_network_summary_1",
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       }
     );
 
@@ -1475,9 +1480,8 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "ask_network");
     const outboundInput = {
-      action: "ask_around",
       correlationId: "corr_network_unknown_1",
       question: "Who knows a good ramen spot?",
       senderConnectionId: "conn_sender"
@@ -1489,14 +1493,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_unknown_1",
         sessionKey: "session_network_unknown_1",
         toolCallId: "tool_call_network_unknown_1",
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       }
     );
 
@@ -1579,9 +1583,8 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "ask_network");
     const outboundInput = {
-      action: "ask_around",
       correlationId: "corr_network_unverified_1",
       question: "Who knows a good ramen spot?",
       senderConnectionId: "conn_sender"
@@ -1593,14 +1596,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_unverified_1",
         sessionKey: "session_network_unverified_1",
         toolCallId: "tool_call_network_unverified_1",
-        toolName: "mahilo_network"
+        toolName: "ask_network"
       }
     );
 
@@ -1681,9 +1684,8 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "ask_network");
     const result = await tool.execute("tool_call_network_gap_1", {
-      action: "ask_around",
       question: "Who has a good dentist in SF?",
       senderConnectionId: "conn_sender"
     });
@@ -1730,20 +1732,19 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
-  it("executes mahilo_message sends with sender_connection_id alias", async () => {
+  it("executes send_message sends with sender_connection_id alias", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example",
-      reviewMode: "auto"
+      baseUrl: "https://mahilo.example"
     });
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const result = await tool.execute("tool_call_1", {
       message: "hello",
       recipient: "alice",
@@ -1756,13 +1757,11 @@ describe("createMahiloOpenClawPlugin", () => {
         status: "sent"
       }
     });
-    expect(state.resolveCalls).toHaveLength(1);
-    expect(state.resolveCalls[0]?.sender_connection_id).toBe("conn_sender");
     expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls).toHaveLength(1);
+    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender");
   });
 
-  it("resolves a default sender connection for mahilo_message sends when input omits it", async () => {
+  it("resolves a default sender connection for send_message sends when input omits it", async () => {
     const { client, state } = createMockContractClient({
       agentConnectionsResponse: [
         {
@@ -1789,7 +1788,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const result = await tool.execute("tool_call_2", {
       message: "hello",
       recipient: "alice"
@@ -1801,11 +1800,10 @@ describe("createMahiloOpenClawPlugin", () => {
       }
     });
     expect(state.agentConnectionCalls).toBe(1);
-    expect(state.resolveCalls[0]?.sender_connection_id).toBe("conn_sender_default");
     expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
   });
 
-  it("lists contacts from Mahilo server data through mahilo_network instead of the host contacts provider", async () => {
+  it("lists contacts from Mahilo server data through manage_network instead of the host contacts provider", async () => {
     let providerCalls = 0;
     const { client, state } = createMockContractClient({
       blockedEventsResponse: {
@@ -1869,9 +1867,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "manage_network");
     const result = await tool.execute("tool_call_3", {
-      action: "list",
+      action: "list_contacts",
       activityLimit: 4
     });
 
@@ -1929,7 +1927,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.blockedEventCalls).toEqual([4]);
   });
 
-  it("executes mahilo_network to send friend requests by @username", async () => {
+  it("executes manage_network to send friend requests by @username", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client
@@ -1941,9 +1939,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "manage_network");
     const result = await tool.execute("tool_call_relationship_add", {
-      action: "send_request",
+      action: "send_friend_request",
       username: "@alice"
     });
 
@@ -1962,7 +1960,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.friendRequestCalls).toEqual(["alice"]);
   });
 
-  it("surfaces not-on-Mahilo nudges through mahilo_network send_request errors", async () => {
+  it("surfaces not-on-Mahilo nudges through manage_network send_request errors", async () => {
     const { client } = createMockContractClient({
       sendFriendRequestError: new MahiloRequestError(
         "Mahilo request failed with status 404: User not found",
@@ -1983,9 +1981,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "manage_network");
     const result = await tool.execute("tool_call_relationship_add_missing", {
-      action: "send_request",
+      action: "send_friend_request",
       username: "@alice"
     });
 
@@ -2034,9 +2032,10 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_network");
+    const tool = findTool(tools, "manage_network");
     const result = await tool.execute("tool_call_relationship_accept", {
-      action: "accept",
+      action: "respond_to_request",
+      decision: "accept",
       username: "alice"
     });
 
@@ -2056,139 +2055,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.acceptFriendRequestCalls).toEqual(["fr_pending_alice"]);
   });
 
-  it("executes mahilo_message context requests through the context contract", async () => {
-    const { client, state } = createMockContractClient();
-    const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
-    });
-    const { api, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
-
-    await plugin.register?.(api);
-
-    const tool = findTool(tools, "mahilo_message");
-    const result = await tool.execute("tool_call_4", {
-      action: "context",
-      declaredSelectors: {
-        action: "share",
-        resource: "location.current"
-      },
-      interactionLimit: 10,
-      recipient: "alice",
-      senderConnectionId: "conn_sender"
-    });
-
-    expect(result).toMatchObject({
-      details: {
-        ok: true,
-        source: "live"
-      }
-    });
-    expect(state.promptContextCalls).toHaveLength(1);
-    expect(state.promptContextCalls[0]).toEqual({
-      draft_selectors: {
-        action: "share",
-        direction: "outbound",
-        resource: "location.current"
-      },
-      include_recent_interactions: true,
-      interaction_limit: 5,
-      recipient: "alice",
-      recipient_type: "user",
-      sender_connection_id: "conn_sender"
-    });
-  });
-
-  it("executes mahilo_message previews without creating a send record", async () => {
-    const { client, state } = createMockContractClient();
-    const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
-    });
-    const { api, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
-
-    await plugin.register?.(api);
-
-    const tool = findTool(tools, "mahilo_message");
-    const result = await tool.execute("tool_call_5", {
-      action: "preview",
-      declaredSelectors: {
-        action: "share",
-        resource: "location.current"
-      },
-      message: "hello",
-      recipient: "alice",
-      senderConnectionId: "conn_sender"
-    });
-
-    expect(result).toMatchObject({
-      details: {
-        decision: "allow",
-        resolutionId: "res_123",
-        serverSelectors: {
-          action: "share",
-          direction: "outbound",
-          resource: "location.current"
-        }
-      }
-    });
-    expect(state.resolveCalls).toHaveLength(1);
-    expect(state.sendCalls).toHaveLength(0);
-    expect(state.outcomeCalls).toHaveLength(0);
-  });
-
-  it("surfaces preview guidance when Mahilo requires review", async () => {
-    const { client } = createMockContractClient({
-      resolveResponse: {
-        agent_guidance: "Ask for approval or create an override.",
-        decision: "ask",
-        delivery_mode: "review_required",
-        reason_code: "policy.ask.resolved",
-        resolution_id: "res_ask_1",
-        resolution_summary: "Message requires review before delivery."
-      }
-    });
-    const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
-    });
-    const { api, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
-
-    await plugin.register?.(api);
-
-    const tool = findTool(tools, "mahilo_message");
-    const result = await tool.execute("tool_call_5b", {
-      action: "preview",
-      message: "hello",
-      recipient: "alice",
-      senderConnectionId: "conn_sender"
-    });
-
-    expect(result).toMatchObject({
-      content: [
-        {
-          text: expect.stringContaining(
-            "Message requires review before delivery. Ask for approval or adjust boundaries."
-          )
-        }
-      ],
-      details: {
-        agentGuidance: "Ask for approval or adjust boundaries.",
-        decision: "ask",
-        deliveryMode: "review_required",
-        resolutionId: "res_ask_1",
-        resolutionSummary: "Message requires review before delivery."
-      }
-    });
-  });
-
-  it("executes mahilo_boundaries with conversational category defaults", async () => {
+  it("executes set_boundaries with conversational category defaults", async () => {
     const { client, state } = createMockContractClient({
       promptContextResponse: {
         policy_guidance: {
@@ -2219,7 +2086,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_boundaries");
+    const tool = findTool(tools, "set_boundaries");
     const result = await tool.execute("tool_call_6", {
       action: "exception",
       category: "location",
@@ -2308,9 +2175,9 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
-  it("returns graceful server failures for mahilo_message previews", async () => {
+  it("returns graceful server failures for send_message sends", async () => {
     const { client } = createMockContractClient({
-      resolveError: new MahiloRequestError("Mahilo request failed with status 503", {
+      sendError: new MahiloRequestError("Mahilo request failed with status 503", {
         kind: "http",
         status: 503
       })
@@ -2325,9 +2192,8 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const result = await tool.execute("tool_call_7", {
-      action: "preview",
       message: "hello",
       recipient: "alice",
       senderConnectionId: "conn_sender"
@@ -2339,7 +2205,7 @@ describe("createMahiloOpenClawPlugin", () => {
         errorType: "server",
         retryable: true,
         status: "error",
-        tool: "mahilo_message"
+        tool: "send_message"
       }
     });
   });
@@ -2470,7 +2336,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const input = {
       declaredSelectors: {
         action: "share",
@@ -2487,14 +2353,14 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: toolResult,
-        toolName: "mahilo_message"
+        toolName: "send_message"
       },
       {
         agentId: "mahilo-agent",
         runId: "run_1",
         sessionKey: "session_1",
         toolCallId: "tool_call_post_send_1",
-        toolName: "mahilo_message"
+        toolName: "send_message"
       }
     );
 
@@ -2544,7 +2410,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const afterToolCall = findHook(hooks, "after_tool_call");
     const agentEnd = findHook(hooks, "agent_end");
     const input = {
@@ -2562,13 +2428,13 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: firstResult,
-        toolName: "mahilo_message"
+        toolName: "send_message"
       },
       {
         runId: "run_2a",
         sessionKey: "session_2",
         toolCallId: "tool_call_post_send_2a",
-        toolName: "mahilo_message"
+        toolName: "send_message"
       }
     );
     await agentEnd.execute(
@@ -2586,13 +2452,13 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: secondResult,
-        toolName: "mahilo_message"
+        toolName: "send_message"
       },
       {
         runId: "run_2b",
         sessionKey: "session_2",
         toolCallId: "tool_call_post_send_2b",
-        toolName: "mahilo_message"
+        toolName: "send_message"
       }
     );
     await agentEnd.execute(
@@ -2625,7 +2491,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "mahilo_message");
+    const tool = findTool(tools, "send_message");
     const input = {
       message: "hello",
       recipient: "alice",
@@ -2638,12 +2504,12 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: toolResult,
-        toolName: "mahilo_message"
+        toolName: "send_message"
       },
       {
         sessionKey: "session_3",
         toolCallId: "tool_call_post_send_3",
-        toolName: "mahilo_message"
+        toolName: "send_message"
       }
     );
 

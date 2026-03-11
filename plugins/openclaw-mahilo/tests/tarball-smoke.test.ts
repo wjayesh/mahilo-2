@@ -34,9 +34,10 @@ describe("tarball smoke test", () => {
     expect(summary.manifestEntry).toBe("./dist/index.js");
     expect(summary.requiredConfigKeys).toEqual(["baseUrl"]);
     expect(summary.toolNames).toEqual([
-      "mahilo_boundaries",
-      "mahilo_message",
-      "mahilo_network"
+      "ask_network",
+      "manage_network",
+      "send_message",
+      "set_boundaries"
     ]);
     expect(summary.commandNames).toEqual(["mahilo"]);
     expect(summary.hookNames).toEqual([

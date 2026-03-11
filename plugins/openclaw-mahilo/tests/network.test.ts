@@ -194,11 +194,10 @@ describe("executeMahiloNetworkAction", () => {
     expect(state.friendshipCalls).toEqual([{ status: "accepted" }]);
     expect(state.friendConnectionCalls).toEqual(["alice", "bob", "carol"]);
     expect(state.sendCalls.map((call) => call.payload.recipient)).toEqual(["alice", "carol"]);
-    expect(state.resolveCalls.map((call) => call.correlation_id)).toEqual([
+    expect(state.sendCalls.map((call) => call.payload.correlation_id)).toEqual([
       "corr_ask_1",
       "corr_ask_1"
     ]);
-    expect(state.outcomeCalls).toHaveLength(2);
   });
 
   it("handles unavailable contacts and transport failures without failing the whole ask-around flow", async () => {

@@ -166,10 +166,8 @@ function createResolveResponse(decision: Decision) {
 }
 
 describe("send tools", () => {
-  it("sends message when decision is allow", async () => {
-    const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("allow")
-    });
+  it("sends message when server allows", async () => {
+    const { client, state } = createMockClient();
 
     const result = await talkToAgent(
       client,
@@ -185,7 +183,6 @@ describe("send tools", () => {
     expect(result.status).toBe("sent");
     expect(result.messageId).toBe("msg_123");
     expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls).toHaveLength(1);
   });
 
   it("resolves a default sender connection when send tools omit senderConnectionId", async () => {
@@ -203,8 +200,7 @@ describe("send tools", () => {
           id: "conn_sender_default",
           label: "primary"
         }
-      ],
-      resolveResponse: createResolveResponse("allow")
+      ]
     });
 
     const result = await talkToAgent(
@@ -218,13 +214,11 @@ describe("send tools", () => {
 
     expect(result.status).toBe("sent");
     expect(state.agentConnectionCalls).toBe(1);
-    expect(state.resolveCalls[0]?.sender_connection_id).toBe("conn_sender_default");
     expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
   });
 
-  it("returns review_required for ask decisions in ask mode", async () => {
+  it("returns review_required when server holds message for review", async () => {
     const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("ask"),
       sendResponse: {
         message_id: "msg_review",
         recipient_results: [
@@ -251,7 +245,6 @@ describe("send tools", () => {
         recipient: "alice"
       },
       {
-        reviewMode: "ask",
         senderConnectionId: "conn_sender"
       }
     );
@@ -260,13 +253,10 @@ describe("send tools", () => {
     expect(result.decision).toBe("ask");
     expect(result.reason).toContain("requires review");
     expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls).toHaveLength(1);
-    expect(state.outcomeCalls[0]?.payload.outcome).toBe("review_requested");
   });
 
-  it("returns denied and reports blocked outcome when server rejects delivery", async () => {
+  it("returns denied when server rejects delivery", async () => {
     const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("deny"),
       sendResponse: {
         message_id: "msg_blocked",
         recipient_results: [
@@ -300,154 +290,10 @@ describe("send tools", () => {
     expect(result.status).toBe("denied");
     expect(result.reason).toContain("blocked");
     expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls).toHaveLength(1);
-    expect(state.outcomeCalls[0]?.payload.outcome).toBe("blocked");
   });
 
-  it("keeps ask decisions review_required even in auto review mode", async () => {
-    const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("ask"),
-      sendResponse: {
-        message_id: "msg_auto_review",
-        recipient_results: [
-          {
-            decision: "ask",
-            delivery_mode: "review_required",
-            delivery_status: "review_required",
-            recipient: "alice"
-          }
-        ],
-        status: "review_required"
-      }
-    });
-
-    const result = await talkToAgent(
-      client,
-      {
-        message: "share location",
-        recipient: "alice"
-      },
-      {
-        reviewMode: "auto",
-        senderConnectionId: "conn_sender"
-      }
-    );
-
-    expect(result.status).toBe("review_required");
-    expect(result.decision).toBe("ask");
-    expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls).toHaveLength(1);
-    expect(state.outcomeCalls[0]?.payload.outcome).toBe("review_requested");
-  });
-
-  it("keeps local policy guard as advisory while server allow drives send behavior", async () => {
-    const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("allow")
-    });
-
-    const result = await talkToAgent(
-      client,
-      {
-        declaredSelectors: {
-          action: "share",
-          resource: "location.current"
-        },
-        message: "My SSN is 123-45-6789",
-        recipient: "alice"
-      },
-      {
-        reviewMode: "ask",
-        senderConnectionId: "conn_sender"
-      }
-    );
-
-    expect(result.status).toBe("sent");
-    expect(result.decision).toBe("allow");
-    expect(result.localPolicyGuard?.decision).toBe("ask");
-    expect(result.localPolicyGuard?.reason).toContain("sensitive resource");
-    expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls[0]?.payload.outcome).toBe("sent");
-  });
-
-  it("can skip local policy guard when requested", async () => {
-    const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("allow")
-    });
-
-    const result = await talkToAgent(
-      client,
-      {
-        declaredSelectors: {
-          action: "share",
-          resource: "location.current"
-        },
-        message: "My SSN is 123-45-6789",
-        recipient: "alice"
-      },
-      {
-        reviewMode: "ask",
-        senderConnectionId: "conn_sender"
-      },
-      {
-        skipLocalPolicyGuard: true
-      }
-    );
-
-    expect(result.status).toBe("sent");
-    expect(result.localPolicyGuard).toBeUndefined();
-    expect(state.sendCalls).toHaveLength(1);
-  });
-
-  it("supports disabling outcome reports", async () => {
-    const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("allow")
-    });
-
-    const result = await talkToAgent(
-      client,
-      {
-        message: "hello",
-        recipient: "alice"
-      },
-      {
-        senderConnectionId: "conn_sender"
-      },
-      {
-        reportOutcomes: false
-      }
-    );
-
-    expect(result.status).toBe("sent");
-    expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls).toHaveLength(0);
-  });
-
-  it("does not fail send when outcome reporting fails", async () => {
-    const { client, state } = createMockClient({
-      reportOutcomeError: new Error("network down"),
-      resolveResponse: createResolveResponse("allow")
-    });
-
-    const result = await talkToAgent(
-      client,
-      {
-        message: "hello",
-        recipient: "alice"
-      },
-      {
-        senderConnectionId: "conn_sender"
-      }
-    );
-
-    expect(result.status).toBe("sent");
-    expect(state.sendCalls).toHaveLength(1);
-    expect(state.outcomeCalls).toHaveLength(1);
-  });
-
-  it("builds resolve and send payloads with normalized selectors and idempotency key", async () => {
-    const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("allow")
-    });
+  it("builds send payload with normalized selectors and idempotency key", async () => {
+    const { client, state } = createMockClient();
 
     await talkToAgent(
       client,
@@ -469,25 +315,6 @@ describe("send tools", () => {
       }
     );
 
-    expect(state.resolveCalls).toHaveLength(1);
-    expect(state.resolveCalls[0]).toEqual({
-      agent_session_id: "sess_123",
-      context: "greeting",
-      correlation_id: "corr_123",
-      declared_selectors: {
-        action: "share",
-        direction: "outbound",
-        resource: "location.current"
-      },
-      idempotency_key: "idem_123",
-      message: "hello",
-      payload_type: "text/plain",
-      recipient: "alice",
-      recipient_type: "user",
-      routing_hints: { labels: ["work"] },
-      sender_connection_id: "conn_sender"
-    });
-
     expect(state.sendCalls).toHaveLength(1);
     expect(state.sendCalls[0].idempotencyKey).toBe("idem_123");
     expect(state.sendCalls[0].payload).toEqual({
@@ -504,30 +331,13 @@ describe("send tools", () => {
       payload_type: "text/plain",
       recipient: "alice",
       recipient_type: "user",
-      resolution_id: "res_123",
       routing_hints: { labels: ["work"] },
-      sender_connection_id: "conn_sender"
-    });
-
-    expect(state.outcomeCalls).toHaveLength(1);
-    expect(state.outcomeCalls[0].idempotencyKey).toBe("idem_123");
-    expect(state.outcomeCalls[0].payload).toEqual({
-      message_id: "msg_123",
-      outcome: "sent",
-      recipient_results: [
-        {
-          outcome: "sent",
-          recipient: "alice"
-        }
-      ],
-      resolution_id: "res_123",
       sender_connection_id: "conn_sender"
     });
   });
 
   it("extracts message id and dedupe flag from nested send result", async () => {
     const { client } = createMockClient({
-      resolveResponse: createResolveResponse("allow"),
       sendResponse: {
         result: {
           deduplicated: true,
@@ -554,7 +364,6 @@ describe("send tools", () => {
 
   it("can send group messages", async () => {
     const { client, state } = createMockClient({
-      resolveResponse: createResolveResponse("allow"),
       sendResponse: {
         message_id: "msg_group_partial",
         recipient_results: [
@@ -589,12 +398,6 @@ describe("send tools", () => {
     expect(result.status).toBe("sent");
     expect(state.sendCalls).toHaveLength(1);
     expect(state.sendCalls[0].payload.recipient_type).toBe("group");
-    expect(state.outcomeCalls).toHaveLength(1);
-    expect(state.outcomeCalls[0]?.payload.outcome).toBe("partial_sent");
-    expect(state.outcomeCalls[0]?.payload.recipient_results).toEqual([
-      { outcome: "sent", recipient: "alice" },
-      { outcome: "review_requested", recipient: "bob" }
-    ]);
   });
 });
 

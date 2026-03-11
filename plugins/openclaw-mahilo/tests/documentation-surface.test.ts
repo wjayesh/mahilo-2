@@ -19,10 +19,10 @@ describe("documentation surface", () => {
     expect(guidedFirstRun).toContain('"action": "send_request"');
     expect(guidedFirstRun).toContain("Build your circle");
     expect(guidedFirstRun).toContain("first working reply");
-    expect(guidedFirstRun).toContain("mahilo_network");
+    expect(guidedFirstRun).toContain("ask_network");
     expect(guidedFirstRun).toContain("Mahilo ask-around update");
-    expect(guidedFirstRun).toContain("mahilo_message");
-    expect(guidedFirstRun).toContain("mahilo_boundaries");
+    expect(guidedFirstRun).toContain("send_message");
+    expect(guidedFirstRun).toContain("set_boundaries");
     expect(guidedFirstRun).toContain("callbackUrl");
     expect(guidedFirstRun).toContain("\"username\": \"your_handle\"");
     expect(guidedFirstRun).toContain("Success Scorecard");
@@ -34,11 +34,11 @@ describe("documentation surface", () => {
     const buildYourCircle = readDoc("docs/build-your-circle.md");
 
     expect(askYourContacts).toContain("networked OpenClaw power user");
-    expect(askYourContacts).toContain(`mahilo_network`);
+    expect(askYourContacts).toContain(`ask_network`);
     expect(askYourContacts).toContain('"I don\'t know"');
 
     expect(boundariesAndTrust).toContain("boundary-conscious participant");
-    expect(boundariesAndTrust).toContain("mahilo_boundaries");
+    expect(boundariesAndTrust).toContain("set_boundaries");
     expect(boundariesAndTrust).toContain("mahilo review");
 
     expect(buildYourCircle).toContain("community seed user");

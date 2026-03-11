@@ -62,9 +62,9 @@ describe("README install docs", () => {
     expect(readme).toContain("openclaw/plugin-sdk/core");
     expect(readme).toContain(MAHILO_CONTRACT_VERSION);
     expect(readme).toContain("single recommended first-run path");
-    expect(readme).toContain("mahilo_message");
-    expect(readme).toContain("mahilo_network");
-    expect(readme).toContain("mahilo_boundaries");
+    expect(readme).toContain("send_message");
+    expect(readme).toContain("manage_network");
+    expect(readme).toContain("set_boundaries");
     expect(readme).toContain("opinions/recommendations");
     expect(readme).toContain("health, financial, and contact details");
     expect(readme).toContain("mahilo setup");
