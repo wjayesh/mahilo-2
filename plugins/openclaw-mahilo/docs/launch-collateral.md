@@ -9,7 +9,7 @@ The goal is to validate the refreshed story with a small set of OpenClaw power u
 - Lead with the user outcome: ask your contacts from OpenClaw and get real answers from people you trust.
 - Keep the category line visible: Mahilo is a trust network for AI agents.
 - Show the wedge before the platform: ask-around, attributed replies, explicit "I don't know", and boundary review.
-- Be honest about the current first-run shape: saving `baseUrl` and the public `callbackUrl` once still exists before `mahilo setup` takes over.
+- Be honest about the current first-run shape: Mahilo defaults to `https://mahilo.io`, and inbound callback routing is auto-detected when OpenClaw is already exposed through gateway remote or Tailscale.
 - Do not lead with plugin migration, SDK modernization, contract versioning, or server internals.
 - Reuse shipped docs, fixture-backed demos, and listing copy instead of inventing a parallel launch narrative.
 

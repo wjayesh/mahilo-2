@@ -5,6 +5,10 @@ import {
   parseMahiloPluginConfig,
   type MahiloPluginConfig,
 } from "./config";
+import {
+  detectMahiloCallbackUrl,
+  isLikelyPublicCallbackUrl,
+} from "./callback-url";
 import { MAHILO_RUNTIME_PLUGIN_DESCRIPTION, MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
   registerMahiloOpenClawPlugin as registerLegacyMahiloOpenClawPlugin,
@@ -271,6 +275,7 @@ export function registerMahiloOpenClawPlugin(
         config,
         createClient,
         credentialSource,
+        runtimeContext: (api as unknown as Record<string, unknown>).config,
         runtimeBootstrapStore,
         senderResolver,
       }),
@@ -314,6 +319,7 @@ interface CreateSetupCommandOptions {
   config: MahiloPluginConfig;
   createClient: (config: MahiloPluginConfig) => MahiloContractClient;
   credentialSource: MahiloCredentialSource | null;
+  runtimeContext?: unknown;
   runtimeBootstrapStore: MahiloRuntimeBootstrapStore;
   senderResolver: MahiloSenderResolver;
 }
@@ -381,10 +387,16 @@ function createSetupCommand(
         readOptionalString(input.display_name);
       const preferredSenderConnectionId = readSenderConnectionId(input);
       const ping = readOptionalBoolean(input.ping) ?? true;
+      const runtimeState = options.runtimeBootstrapStore.read(options.config.baseUrl);
+      const setupConfig = await resolveBootstrapConfig(
+        options.config,
+        runtimeState,
+        options.runtimeContext,
+      );
 
       const details = await runMahiloSetup({
         callbackSecretResolver: options.callbackSecretResolver,
-        config: options.config,
+        config: setupConfig,
         createClient: options.createClient,
         credentialSource: options.credentialSource,
         displayName,
@@ -471,7 +483,7 @@ function createStartupBootstrapService(options: CreateStartupBootstrapServiceOpt
         return;
       }
 
-      const serviceConfig = resolveStartupBootstrapConfig(
+      const serviceConfig = await resolveBootstrapConfig(
         {
           ...options.config,
           apiKey,
@@ -931,12 +943,17 @@ function determineSetupBlocker(options: {
   }
 
   if (summary.connectivity.senderPingOk === false) {
+    const callbackUrl = callback.publicUrl;
+    const callbackPath = config.callbackPath ?? DEFAULT_WEBHOOK_ROUTE_PATH;
     return {
       kind: "callback_readiness",
       message: `Mahilo selected sender ${sender}, but the callback readiness probe did not succeed.`,
-      nextAction: callback.publicUrl
-        ? `Make sure HEAD requests to ${callback.publicUrl} reach OpenClaw and return 200, then rerun \`mahilo setup\`.`
-        : "Set a reachable callbackUrl in plugin config and rerun `mahilo setup`.",
+      nextAction:
+        callbackUrl && isLikelyPublicCallbackUrl(callbackUrl)
+          ? `Make sure HEAD requests to ${callbackUrl} reach OpenClaw and return 200, then rerun \`mahilo setup\`.`
+          : callbackUrl
+            ? `OpenClaw is only advertising ${callbackUrl}. Enable gateway remote/Tailscale exposure so ${callbackPath} is reachable from the internet or your tailnet, then rerun \`mahilo setup\`.`
+            : `Enable gateway remote/Tailscale exposure so ${callbackPath} is reachable from outside this machine, then rerun \`mahilo setup\`.`,
       operatorOwned: true,
     };
   }
@@ -992,14 +1009,18 @@ function buildCallbackOperatorBlocker(
   callbackUrl?: string,
 ): MahiloSetupBlocker {
   const callbackPath = config.callbackPath ?? DEFAULT_WEBHOOK_ROUTE_PATH;
+  const publicHint =
+    callbackUrl && isLikelyPublicCallbackUrl(callbackUrl)
+      ? `Make sure ${callbackUrl} terminates at the OpenClaw route ${callbackPath}, then rerun \`mahilo setup\`.`
+      : callbackUrl
+        ? `OpenClaw is only advertising ${callbackUrl}. Enable gateway remote/Tailscale exposure so ${callbackPath} is reachable from the internet or your tailnet, then rerun \`mahilo setup\`.`
+        : `Enable gateway remote/Tailscale exposure so ${callbackPath} is reachable from outside this machine, then rerun \`mahilo setup\`.`;
 
   return {
     kind: "callback_readiness",
     message:
       "Mahilo still needs one operator-owned callback step before it can finish default sender attachment.",
-    nextAction: callbackUrl
-      ? `Make sure ${callbackUrl} terminates at the OpenClaw route ${callbackPath}, then rerun \`mahilo setup\`.`
-      : `Set plugins.entries.mahilo.config.callbackUrl to the public URL that terminates at ${callbackPath}, then rerun \`mahilo setup\`.`,
+    nextAction: publicHint,
     operatorOwned: true,
   };
 }
@@ -1083,27 +1104,20 @@ function resolveStoredOrConfiguredCallbackUrl(
   return normalizeOptionalUrl(config.callbackUrl) ?? normalizeOptionalUrl(runtimeState?.callbackUrl);
 }
 
-function resolveStartupBootstrapConfig(
+async function resolveBootstrapConfig(
   config: MahiloPluginConfig,
   runtimeState: ReturnType<MahiloRuntimeBootstrapStore["read"]>,
   rawContext: unknown,
-): MahiloPluginConfig {
-  const configuredCallbackUrl = resolveStoredOrConfiguredCallbackUrl(config, runtimeState);
-  if (configuredCallbackUrl) {
-    return {
-      ...config,
-      callbackUrl: configuredCallbackUrl,
-    };
-  }
-
-  const context = readOptionalObject(rawContext);
-  const gatewayConfig = readOptionalObject(context?.config);
-  const gateway = readOptionalObject(gatewayConfig?.gateway);
-  const port = readOptionalInteger(gateway?.port) ?? 18789;
-
+): Promise<MahiloPluginConfig> {
+  const detectedCallback = detectMahiloCallbackUrl({
+    callbackPath: config.callbackPath,
+    configuredCallbackUrl: config.callbackUrl,
+    rawContext,
+    storedCallbackUrl: runtimeState?.callbackUrl,
+  });
   return {
     ...config,
-    callbackUrl: `http://localhost:${port}${config.callbackPath ?? DEFAULT_WEBHOOK_ROUTE_PATH}`,
+    callbackUrl: detectedCallback.publicUrl,
   };
 }
 
@@ -1143,10 +1157,6 @@ function dedupeStrings(values: string[]): string[] {
   }
 
   return output;
-}
-
-function readOptionalInteger(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
 function readOptionalObject(value: unknown): Record<string, unknown> | undefined {

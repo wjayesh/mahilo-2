@@ -1,4 +1,5 @@
 declare module "node:fs" {
+  export function existsSync(path: string | URL): boolean;
   export function mkdirSync(
     path: string | URL,
     options?: {
@@ -60,4 +61,16 @@ declare function setTimeout(
 
 declare const process: {
   env: Record<string, string | undefined>;
+};
+
+declare const Bun: {
+  spawnSync(command: string[], options?: {
+    stderr?: "pipe";
+    stdout?: "pipe";
+    timeout?: number;
+  }): {
+    exitCode: number;
+    stdout: Uint8Array;
+    stderr: Uint8Array;
+  };
 };

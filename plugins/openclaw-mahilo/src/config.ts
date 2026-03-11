@@ -4,6 +4,7 @@ import { MAHILO_CONTRACT_VERSION } from "./contract";
 import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
 
 export type ReviewMode = "auto" | "ask" | "manual";
+export const DEFAULT_MAHILO_BASE_URL = "https://mahilo.io";
 
 export interface MahiloPluginConfig {
   apiKey?: string;
@@ -65,7 +66,11 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
   const defaults = options.defaults ?? {};
   const requireApiKey = options.requireApiKey ?? true;
 
-  const baseUrl = normalizeBaseUrl(readRequiredString(config, "baseUrl"));
+  const baseUrl = normalizeBaseUrl(
+    Object.prototype.hasOwnProperty.call(config, "baseUrl")
+      ? readRequiredString(config, "baseUrl")
+      : DEFAULT_MAHILO_BASE_URL
+  );
   const apiKey = requireApiKey
     ? readRequiredString(config, "apiKey")
     : readOptionalString(config.apiKey);

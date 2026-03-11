@@ -11,6 +11,14 @@ import {
 } from "../src";
 
 describe("parseMahiloPluginConfig", () => {
+  it("defaults baseUrl to the global Mahilo server", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-key"
+    });
+
+    expect(config.baseUrl).toBe("https://mahilo.io");
+  });
+
   it("parses required fields and applies defaults", () => {
     const config = parseMahiloPluginConfig({
       apiKey: "mahilo-key",
@@ -51,9 +59,6 @@ describe("parseMahiloPluginConfig", () => {
   });
 
   it("throws when required fields are missing", () => {
-    expect(() => parseMahiloPluginConfig({ apiKey: "mahilo-key" })).toThrow(
-      "baseUrl must be a non-empty string"
-    );
     expect(() => parseMahiloPluginConfig({ baseUrl: "https://mahilo.example" })).toThrow(
       "apiKey must be a non-empty string"
     );

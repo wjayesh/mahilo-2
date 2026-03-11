@@ -131,7 +131,7 @@ Current expected result:
 
 ## 5. Auto-register from a configured apiKey
 
-If `apiKey` is present in plugin config, the plugin now auto-registers the default sender on startup. When `callbackUrl` is omitted, it falls back to `http://localhost:<gateway-port>/mahilo/incoming` for local-only testing.
+If `apiKey` is present in plugin config, the plugin now auto-registers the default sender on startup. When `callbackUrl` is omitted, the plugin first tries stored callback state, OpenClaw gateway remote config, and Tailscale exposure before falling back to `http://localhost:<gateway-port>/mahilo/incoming` for local-only testing.
 
 Expected gateway log line:
 

@@ -9,13 +9,12 @@
     "description": "Plugin-local runtime configuration only. Mahilo server is the source of truth for identity, policy decisions, selector normalization, and callback secret lifecycle.",
     "type": "object",
     "additionalProperties": false,
-    "required": [
-      "baseUrl"
-    ],
+    "required": [],
     "properties": {
       "baseUrl": {
         "type": "string",
-        "description": "Mahilo server base URL, for example https://mahilo.example"
+        "default": "https://mahilo.io",
+        "description": "Optional Mahilo server base URL override. Defaults to the global Mahilo server at https://mahilo.io."
       },
       "apiKey": {
         "type": "string",
@@ -26,12 +25,12 @@
       },
       "callbackUrl": {
         "type": "string",
-        "description": "Recommended public callback URL for this OpenClaw runtime. When present, startup auto-registration uses it to register or repair the default Mahilo sender connection."
+        "description": "Optional public callback URL override. When omitted, the plugin auto-detects a callback URL from OpenClaw gateway remote/Tailscale settings and only falls back to localhost for local-only testing."
       },
       "callbackPath": {
         "type": "string",
         "pattern": "^\\/.*",
-        "description": "Optional callback path override (must start with '/') when callbackUrl is not provided"
+        "description": "Optional callback path override (must start with '/') when callbackUrl auto-detection is used"
       },
       "inboundSessionKey": {
         "type": "string",

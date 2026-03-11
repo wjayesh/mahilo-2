@@ -68,25 +68,22 @@ Add the Mahilo plugin entry to the same OpenClaw config file:
     "entries": {
       "mahilo": {
         "enabled": true,
-        "config": {
-          "baseUrl": "http://localhost:8080",
-          "callbackUrl": "https://openclaw.example/mahilo/incoming"
-        }
+        "config": {}
       }
     }
   }
 }
 ```
 
+By default, the plugin talks to the global Mahilo server at `https://mahilo.io`.
+
 If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will auto-register or repair the default sender on startup. When `apiKey` is omitted, `mahilo setup` can bootstrap the identity and store the issued key locally for the OpenClaw runtime.
 
 `plugins.entries.mahilo.config` accepts:
 
-- Required:
-  - `baseUrl`
-- Recommended for public inbound replies:
-  - `callbackUrl`
 - Optional:
+  - `baseUrl` (defaults to `https://mahilo.io`; only use this as an override)
+  - `callbackUrl` (advanced override if you already know the public webhook URL)
   - `inboundSessionKey` (defaults to `main`)
   - `inboundAgentId`
   - `apiKey`
@@ -97,7 +94,14 @@ If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will
 
 Do not add `contractVersion`, `pluginVersion`, or `callbackSecret` to plugin config. Those are server-owned and rejected by the plugin config parser.
 
-When `callbackUrl` is omitted, startup auto-registration falls back to `http://localhost:<gateway-port>/mahilo/incoming`. That is good enough for local testing, but external Mahilo agents will not be able to reach that address.
+When `callbackUrl` is omitted, startup auto-registration tries this order:
+
+1. the stored callback URL from the last successful Mahilo registration
+2. the OpenClaw gateway remote URL, if configured
+3. Tailscale serve/funnel hostname, if enabled
+4. `http://localhost:<gateway-port>/mahilo/incoming` as a local-only fallback
+
+So normal users do not need to type `callbackUrl` manually. The override exists for advanced setups only.
 
 When `mahilo setup` bootstraps an API key or rotates a callback secret, the plugin stores those server-issued values in a local runtime store under `$XDG_CONFIG_HOME/mahilo/openclaw-plugin-runtime.json` (or `~/.config/mahilo/openclaw-plugin-runtime.json` when `XDG_CONFIG_HOME` is unset). That keeps server-owned secrets out of plugin config while still avoiding setup retry loops.
 
@@ -161,7 +165,7 @@ When a send, preview, or context-fetch call omits `senderConnectionId`, the plug
 
 ## First Connectivity Check
 
-After saving `baseUrl` and the public `callbackUrl`, restart OpenClaw and run:
+After installing the plugin, restart OpenClaw and run:
 
 ```text
 mahilo setup
@@ -172,7 +176,7 @@ On a fresh runtime, `mahilo setup` can:
 - create the Mahilo identity if you provide a username
 - store the issued API key locally
 - register or repair the default OpenClaw sender connection
-- tell you the exact remaining blocker when callback readiness still needs operator help
+- tell you the exact remaining blocker when OpenClaw is still not publicly reachable enough for inbound replies
 
 Then run:
 
@@ -190,9 +194,9 @@ If the first probe fails:
 
 1. Rerun `mahilo setup` first and follow the blocker it reports.
 2. Run `mahilo reconnect`.
-3. Verify `plugins.entries.mahilo.config.baseUrl` points to the active Mahilo server.
+3. Verify `plugins.entries.mahilo.config.baseUrl` still points to the intended Mahilo server if you overrode the default.
 4. If you preseeded credentials manually, verify `plugins.entries.mahilo.config.apiKey` is valid and has plugin access.
-5. Confirm `callbackUrl` terminates at the OpenClaw webhook route (`callbackPath`, default `/mahilo/incoming`) and answers `HEAD` probes with `200`.
+5. Confirm OpenClaw is reachable through gateway remote or Tailscale and that the webhook route (`callbackPath`, default `/mahilo/incoming`) answers `HEAD` probes with `200`.
 
 ## Upgrade Notes
 
@@ -212,13 +216,13 @@ If you are moving from a repo-local install to the published package:
 
 ## Troubleshooting
 
-- `baseUrl must be a valid absolute URL`: use a full URL such as `http://localhost:8080` or `https://mahilo.example`, not a relative path.
+- `baseUrl must be a valid absolute URL`: use a full URL such as `https://mahilo.io` or `https://mahilo.example`, not a relative path.
 - `apiKey must be a non-empty string`: if you choose to preseed credentials, set `plugins.entries.mahilo.config.apiKey`; otherwise remove the field entirely and let `mahilo setup` bootstrap it.
 - `unsupported plugin config key(s)` or `Server-owned/deprecated keys are not allowed in plugin config`: remove unknown knobs and legacy keys such as `contractVersion`, `pluginVersion`, and `callbackSecret`.
 - `callbackPath must start with '/'`: use a route like `/mahilo/incoming`.
 - `promptContextEnabled must be a boolean`: set it to `true` or `false`, not a string value.
 - `reviewMode must be one of: auto, ask, manual`: choose one of the supported review modes exactly.
-- `Mahilo setup ... callback step`: set `plugins.entries.mahilo.config.callbackUrl` to the public URL that terminates at `callbackPath`, then rerun `mahilo setup`.
+- `Mahilo setup ... callback step`: enable OpenClaw gateway remote or Tailscale exposure so `/mahilo/incoming` is reachable, then rerun `mahilo setup`. If you already have a public webhook URL and auto-detection is wrong, set `plugins.entries.mahilo.config.callbackUrl` as an override.
 - `Mahilo status: connectivity checks failed`: rerun `mahilo setup`, then run `mahilo reconnect` and check server reachability, API key scope, and callback alignment.
 
 ## Local Development From This Repo

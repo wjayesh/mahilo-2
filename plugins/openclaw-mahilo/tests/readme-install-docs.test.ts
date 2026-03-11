@@ -50,9 +50,10 @@ describe("README install docs", () => {
     expect(readme).toContain(`"${MAHILO_PLUGIN_PACKAGE_NAME}"`);
     expect(readme).toContain(MAHILO_PLUGIN_CONFIG_ENTRY_KEY);
     expect(readme).toContain(`"${MAHILO_RUNTIME_PLUGIN_ID}"`);
-    expect(readme).toContain('"baseUrl"');
+    expect(readme).toContain("baseUrl");
     expect(readme).toContain('"apiKey"');
-    expect(readme).toContain('"callbackUrl"');
+    expect(readme).toContain("callbackUrl");
+    expect(readme).toContain("https://mahilo.io");
     expect(readme).toContain("local runtime store");
   });
 

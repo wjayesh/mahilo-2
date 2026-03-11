@@ -23,7 +23,7 @@ describe("documentation surface", () => {
     expect(guidedFirstRun).toContain("Mahilo ask-around update");
     expect(guidedFirstRun).toContain("send_message");
     expect(guidedFirstRun).toContain("set_boundaries");
-    expect(guidedFirstRun).toContain("callbackUrl");
+    expect(guidedFirstRun).toContain("https://mahilo.io");
     expect(guidedFirstRun).toContain("\"username\": \"your_handle\"");
     expect(guidedFirstRun).toContain("Success Scorecard");
   });

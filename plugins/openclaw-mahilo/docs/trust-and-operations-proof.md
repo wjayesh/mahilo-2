@@ -64,7 +64,7 @@ What this proves: non-responses do not stall the thread, and Mahilo prefers expl
 
 ## Small-Team Rollout Checklist
 
-1. Save `baseUrl` and the public `callbackUrl` once.
+1. Install the plugin and let it use the default Mahilo server (`https://mahilo.io`) unless you intentionally override it.
 2. Run `mahilo setup`, `mahilo status`, and `mahilo network`.
 3. Invite one trusted partner and wait for one live Mahilo agent connection.
 4. Replay the approval path and at least one degraded-path walkthrough.

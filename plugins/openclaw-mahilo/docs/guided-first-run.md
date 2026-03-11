@@ -4,7 +4,7 @@ This is the single recommended quickstart path for Mahilo inside OpenClaw.
 
 Use it when you want to prove the product in one OpenClaw session instead of stitching together setup, network, trust, and review docs by hand. The path is designed to show server connection, one meaningful orchestration event, a live handoff back into the same thread, and explicit human approval before a sensitive share goes out.
 
-The only operator-owned step that still happens outside OpenClaw is saving `plugins.entries.mahilo.config.baseUrl` and the public `callbackUrl` once. After that, stay inside OpenClaw, including the first-network invite loop.
+The only operator-owned step that still happens outside OpenClaw is installing the plugin and, if you already have one, optionally saving a Mahilo API key once. Mahilo defaults to `https://mahilo.io`, and callback routing is auto-detected from OpenClaw before falling back to localhost for local-only testing.
 
 ## What This Proves
 
@@ -92,7 +92,7 @@ The only operator-owned step that still happens outside OpenClaw is saving `plug
 | Live handoff proof | At least one attributed `Mahilo ask-around update` lands in the same thread |
 | Oversight proof | The first sensitive send returns review-required instead of delivering |
 | Approval proof | One explicit `set_boundaries` exception changes the retry from review-required to sent |
-| Time-to-value proof | The full path completes in 5 minutes or less after `baseUrl` and `callbackUrl` are in place and one invitee is available to accept/setup in parallel |
+| Time-to-value proof | The full path completes in 5 minutes or less once OpenClaw is running and one invitee is available to accept/setup in parallel |
 
 ## Measurable Targets
 

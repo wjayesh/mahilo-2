@@ -69,7 +69,7 @@ const EXPECTED_HOOK_NAMES = [
   "before_prompt_build"
 ];
 
-const EXPECTED_REQUIRED_CONFIG_KEYS = ["baseUrl"];
+const EXPECTED_REQUIRED_CONFIG_KEYS: string[] = [];
 
 const EXPECTED_ROUTE_PATHS = ["/mahilo/incoming"];
 
@@ -228,8 +228,7 @@ function createScratchConfig(scratchDir: string): ScratchConfig {
       entries: {
         mahilo: {
           config: {
-            apiKey: "mhl_test",
-            baseUrl: "https://mahilo.example"
+            apiKey: "mhl_test"
           },
           enabled: true
         }

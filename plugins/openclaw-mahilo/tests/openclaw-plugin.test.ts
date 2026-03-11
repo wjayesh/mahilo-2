@@ -898,7 +898,7 @@ describe("createMahiloOpenClawPlugin", () => {
     }
   });
 
-  it("reports callback readiness as the single remaining blocker when no callbackUrl is configured", async () => {
+  it("falls back to localhost callback detection when no callbackUrl is configured", async () => {
     const runtimeStore = createTempRuntimeBootstrapStore();
 
     try {
@@ -922,8 +922,41 @@ describe("createMahiloOpenClawPlugin", () => {
         typeof (result as Record<string, unknown>).text === "string"
           ? ((result as Record<string, unknown>).text as string)
           : "";
-      expect(replyText).toContain("callbackUrl");
+      expect(replyText).toContain("Connectivity checks passed");
+      expect(replyText).toContain("http://localhost:18789/mahilo/incoming");
+      expect(replyText).toContain("\"status\": \"success\"");
+    } finally {
+      runtimeStore.cleanup();
+    }
+  });
+
+  it("reports a gateway exposure blocker when only localhost callback detection is available and the ping fails", async () => {
+    const runtimeStore = createTempRuntimeBootstrapStore();
+
+    try {
+      const { client } = createMockContractClient({
+        agentConnectionsResponse: [],
+        pingAgentConnectionError: new Error("connect ECONNREFUSED")
+      });
+      const plugin = createMahiloOpenClawPlugin({
+        createClient: () => client,
+        runtimeBootstrapStore: runtimeStore.store
+      });
+      const { api, commands } = createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example"
+      });
+
+      await plugin.register?.(api);
+
+      const result = await runMahiloOperatorCommand(commands, "setup");
+      const replyText =
+        typeof (result as Record<string, unknown>).text === "string"
+          ? ((result as Record<string, unknown>).text as string)
+          : "";
+
       expect(replyText).toContain("\"kind\": \"callback_readiness\"");
+      expect(replyText).toContain("Enable gateway remote/Tailscale exposure");
       expect(replyText).toContain("\"status\": \"blocked\"");
     } finally {
       runtimeStore.cleanup();

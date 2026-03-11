@@ -187,7 +187,10 @@ export async function getMahiloRelationshipView(
       summary: formatRelationshipDirectorySummary(counts, {
         activityCount: recentActivityProbe.value?.counts.total,
         activityUnavailable: Boolean(recentActivityProbe.error),
-        agentConnectionCount: agentConnectionsProbe.value?.length
+        agentConnectionCount: agentConnectionsProbe.value?.length,
+        contacts,
+        pendingIncoming: pendingDirectory.incoming,
+        pendingOutgoing: pendingDirectory.outgoing
       }),
       warnings: warnings.length > 0 ? warnings : undefined
     };
@@ -744,6 +747,9 @@ function formatRelationshipDirectorySummary(
     activityCount?: number;
     activityUnavailable?: boolean;
     agentConnectionCount?: number;
+    contacts?: MahiloContact[];
+    pendingIncoming?: MahiloPendingFriendRequest[];
+    pendingOutgoing?: MahiloPendingFriendRequest[];
   } = {}
 ): string {
   const parts: string[] = [];
@@ -755,9 +761,21 @@ function formatRelationshipDirectorySummary(
   }
 
   parts.push(
-    `${counts.contacts} contact${counts.contacts === 1 ? "" : "s"}`,
-    `${counts.pendingIncoming} incoming request${counts.pendingIncoming === 1 ? "" : "s"}`,
-    `${counts.pendingOutgoing} outgoing request${counts.pendingOutgoing === 1 ? "" : "s"}`
+    formatCountWithExamples(
+      counts.contacts,
+      "contact",
+      formatContactExamples(options.contacts)
+    ),
+    formatCountWithExamples(
+      counts.pendingIncoming,
+      "incoming request",
+      formatPendingRequestExamples(options.pendingIncoming)
+    ),
+    formatCountWithExamples(
+      counts.pendingOutgoing,
+      "outgoing request",
+      formatPendingRequestExamples(options.pendingOutgoing)
+    )
   );
 
   if (typeof options.activityCount === "number") {
@@ -777,6 +795,55 @@ function formatRelationshipDirectorySummary(
   }
 
   return summary;
+}
+
+function formatCountWithExamples(
+  count: number,
+  singular: string,
+  examples?: string
+): string {
+  const label = `${count} ${singular}${count === 1 ? "" : "s"}`;
+  return examples ? `${label} (${examples})` : label;
+}
+
+function formatContactExamples(contacts: MahiloContact[] | undefined): string | undefined {
+  if (!contacts || contacts.length === 0) {
+    return undefined;
+  }
+
+  const labels = uniqueNonEmptyLabels(contacts.map((contact) => contact.label));
+  return formatExampleList(labels);
+}
+
+function formatPendingRequestExamples(
+  requests: MahiloPendingFriendRequest[] | undefined
+): string | undefined {
+  if (!requests || requests.length === 0) {
+    return undefined;
+  }
+
+  const labels = uniqueNonEmptyLabels(
+    requests.map((request) => formatTargetLabel(request) ?? request.label)
+  );
+  return formatExampleList(labels);
+}
+
+function uniqueNonEmptyLabels(labels: Array<string | undefined>): string[] {
+  return [...new Set(labels.map((label) => label?.trim()).filter((label): label is string => Boolean(label)))];
+}
+
+function formatExampleList(labels: string[]): string | undefined {
+  if (labels.length === 0) {
+    return undefined;
+  }
+
+  const visibleLabels = labels.slice(0, 3);
+  const overflow = labels.length - visibleLabels.length;
+  if (overflow > 0) {
+    return `${visibleLabels.join(", ")} +${overflow} more`;
+  }
+
+  return visibleLabels.join(", ");
 }
 
 function formatZeroContactGuidance(

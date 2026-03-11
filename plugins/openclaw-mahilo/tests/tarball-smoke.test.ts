@@ -32,7 +32,7 @@ describe("tarball smoke test", () => {
     expect(summary.extensionName).toBe("@mahilo/openclaw-mahilo");
     expect(summary.packageExtensionEntry).toBe("./dist/index.js");
     expect(summary.manifestEntry).toBe("./dist/index.js");
-    expect(summary.requiredConfigKeys).toEqual(["baseUrl"]);
+    expect(summary.requiredConfigKeys).toEqual([]);
     expect(summary.toolNames).toEqual([
       "ask_network",
       "manage_network",

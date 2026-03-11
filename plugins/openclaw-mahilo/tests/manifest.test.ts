@@ -201,7 +201,7 @@ describe("openclaw.plugin.json", () => {
       return;
     }
 
-    expect(required).toEqual(["baseUrl"]);
+    expect(required).toEqual([]);
 
     const properties = configSchema.properties;
     expect(isRecord(properties)).toBe(true);

@@ -261,7 +261,7 @@ describe("executeMahiloRelationshipAction", () => {
       source: "mahilo_server",
       status: "success",
       summary:
-        "Mahilo network: 1 sender connection, 1 contact, 1 incoming request, 1 outgoing request, 2 recent activity items."
+        "Mahilo network: 1 sender connection, 1 contact (Alice), 1 incoming request (@bob), 1 outgoing request (@carol), 2 recent activity items."
     });
     expect(state.friendshipCalls).toEqual([{ status: "accepted" }, { status: "pending" }]);
     expect(state.friendConnectionCalls).toEqual(["alice"]);
@@ -302,7 +302,7 @@ describe("executeMahiloRelationshipAction", () => {
       source: "mahilo_server",
       status: "success",
       summary:
-        "Mahilo network: 0 sender connections, 1 contact, 0 incoming requests, 0 outgoing requests, recent activity unavailable.",
+        "Mahilo network: 0 sender connections, 1 contact (Alice), 0 incoming requests, 0 outgoing requests, recent activity unavailable.",
       warnings: [
         "Couldn't load recent Mahilo activity: review queue unavailable"
       ]
@@ -366,7 +366,7 @@ describe("executeMahiloRelationshipAction", () => {
       source: "mahilo_server",
       status: "success",
       summary:
-        "Mahilo network: 0 sender connections, 0 contacts, 0 incoming requests, 1 outgoing request, no recent activity yet. Build your circle next: ask the person you invited to accept the pending Mahilo request and finish Mahilo setup in OpenClaw. Then ask around here for your first working reply."
+        "Mahilo network: 0 sender connections, 0 contacts, 0 incoming requests, 1 outgoing request (@alice), no recent activity yet. Build your circle next: ask the person you invited to accept the pending Mahilo request and finish Mahilo setup in OpenClaw. Then ask around here for your first working reply."
     });
   });
 
