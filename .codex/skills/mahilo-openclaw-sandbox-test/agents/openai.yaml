@@ -1,0 +1,4 @@
+version: 1
+display_name: Mahilo OpenClaw Sandbox Test
+short_description: Test the Mahilo plugin in an isolated local OpenClaw sandbox.
+default_prompt: Test the Mahilo OpenClaw plugin in a fresh isolated sandbox without touching any existing OpenClaw install. Verify plugin load, tool registration, seeded Mahilo flows, and whether live inbound replies route back into the same OpenClaw session.
