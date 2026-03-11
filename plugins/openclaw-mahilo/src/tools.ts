@@ -1,4 +1,3 @@
-import type { ReviewMode } from "./config";
 import {
   MahiloRequestError,
   type MahiloAgentConnectionSummary,
@@ -7,12 +6,10 @@ import {
   type MahiloFriendshipSummary
 } from "./client";
 import {
-  applyLocalPolicyGuard,
   extractDecision,
   extractResolutionId,
   normalizeDeclaredSelectors,
   type DeclaredSelectors,
-  type LocalPolicyGuardResult,
   type PolicyDecision
 } from "./policy-helpers";
 import {
@@ -24,7 +21,6 @@ import { resolveMahiloSenderConnection } from "./sender-resolution";
 
 export interface MahiloToolContext {
   agentSessionId?: string;
-  reviewMode?: ReviewMode;
   senderConnectionId?: string;
 }
 
@@ -44,16 +40,9 @@ export interface TalkToGroupInput extends MahiloSendToolInput {
   groupId?: string;
 }
 
-export interface ToolExecutionOptions {
-  reportOutcomes?: boolean;
-  reviewMode?: ReviewMode;
-  skipLocalPolicyGuard?: boolean;
-}
-
 export interface MahiloToolResult {
   decision: PolicyDecision;
   deduplicated?: boolean;
-  localPolicyGuard?: LocalPolicyGuardResult;
   messageId?: string;
   reason?: string;
   resolutionId?: string;
@@ -187,19 +176,17 @@ export interface MahiloSendOutcomeSummary {
 export async function talkToAgent(
   client: MahiloContractClient,
   input: MahiloSendToolInput,
-  context: MahiloToolContext,
-  options: ToolExecutionOptions = {}
+  context: MahiloToolContext
 ): Promise<MahiloToolResult> {
-  return executeSendTool(client, "user", input, context, options);
+  return executeSendTool(client, "user", input, context);
 }
 
 export async function talkToGroup(
   client: MahiloContractClient,
   input: TalkToGroupInput,
-  context: MahiloToolContext,
-  options: ToolExecutionOptions = {}
+  context: MahiloToolContext
 ): Promise<MahiloToolResult> {
-  return executeSendTool(client, "group", input, context, options);
+  return executeSendTool(client, "group", input, context);
 }
 
 export async function listMahiloContacts(provider?: ContactsProvider): Promise<MahiloContact[]>;
@@ -259,7 +246,7 @@ export async function previewMahiloSend(
   const recipientType = input.recipientType ?? "user";
   const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
   const response = await client.resolveDraft(
-    buildResolvePayload(recipientType, input, context, normalizedSelectors)
+    buildSendPayload(recipientType, input, context, normalizedSelectors)
   );
 
   return summarizePreviewResponse(response, normalizedSelectors, input.recipient, recipientType);
@@ -631,29 +618,14 @@ async function executeSendTool(
   client: MahiloContractClient,
   recipientType: "group" | "user",
   input: MahiloSendToolInput,
-  context: MahiloToolContext,
-  options: ToolExecutionOptions
+  context: MahiloToolContext
 ): Promise<MahiloToolResult> {
   const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
-
-  const localPolicyGuard = options.skipLocalPolicyGuard
-    ? undefined
-    : applyLocalPolicyGuard({ message: input.message, selectors: normalizedSelectors });
-
-  const resolvePayload = buildResolvePayload(recipientType, input, context, normalizedSelectors);
-
-  const resolveResponse = await client.resolveDraft(resolvePayload);
-  const preflightDecision = extractDecision(resolveResponse);
-  const preflightResolutionId = extractResolutionId(resolveResponse);
-
-  const sendPayload = compactObject({
-    ...resolvePayload,
-    resolution_id: preflightResolutionId
-  });
+  const sendPayload = buildSendPayload(recipientType, input, context, normalizedSelectors);
 
   const sendResponse = await client.sendMessage(sendPayload, input.idempotencyKey);
-  const sendDecision = extractDecision(sendResponse, preflightDecision);
-  const resolutionId = extractResolutionId(sendResponse) ?? preflightResolutionId;
+  const sendDecision = extractDecision(sendResponse);
+  const resolutionId = extractResolutionId(sendResponse);
   const messageId = extractMessageId(sendResponse);
   const deduplicated = extractDeduplicated(sendResponse);
   const sendOutcomeSummary = summarizeMahiloSendOutcome(
@@ -662,22 +634,9 @@ async function executeSendTool(
     input.recipient
   );
 
-  if ((options.reportOutcomes ?? true) && messageId) {
-    const outcomePayload = compactObject({
-      message_id: messageId,
-      outcome: sendOutcomeSummary.outcome,
-      recipient_results: sendOutcomeSummary.recipientResults,
-      resolution_id: resolutionId,
-      sender_connection_id: context.senderConnectionId
-    });
-
-    await reportOutcomeSafely(client, outcomePayload, input.idempotencyKey);
-  }
-
   return {
     decision: sendDecision,
     deduplicated,
-    localPolicyGuard,
     messageId,
     reason: sendOutcomeSummary.reason,
     resolutionId,
@@ -686,19 +645,7 @@ async function executeSendTool(
   };
 }
 
-async function reportOutcomeSafely(
-  client: MahiloContractClient,
-  payload: Record<string, unknown>,
-  idempotencyKey?: string
-): Promise<void> {
-  try {
-    await client.reportOutcome(payload, idempotencyKey);
-  } catch {
-    // Outcome reporting should not fail the tool execution path.
-  }
-}
-
-function buildResolvePayload(
+function buildSendPayload(
   recipientType: "group" | "user",
   input: MahiloSendToolInput,
   context: MahiloToolContext,

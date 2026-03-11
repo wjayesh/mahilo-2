@@ -17,7 +17,6 @@ import {
   type MahiloToolContext,
   type PreviewMahiloSendInput,
   type TalkToGroupInput,
-  type ToolExecutionOptions,
 } from "./tools";
 
 import { resolveMahiloSenderConnection } from "./sender-resolution";
@@ -25,19 +24,17 @@ import { resolveMahiloSenderConnection } from "./sender-resolution";
 export async function talkToAgent(
   client: MahiloContractClient,
   input: MahiloSendToolInput,
-  context: MahiloToolContext,
-  options: ToolExecutionOptions = {}
+  context: MahiloToolContext
 ) {
-  return talkToAgentBase(client, input, await resolveToolContext(client, context), options);
+  return talkToAgentBase(client, input, await resolveToolContext(client, context));
 }
 
 export async function talkToGroup(
   client: MahiloContractClient,
   input: TalkToGroupInput,
-  context: MahiloToolContext,
-  options: ToolExecutionOptions = {}
+  context: MahiloToolContext
 ) {
-  return talkToGroupBase(client, input, await resolveToolContext(client, context), options);
+  return talkToGroupBase(client, input, await resolveToolContext(client, context));
 }
 
 export async function previewMahiloSend(

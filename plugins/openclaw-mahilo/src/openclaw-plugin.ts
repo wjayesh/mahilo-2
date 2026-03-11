@@ -22,8 +22,7 @@ import {
 import {
   createMahiloClientFromConfig,
   parseMahiloPluginConfig,
-  type MahiloPluginConfig,
-  type ReviewMode
+  type MahiloPluginConfig
 } from "./config";
 import type { DeclaredSelectors } from "./policy-helpers";
 import { fetchMahiloPromptContext } from "./prompt-context";
@@ -39,20 +38,14 @@ import {
 import { MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
 import {
   createMahiloBoundaryChange,
-  getMahiloContext,
-  previewMahiloSend,
   talkToAgent,
   talkToGroup,
   type MahiloBoundaryChangeInput,
   type MahiloBoundaryChangeResult,
   type ContactsProvider,
-  type GetMahiloContextInput,
-  type MahiloContextToolResult,
-  type MahiloPreviewResult,
   type MahiloSendToolInput,
   type MahiloToolResult,
   type MahiloToolContext,
-  type PreviewMahiloSendInput,
   type TalkToGroupInput
 } from "./tools-default-sender";
 import type { MahiloInboundWebhookPayload } from "./webhook";
@@ -89,15 +82,9 @@ const MAHILO_SET_BOUNDARIES_TOOL_NAME = "set_boundaries";
 
 type MahiloBoundaryToolAction = "exception" | "set";
 type MahiloBoundaryToolDetails = MahiloBoundaryChangeResult;
-type MahiloManageNetworkToolDetails =
-  | MahiloAskAroundActionResult
-  | MahiloRelationshipActionResult;
+type MahiloManageNetworkToolDetails = MahiloRelationshipActionResult;
 type MahiloAskNetworkToolDetails = MahiloAskAroundActionResult;
-type MahiloSendMessageToolAction = "context" | "preview" | "send";
-type MahiloSendMessageToolDetails =
-  | MahiloContextToolResult
-  | MahiloPreviewResult
-  | MahiloToolResult;
+type MahiloSendMessageToolDetails = MahiloToolResult;
 
 interface MahiloToolFailure {
   code?: string;
@@ -186,28 +173,8 @@ function createSendMessageTool(
       "Send one message through Mahilo to a person or a group. Mahilo infers the sender connection, checks boundaries, and routes the delivery.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloSendMessageToolDetails>(MAHILO_SEND_MESSAGE_TOOL_NAME, async () => {
-        const action = parseSendMessageAction(rawInput);
-        if (action === "context") {
-          const result = await getMahiloContext(client, parseGetMahiloContextInput(rawInput), {
-            cache: undefined
-          });
-          const text = result.ok
-            ? `Mahilo context ready from ${result.source}.`
-            : `Mahilo context unavailable: ${result.error ?? "request failed"}`;
-          return toAgentToolResult(result, text);
-        }
-
-        if (action === "preview") {
-          const result = await previewMahiloSend(
-            client,
-            parsePreviewMahiloSendInput(rawInput),
-            parseToolContext(rawInput, config)
-          );
-          return toAgentToolResult(result, formatPreviewToolText(result));
-        }
-
         const { input, recipientType } = parseSendMessageToolInput(rawInput);
-        const context = parseToolContext(rawInput, config);
+        const context = parseToolContext(rawInput);
         const result =
           recipientType === "group"
             ? await talkToGroup(client, input as TalkToGroupInput, context)
@@ -220,13 +187,17 @@ function createSendMessageTool(
     parameters: {
       additionalProperties: false,
       properties: {
-        message: { type: "string" },
-        target: { type: "string" },
-        targetType: {
-          enum: ["group", "person"],
+        action: {
+          description: "What the sender is doing with the resource (e.g. share, recommend, request). Defaults to share.",
           type: "string"
         },
-        target_type: {
+        message: { type: "string" },
+        resource: {
+          description: "What kind of data is being shared (e.g. location.current, health.metric, calendar.availability, message.general). Defaults to message.general.",
+          type: "string"
+        },
+        target: { type: "string" },
+        targetType: {
           enum: ["group", "person"],
           type: "string"
         }
@@ -243,24 +214,9 @@ function createManageNetworkTool(
 ): AnyAgentTool {
   return {
     description:
-      "Manage your Mahilo network: list contacts and pending requests, send a friend request, or accept or decline a request.",
+      "Manage your Mahilo network: list contacts and pending requests, send a friend request, or accept/decline a request. Defaults to listing contacts when no action is given.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloManageNetworkToolDetails>(MAHILO_MANAGE_NETWORK_TOOL_NAME, async () => {
-        const hiddenNetworkAction = normalizeMahiloNetworkAction(
-          readOptionalString(readInputObject(rawInput === undefined ? {} : rawInput).action)
-        );
-        if (hiddenNetworkAction === "ask_around") {
-          const result = await executeMahiloNetworkAction(
-            client,
-            parseAskNetworkToolInput(rawInput),
-            parseToolContext(rawInput, config)
-          );
-          if (result.action !== "ask_around") {
-            throw new Error("Mahilo manage-network compatibility path did not return ask-around");
-          }
-          return toAgentToolResult(result, formatAskNetworkToolText(result));
-        }
-
         const input = parseManageNetworkToolInput(rawInput);
         const result = await executeMahiloRelationshipAction(client, input);
         return toAgentToolResult(result, result.summary);
@@ -279,7 +235,6 @@ function createManageNetworkTool(
           type: "string"
         },
         friendshipId: { type: "string" },
-        friendship_id: { type: "string" },
         username: { type: "string" }
       },
       type: "object"
@@ -297,7 +252,7 @@ function createAskNetworkTool(
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloAskNetworkToolDetails>(MAHILO_ASK_NETWORK_TOOL_NAME, async () => {
         const input = parseAskNetworkToolInput(rawInput);
-        const result = await executeMahiloNetworkAction(client, input, parseToolContext(rawInput, config));
+        const result = await executeMahiloNetworkAction(client, input, parseToolContext(rawInput));
         if (result.action !== "ask_around") {
           throw new Error("Mahilo ask-network execution did not return an ask-around result");
         }
@@ -346,10 +301,6 @@ function createSetBoundariesTool(client: MahiloContractClient): AnyAgentTool {
           enum: ["contact", "everyone", "group", "role"],
           type: "string"
         },
-        applies_to: {
-          enum: ["contact", "everyone", "group", "role"],
-          type: "string"
-        },
         contact: { type: "string" },
         duration: {
           enum: ["always", "once", "temporary"],
@@ -376,6 +327,7 @@ function createSetBoundariesTool(client: MahiloContractClient): AnyAgentTool {
           type: "string"
         }
       },
+      required: ["topic", "policy"],
       type: "object"
     }
   } as unknown as AnyAgentTool;
@@ -415,7 +367,7 @@ function parseSendMessageToolInput(
             input.declared_selectors ??
             input.draftSelectors ??
             input.draft_selectors
-        ),
+        ) ?? buildSelectorsFromTopLevel(input),
       idempotencyKey:
         readOptionalString(input.idempotencyKey) ??
         readOptionalString(input.idempotency_key),
@@ -435,83 +387,7 @@ function parseSendMessageToolInput(
   };
 }
 
-function parseSendMessageAction(rawInput: unknown): MahiloSendMessageToolAction {
-  const input = rawInput === undefined ? {} : readInputObject(rawInput);
-  const normalized = readOptionalString(input.action)?.toLowerCase().replace(/[\s-]+/g, "_");
-
-  if (!normalized) {
-    return "send";
-  }
-
-  switch (normalized) {
-    case "context":
-    case "fetch_context":
-    case "get_context":
-      return "context";
-    case "preview":
-    case "preflight":
-    case "resolve":
-      return "preview";
-    case "message":
-    case "send":
-      return "send";
-    default:
-      throw new MahiloToolInputError("action must be context, preview, or send");
-  }
-}
-
-function parseGetMahiloContextInput(rawInput: unknown): GetMahiloContextInput {
-  const input = readInputObject(rawInput);
-  const recipientType = readMahiloMessageRecipientType(input);
-  const recipient =
-    readOptionalString(input.target) ??
-    readOptionalString(input.recipient) ??
-    readOptionalString(input.group) ??
-    (recipientType === "group"
-      ? readOptionalString(input.groupId) ?? readOptionalString(input.group_id)
-      : undefined);
-
-  if (!recipient) {
-    throw new MahiloToolInputError("target is required");
-  }
-
-  return {
-    declaredSelectors:
-      parseDeclaredSelectors(
-        input.draftSelectors ??
-          input.draft_selectors ??
-          input.declaredSelectors ??
-          input.declared_selectors
-      ),
-    includeRecentInteractions:
-      readOptionalBoolean(input.includeRecentInteractions) ??
-      readOptionalBoolean(input.include_recent_interactions),
-    interactionLimit:
-      readOptionalInteger(input.interactionLimit) ??
-      readOptionalInteger(input.interaction_limit),
-    recipient,
-    recipientType,
-    senderConnectionId:
-      readOptionalString(input.senderConnectionId) ??
-      readOptionalString(input.sender_connection_id)
-  };
-}
-
-function parsePreviewMahiloSendInput(rawInput: unknown): PreviewMahiloSendInput {
-  const input = readInputObject(rawInput);
-  const parsedInput = parseSendMessageToolInput(rawInput);
-
-  return {
-    ...parsedInput.input,
-    recipientType: parsedInput.recipientType,
-    recipient:
-      readOptionalString(input.target) ??
-      readOptionalString(input.recipient) ??
-      parsedInput.input.recipient
-  };
-}
-
-function parseToolContext(rawInput: unknown, config: MahiloPluginConfig): MahiloToolContext {
+function parseToolContext(rawInput: unknown): MahiloToolContext {
   const input = readInputObject(rawInput);
   const senderConnectionId =
     readOptionalString(input.senderConnectionId) ??
@@ -521,7 +397,6 @@ function parseToolContext(rawInput: unknown, config: MahiloPluginConfig): Mahilo
     agentSessionId:
       readOptionalString(input.agentSessionId) ??
       readOptionalString(input.agent_session_id),
-    reviewMode: parseReviewMode(input.reviewMode ?? input.review_mode) ?? config.reviewMode,
     senderConnectionId
   };
 }
@@ -773,6 +648,12 @@ function normalizeManageNetworkAction(
 
       return { decision, kind: "respond" };
     }
+    case "ask":
+    case "ask_around":
+    case "ask_network":
+      throw new MahiloToolInputError(
+        "Use the ask_network tool to ask your network a question"
+      );
     default:
       throw new MahiloToolInputError(
         "action must be list_contacts, send_friend_request, or respond_to_request"
@@ -887,17 +768,22 @@ function parseDeclaredSelectors(value: unknown): Partial<DeclaredSelectors> | un
   return Object.keys(parsed).length > 0 ? parsed : undefined;
 }
 
-function parseReviewMode(value: unknown): ReviewMode | undefined {
-  const candidate = readOptionalString(value);
-  if (!candidate) {
+function buildSelectorsFromTopLevel(input: Record<string, unknown>): Partial<DeclaredSelectors> | undefined {
+  const resource = readOptionalString(input.resource);
+  const action = readOptionalString(input.action);
+
+  if (!resource && !action) {
     return undefined;
   }
 
-  if (candidate === "auto" || candidate === "ask" || candidate === "manual") {
-    return candidate;
+  const parsed: Partial<DeclaredSelectors> = {};
+  if (resource) {
+    parsed.resource = resource;
   }
-
-  return undefined;
+  if (action) {
+    parsed.action = action;
+  }
+  return parsed;
 }
 
 function readInputObject(rawInput: unknown): Record<string, unknown> {
@@ -997,21 +883,6 @@ function formatAskNetworkToolText(result: MahiloAskNetworkToolDetails): string {
   }
 
   return `${result.summary} ${result.replyExpectation}`;
-}
-
-function formatPreviewToolText(result: {
-  agentGuidance?: string;
-  decision: string;
-  deliveryMode?: string;
-  resolutionSummary?: string;
-}): string {
-  const summary = result.deliveryMode
-    ? `Mahilo preview: ${result.decision} (${result.deliveryMode}).`
-    : `Mahilo preview: ${result.decision}.`;
-  const details = [result.resolutionSummary, result.agentGuidance]
-    .filter((value): value is string => typeof value === "string" && value.length > 0);
-
-  return details.length > 0 ? `${summary} ${details.join(" ")}` : summary;
 }
 
 function formatSendMessageToolText(
@@ -1168,7 +1039,7 @@ function rememberMahiloInboundRoute(
   }
 
   const toolName = readOptionalString(event.toolName);
-  if (toolName === MAHILO_SEND_MESSAGE_TOOL_NAME || toolName === "mahilo_message") {
+  if (toolName === MAHILO_SEND_MESSAGE_TOOL_NAME) {
     rememberMahiloMessageInboundRoute(pluginState, event, {
       agentId: readOptionalString(context.agentId),
       sessionKey
@@ -1176,12 +1047,7 @@ function rememberMahiloInboundRoute(
     return;
   }
 
-  if (
-    toolName === MAHILO_ASK_NETWORK_TOOL_NAME ||
-    toolName === "mahilo_network" ||
-    (toolName === MAHILO_MANAGE_NETWORK_TOOL_NAME &&
-      normalizeMahiloNetworkAction(readOptionalString(event.params.action)) === "ask_around")
-  ) {
+  if (toolName === MAHILO_ASK_NETWORK_TOOL_NAME) {
     rememberMahiloAskAroundInboundRoutes(pluginState, event, {
       agentId: readOptionalString(context.agentId),
       sessionKey

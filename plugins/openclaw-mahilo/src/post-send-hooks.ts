@@ -249,7 +249,7 @@ function formatSelectorLabel(selectors: DeclaredSelectors): string {
 }
 
 function readToolName(value: string): SendToolName | undefined {
-  if (value === MAHILO_SEND_MESSAGE_TOOL_NAME || value === "mahilo_message") {
+  if (value === MAHILO_SEND_MESSAGE_TOOL_NAME) {
     return MAHILO_SEND_MESSAGE_TOOL_NAME;
   }
 
