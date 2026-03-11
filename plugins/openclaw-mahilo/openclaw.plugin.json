@@ -22,16 +22,25 @@
         "minLength": 1,
         "writeOnly": true,
         "x-sensitive": true,
-        "description": "Optional existing Mahilo API key. `mahilo setup` can bootstrap and store one locally when this is omitted."
+        "description": "Optional existing Mahilo API key. When present, the plugin auto-attaches a default sender on startup. `mahilo setup` can bootstrap and store one locally when this is omitted."
       },
       "callbackUrl": {
         "type": "string",
-        "description": "Recommended public callback URL for this OpenClaw runtime. `mahilo setup` uses it to register or repair the default Mahilo sender connection."
+        "description": "Recommended public callback URL for this OpenClaw runtime. When present, startup auto-registration uses it to register or repair the default Mahilo sender connection."
       },
       "callbackPath": {
         "type": "string",
         "pattern": "^\\/.*",
         "description": "Optional callback path override (must start with '/') when callbackUrl is not provided"
+      },
+      "inboundSessionKey": {
+        "type": "string",
+        "default": "main",
+        "description": "Fallback OpenClaw session key for inbound Mahilo messages when no exact originating thread can be resolved"
+      },
+      "inboundAgentId": {
+        "type": "string",
+        "description": "Optional agent id to pair with inboundSessionKey when inbound Mahilo messages fall back to the default session"
       },
       "reviewMode": {
         "type": "string",

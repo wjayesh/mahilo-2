@@ -61,6 +61,12 @@ interface RegisteredHook {
   name: string;
 }
 
+interface RegisteredService {
+  id: string;
+  start: (ctx: unknown) => Promise<void> | void;
+  stop?: (ctx: unknown) => Promise<void> | void;
+}
+
 interface RecordedSystemEvent {
   contextKey?: string | null;
   sessionKey: string;
@@ -421,6 +427,7 @@ function createMockPluginApi(
   heartbeatRequests: RecordedHeartbeatRequest[];
   hooks: RegisteredHook[];
   routes: RegisteredHttpRoute[];
+  services: RegisteredService[];
   systemEvents: RecordedSystemEvent[];
   tools: RegisteredTool[];
 } {
@@ -429,6 +436,7 @@ function createMockPluginApi(
   const hooks: RegisteredHook[] = [];
   const tools: RegisteredTool[] = [];
   const routes: RegisteredHttpRoute[] = [];
+  const services: RegisteredService[] = [];
   const systemEvents: RecordedSystemEvent[] = [];
 
   const api = {
@@ -465,7 +473,9 @@ function createMockPluginApi(
       routes.push(route);
     },
     registerProvider: () => {},
-    registerService: () => {},
+    registerService: (service: RegisteredService) => {
+      services.push(service);
+    },
     registerTool: (tool: RegisteredTool) => {
       tools.push(tool);
     },
@@ -498,6 +508,7 @@ function createMockPluginApi(
     heartbeatRequests,
     hooks,
     routes,
+    services,
     systemEvents,
     tools
   };
@@ -919,6 +930,70 @@ describe("createMahiloOpenClawPlugin", () => {
     }
   });
 
+  it("auto-registers the default sender on startup when an apiKey is configured", async () => {
+    const runtimeStore = createTempRuntimeBootstrapStore();
+
+    try {
+      const { client, state } = createMockContractClient({
+        agentConnectionsResponse: []
+      });
+      const plugin = createMahiloOpenClawPlugin({
+        createClient: () => client,
+        runtimeBootstrapStore: runtimeStore.store
+      });
+      const { api, services, tools } = createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example"
+      });
+
+      await plugin.register?.(api);
+
+      expect(services.map((service) => service.id)).toContain("mahilo-auto-register");
+
+      await services[0]!.start({
+        config: {
+          gateway: {
+            port: 19123
+          }
+        },
+        logger: {
+          info: () => {},
+          warn: () => {}
+        },
+        stateDir: "/tmp/mahilo-openclaw-tests"
+      });
+
+      expect(state.registerAgentConnectionCalls).toEqual([
+        expect.objectContaining({
+          callbackUrl: "http://localhost:19123/mahilo/incoming",
+          framework: "openclaw",
+          label: "default",
+          mode: "webhook"
+        })
+      ]);
+      expect(runtimeStore.store.read("https://mahilo.example")).toMatchObject({
+        callbackConnectionId: "conn_registered_default",
+        callbackSecret: "callback-secret-from-server",
+        callbackUrl: "http://localhost:19123/mahilo/incoming"
+      });
+
+      const tool = findTool(tools, "send_message");
+      const result = await tool.execute("tool_call_auto_setup_1", {
+        message: "hello",
+        recipient: "alice"
+      });
+
+      expect(result).toMatchObject({
+        details: {
+          status: "sent"
+        }
+      });
+      expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_registered_default");
+    } finally {
+      runtimeStore.cleanup();
+    }
+  });
+
   it("routes inbound webhook callbacks back to the originating session by correlation id", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
@@ -1079,6 +1154,58 @@ describe("createMahiloOpenClawPlugin", () => {
         agentId: "mahilo-agent-2",
         reason: "mahilo:inbound-message",
         sessionKey: "session_route_2"
+      }
+    ]);
+  });
+
+  it("falls back to the main OpenClaw session when no exact inbound route can be resolved", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, heartbeatRequests, routes, systemEvents } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const rawBody = buildInboundWebhookRawBody({
+      message: "Deliver this even without a remembered route.",
+      message_id: "msg_inbound_main_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice"
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_main_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp)
+      },
+      rawBody
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "main",
+        text: expect.stringContaining("Deliver this even without a remembered route.")
+      })
+    ]);
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: undefined,
+        reason: "mahilo:inbound-message",
+        sessionKey: "main"
       }
     ]);
   });

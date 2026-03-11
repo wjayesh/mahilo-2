@@ -241,6 +241,26 @@ export function registerMahiloOpenClawPlugin(
     },
   });
 
+  const registerService =
+    typeof (api as unknown as Record<string, unknown>).registerService === "function"
+      ? ((api as unknown as Record<string, unknown>).registerService as (service: {
+          id: string;
+          start: (ctx: unknown) => Promise<void> | void;
+        }) => void)
+      : null;
+
+  if (registerService) {
+    registerService(
+      createStartupBootstrapService({
+        callbackSecretResolver,
+        config,
+        createClient,
+        runtimeBootstrapStore,
+        senderResolver,
+      }),
+    );
+  }
+
   if (originalRegisterCommand && !registeredCommandNames.has("mahilo setup")) {
     registerSetupCommand(
       wrappedApi,
@@ -294,6 +314,14 @@ interface CreateSetupCommandOptions {
   config: MahiloPluginConfig;
   createClient: (config: MahiloPluginConfig) => MahiloContractClient;
   credentialSource: MahiloCredentialSource | null;
+  runtimeBootstrapStore: MahiloRuntimeBootstrapStore;
+  senderResolver: MahiloSenderResolver;
+}
+
+interface CreateStartupBootstrapServiceOptions {
+  callbackSecretResolver: () => Promise<string | undefined>;
+  config: MahiloPluginConfig;
+  createClient: (config: MahiloPluginConfig) => MahiloContractClient;
   runtimeBootstrapStore: MahiloRuntimeBootstrapStore;
   senderResolver: MahiloSenderResolver;
 }
@@ -425,6 +453,66 @@ function createSetupCommand(
         },
       },
       type: "object",
+    },
+  };
+}
+
+function createStartupBootstrapService(options: CreateStartupBootstrapServiceOptions): {
+  id: string;
+  start: (ctx: unknown) => Promise<void>;
+} {
+  return {
+    id: "mahilo-auto-register",
+    start: async (rawContext: unknown) => {
+      const runtimeState = options.runtimeBootstrapStore.read(options.config.baseUrl);
+      const credentialSource = resolveCredentialSource(options.config, runtimeState);
+      const apiKey = resolveEffectiveApiKey(options.config, runtimeState);
+      if (!apiKey) {
+        return;
+      }
+
+      const serviceConfig = resolveStartupBootstrapConfig(
+        {
+          ...options.config,
+          apiKey,
+        },
+        runtimeState,
+        rawContext,
+      );
+      const details = await runMahiloSetup({
+        callbackSecretResolver: options.callbackSecretResolver,
+        config: serviceConfig,
+        createClient: options.createClient,
+        credentialSource,
+        ping: true,
+        runtimeBootstrapStore: options.runtimeBootstrapStore,
+        senderResolver: options.senderResolver,
+      });
+      const logger = readOptionalObject(rawContext)?.logger as
+        | {
+            info?: (message: string) => void;
+            warn?: (message: string) => void;
+          }
+        | undefined;
+
+      if (details.status === "success") {
+        logger?.info?.(
+          `[Mahilo] Startup bootstrap attached ${details.summary?.identity?.username ? `@${details.summary.identity.username}` : "the current identity"} and sender ${details.summary?.sender?.connectionId ?? "unknown"}.`,
+        );
+        return;
+      }
+
+      if (details.blocker) {
+        logger?.warn?.(
+          `[Mahilo] Startup bootstrap incomplete: ${details.blocker.message} ${details.blocker.nextAction}`,
+        );
+        return;
+      }
+
+      const note = details.notes[0];
+      if (note) {
+        logger?.warn?.(`[Mahilo] Startup bootstrap failed: ${note}`);
+      }
     },
   };
 }
@@ -929,6 +1017,8 @@ function buildPluginConfigInput(config: MahiloPluginConfig): Record<string, unkn
     apiKey: config.apiKey,
     baseUrl: config.baseUrl,
     cacheTtlSeconds: config.cacheTtlSeconds,
+    inboundAgentId: config.inboundAgentId,
+    inboundSessionKey: config.inboundSessionKey,
     callbackPath: config.callbackPath,
     callbackUrl: config.callbackUrl,
     promptContextEnabled: config.promptContextEnabled,
@@ -993,6 +1083,30 @@ function resolveStoredOrConfiguredCallbackUrl(
   return normalizeOptionalUrl(config.callbackUrl) ?? normalizeOptionalUrl(runtimeState?.callbackUrl);
 }
 
+function resolveStartupBootstrapConfig(
+  config: MahiloPluginConfig,
+  runtimeState: ReturnType<MahiloRuntimeBootstrapStore["read"]>,
+  rawContext: unknown,
+): MahiloPluginConfig {
+  const configuredCallbackUrl = resolveStoredOrConfiguredCallbackUrl(config, runtimeState);
+  if (configuredCallbackUrl) {
+    return {
+      ...config,
+      callbackUrl: configuredCallbackUrl,
+    };
+  }
+
+  const context = readOptionalObject(rawContext);
+  const gatewayConfig = readOptionalObject(context?.config);
+  const gateway = readOptionalObject(gatewayConfig?.gateway);
+  const port = readOptionalInteger(gateway?.port) ?? 18789;
+
+  return {
+    ...config,
+    callbackUrl: `http://localhost:${port}${config.callbackPath ?? DEFAULT_WEBHOOK_ROUTE_PATH}`,
+  };
+}
+
 function findManagedSetupConnection(
   connections: MahiloAgentConnectionSummary[],
 ): MahiloAgentConnectionSummary | null {
@@ -1029,6 +1143,14 @@ function dedupeStrings(values: string[]): string[] {
   }
 
   return output;
+}
+
+function readOptionalInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
+function readOptionalObject(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
 }
 
 function normalizeLowercaseToken(value: unknown): string | undefined {

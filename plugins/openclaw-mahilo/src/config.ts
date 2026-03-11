@@ -9,6 +9,8 @@ export interface MahiloPluginConfig {
   apiKey?: string;
   baseUrl: string;
   cacheTtlSeconds: number;
+  inboundAgentId?: string;
+  inboundSessionKey: string;
   callbackPath?: string;
   callbackUrl?: string;
   contractVersion: string;
@@ -28,6 +30,7 @@ export interface ParseConfigOptions {
 }
 
 const DEFAULT_CACHE_TTL_SECONDS = 60;
+const DEFAULT_INBOUND_SESSION_KEY = "main";
 const DEFAULT_PLUGIN_VERSION = MAHILO_PLUGIN_RELEASE_VERSION;
 const DEFAULT_PROMPT_CONTEXT_ENABLED = true;
 const DEFAULT_REVIEW_MODE: ReviewMode = "ask";
@@ -38,6 +41,8 @@ const ALLOWED_PLUGIN_CONFIG_KEYS = new Set<string>([
   "cacheTtlSeconds",
   "callbackPath",
   "callbackUrl",
+  "inboundAgentId",
+  "inboundSessionKey",
   "promptContextEnabled",
   "reviewMode"
 ]);
@@ -66,6 +71,8 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
     : readOptionalString(config.apiKey);
   const callbackPath = readOptionalCallbackPath(config.callbackPath);
   const callbackUrl = readOptionalUrl(config.callbackUrl, "callbackUrl");
+  const inboundAgentId = readOptionalString(config.inboundAgentId);
+  const inboundSessionKey = readOptionalString(config.inboundSessionKey) ?? DEFAULT_INBOUND_SESSION_KEY;
 
   const cacheTtlSeconds = parseCacheTtlSeconds(
     config.cacheTtlSeconds,
@@ -83,6 +90,8 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
     apiKey,
     baseUrl,
     cacheTtlSeconds,
+    inboundAgentId,
+    inboundSessionKey,
     callbackPath,
     callbackUrl,
     contractVersion,

@@ -23,10 +23,10 @@ The single recommended first-run path is [Guided First Run](./docs/guided-first-
 
 If you only want the raw command/tool sequence, the loop is:
 
-1. Run `mahilo setup` to attach your Mahilo identity and default sender connection.
+1. If you already have a Mahilo API key in plugin config, restart OpenClaw and let the plugin auto-attach the default sender on startup. If you do not, run `mahilo setup` once to bootstrap identity and sender attachment.
 2. Run `mahilo status` to confirm connectivity and webhook alignment.
 3. Run `mahilo network` or `manage_network` with `action=list` to see whether your circle is ready.
-4. If the network is empty, stay in `manage_network` and use `action=send_request` to invite one trusted person. If they already invited you, use `action=accept`, then have them finish `mahilo setup` in OpenClaw.
+4. If the network is empty, stay in `manage_network` and use `action=send_request` to invite one trusted person. If they already invited you, use `action=accept`, then have them bring their Mahilo plugin online in OpenClaw.
 5. Once one accepted contact has a live agent connection, ask OpenClaw to check with your Mahilo contacts, or call `ask_network` with `action=ask_around`.
 6. Preview a sensitive follow-up with `send_message` so Mahilo can stop on review before send.
 7. Use `set_boundaries` to grant a narrow exception, then retry the same preview or send.
@@ -78,15 +78,17 @@ Add the Mahilo plugin entry to the same OpenClaw config file:
 }
 ```
 
-If you already have a Mahilo API key, you can still add `"apiKey": "mhl_..."`. When it is omitted, `mahilo setup` can bootstrap the identity and store the issued key locally for the OpenClaw runtime.
+If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will auto-register or repair the default sender on startup. When `apiKey` is omitted, `mahilo setup` can bootstrap the identity and store the issued key locally for the OpenClaw runtime.
 
 `plugins.entries.mahilo.config` accepts:
 
 - Required:
   - `baseUrl`
-- One explicit operator-owned setup input when you want live inbound replies:
+- Recommended for public inbound replies:
   - `callbackUrl`
 - Optional:
+  - `inboundSessionKey` (defaults to `main`)
+  - `inboundAgentId`
   - `apiKey`
   - `callbackPath` (defaults to `/mahilo/incoming`)
   - `promptContextEnabled` (defaults to `true`)
@@ -94,6 +96,8 @@ If you already have a Mahilo API key, you can still add `"apiKey": "mhl_..."`. W
   - `cacheTtlSeconds` (defaults to `60`)
 
 Do not add `contractVersion`, `pluginVersion`, or `callbackSecret` to plugin config. Those are server-owned and rejected by the plugin config parser.
+
+When `callbackUrl` is omitted, startup auto-registration falls back to `http://localhost:<gateway-port>/mahilo/incoming`. That is good enough for local testing, but external Mahilo agents will not be able to reach that address.
 
 When `mahilo setup` bootstraps an API key or rotates a callback secret, the plugin stores those server-issued values in a local runtime store under `$XDG_CONFIG_HOME/mahilo/openclaw-plugin-runtime.json` (or `~/.config/mahilo/openclaw-plugin-runtime.json` when `XDG_CONFIG_HOME` is unset). That keeps server-owned secrets out of plugin config while still avoiding setup retry loops.
 

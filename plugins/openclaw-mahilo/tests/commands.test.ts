@@ -12,6 +12,7 @@ function createConfig(): MahiloPluginConfig {
     apiKey: "mhl_test_secret",
     baseUrl: "https://mahilo.example",
     cacheTtlSeconds: 60,
+    inboundSessionKey: "main",
     callbackPath: undefined,
     callbackUrl: undefined,
     contractVersion: "1.0.0",

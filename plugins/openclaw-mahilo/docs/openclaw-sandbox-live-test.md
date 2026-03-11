@@ -6,9 +6,10 @@ Use this when testing `plugins/openclaw-mahilo/` against a fresh local OpenClaw 
 
 - the local plugin loads in a clean OpenClaw sandbox
 - the public tools are registered
+- startup auto-registration works when `apiKey` is configured
 - server-backed Mahilo network and send flows work
+- inbound webhook fallback reaches `main` when no exact session route exists
 - boundary writes work
-- the current first-use auth/bootstrap experience and any live webhook blockers are visible
 
 ## What this does not touch
 
@@ -68,7 +69,7 @@ cat > "$OPENCLAW_CONFIG" <<'JSON'
         "enabled": true,
         "config": {
           "baseUrl": "http://127.0.0.1:18080",
-          "callbackUrl": "http://127.0.0.1:19123/mahilo/incoming"
+          "apiKey": "<SANDBOXOC_API_KEY>"
         }
       }
     }
@@ -128,7 +129,27 @@ Current expected result:
 - Mahilo returns an auth-shaped error like `Missing Authorization header`
 - this is a known UX gap
 
-## 5. Seed a fully working sandbox identity
+## 5. Auto-register from a configured apiKey
+
+If `apiKey` is present in plugin config, the plugin now auto-registers the default sender on startup. When `callbackUrl` is omitted, it falls back to `http://localhost:<gateway-port>/mahilo/incoming` for local-only testing.
+
+Expected gateway log line:
+
+- `Startup bootstrap attached @sandboxoc and sender ...`
+
+Verify from Mahilo:
+
+```bash
+curl -sS http://127.0.0.1:18080/api/v1/agents \
+  -H 'Authorization: Bearer <SANDBOXOC_API_KEY>'
+```
+
+Expected:
+
+- one OpenClaw connection with label `default`
+- callback URL pointing at `http://127.0.0.1:19123/mahilo/incoming` when running locally
+
+## 6. Seed a fully working sandbox identity
 
 Register two Mahilo users:
 
@@ -222,9 +243,9 @@ cat > "$RUNTIME_STATE" <<'JSON'
 JSON
 ```
 
-Restart the OpenClaw gateway after writing `"$RUNTIME_STATE"`.
+Restart the OpenClaw gateway after writing `"$RUNTIME_STATE"` if you are testing the no-`apiKey` bootstrap path.
 
-## 6. Working tool checks
+## 7. Working tool checks
 
 Network:
 
@@ -238,6 +259,28 @@ Expected:
 
 - `1 sender connection`
 - `1 contact`
+
+## 8. Inbound fallback check
+
+Send a message to the OpenClaw user without first creating any exact thread route:
+
+```bash
+curl -sS -X POST http://127.0.0.1:18080/api/v1/messages/send \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <ALICE_API_KEY>' \
+  -d '{
+    "recipient": "sandboxoc",
+    "recipient_type": "user",
+    "recipient_connection_id": "<SANDBOX_CONNECTION_ID>",
+    "sender_connection_id": "<ALICE_CONNECTION_ID>",
+    "message": "inbound to main fallback"
+  }'
+```
+
+Expected gateway log lines:
+
+- `No exact route for inbound message ...; falling back to configured inbound session main.`
+- the inbound system event lands in `main`
 
 Send:
 
