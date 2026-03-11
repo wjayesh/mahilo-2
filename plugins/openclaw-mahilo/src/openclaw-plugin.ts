@@ -1038,6 +1038,9 @@ function rememberMahiloInboundRoute(
     return;
   }
 
+  const agentId = readOptionalString(context.agentId);
+  pluginState.touchActiveSession(sessionKey, agentId);
+
   const toolName = readOptionalString(event.toolName);
   if (toolName === MAHILO_SEND_MESSAGE_TOOL_NAME) {
     rememberMahiloMessageInboundRoute(pluginState, event, {
@@ -1247,7 +1250,7 @@ function routeAcceptedMahiloDelivery(
   payload: MahiloInboundWebhookPayload,
   messageId: string
 ): void {
-  const route = pluginState.resolveInboundRoute({
+  let route = pluginState.resolveInboundRoute({
     correlationId: payload.correlation_id,
     groupId: payload.group_id ?? undefined,
     inResponseToMessageId: payload.in_response_to,
@@ -1257,10 +1260,49 @@ function routeAcceptedMahiloDelivery(
   });
 
   if (!route) {
-    api.logger?.warn?.(
-      `[Mahilo] Unable to route inbound message ${messageId}; no matching session context was found.`
-    );
-    return;
+    const lastActive = pluginState.getLastActiveSession();
+    if (lastActive) {
+      api.logger?.info?.(
+        `[Mahilo] No exact route for inbound message ${messageId}; falling back to last active session ${lastActive.sessionKey}.`
+      );
+      route = {
+        agentId: lastActive.agentId,
+        localConnectionId: payload.recipient_connection_id,
+        remoteConnectionId: payload.sender_connection_id,
+        remoteParticipant: payload.sender,
+        sessionKey: lastActive.sessionKey
+      };
+    } else {
+      api.logger?.info?.(
+        `[Mahilo] No session context for inbound message ${messageId}; delivering to active session.`
+      );
+      const askAroundSession =
+        payload.correlation_id
+          ? pluginState.recordAskAroundReply(payload.correlation_id, {
+              context: payload.context,
+              deliveryId: payload.delivery_id ?? undefined,
+              groupId: payload.group_id ?? undefined,
+              groupName: payload.group_name ?? undefined,
+              message: payload.message,
+              messageId: payload.message_id,
+              payloadType: payload.payload_type,
+              sender: payload.sender,
+              senderAgent: payload.sender_agent,
+              senderConnectionId: payload.sender_connection_id,
+              senderUserId: payload.sender_user_id,
+              timestamp: payload.timestamp
+            })
+          : undefined;
+
+      api.runtime.system.enqueueSystemEvent(
+        formatMahiloInboundSystemEvent(payload, askAroundSession),
+        { contextKey: buildMahiloInboundContextKey(payload) }
+      );
+      api.runtime.system.requestHeartbeatNow({
+        reason: "mahilo:inbound-message"
+      });
+      return;
+    }
   }
 
   const correlationId = payload.correlation_id ?? route.correlationId;

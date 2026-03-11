@@ -202,6 +202,7 @@ export class InMemoryPluginState {
   private readonly productSignalTtlMs: number;
   private readonly novelDecisionEntries = new Map<string, number>();
   private readonly pendingLearningSuggestions = new Map<string, CacheEntry>();
+  private lastActiveSessionEntry: { agentId?: string; sessionKey: string; updatedAt: number } | undefined;
 
   constructor(
     options: {
@@ -234,6 +235,16 @@ export class InMemoryPluginState {
       0,
       options.productSignalTtlMs ?? DEFAULT_PRODUCT_SIGNAL_TTL_MS
     );
+  }
+
+  touchActiveSession(sessionKey: string, agentId?: string, nowMs: number = Date.now()): void {
+    this.lastActiveSessionEntry = { agentId, sessionKey, updatedAt: nowMs };
+  }
+
+  getLastActiveSession(): { agentId?: string; sessionKey: string } | undefined {
+    return this.lastActiveSessionEntry
+      ? { agentId: this.lastActiveSessionEntry.agentId, sessionKey: this.lastActiveSessionEntry.sessionKey }
+      : undefined;
   }
 
   getCachedContext(cacheKey: string, nowMs: number = Date.now()): unknown | undefined {
