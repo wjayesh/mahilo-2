@@ -340,14 +340,16 @@ The current repo does **not** yet prove live same-thread inbound routing end to 
 
 Observed blocker:
 
-- after a real model turn that successfully calls `ask_network`, a real inbound Mahilo reply still logs:
+- after a real model turn that successfully calls `ask_network`, the live OpenClaw runtime currently logs:
 
 ```text
-[Mahilo] No session context for inbound message <id>; delivering to active session.
+[Mahilo] rememberInboundRoute: no sessionKey in context, skipping route storage
+[Mahilo] No exact route for inbound message <id> (correlation=<corr>, in_response_to=none, routeCount=0); falling back to configured inbound session main.
 ```
 
-- this means the correlation/session route used for ask-around replies is not resolving in the live OpenClaw runtime
-- likely cause: live route state is not persisting across the tool-call path and the webhook-delivery path the way the in-memory test harness expects
+- this means the live `after_tool_call` hook path is currently arriving without `sessionKey`, so the plugin never stores the correlated ask-around route
+- the fallback delivery still works, but exact same-thread reply routing does not
+- this is now a narrower, evidence-backed live-runtime bug; the issue is no longer “maybe the route state is lost later,” it is “the route is never written because the live hook context is missing `sessionKey`”
 
 Until that is fixed, treat inbound same-thread routing as a known regression in live OpenClaw sandbox testing.
 

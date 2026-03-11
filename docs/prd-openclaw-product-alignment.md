@@ -593,18 +593,36 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
 
 - **Notes**:
   - 2026-03-10T01:53:20.830Z: PAL-020 completed via orchestrator integration.
+### 1.8 Live Ask-Network Reply Routing Fix
+- **ID**: `PAL-021`
+- **Status**: `pending`
+- **Priority**: `P0`
+- **Depends on**: `PAL-012`
+- **Description**:
+  - Fix the live OpenClaw runtime regression where correlated `ask_network` replies do not route back into the originating session/thread.
+  - Keep the current `main` fallback, but only as a safety net when no exact route exists.
+  - Base the fix on the isolated sandbox repro in `plugins/openclaw-mahilo/docs/openclaw-sandbox-live-test.md`.
+- **Acceptance Criteria**:
+  - [ ] A real `ask_network` turn in the isolated OpenClaw sandbox writes a correlated route during the live `after_tool_call` path
+  - [ ] A real inbound Mahilo reply with the same `correlation_id` lands in the original OpenClaw session instead of falling back to `main`
+  - [ ] Fallback to `main` remains intact for genuinely uncorrelated inbound messages
+  - [ ] The root cause in the live runtime is documented and covered by a regression test or equivalent harness proof
+
+- **Notes**:
+  - 2026-03-11T13:41:51.921Z: Live sandbox repro shows `rememberInboundRoute: no sessionKey in context, skipping route storage`, followed by `No exact route for inbound message ... routeCount=0`, so the correlated route is never written in the live `after_tool_call` path.
 ## Recommended Execution Order
 
 1. `PAL-001` -> `PAL-002`
 2. `PAL-010` -> `PAL-012` -> `PAL-013`
 3. `PAL-011`
 4. `PAL-020`
+5. `PAL-021`
 
 ## Workflow Continuation
 
 - `WORKFLOW.plugin.md` already lists `docs/prd-openclaw-product-alignment.md` as a task source, so after `PLG3-099` the plugin loop should continue in this same PRD.
-- The next pending task order is: `PAL-010`, `PAL-012`, `PAL-013`, `PAL-011`, `PAL-020`.
-- After `PAL-020`, rerun another positioning reassessment in this PRD instead of silently returning to migration work.
+- The next pending task order is now: `PAL-021`.
+- After `PAL-021`, rerun another positioning reassessment in this PRD instead of silently returning to migration work.
 
 ## Scope Guardrails
 
@@ -623,7 +641,7 @@ This PRD is complete when:
 - relationship management happens inside OpenClaw
 - the Mahilo tool surface stays intentionally compact
 - "ask around" is a first-class user action
-- replies preserve attribution and honor the trust contract
+- replies preserve attribution, honor the trust contract, and route back into the originating OpenClaw thread when correlated reply context exists
 - missing-contact states support the viral loop cleanly
 - basic product signals are visible without building a dashboard
 - the final task has either confirmed alignment or created the next task list
