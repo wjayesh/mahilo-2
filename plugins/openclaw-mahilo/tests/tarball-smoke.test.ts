@@ -43,7 +43,8 @@ describe("tarball smoke test", () => {
     expect(summary.hookNames).toEqual([
       "after_tool_call",
       "agent_end",
-      "before_prompt_build"
+      "before_prompt_build",
+      "before_tool_call"
     ]);
     expect(summary.routePaths).toEqual(["/mahilo/incoming"]);
   }, 30_000);

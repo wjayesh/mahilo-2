@@ -1342,6 +1342,103 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(networkReplyText).toContain("\"queriesSent\": 1");
   });
 
+  it("recovers ask_network session routing when after_tool_call omits sessionKey", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }]
+      }
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET
+      }
+    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example"
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "ask_network");
+    const beforeToolCall = findHook(hooks, "before_tool_call");
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    const outboundInput = {
+      correlationId: "corr_network_route_recovered_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender"
+    };
+    const toolResult = await tool.execute("tool_call_network_route_recovered_1", outboundInput);
+
+    await beforeToolCall.execute(
+      {
+        params: outboundInput,
+        toolName: "ask_network"
+      },
+      {
+        agentId: "mahilo-network-agent",
+        sessionKey: "session_network_route_recovered_1",
+        toolName: "ask_network"
+      }
+    );
+
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "ask_network"
+      },
+      {
+        agentId: "mahilo-network-agent",
+        runId: "run_network_route_recovered_1",
+        toolCallId: "tool_call_network_route_recovered_1",
+        toolName: "ask_network"
+      }
+    );
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const rawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_route_recovered_1",
+      message: "Try Mensho for the broth.",
+      message_id: "msg_inbound_network_recovered_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice"
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_network_recovered_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp)
+      },
+      rawBody
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        contextKey: "mahilo:inbound:direct:msg_inbound_network_recovered_1",
+        sessionKey: "session_network_route_recovered_1",
+        text: expect.stringContaining("Try Mensho for the broth.")
+      })
+    ]);
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-network-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_network_route_recovered_1"
+      }
+    ]);
+  });
+
   it("routes group ask-around replies back into the originating OpenClaw thread with attribution", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({

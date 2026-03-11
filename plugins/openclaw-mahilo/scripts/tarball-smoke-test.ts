@@ -66,7 +66,8 @@ const EXPECTED_COMMAND_NAMES = ["mahilo"];
 const EXPECTED_HOOK_NAMES = [
   "after_tool_call",
   "agent_end",
-  "before_prompt_build"
+  "before_prompt_build",
+  "before_tool_call"
 ];
 
 const EXPECTED_REQUIRED_CONFIG_KEYS: string[] = [];

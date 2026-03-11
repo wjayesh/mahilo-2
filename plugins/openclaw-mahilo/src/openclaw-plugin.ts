@@ -73,12 +73,24 @@ export interface MahiloOpenClawPluginDefinition {
 }
 
 const MAHILO_PROMPT_CONTEXT_MARKER = "[MahiloContext/v1]";
+const MAHILO_SETUP_PROMPT_MARKER = "[MahiloSetup/v1]";
 const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
 const MAHILO_ASK_NETWORK_TOOL_NAME = "ask_network";
 const MAHILO_MANAGE_NETWORK_TOOL_NAME = "manage_network";
 const MAHILO_SEND_MESSAGE_TOOL_NAME = "send_message";
 const MAHILO_SET_BOUNDARIES_TOOL_NAME = "set_boundaries";
+
+const MAHILO_SETUP_INSTRUCTIONS = `[MahiloSetup/v1]
+Mahilo plugin installed but not configured (no API key).
+To set up:
+1. Ask your human for their Mahilo API key, or register a new account:
+   POST https://mahilo.io/api/v1/auth/register  body: {"username":"<handle>"}
+   Save the api_key from the response (shown once).
+2. Patch gateway config with the key:
+   Use gateway tool: config.patch → plugins.entries.mahilo.config.apiKey = "mhl_..."
+   Gateway restarts and Mahilo connects automatically.
+Do NOT try to call /mahilo setup as a tool — it is a slash command, not a tool.`;
 
 type MahiloBoundaryToolAction = "exception" | "set";
 type MahiloBoundaryToolDetails = MahiloBoundaryChangeResult;
@@ -129,6 +141,7 @@ export function registerMahiloOpenClawPlugin(
 
   const createClient = options.createClient ?? createMahiloClientFromConfig;
   const client = createClient(config);
+  const needsSetup = !config.apiKey;
   const pluginState =
     options.pluginState ??
     new InMemoryPluginState({
@@ -150,11 +163,11 @@ export function registerMahiloOpenClawPlugin(
     pluginState
   };
 
-  api.registerTool(createSendMessageTool(client));
-  api.registerTool(createManageNetworkTool(client));
-  api.registerTool(createAskNetworkTool(client));
-  api.registerTool(createSetBoundariesTool(client));
-  registerPromptContextHook(api, client, config, pluginState);
+  api.registerTool(createSendMessageTool(client, needsSetup));
+  api.registerTool(createManageNetworkTool(client, needsSetup));
+  api.registerTool(createAskNetworkTool(client, needsSetup));
+  api.registerTool(createSetBoundariesTool(client, needsSetup));
+  registerPromptContextHook(api, client, config, pluginState, needsSetup);
   attachMahiloSenderResolutionCache(client, pluginState);
   registerMahiloPostSendHooks(api, pluginState);
   registerMahiloWebhookRoute(api, config, webhookRouteOptions);
@@ -164,12 +177,13 @@ export function registerMahiloOpenClawPlugin(
 const defaultMahiloOpenClawPlugin = createMahiloOpenClawPlugin();
 export default defaultMahiloOpenClawPlugin;
 
-function createSendMessageTool(client: MahiloContractClient): AnyAgentTool {
+function createSendMessageTool(client: MahiloContractClient, needsSetup: boolean): AnyAgentTool {
   return {
     description:
       "Send one message through Mahilo to a person or a group. Mahilo infers the sender connection, checks boundaries, and routes the delivery.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloSendMessageToolDetails>(MAHILO_SEND_MESSAGE_TOOL_NAME, async () => {
+        if (needsSetup) { return notConfiguredToolResult(MAHILO_SEND_MESSAGE_TOOL_NAME); }
         const { input, recipientType } = parseSendMessageToolInput(rawInput);
         const context = parseToolContext(rawInput);
         const result =
@@ -205,12 +219,13 @@ function createSendMessageTool(client: MahiloContractClient): AnyAgentTool {
   } as unknown as AnyAgentTool;
 }
 
-function createManageNetworkTool(client: MahiloContractClient): AnyAgentTool {
+function createManageNetworkTool(client: MahiloContractClient, needsSetup: boolean): AnyAgentTool {
   return {
     description:
       "Manage your Mahilo network: list contacts and pending requests, send a friend request, or accept/decline a request. Defaults to listing contacts when no action is given.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloManageNetworkToolDetails>(MAHILO_MANAGE_NETWORK_TOOL_NAME, async () => {
+        if (needsSetup) { return notConfiguredToolResult(MAHILO_MANAGE_NETWORK_TOOL_NAME); }
         const input = parseManageNetworkToolInput(rawInput);
         const result = await executeMahiloRelationshipAction(client, input);
         return toAgentToolResult(result, result.summary);
@@ -236,12 +251,13 @@ function createManageNetworkTool(client: MahiloContractClient): AnyAgentTool {
   } as unknown as AnyAgentTool;
 }
 
-function createAskNetworkTool(client: MahiloContractClient): AnyAgentTool {
+function createAskNetworkTool(client: MahiloContractClient, needsSetup: boolean): AnyAgentTool {
   return {
     description:
       "Ask your Mahilo network one question. Mahilo can fan the ask out to all contacts, a role-based slice, or a group, then route replies back into the same OpenClaw thread.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloAskNetworkToolDetails>(MAHILO_ASK_NETWORK_TOOL_NAME, async () => {
+        if (needsSetup) { return notConfiguredToolResult(MAHILO_ASK_NETWORK_TOOL_NAME); }
         const input = parseAskNetworkToolInput(rawInput);
         const result = await executeMahiloNetworkAction(client, input, parseToolContext(rawInput));
         if (result.action !== "ask_around") {
@@ -268,12 +284,13 @@ function createAskNetworkTool(client: MahiloContractClient): AnyAgentTool {
   } as unknown as AnyAgentTool;
 }
 
-function createSetBoundariesTool(client: MahiloContractClient): AnyAgentTool {
+function createSetBoundariesTool(client: MahiloContractClient, needsSetup: boolean): AnyAgentTool {
   return {
     description:
       "Set Mahilo sharing boundaries conversationally. Use this to allow, ask, or deny topics like location, health, finances, opinions, or private details for everyone or a narrower audience.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloBoundaryToolDetails>(MAHILO_SET_BOUNDARIES_TOOL_NAME, async () => {
+        if (needsSetup) { return notConfiguredToolResult(MAHILO_SET_BOUNDARIES_TOOL_NAME); }
         const input = parseSetBoundariesToolInput(rawInput);
         const result = await createMahiloBoundaryChange(client, input);
         return toAgentToolResult(result, result.summary);
@@ -845,6 +862,12 @@ function readRecipientType(value: unknown): "group" | "user" | undefined {
   return value === "group" || value === "user" ? value : undefined;
 }
 
+function notConfiguredToolResult(_toolName: string): never {
+  throw new MahiloToolInputError(
+    `Mahilo API key not set. Ask your human for their key or register at https://mahilo.io/api/v1/auth/register (POST with {"username":"<handle>"}). Then use gateway config.patch to set plugins.entries.mahilo.config.apiKey and restart.`
+  );
+}
+
 async function executeMahiloTool<T>(
   toolName: string,
   execute: () => Promise<{ content: Array<{ text: string; type: "text" }>; details: T }>
@@ -898,14 +921,18 @@ function registerPromptContextHook(
   api: OpenClawPluginApi,
   client: MahiloContractClient,
   config: MahiloPluginConfig,
-  pluginState: InMemoryPluginState
+  pluginState: InMemoryPluginState,
+  needsSetup: boolean
 ): void {
-  if (!config.promptContextEnabled) {
+  if (!config.promptContextEnabled && !needsSetup) {
     return;
   }
 
   api.registerHook("before_prompt_build", async (rawHookInput: unknown) => {
     try {
+      if (needsSetup) {
+        return injectSetupInstructionsIntoPrompt(rawHookInput);
+      }
       return await injectMahiloContextIntoPrompt(rawHookInput, client, pluginState);
     } catch (error) {
       api.logger?.warn?.(
@@ -919,18 +946,50 @@ function registerPromptContextHook(
   });
 }
 
+function injectSetupInstructionsIntoPrompt(rawHookInput: unknown): unknown {
+  const hookInput = readOptionalObject(rawHookInput);
+  if (!hookInput) {
+    return rawHookInput;
+  }
+
+  if (alreadyContainsMahiloSetupContext(hookInput)) {
+    return rawHookInput;
+  }
+
+  return injectPromptPayload(hookInput, MAHILO_SETUP_INSTRUCTIONS);
+}
+
+function alreadyContainsMahiloSetupContext(hookInput: Record<string, unknown>): boolean {
+  const candidates = [
+    readOptionalString(hookInput.text),
+    readOptionalString(hookInput.prompt)
+  ];
+
+  return candidates.some((entry) => entry?.includes(MAHILO_SETUP_PROMPT_MARKER) === true);
+}
+
 function registerMahiloPostSendHooks(
   api: OpenClawPluginApi,
   pluginState: InMemoryPluginState
 ): void {
+  api.on("before_tool_call", async (_event, ctx) => {
+    const sessionKey = readOptionalString(ctx.sessionKey);
+    if (!sessionKey) {
+      return;
+    }
+
+    pluginState.touchActiveSession(sessionKey, readOptionalString(ctx.agentId));
+  });
+
   api.on("after_tool_call", async (event, ctx) => {
     try {
       const params = readOptionalObject(event.params) ?? {};
+      const hookContext = resolveMahiloRouteHookContext(pluginState, ctx);
       rememberMahiloInboundRoute(pluginState, {
         params,
         result: event.result,
         toolName: event.toolName
-      }, ctx);
+      }, hookContext);
       const postSendEvent = extractMahiloPostSendEvent({
         error: readOptionalString(event.error),
         params,
@@ -942,15 +1001,15 @@ function registerMahiloPostSendHooks(
         return;
       }
 
-      const sessionKey = readOptionalString(ctx.sessionKey);
+      const sessionKey = hookContext.sessionKey;
       if (sessionKey) {
         api.runtime.system.enqueueSystemEvent(
           formatMahiloOutcomeSystemEvent(postSendEvent),
           {
             contextKey: buildMahiloOutcomeContextKey(
               postSendEvent,
-              readOptionalString(ctx.runId),
-              readOptionalString(ctx.toolCallId)
+              hookContext.runId,
+              hookContext.toolCallId
             ),
             sessionKey
           }
@@ -1019,13 +1078,13 @@ function rememberMahiloInboundRoute(
   },
   rawContext: unknown
 ): void {
-  const context = readOptionalObject(rawContext) ?? {};
-  const sessionKey = readOptionalString(context.sessionKey);
+  const context = resolveMahiloRouteHookContext(pluginState, rawContext);
+  const sessionKey = context.sessionKey;
   if (!sessionKey) {
     return;
   }
 
-  const agentId = readOptionalString(context.agentId);
+  const agentId = context.agentId;
   pluginState.touchActiveSession(sessionKey, agentId);
 
   const toolName = readOptionalString(event.toolName);
@@ -1039,10 +1098,30 @@ function rememberMahiloInboundRoute(
 
   if (toolName === MAHILO_ASK_NETWORK_TOOL_NAME) {
     rememberMahiloAskAroundInboundRoutes(pluginState, event, {
-      agentId: readOptionalString(context.agentId),
+      agentId,
       sessionKey
     });
   }
+}
+
+function resolveMahiloRouteHookContext(
+  pluginState: InMemoryPluginState,
+  rawContext: unknown
+): {
+  agentId?: string;
+  runId?: string;
+  sessionKey?: string;
+  toolCallId?: string;
+} {
+  const context = readOptionalObject(rawContext) ?? {};
+  const lastActiveSession = pluginState.getLastActiveSession();
+
+  return {
+    agentId: readOptionalString(context.agentId) ?? lastActiveSession?.agentId,
+    runId: readOptionalString(context.runId),
+    sessionKey: readOptionalString(context.sessionKey) ?? lastActiveSession?.sessionKey,
+    toolCallId: readOptionalString(context.toolCallId)
+  };
 }
 
 function rememberMahiloMessageInboundRoute(
