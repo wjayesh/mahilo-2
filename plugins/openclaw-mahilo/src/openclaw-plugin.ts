@@ -1854,6 +1854,26 @@ function buildMahiloOutcomeContextKey(
   ].join(":");
 }
 
+async function fetchPendingIncomingRequestCount(
+  client: MahiloContractClient,
+  pluginState: InMemoryPluginState
+): Promise<number> {
+  const cacheKey = "mahilo:pending_incoming_requests";
+  const cached = pluginState.getCachedContext(cacheKey);
+  if (typeof cached === "number") {
+    return cached;
+  }
+
+  try {
+    const pending = await client.listFriendships({ status: "pending" });
+    const incomingCount = pending.filter((f) => f.direction === "received").length;
+    pluginState.setCachedContext(cacheKey, incomingCount);
+    return incomingCount;
+  } catch {
+    return 0;
+  }
+}
+
 async function injectMahiloContextIntoPrompt(
   rawHookInput: unknown,
   client: MahiloContractClient,
@@ -1864,8 +1884,17 @@ async function injectMahiloContextIntoPrompt(
     return rawHookInput;
   }
 
+  const pendingCount = await fetchPendingIncomingRequestCount(client, pluginState);
+  const pendingSuffix =
+    pendingCount > 0
+      ? `\n[MahiloPending] You have ${pendingCount} pending incoming friend request${pendingCount === 1 ? "" : "s"}. Use manage_network to review and accept/reject them.`
+      : "";
+
   const promptContextInput = parsePromptContextInput(hookInput);
   if (!promptContextInput) {
+    if (pendingSuffix.length > 0) {
+      return injectPromptPayload(hookInput, pendingSuffix.trimStart());
+    }
     return rawHookInput;
   }
 
@@ -1886,15 +1915,21 @@ async function injectMahiloContextIntoPrompt(
   );
 
   if (!result.ok || result.injection.length === 0) {
+    if (pendingSuffix.length > 0) {
+      return injectPromptPayload(hookInput, pendingSuffix.trimStart());
+    }
     return rawHookInput;
   }
 
   const boundedInjection = boundPromptInjection(result.injection);
   if (boundedInjection.length === 0) {
+    if (pendingSuffix.length > 0) {
+      return injectPromptPayload(hookInput, pendingSuffix.trimStart());
+    }
     return rawHookInput;
   }
 
-  return injectPromptPayload(hookInput, boundedInjection);
+  return injectPromptPayload(hookInput, boundedInjection + pendingSuffix);
 }
 
 function parsePromptContextInput(hookInput: Record<string, unknown>): {
