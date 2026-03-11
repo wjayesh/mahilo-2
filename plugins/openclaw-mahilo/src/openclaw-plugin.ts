@@ -150,9 +150,9 @@ export function registerMahiloOpenClawPlugin(
     pluginState
   };
 
-  api.registerTool(createSendMessageTool(client, config));
-  api.registerTool(createManageNetworkTool(client, config));
-  api.registerTool(createAskNetworkTool(client, config));
+  api.registerTool(createSendMessageTool(client));
+  api.registerTool(createManageNetworkTool(client));
+  api.registerTool(createAskNetworkTool(client));
   api.registerTool(createSetBoundariesTool(client));
   registerPromptContextHook(api, client, config, pluginState);
   attachMahiloSenderResolutionCache(client, pluginState);
@@ -164,10 +164,7 @@ export function registerMahiloOpenClawPlugin(
 const defaultMahiloOpenClawPlugin = createMahiloOpenClawPlugin();
 export default defaultMahiloOpenClawPlugin;
 
-function createSendMessageTool(
-  client: MahiloContractClient,
-  config: MahiloPluginConfig
-): AnyAgentTool {
+function createSendMessageTool(client: MahiloContractClient): AnyAgentTool {
   return {
     description:
       "Send one message through Mahilo to a person or a group. Mahilo infers the sender connection, checks boundaries, and routes the delivery.",
@@ -208,10 +205,7 @@ function createSendMessageTool(
   } as unknown as AnyAgentTool;
 }
 
-function createManageNetworkTool(
-  client: MahiloContractClient,
-  config: MahiloPluginConfig
-): AnyAgentTool {
+function createManageNetworkTool(client: MahiloContractClient): AnyAgentTool {
   return {
     description:
       "Manage your Mahilo network: list contacts and pending requests, send a friend request, or accept/decline a request. Defaults to listing contacts when no action is given.",
@@ -242,10 +236,7 @@ function createManageNetworkTool(
   } as unknown as AnyAgentTool;
 }
 
-function createAskNetworkTool(
-  client: MahiloContractClient,
-  config: MahiloPluginConfig
-): AnyAgentTool {
+function createAskNetworkTool(client: MahiloContractClient): AnyAgentTool {
   return {
     description:
       "Ask your Mahilo network one question. Mahilo can fan the ask out to all contacts, a role-based slice, or a group, then route replies back into the same OpenClaw thread.",
@@ -809,10 +800,6 @@ function readOptionalString(value: unknown): string | undefined {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
-}
-
-function readOptionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
 }
 
 function readStringArray(value: unknown): string[] | undefined {
