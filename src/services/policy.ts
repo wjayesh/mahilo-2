@@ -443,7 +443,7 @@ function resolveDirectionCandidates(direction: PolicyDirection | undefined): Pol
   return [direction];
 }
 
-async function loadApplicablePolicies(
+export async function loadApplicablePolicies(
   senderUserId: string,
   recipientUserId?: string,
   recipientRoles: string[] = [],
@@ -982,6 +982,18 @@ export async function evaluatePolicies(
     llmSubject: recipient?.username || "unknown",
     context,
   });
+}
+
+/**
+ * Load all bilateral policies between two users (global + user + role scoped).
+ * No selector filtering — returns the full picture for the receiving agent.
+ */
+export async function loadBilateralPolicies(
+  userId: string,
+  recipientUserId: string,
+  roles: string[] = []
+): Promise<CanonicalPolicy[]> {
+  return loadApplicablePolicies(userId, recipientUserId, roles);
 }
 
 export async function evaluateInboundPolicies(

@@ -3,6 +3,15 @@ import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { config } from "../config";
 
+export interface ApplicablePolicy {
+  effect: "allow" | "ask" | "deny";
+  scope: "global" | "user" | "role" | "group";
+  direction: string | null;
+  resource: string | null;
+  action: string | null;
+  reason?: string;
+}
+
 interface DeliveryPayload {
   message_id: string;
   delivery_id?: string; // For group fan-out tracking
@@ -17,6 +26,7 @@ interface DeliveryPayload {
   context?: string;
   group_id?: string;
   group_name?: string;
+  applicable_policies?: ApplicablePolicy[];
   timestamp: string;
 }
 

@@ -17,6 +17,7 @@ import {
   evaluateGroupPolicies,
   evaluateInboundPolicies,
   evaluatePolicies,
+  loadApplicablePolicies,
   validatePolicyContent,
   type AuthenticatedSenderIdentity,
   type PolicyResult,
@@ -1168,42 +1169,11 @@ async function loadContextPolicies(
   roles: string[],
   selectors: { direction: PolicyDirection; resource: string; action: string }
 ) {
-  const db = getDb();
-  const now = new Date();
-  const directionCandidates = resolveDirectionCandidates(selectors.direction);
-  const policyConditions = [
-    eq(schema.policies.scope, "global"),
-    and(eq(schema.policies.scope, "user"), eq(schema.policies.targetId, recipientUserId)),
-  ];
-
-  if (roles.length > 0) {
-    policyConditions.push(
-      and(eq(schema.policies.scope, "role"), sql`${schema.policies.targetId} IN ${roles}`)
-    );
-  }
-
-  const policies = await db
-    .select()
-    .from(schema.policies)
-    .where(
-      and(
-        eq(schema.policies.userId, userId),
-        eq(schema.policies.enabled, true),
-        or(isNull(schema.policies.effectiveFrom), lte(schema.policies.effectiveFrom, now)),
-        or(isNull(schema.policies.expiresAt), gt(schema.policies.expiresAt, now)),
-        or(isNull(schema.policies.remainingUses), gt(schema.policies.remainingUses, 0)),
-        or(...policyConditions),
-        or(
-          isNull(schema.policies.direction),
-          inArray(schema.policies.direction, directionCandidates)
-        ),
-        or(isNull(schema.policies.resource), eq(schema.policies.resource, selectors.resource)),
-        or(isNull(schema.policies.action), eq(schema.policies.action, selectors.action))
-      )
-    )
-    .orderBy(desc(schema.policies.priority), desc(schema.policies.createdAt));
-
-  return policies.map((policy) => dbPolicyToCanonical(policy));
+  return loadApplicablePolicies(userId, recipientUserId, roles, undefined, {
+    direction: selectors.direction,
+    resource: selectors.resource,
+    action: selectors.action,
+  });
 }
 
 pluginRoutes.get("/reviews", requireVerified(), async (c) => {

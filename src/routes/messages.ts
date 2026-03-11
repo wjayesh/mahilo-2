@@ -8,11 +8,12 @@ import { getDb, schema } from "../db";
 import { requireAuth, requireVerified } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
-import { deliverMessage, deliverToConnection } from "../services/delivery";
+import { deliverMessage, deliverToConnection, type ApplicablePolicy } from "../services/delivery";
 import {
   evaluatePolicies,
   evaluateInboundPolicies,
   consumeWinningPolicyUse,
+  loadBilateralPolicies,
   type AuthenticatedSenderIdentity,
   type PolicyResult,
 } from "../services/policy";
@@ -1435,12 +1436,30 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
     idempotencyKey: data.idempotency_key,
   });
 
-  // Get sender username
-  const [sender] = await db
-    .select({ username: schema.users.username })
-    .from(schema.users)
-    .where(eq(schema.users.id, user.id))
-    .limit(1);
+  // Get sender username and load bilateral policies for the recipient
+  const [sender, recipientBilateralRoles] = await Promise.all([
+    db
+      .select({ username: schema.users.username })
+      .from(schema.users)
+      .where(eq(schema.users.id, user.id))
+      .limit(1)
+      .then((rows) => rows[0]),
+    getRolesForFriend(recipientUserId, user.id),
+  ]);
+
+  const bilateralPolicies = await loadBilateralPolicies(
+    recipientUserId,
+    user.id,
+    recipientBilateralRoles
+  );
+
+  const applicablePolicies: ApplicablePolicy[] = bilateralPolicies.map((p) => ({
+    effect: p.effect,
+    scope: p.scope,
+    direction: p.direction,
+    resource: p.resource,
+    action: p.action,
+  }));
 
   // Deliver message
   const deliveryResult = await deliverMessage(recipientConnection!, {
@@ -1461,6 +1480,7 @@ messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSch
       resource: messageSelectors.resource,
       action: messageSelectors.action,
     },
+    applicable_policies: applicablePolicies.length > 0 ? applicablePolicies : undefined,
     resolution_id: userResolution.resolution_id,
     review_required: reviewRequiredDelivery,
     delivery_mode: userResolution.delivery_mode,

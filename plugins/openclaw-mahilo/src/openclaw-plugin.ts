@@ -48,7 +48,7 @@ import {
   type MahiloToolContext,
   type TalkToGroupInput
 } from "./tools-default-sender";
-import type { MahiloInboundWebhookPayload } from "./webhook";
+import type { ApplicablePolicy, MahiloInboundWebhookPayload } from "./webhook";
 import { registerMahiloWebhookRoute, type MahiloWebhookRouteOptions } from "./webhook-route";
 import {
   extractMahiloPostSendEvent,
@@ -1353,7 +1353,25 @@ function formatMahiloInboundSystemEvent(
     text = `${text} Context: ${contextText}`;
   }
 
+  const policyBlock = formatApplicablePolicies(payload.applicable_policies);
+  if (policyBlock) {
+    text = `${text}\n${policyBlock}`;
+  }
+
   return text;
+}
+
+function formatApplicablePolicies(policies?: ApplicablePolicy[]): string | undefined {
+  if (!policies || policies.length === 0) {
+    return undefined;
+  }
+
+  const lines = policies.map((p) => {
+    const selector = [p.direction, p.resource, p.action].filter(Boolean).join("/") || "*";
+    return `- ${p.effect} ${selector} (${p.scope})`;
+  });
+
+  return `Policies for this sender:\n${lines.join("\n")}`;
 }
 
 function formatMahiloAskAroundInboundSystemEvent(

@@ -3,7 +3,17 @@ import { extractWebhookSignatureHeaders, verifyWebhookSignature } from "./keys";
 import { normalizeDeclaredSelectors, type DeclaredSelectors } from "./policy-helpers";
 import { InMemoryDedupeState } from "./state";
 
+export interface ApplicablePolicy {
+  effect: "allow" | "ask" | "deny";
+  scope: "global" | "user" | "role" | "group";
+  direction: string | null;
+  resource: string | null;
+  action: string | null;
+  reason?: string;
+}
+
 export interface MahiloInboundWebhookPayload {
+  applicable_policies?: ApplicablePolicy[];
   context?: string;
   correlation_id?: string;
   delivery_id?: string | null;
@@ -66,6 +76,7 @@ export function parseInboundWebhookPayload(rawBody: string): MahiloInboundWebhoo
   const timestamp = readRequiredString(payload.timestamp, "timestamp");
 
   return {
+    applicable_policies: parseApplicablePolicies(payload.applicable_policies),
     context: readOptionalString(payload.context),
     correlation_id: readOptionalString(payload.correlation_id),
     delivery_id: readNullableString(payload.delivery_id),
@@ -196,6 +207,41 @@ function readRequiredMessageId(value: unknown, key: string): string {
   }
 
   return normalized;
+}
+
+const VALID_EFFECTS = new Set(["allow", "ask", "deny"]);
+const VALID_SCOPES = new Set(["global", "user", "role", "group"]);
+
+function parseApplicablePolicies(value: unknown): ApplicablePolicy[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+
+  const policies: ApplicablePolicy[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const entry = item as Record<string, unknown>;
+    if (
+      typeof entry.effect !== "string" ||
+      !VALID_EFFECTS.has(entry.effect) ||
+      typeof entry.scope !== "string" ||
+      !VALID_SCOPES.has(entry.scope)
+    ) {
+      continue;
+    }
+    policies.push({
+      effect: entry.effect as ApplicablePolicy["effect"],
+      scope: entry.scope as ApplicablePolicy["scope"],
+      direction: typeof entry.direction === "string" ? entry.direction : null,
+      resource: typeof entry.resource === "string" ? entry.resource : null,
+      action: typeof entry.action === "string" ? entry.action : null,
+      ...(typeof entry.reason === "string" ? { reason: entry.reason } : {}),
+    });
+  }
+
+  return policies.length > 0 ? policies : undefined;
 }
 
 function readOptionalMessageId(value: unknown, key: string): string | undefined {
