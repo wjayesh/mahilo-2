@@ -1107,20 +1107,14 @@ describe("createMahiloOpenClawPlugin", () => {
       "POST https://mahilo.example/api/v1/auth/register",
     );
     expect(replyText).toContain(
-      "POST https://mahilo.example/api/v1/agents",
-    );
-    expect(replyText).toContain("openclaw-plugin-runtime.json");
-    expect(replyText).toContain("callback_url");
-    expect(replyText).toContain("http://localhost:18789/mahilo/incoming");
-    expect(replyText).toContain(
       "do NOT ask the human to run /mahilo setup",
     );
     expect(replyText).toContain(
       "do NOT inspect source code or docs",
     );
     expect(replyText).toContain("BOOTSTRAP STEPS");
-    expect(replyText).toContain('"version":1');
-    expect(replyText).toContain('"servers"');
+    expect(replyText).toContain("plugins.entries.mahilo.config.apiKey");
+    expect(replyText).toContain("plugin handles sender registration");
     expect(replyText).not.toContain(
       "could not find any agent connections for the current identity",
     );
@@ -3288,17 +3282,12 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(promptValue).toContain(
       "curl -sS -X POST https://mahilo.example/api/v1/auth/register",
     );
-    expect(promptValue).toContain(
-      "curl -sS -X POST https://mahilo.example/api/v1/agents",
-    );
-    expect(promptValue).toContain("openclaw-plugin-runtime.json");
+    expect(promptValue).toContain("plugins.entries.mahilo.config.apiKey");
     expect(promptValue).toContain("Do not ask the human to run /mahilo setup.");
     expect(promptValue).toContain(
-      "Assume you do not have access to any Mahilo repo checkout.",
+      "Do not inspect local source code or docs.",
     );
-    expect(promptValue).toContain(
-      "Do not inspect local source code or docs for bootstrap steps;",
-    );
+    expect(promptValue).toContain("plugin will automatically register the sender");
     expect(promptValue).toContain("You are a helpful assistant.");
   });
 

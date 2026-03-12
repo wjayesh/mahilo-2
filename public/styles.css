@@ -496,7 +496,7 @@ body {
 /* --- Section 3: Solution --- */
 .solution-section {
   padding: var(--landing-section-padding);
-  background: #FFF8F0;
+  background: #FFFFFF;
 }
 
 .solution-demo {
@@ -589,7 +589,7 @@ body {
 /* --- Section 4: How It Works --- */
 .how-it-works-section {
   padding: var(--landing-section-padding);
-  background: linear-gradient(180deg, #FFF8F0 0%, #FFF5EB 100%);
+  background: #FFF5EB;
 }
 
 .steps-grid {
@@ -648,7 +648,7 @@ body {
 /* --- Section 4.5: Policy Layer --- */
 .policy-section {
   padding: var(--landing-section-padding);
-  background: linear-gradient(180deg, #FFF5EB 0%, #FFF8F0 100%);
+  background: #FFFFFF;
 }
 
 .policy-layout {
@@ -710,7 +710,7 @@ body {
 /* --- Section 5: Differentiator --- */
 .differentiator-section {
   padding: 120px 24px;
-  background: linear-gradient(180deg, #FFF5EB 0%, #FFECD9 50%, #FFF5EB 100%);
+  background: #FFF5EB;
 }
 
 .diff-headline {
@@ -750,7 +750,7 @@ body {
 /* --- Section 6: Waitlist --- */
 .waitlist-section {
   padding: var(--landing-section-padding);
-  background: #FFF0E6;
+  background: #FFFFFF;
 }
 
 .waitlist-form {
@@ -832,7 +832,7 @@ body {
 /* --- Section 7: Invite Steps --- */
 .invite-section {
   padding: var(--landing-section-padding);
-  background: #FFF8F0;
+  background: #FFF5EB;
 }
 
 .invite-steps {
@@ -3714,7 +3714,7 @@ body {
   height: auto;
   border-radius: 12px;
   background: white;
-  padding: 20px;
+  padding: 4px;
   box-shadow: var(--shadow-sm);
 }
 

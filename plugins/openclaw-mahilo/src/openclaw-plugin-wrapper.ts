@@ -176,13 +176,34 @@ export function registerMahiloOpenClawPlugin(
     runtimeBootstrapStore,
     options,
   );
-  const isBootstrapReady = () =>
-    Boolean(
+  let lazySenderRegistrationTriggered = false;
+  const isBootstrapReady = () => {
+    const ready = Boolean(
       resolveEffectiveApiKey(
         config,
         runtimeBootstrapStore.read(config.baseUrl),
+        api.pluginConfig,
       ),
     );
+    if (ready && !lazySenderRegistrationTriggered) {
+      const currentState = runtimeBootstrapStore.read(config.baseUrl);
+      if (!currentState?.callbackSecret) {
+        lazySenderRegistrationTriggered = true;
+        triggerLazySenderRegistration({
+          callbackSecretResolver,
+          config,
+          createClient,
+          livePluginConfig: api.pluginConfig,
+          runtimeBootstrapStore,
+          runtimeContext,
+          senderResolver,
+        });
+      } else {
+        lazySenderRegistrationTriggered = true;
+      }
+    }
+    return ready;
+  };
   const bootstrapGuidance = buildRawHttpBootstrapGuidance({
     config,
     runtimeBootstrapStore,
@@ -193,6 +214,7 @@ export function registerMahiloOpenClawPlugin(
     config,
     runtimeBootstrapStore,
     createClient,
+    api.pluginConfig,
   );
   const commandRouterState: MahiloCommandRouterState = {
     registered: false,
@@ -437,87 +459,35 @@ function buildRawHttpBootstrapGuidance(options: {
 }): MahiloRawHttpBootstrapGuidance {
   const normalizedBaseUrl = options.config.baseUrl.replace(/\/+$/, "");
   const registerUrl = `${normalizedBaseUrl}/api/v1/auth/register`;
-  const agentsUrl = `${normalizedBaseUrl}/api/v1/agents`;
-  const callback = detectMahiloCallbackUrl({
-    callbackPath: options.config.callbackPath,
-    configuredCallbackUrl: options.config.callbackUrl,
-    rawContext: options.runtimeContext,
-    storedCallbackUrl: options.runtimeState?.callbackUrl,
-  });
-  const callbackUrl = callback.publicUrl;
-  const runtimeStorePath = options.runtimeBootstrapStore.getPath();
   const registerPayload =
     '{"username":"your_handle","invite_token":"mhinv_..."}';
-  const senderPayload = JSON.stringify({
-    callback_url: callbackUrl,
-    description: SETUP_MANAGED_SENDER_DESCRIPTION,
-    framework: SETUP_MANAGED_SENDER_FRAMEWORK,
-    label: SETUP_MANAGED_SENDER_LABEL,
-    mode: "webhook",
-  });
-  const runtimeEntryExample = JSON.stringify({
-    apiKey: "mhl_...",
-    callbackConnectionId: "<connection_id>",
-    callbackSecret: "<callback_secret>",
-    callbackUrl,
-    username: "your_handle",
-  });
-  const runtimeFileExample = JSON.stringify({
-    version: 1,
-    servers: {
-      [normalizedBaseUrl]: {
-        apiKey: "mhl_...",
-        callbackConnectionId: "<connection_id>",
-        callbackSecret: "<callback_secret>",
-        callbackUrl,
-        username: "your_handle",
-      },
-    },
-  });
-  const callbackScopeNote = callback.publiclyReachable
-    ? ""
-    : ` This callback URL is local-only (${callbackUrl}), so inbound Mahilo callbacks will only work on this machine until OpenClaw is exposed publicly.`;
 
   return {
     prompt: `[MahiloSetup/v1]
 Mahilo plugin installed but not bootstrapped for this runtime yet.
-Do not ask the human to run /mahilo setup.
-Assume you do not have access to any Mahilo repo checkout. Do not inspect local source code or docs for bootstrap steps; use only the exact runtime-specific instructions below.
-The authoritative Mahilo runtime bootstrap store for this runtime is exactly ${runtimeStorePath}. If source code or docs mention a different default path, ignore them and use this exact file.
-Do not restart OpenClaw after writing the runtime bootstrap store. Mahilo re-reads this file on every tool call, so retry the Mahilo action immediately after you save it.
-If the human gives you a one-time Mahilo invite token (a string starting with mhinv_), finish Mahilo bootstrap yourself in two HTTP calls:
+Do not ask the human to run /mahilo setup. Do not inspect local source code or docs.
+If the human gives you a one-time Mahilo invite token (a string starting with mhinv_), finish Mahilo bootstrap in one step:
 1. Create the Mahilo identity:
   curl -sS -X POST ${registerUrl} -H 'Content-Type: application/json' -d '${registerPayload}'
   The invite_token field is the mhinv_... string the human gave you. Capture api_key from the response.
-2. Attach the default OpenClaw sender:
-  curl -sS -X POST ${agentsUrl} -H 'Content-Type: application/json' -H 'Authorization: Bearer <api_key>' -d '${senderPayload}'
-  Capture connection_id and callback_secret from the response.
-3. Save the complete runtime bootstrap store file at ${runtimeStorePath}. The file must be valid JSON with this exact top-level shape:
-  ${runtimeFileExample}
-  Replace the placeholder values with the real values from steps 1 and 2. The top-level "version" key must be 1. The "servers" key is a map from server URL to credentials. Preserve any other existing server entries if the file already exists.
-If the human already has a Mahilo API key that starts with mhl_, skip step 1 and start from step 2 with that API key.${callbackScopeNote}
-After the runtime bootstrap store is updated, retry the Mahilo action you were attempting.`,
+2. Save the api_key to this OpenClaw plugin config by setting plugins.entries.mahilo.config.apiKey to the mhl_... value from step 1.
+If the human already has a Mahilo API key that starts with mhl_, skip step 1 and go straight to step 2.
+The plugin will automatically register the sender connection and handle all other setup.
+After saving the apiKey to the plugin config, retry the Mahilo action you were attempting immediately. Do not restart OpenClaw.`,
     toolError: `Mahilo is not bootstrapped for this runtime yet.
 
 BOOTSTRAP STEPS (do these yourself, do NOT ask the human to run /mahilo setup, do NOT inspect source code or docs):
 
-1. If the human gave you a one-time invite token (a string starting with mhinv_), create the identity:
+1. If the human gave you a one-time invite token (a string starting with mhinv_), register the identity:
    POST ${registerUrl}
    Body: ${registerPayload}
    The invite_token is the mhinv_... string. Capture api_key from the response.
    If the human already has a Mahilo API key (starts with mhl_), skip this step.
 
-2. Attach the default OpenClaw sender:
-   POST ${agentsUrl}
-   Headers: Authorization: Bearer <api_key>, Content-Type: application/json
-   Body: ${senderPayload}
-   Capture connection_id and callback_secret from the response.
+2. Save the api_key to the OpenClaw plugin config: set plugins.entries.mahilo.config.apiKey to the mhl_... value.
+   The plugin handles sender registration and all other setup automatically.
 
-3. Write the runtime bootstrap store file at exactly ${runtimeStorePath} with this complete JSON structure:
-   ${runtimeFileExample}
-   Replace placeholder values with real values from steps 1 and 2. The top-level "version" must be 1. The "servers" object maps server URL to credentials.
-
-4. Retry this Mahilo action immediately. Do NOT restart OpenClaw.`,
+3. Retry this Mahilo action immediately. Do NOT restart OpenClaw.`,
   };
 }
 
@@ -703,6 +673,50 @@ function createStartupBootstrapService(
       }
     },
   };
+}
+
+function triggerLazySenderRegistration(options: {
+  callbackSecretResolver: () => Promise<string | undefined>;
+  config: MahiloPluginConfig;
+  createClient: (config: MahiloPluginConfig) => MahiloContractClient;
+  livePluginConfig?: unknown;
+  runtimeBootstrapStore: MahiloRuntimeBootstrapStore;
+  runtimeContext?: unknown;
+  senderResolver: MahiloSenderResolver;
+}): void {
+  const run = async () => {
+    try {
+      const runtimeState = options.runtimeBootstrapStore.read(
+        options.config.baseUrl,
+      );
+      const apiKey = resolveEffectiveApiKey(
+        options.config,
+        runtimeState,
+        options.livePluginConfig,
+      );
+      if (!apiKey) {
+        return;
+      }
+
+      const serviceConfig = await resolveBootstrapConfig(
+        { ...options.config, apiKey },
+        runtimeState,
+        options.runtimeContext,
+      );
+      await runMahiloSetup({
+        callbackSecretResolver: options.callbackSecretResolver,
+        config: serviceConfig,
+        createClient: options.createClient,
+        credentialSource: "config",
+        ping: false,
+        runtimeBootstrapStore: options.runtimeBootstrapStore,
+        senderResolver: options.senderResolver,
+      });
+    } catch {
+      // Best-effort: sender registration will be retried on the next tool call if needed.
+    }
+  };
+  void run();
 }
 
 interface RunMahiloSetupOptions {
@@ -1313,8 +1327,17 @@ function resolveCredentialSource(
 function resolveEffectiveApiKey(
   config: MahiloPluginConfig,
   bootstrapState: ReturnType<MahiloRuntimeBootstrapStore["read"]>,
+  livePluginConfig?: unknown,
 ): string | undefined {
-  return config.apiKey ?? bootstrapState?.apiKey;
+  return config.apiKey ?? bootstrapState?.apiKey ?? readApiKeyFromLivePluginConfig(livePluginConfig);
+}
+
+function readApiKeyFromLivePluginConfig(pluginConfig: unknown): string | undefined {
+  if (typeof pluginConfig !== "object" || pluginConfig === null) {
+    return undefined;
+  }
+  const apiKey = (pluginConfig as Record<string, unknown>).apiKey;
+  return typeof apiKey === "string" && apiKey.trim().length > 0 ? apiKey.trim() : undefined;
 }
 
 function resolveManagedCallbackUrl(
@@ -1748,6 +1771,7 @@ function createRuntimeAwareClient(
   config: MahiloPluginConfig,
   runtimeBootstrapStore: MahiloRuntimeBootstrapStore,
   createClient: (config: MahiloPluginConfig) => MahiloContractClient,
+  livePluginConfig?: unknown,
 ): MahiloContractClient {
   return new Proxy({} as MahiloContractClient, {
     get(_target, property) {
@@ -1756,6 +1780,7 @@ function createRuntimeAwareClient(
         apiKey: resolveEffectiveApiKey(
           config,
           runtimeBootstrapStore.read(config.baseUrl),
+          livePluginConfig,
         ),
       });
       const value = Reflect.get(currentClient as unknown as object, property);

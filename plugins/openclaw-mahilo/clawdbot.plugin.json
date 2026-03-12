@@ -1,0 +1,67 @@
+{
+  "id": "mahilo",
+  "name": "Mahilo",
+  "version": "0.1.2",
+  "description": "Ask your contacts from OpenClaw and get attributed answers with boundaries built in.",
+  "entry": "./dist/index.js",
+  "configSchema": {
+    "title": "Mahilo Plugin Config",
+    "description": "Plugin-local runtime configuration only. Mahilo server is the source of truth for identity, policy decisions, selector normalization, and callback secret lifecycle.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [],
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "default": "https://mahilo.io",
+        "description": "Optional Mahilo server base URL override. Defaults to the global Mahilo server at https://mahilo.io."
+      },
+      "apiKey": {
+        "type": "string",
+        "minLength": 1,
+        "writeOnly": true,
+        "x-sensitive": true,
+        "description": "Optional existing Mahilo API key. When present, the plugin auto-attaches a default sender on startup. `mahilo setup` can bootstrap and store one locally when this is omitted."
+      },
+      "callbackUrl": {
+        "type": "string",
+        "description": "Optional public callback URL override. When omitted, the plugin auto-detects a callback URL from OpenClaw gateway remote/Tailscale settings and only falls back to localhost for local-only testing."
+      },
+      "callbackPath": {
+        "type": "string",
+        "pattern": "^\\/.*",
+        "description": "Optional callback path override (must start with '/') when callbackUrl auto-detection is used"
+      },
+      "inboundSessionKey": {
+        "type": "string",
+        "default": "main",
+        "description": "Fallback OpenClaw session key for inbound Mahilo messages when no exact originating thread can be resolved"
+      },
+      "inboundAgentId": {
+        "type": "string",
+        "description": "Optional agent id to pair with inboundSessionKey when inbound Mahilo messages fall back to the default session"
+      },
+      "reviewMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "ask",
+          "manual"
+        ],
+        "default": "ask",
+        "description": "Optional local UX behavior for ask outcomes; this does not change server policy truth"
+      },
+      "promptContextEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable native before_prompt_build Mahilo context injection"
+      },
+      "cacheTtlSeconds": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 60,
+        "description": "TTL for local non-authoritative caches"
+      }
+    }
+  }
+}
