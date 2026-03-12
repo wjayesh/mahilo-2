@@ -285,7 +285,13 @@ export function registerMahiloOpenClawPlugin(
     createClient: () => activeClient,
     isBootstrapReady,
     setupInstructions: bootstrapGuidance.prompt,
-    toolBootstrapError: bootstrapGuidance.toolError,
+    toolBootstrapError: () => {
+      const diagnostic = runtimeBootstrapStore.diagnose(config.baseUrl);
+      if (diagnostic.kind === "ok") {
+        return bootstrapGuidance.toolError;
+      }
+      return `${bootstrapGuidance.toolError}\n\nDIAGNOSTIC (${diagnostic.kind}): ${diagnostic.message}`;
+    },
     webhookRoute: {
       ...options.webhookRoute,
       getCallbackSecret: callbackSecretResolver,
@@ -456,6 +462,18 @@ function buildRawHttpBootstrapGuidance(options: {
     callbackUrl,
     username: "your_handle",
   });
+  const runtimeFileExample = JSON.stringify({
+    version: 1,
+    servers: {
+      [normalizedBaseUrl]: {
+        apiKey: "mhl_...",
+        callbackConnectionId: "<connection_id>",
+        callbackSecret: "<callback_secret>",
+        callbackUrl,
+        username: "your_handle",
+      },
+    },
+  });
   const callbackScopeNote = callback.publiclyReachable
     ? ""
     : ` This callback URL is local-only (${callbackUrl}), so inbound Mahilo callbacks will only work on this machine until OpenClaw is exposed publicly.`;
@@ -467,17 +485,39 @@ Do not ask the human to run /mahilo setup.
 Assume you do not have access to any Mahilo repo checkout. Do not inspect local source code or docs for bootstrap steps; use only the exact runtime-specific instructions below.
 The authoritative Mahilo runtime bootstrap store for this runtime is exactly ${runtimeStorePath}. If source code or docs mention a different default path, ignore them and use this exact file.
 Do not restart OpenClaw after writing the runtime bootstrap store. Mahilo re-reads this file on every tool call, so retry the Mahilo action immediately after you save it.
-If the human gives you a one-time Mahilo invite token, finish Mahilo bootstrap yourself in two HTTP calls:
+If the human gives you a one-time Mahilo invite token (a string starting with mhinv_), finish Mahilo bootstrap yourself in two HTTP calls:
 1. Create the Mahilo identity:
   curl -sS -X POST ${registerUrl} -H 'Content-Type: application/json' -d '${registerPayload}'
-  Capture api_key from the response.
+  The invite_token field is the mhinv_... string the human gave you. Capture api_key from the response.
 2. Attach the default OpenClaw sender:
   curl -sS -X POST ${agentsUrl} -H 'Content-Type: application/json' -H 'Authorization: Bearer <api_key>' -d '${senderPayload}'
   Capture connection_id and callback_secret from the response.
-3. Save apiKey, username, callbackConnectionId, callbackSecret, and callbackUrl in the Mahilo runtime bootstrap store at ${runtimeStorePath} under the server key ${normalizedBaseUrl}, preserving any other existing servers. Example server entry: ${runtimeEntryExample}
+3. Save the complete runtime bootstrap store file at ${runtimeStorePath}. The file must be valid JSON with this exact top-level shape:
+  ${runtimeFileExample}
+  Replace the placeholder values with the real values from steps 1 and 2. The top-level "version" key must be 1. The "servers" key is a map from server URL to credentials. Preserve any other existing server entries if the file already exists.
 If the human already has a Mahilo API key that starts with mhl_, skip step 1 and start from step 2 with that API key.${callbackScopeNote}
 After the runtime bootstrap store is updated, retry the Mahilo action you were attempting.`,
-    toolError: `Mahilo is not bootstrapped for this runtime yet. I should create the identity with POST ${registerUrl}, attach the default OpenClaw sender with POST ${agentsUrl} using callback_url ${callbackUrl}, save apiKey, username, callbackConnectionId, callbackSecret, and callbackUrl in the exact Mahilo runtime bootstrap store at ${runtimeStorePath} under server ${normalizedBaseUrl}, and then retry this Mahilo action immediately. I should not ask the human to run /mahilo setup, I should assume I do not have access to any Mahilo repo checkout, I should not inspect local source code or docs for bootstrap steps, I should not use a different default bootstrap path from source/docs, and I should not restart OpenClaw after writing the runtime bootstrap store.`,
+    toolError: `Mahilo is not bootstrapped for this runtime yet.
+
+BOOTSTRAP STEPS (do these yourself, do NOT ask the human to run /mahilo setup, do NOT inspect source code or docs):
+
+1. If the human gave you a one-time invite token (a string starting with mhinv_), create the identity:
+   POST ${registerUrl}
+   Body: ${registerPayload}
+   The invite_token is the mhinv_... string. Capture api_key from the response.
+   If the human already has a Mahilo API key (starts with mhl_), skip this step.
+
+2. Attach the default OpenClaw sender:
+   POST ${agentsUrl}
+   Headers: Authorization: Bearer <api_key>, Content-Type: application/json
+   Body: ${senderPayload}
+   Capture connection_id and callback_secret from the response.
+
+3. Write the runtime bootstrap store file at exactly ${runtimeStorePath} with this complete JSON structure:
+   ${runtimeFileExample}
+   Replace placeholder values with real values from steps 1 and 2. The top-level "version" must be 1. The "servers" object maps server URL to credentials.
+
+4. Retry this Mahilo action immediately. Do NOT restart OpenClaw.`,
   };
 }
 

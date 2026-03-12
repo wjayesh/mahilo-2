@@ -3690,3 +3690,49 @@ body {
 .animate-shake {
   animation: shake 0.3s ease;
 }
+
+/* Policy diagram */
+.policy-diagram {
+  margin-top: 48px;
+  text-align: center;
+}
+
+.policy-diagram figure {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.policy-diagram img {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  background: white;
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.policy-diagram figcaption {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-top: 12px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.policy-deep-dive {
+  margin-top: 20px;
+  font-size: 0.95rem;
+  color: var(--color-text-secondary);
+}
+
+.policy-deep-dive a {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.policy-deep-dive a:hover {
+  border-bottom-color: var(--color-primary);
+}

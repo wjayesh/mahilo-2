@@ -23,7 +23,7 @@ The single recommended first-run path is [Guided First Run](./docs/guided-first-
 
 If you only want the raw command/tool sequence, the loop is:
 
-1. If you already have a Mahilo API key in plugin config, restart OpenClaw and let the plugin auto-attach the default sender on startup. If you do not, ask a human to enter `/mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}` once in OpenClaw to bootstrap identity and sender attachment.
+1. If you already have a Mahilo API key in plugin config, restart OpenClaw and let the plugin auto-attach the default sender on startup. If you do not, give the agent your one-time invite token (a string starting with `mhinv_`) and let the plugin bootstrap automatically via raw HTTP — the agent will register your identity with `POST /api/v1/auth/register`, attach the default sender with `POST /api/v1/agents`, and save credentials to the local runtime store. No command or manual setup step required.
 2. Run `mahilo status` to confirm connectivity and webhook alignment.
 3. Run `mahilo network` or `manage_network` with `action=list` to see whether your circle is ready.
 4. If the network is empty, stay in `manage_network` and use `action=send_request` to invite one trusted person. If they already invited you, use `action=accept`, then have them bring their Mahilo plugin online in OpenClaw.
@@ -73,7 +73,7 @@ Add the Mahilo plugin entry to the same OpenClaw config file:
 
 By default, the plugin talks to the global Mahilo server at `https://mahilo.io`.
 
-If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will auto-register or repair the default sender on startup. When `apiKey` is omitted, `mahilo setup` can bootstrap the identity from a one-time invite token and store the issued key locally for the OpenClaw runtime.
+If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will auto-register or repair the default sender on startup. When `apiKey` is omitted, the plugin bootstraps automatically when the agent is given a one-time invite token (`mhinv_...`). The agent registers the identity via `POST /api/v1/auth/register`, attaches the sender via `POST /api/v1/agents`, and stores the issued credentials in the local runtime store — no manual command needed.
 
 `plugins.entries.mahilo.config` accepts:
 
@@ -99,7 +99,7 @@ When `callbackUrl` is omitted, startup auto-registration tries this order:
 
 So normal users do not need to type `callbackUrl` manually. The override exists for advanced setups only.
 
-When `mahilo setup` bootstraps an API key or rotates a callback secret, the plugin stores those server-issued values in a local runtime store under `$XDG_CONFIG_HOME/mahilo/openclaw-plugin-runtime.json` (or `~/.config/mahilo/openclaw-plugin-runtime.json` when `XDG_CONFIG_HOME` is unset). That keeps server-owned secrets out of plugin config while still avoiding setup retry loops.
+When the plugin bootstraps an API key or rotates a callback secret (whether via automatic raw-HTTP bootstrap or the `mahilo setup` fallback), it stores those server-issued values in a local runtime store under `$XDG_CONFIG_HOME/mahilo/openclaw-plugin-runtime.json` (or `~/.config/mahilo/openclaw-plugin-runtime.json` when `XDG_CONFIG_HOME` is unset). That keeps server-owned secrets out of plugin config while still avoiding setup retry loops.
 
 ## Commands
 
@@ -161,30 +161,11 @@ When a send, preview, or context-fetch call omits `senderConnectionId`, the plug
 
 ## First Connectivity Check
 
-After installing the plugin, restart OpenClaw and run:
+After installing the plugin, restart OpenClaw. The plugin bootstraps automatically when the agent encounters a Mahilo tool call without credentials:
 
-```text
-/mahilo setup
-```
-
-On a fresh runtime, `mahilo setup` can:
-
-- create the Mahilo identity if you provide a username and one-time invite token
-- store the issued API key locally
-- register or repair the default OpenClaw sender connection
-- tell you the exact remaining blocker when OpenClaw is still not publicly reachable enough for inbound replies
-
-The simplest first-run form is:
-
-```text
-/mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}
-```
-
-Then run:
-
-```text
-/mahilo status
-```
+1. Give the agent your one-time invite token (starts with `mhinv_`) and a username.
+2. The agent will register the identity, attach the sender, and save credentials — all without leaving the conversation.
+3. Run `mahilo status` to confirm connectivity.
 
 A healthy install reports:
 
@@ -194,11 +175,13 @@ Mahilo status: connected; diagnostics snapshot available.
 
 If the first probe fails:
 
-1. Rerun `mahilo setup` first and follow the blocker it reports.
+1. Check the diagnostic message — it tells you whether the runtime store file is missing, malformed, or has a bad server entry.
 2. Run `mahilo reconnect`.
 3. Verify `plugins.entries.mahilo.config.baseUrl` still points to the intended Mahilo server if you overrode the default.
 4. If you preseeded credentials manually, verify `plugins.entries.mahilo.config.apiKey` is valid and has plugin access.
 5. Confirm OpenClaw is reachable through gateway remote or Tailscale and that the webhook route (`callbackPath`, default `/mahilo/incoming`) answers `HEAD` probes with `200`.
+
+**Fallback**: If automatic bootstrap fails, you can still run `/mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}` as an operator escape hatch.
 
 ## Upgrade Notes
 

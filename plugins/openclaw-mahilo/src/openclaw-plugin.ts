@@ -65,7 +65,7 @@ export interface MahiloOpenClawPluginOptions {
   isBootstrapReady?: () => boolean;
   pluginState?: InMemoryPluginState;
   setupInstructions?: string;
-  toolBootstrapError?: string;
+  toolBootstrapError?: string | (() => string);
   webhookRoute?: MahiloWebhookRouteOptions;
 }
 
@@ -168,8 +168,11 @@ export function registerMahiloOpenClawPlugin(
     options.isBootstrapReady ?? (() => Boolean(config.apiKey));
   const setupInstructions =
     options.setupInstructions ?? buildMahiloSetupInstructions(config.baseUrl);
-  const notConfiguredMessage =
-    options.toolBootstrapError ?? buildMahiloNotConfiguredMessage(config.baseUrl);
+  const rawToolBootstrapError = options.toolBootstrapError;
+  const resolveNotConfiguredMessage: () => string =
+    typeof rawToolBootstrapError === "function"
+      ? rawToolBootstrapError
+      : () => rawToolBootstrapError ?? buildMahiloNotConfiguredMessage(config.baseUrl);
   const pluginState =
     options.pluginState ??
     new InMemoryPluginState({
@@ -198,16 +201,16 @@ export function registerMahiloOpenClawPlugin(
   };
 
   api.registerTool(
-    createSendMessageTool(client, isBootstrapReady, notConfiguredMessage),
+    createSendMessageTool(client, isBootstrapReady, resolveNotConfiguredMessage),
   );
   api.registerTool(
-    createManageNetworkTool(client, isBootstrapReady, notConfiguredMessage),
+    createManageNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
   );
   api.registerTool(
-    createAskNetworkTool(client, isBootstrapReady, notConfiguredMessage),
+    createAskNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
   );
   api.registerTool(
-    createSetBoundariesTool(client, isBootstrapReady, notConfiguredMessage),
+    createSetBoundariesTool(client, isBootstrapReady, resolveNotConfiguredMessage),
   );
   registerPromptContextHook(
     api,
@@ -234,7 +237,7 @@ export default defaultMahiloOpenClawPlugin;
 function createSendMessageTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
-  notConfiguredMessage: string,
+  resolveNotConfiguredMessage: () => string,
 ): AnyAgentTool {
   return {
     description:
@@ -244,7 +247,7 @@ function createSendMessageTool(
         MAHILO_SEND_MESSAGE_TOOL_NAME,
         async () => {
           if (!isBootstrapReady()) {
-            return notConfiguredToolResult(notConfiguredMessage);
+            return notConfiguredToolResult(resolveNotConfiguredMessage());
           }
           const { input, recipientType } = parseSendMessageToolInput(rawInput);
           const context = parseToolContext(rawInput);
@@ -290,7 +293,7 @@ function createSendMessageTool(
 function createManageNetworkTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
-  notConfiguredMessage: string,
+  resolveNotConfiguredMessage: () => string,
 ): AnyAgentTool {
   return {
     description:
@@ -300,7 +303,7 @@ function createManageNetworkTool(
         MAHILO_MANAGE_NETWORK_TOOL_NAME,
         async () => {
           if (!isBootstrapReady()) {
-            return notConfiguredToolResult(notConfiguredMessage);
+            return notConfiguredToolResult(resolveNotConfiguredMessage());
           }
           const input = parseManageNetworkToolInput(rawInput);
           const result = await executeMahiloRelationshipAction(client, input);
@@ -331,7 +334,7 @@ function createManageNetworkTool(
 function createAskNetworkTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
-  notConfiguredMessage: string,
+  resolveNotConfiguredMessage: () => string,
 ): AnyAgentTool {
   return {
     description:
@@ -341,7 +344,7 @@ function createAskNetworkTool(
         MAHILO_ASK_NETWORK_TOOL_NAME,
         async () => {
           if (!isBootstrapReady()) {
-            return notConfiguredToolResult(notConfiguredMessage);
+            return notConfiguredToolResult(resolveNotConfiguredMessage());
           }
           const input = parseAskNetworkToolInput(rawInput);
           const result = await executeMahiloNetworkAction(
@@ -379,7 +382,7 @@ function createAskNetworkTool(
 function createSetBoundariesTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
-  notConfiguredMessage: string,
+  resolveNotConfiguredMessage: () => string,
 ): AnyAgentTool {
   return {
     description:
@@ -389,7 +392,7 @@ function createSetBoundariesTool(
         MAHILO_SET_BOUNDARIES_TOOL_NAME,
         async () => {
           if (!isBootstrapReady()) {
-            return notConfiguredToolResult(notConfiguredMessage);
+            return notConfiguredToolResult(resolveNotConfiguredMessage());
           }
           const input = parseSetBoundariesToolInput(rawInput);
           const result = await createMahiloBoundaryChange(client, input);

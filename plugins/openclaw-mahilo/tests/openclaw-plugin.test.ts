@@ -1110,16 +1110,17 @@ describe("createMahiloOpenClawPlugin", () => {
       "POST https://mahilo.example/api/v1/agents",
     );
     expect(replyText).toContain("openclaw-plugin-runtime.json");
-    expect(replyText).toContain("callback_url http://localhost:18789/mahilo/incoming");
+    expect(replyText).toContain("callback_url");
+    expect(replyText).toContain("http://localhost:18789/mahilo/incoming");
     expect(replyText).toContain(
-      "I should not ask the human to run /mahilo setup",
+      "do NOT ask the human to run /mahilo setup",
     );
     expect(replyText).toContain(
-      "I should assume I do not have access to any Mahilo repo checkout",
+      "do NOT inspect source code or docs",
     );
-    expect(replyText).toContain(
-      "I should not inspect local source code or docs for bootstrap steps",
-    );
+    expect(replyText).toContain("BOOTSTRAP STEPS");
+    expect(replyText).toContain('"version":1');
+    expect(replyText).toContain('"servers"');
     expect(replyText).not.toContain(
       "could not find any agent connections for the current identity",
     );

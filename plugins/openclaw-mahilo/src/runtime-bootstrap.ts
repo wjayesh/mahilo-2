@@ -29,6 +29,20 @@ export interface MahiloRuntimeBootstrapStoreOptions {
   path?: string;
 }
 
+export type MahiloBootstrapDiagnosticKind =
+  | "file_missing"
+  | "json_parse_error"
+  | "wrong_top_level_shape"
+  | "server_entry_missing"
+  | "server_entry_invalid"
+  | "api_key_missing"
+  | "ok";
+
+export interface MahiloBootstrapDiagnostic {
+  kind: MahiloBootstrapDiagnosticKind;
+  message: string;
+}
+
 interface MahiloRuntimeBootstrapFile {
   servers: Record<string, MahiloRuntimeBootstrapState>;
   version: number;
@@ -64,6 +78,81 @@ export class MahiloRuntimeBootstrapStore {
     }
 
     this.writeFile(file);
+  }
+
+  diagnose(baseUrl: string): MahiloBootstrapDiagnostic {
+    const normalizedBaseUrl = normalizeBaseUrlKey(baseUrl);
+    if (!normalizedBaseUrl) {
+      return { kind: "server_entry_missing", message: `Invalid base URL: ${baseUrl}` };
+    }
+
+    let rawText: string;
+    try {
+      rawText = readFileSync(this.path, "utf8");
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return {
+          kind: "file_missing",
+          message: `Runtime bootstrap store not found at ${this.path}. Create this file with: {"version":1,"servers":{"${normalizedBaseUrl}":{"apiKey":"mhl_...","username":"...","callbackConnectionId":"...","callbackSecret":"...","callbackUrl":"..."}}}`,
+        };
+      }
+      return { kind: "file_missing", message: `Cannot read ${this.path}: ${String(error)}` };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawText) as unknown;
+    } catch {
+      return {
+        kind: "json_parse_error",
+        message: `File at ${this.path} is not valid JSON. The file must contain: {"version":1,"servers":{...}}`,
+      };
+    }
+
+    const root = readObject(parsed);
+    if (!root) {
+      return {
+        kind: "wrong_top_level_shape",
+        message: `File at ${this.path} must be a JSON object with "version" (number) and "servers" (object) keys. Got: ${typeof parsed}`,
+      };
+    }
+
+    const servers = readObject(root.servers);
+    if (!servers) {
+      return {
+        kind: "wrong_top_level_shape",
+        message: `File at ${this.path} is missing the "servers" key or it is not an object. Required shape: {"version":1,"servers":{"${normalizedBaseUrl}":{...}}}`,
+      };
+    }
+
+    const entry = servers[normalizedBaseUrl];
+    if (entry === undefined) {
+      const existingKeys = Object.keys(servers);
+      const hint = existingKeys.length > 0
+        ? ` Found server keys: ${existingKeys.join(", ")}. Make sure the server URL matches exactly.`
+        : " The servers object is empty.";
+      return {
+        kind: "server_entry_missing",
+        message: `No entry for server ${normalizedBaseUrl} in ${this.path}.${hint}`,
+      };
+    }
+
+    const state = normalizeState(entry);
+    if (!state) {
+      return {
+        kind: "server_entry_invalid",
+        message: `Server entry for ${normalizedBaseUrl} in ${this.path} is not a valid object. Each server entry needs: apiKey, username, callbackConnectionId, callbackSecret, callbackUrl.`,
+      };
+    }
+
+    if (!state.apiKey) {
+      return {
+        kind: "api_key_missing",
+        message: `Server entry for ${normalizedBaseUrl} in ${this.path} is missing apiKey. Add the mhl_... API key from registration.`,
+      };
+    }
+
+    return { kind: "ok", message: "Bootstrap store is valid." };
   }
 
   getPath(): string {

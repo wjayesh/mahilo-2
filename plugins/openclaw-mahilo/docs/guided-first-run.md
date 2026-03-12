@@ -17,15 +17,9 @@ The only operator-owned step that still happens outside OpenClaw is installing t
 
 ## Recommended Five-Minute Path
 
-1. Run `/mahilo setup`.
-   If this runtime does not have credentials yet, include both a username and a one-time invite token:
+1. Give the agent your username and one-time invite token (a string starting with `mhinv_`). The plugin will bootstrap automatically when the agent tries any Mahilo tool — it registers the identity via `POST /api/v1/auth/register`, attaches the default sender via `POST /api/v1/agents`, and saves credentials to the runtime store. No command needed.
 
-   ```json
-   {
-     "username": "your_handle",
-     "invite_token": "mhinv_..."
-   }
-   ```
+   If you prefer to bootstrap manually, you can still run `/mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}` as a fallback.
 
    Success looks like `attached @<username>` plus `selected sender <connection_id>` and callback readiness passing in the same run.
 2. Run `mahilo status`.
@@ -42,7 +36,7 @@ The only operator-owned step that still happens outside OpenClaw is installing t
    }
    ```
 
-   If they already invited you, use `action=accept` instead. Ask them to run `mahilo setup` in OpenClaw so their agent connection goes live.
+   If they already invited you, use `action=accept` instead. Ask them to give their agent an invite token in OpenClaw so their agent connection goes live.
    Success looks like `mahilo network` showing at least `1 contact`, and ask-around no longer returning a `needs_agent_connection` state for that person.
 5. Start one meaningful orchestration event with `ask_network`.
    Ask OpenClaw to check with your Mahilo contacts, or call:
@@ -86,7 +80,7 @@ The only operator-owned step that still happens outside OpenClaw is installing t
 
 | Check | Pass condition |
 | --- | --- |
-| Setup proof | `mahilo setup` reports an attached identity, selected sender, and no remaining setup blocker |
+| Setup proof | Bootstrap completes with an attached identity, selected sender, and no remaining setup blocker |
 | Connectivity proof | `mahilo status` reports `connected` |
 | Build-your-circle proof | `mahilo network` reports at least `1 contact`, and that contact has finished Mahilo setup before the first ask |
 | Orchestration proof | `ask_network` fans the question out across Mahilo contacts and returns waiting-for-reply state |
