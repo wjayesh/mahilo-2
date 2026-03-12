@@ -46,9 +46,8 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
 
   it("creates one-time overrides with explicit source/provenance metadata", async () => {
     const db = getTestDb();
-    const { sender, senderKey, senderConnection, recipient } = await setupParticipants(
-      "plugin_override_once"
-    );
+    const { sender, senderKey, senderConnection, recipient } =
+      await setupParticipants("plugin_override_once");
 
     const sourceMessageId = "msg_plugin_override_once_source";
     await db.insert(schema.messages).values({
@@ -92,7 +91,7 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
         policy_id: expect.any(String),
         kind: "one_time",
         created: true,
-      })
+      }),
     );
 
     const [stored] = await db
@@ -124,13 +123,15 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
         sender_connection_id: senderConnection.id,
         source_resolution_id: "res_plugin_override_once",
         created_via: "plugin.overrides",
-      })
+      }),
     );
   });
 
   it("creates temporary overrides from ttl_seconds", async () => {
     const db = getTestDb();
-    const { senderKey, senderConnection } = await setupParticipants("plugin_override_temporary");
+    const { senderKey, senderConnection } = await setupParticipants(
+      "plugin_override_temporary",
+    );
 
     const beforeRequest = new Date();
     const response = await app.request("/api/v1/plugin/overrides", {
@@ -175,13 +176,15 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
     expect(stored?.remainingUses).toBeNull();
     expect(stored?.expiresAt).not.toBeNull();
     expect(stored?.expiresAt).toEqual(expect.any(Date));
-    expect(stored?.expiresAt?.getTime()).toBeGreaterThan(beforeRequest.getTime());
+    expect(stored?.expiresAt?.getTime()).toBeGreaterThan(
+      beforeRequest.getTime(),
+    );
   });
 
   it("allows standalone boundary overrides without a source resolution id", async () => {
     const db = getTestDb();
     const { senderKey, senderConnection } = await setupParticipants(
-      "plugin_override_standalone"
+      "plugin_override_standalone",
     );
 
     const response = await app.request("/api/v1/plugin/overrides", {
@@ -212,7 +215,7 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
         policy_id: expect.any(String),
         kind: "temporary",
         created: true,
-      })
+      }),
     );
 
     const [stored] = await db
@@ -233,16 +236,16 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
         reason: "Ask before sharing location during travel planning.",
         sender_connection_id: senderConnection.id,
         created_via: "plugin.overrides",
-      })
+      }),
     );
     expect(
-      storagePayload.policy_content?._mahilo_override?.source_resolution_id
+      storagePayload.policy_content?._mahilo_override?.source_resolution_id,
     ).toBeUndefined();
   });
 
   it("rejects malformed override lifecycle payloads", async () => {
     const { senderKey, senderConnection, recipient } = await setupParticipants(
-      "plugin_override_invalid"
+      "plugin_override_invalid",
     );
 
     const oneTimeResponse = await app.request("/api/v1/plugin/overrides", {
@@ -327,12 +330,14 @@ describe("Plugin override creation endpoint (SRV-043)", () => {
 
 async function setupParticipants(suffix: string) {
   const db = getTestDb();
-  const { user: sender, apiKey: senderKey } = await createTestUser(`sender_${suffix}`);
+  const { user: sender, apiKey: senderKey } = await createTestUser(
+    `sender_${suffix}`,
+  );
   const { user: recipient } = await createTestUser(`recipient_${suffix}`);
 
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, sender.id));
 
   const senderConnection = await createAgentConnection(sender.id, {

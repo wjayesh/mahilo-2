@@ -52,17 +52,17 @@ export function registerMahiloDiagnosticsCommands(
   api: OpenClawPluginApi,
   config: MahiloPluginConfig,
   client: MahiloContractClient,
-  options: MahiloDiagnosticsCommandOptions = {}
+  options: MahiloDiagnosticsCommandOptions = {},
 ): void {
   const runtimeState: MahiloDiagnosticsRuntimeState = {
-    reconnectCount: 0
+    reconnectCount: 0,
   };
 
   const commands: MahiloCommandDefinition[] = [
     createStatusCommand(config, client, runtimeState, options),
     createNetworkCommand(client, runtimeState, options),
     createReviewCommand(client, runtimeState, options),
-    createReconnectCommand(client, runtimeState, options)
+    createReconnectCommand(client, runtimeState, options),
   ];
 
   for (const command of commands) {
@@ -70,7 +70,7 @@ export function registerMahiloDiagnosticsCommands(
   }
 
   options.logger?.info?.(
-    "[Mahilo] Registered commands: mahilo status, mahilo network, mahilo review, mahilo reconnect"
+    "[Mahilo] Registered commands: mahilo status, mahilo network, mahilo review, mahilo reconnect",
   );
 }
 
@@ -78,20 +78,21 @@ function createStatusCommand(
   config: MahiloPluginConfig,
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
-  options: MahiloDiagnosticsCommandOptions
+  options: MahiloDiagnosticsCommandOptions,
 ): MahiloCommandDefinition {
   return {
-    description: "Inspect Mahilo plugin health, config, and local runtime state.",
+    description:
+      "Inspect Mahilo plugin health, config, and local runtime state.",
     execute: async () => {
       const checkedAt = toIsoTimestamp(options.now);
 
       const reviewProbe = await probe(
         async () => client.listReviews({ limit: 1, status: "open" }),
-        "list open reviews"
+        "list open reviews",
       );
       const blockedProbe = await probe(
         async () => client.listBlockedEvents(1),
-        "list blocked events"
+        "list blocked events",
       );
       const connected = reviewProbe.ok && blockedProbe.ok;
 
@@ -110,23 +111,23 @@ function createStatusCommand(
           lastContactError: runtimeState.lastContactError ?? null,
           lastReconnectAt: runtimeState.lastReconnectAt ?? null,
           lastSuccessfulContactAt: runtimeState.lastSuccessfulContactAt ?? null,
-          reconnectCount: runtimeState.reconnectCount
+          reconnectCount: runtimeState.reconnectCount,
         },
         plugin: {
           callbackPath: config.callbackPath ?? DEFAULT_WEBHOOK_ROUTE_PATH,
-          config: redactSensitiveConfig(config)
+          config: redactSensitiveConfig(config),
         },
         probes: {
           blockedEvents: {
             error: blockedProbe.error ?? null,
             ok: blockedProbe.ok,
-            sampleCount: blockedProbe.sampleCount ?? null
+            sampleCount: blockedProbe.sampleCount ?? null,
           },
           reviews: {
             error: reviewProbe.error ?? null,
             ok: reviewProbe.ok,
-            sampleCount: reviewProbe.sampleCount ?? null
-          }
+            sampleCount: reviewProbe.sampleCount ?? null,
+          },
         },
         runtimeState: options.pluginState
           ? {
@@ -137,45 +138,53 @@ function createStatusCommand(
               novelDecisionEntries: options.pluginState.novelDecisionCount(),
               pendingLearningSuggestions:
                 options.pluginState.pendingLearningSuggestionCount(),
-              productSignalQueries: options.pluginState.productSignalQueryCount(),
-              productSignalReplies: options.pluginState.productSignalReplyCount()
+              productSignalQueries:
+                options.pluginState.productSignalQueryCount(),
+              productSignalReplies:
+                options.pluginState.productSignalReplyCount(),
             }
-          : null
+          : null,
       };
 
       return toCommandResult(
         connected
           ? "Mahilo status: connected; diagnostics snapshot available."
           : "Mahilo status: connectivity checks failed; inspect details for debug hints.",
-        details
+        details,
       );
     },
     label: "Mahilo Status",
     name: "mahilo status",
     parameters: {
       additionalProperties: false,
-      type: "object"
-    }
+      type: "object",
+    },
   };
 }
 
 function createReviewCommand(
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
-  options: MahiloDiagnosticsCommandOptions
+  options: MahiloDiagnosticsCommandOptions,
 ): MahiloCommandDefinition {
   return {
-    description: "Inspect Mahilo review queue items with optional status and limit filters.",
+    description:
+      "Inspect Mahilo review queue items with optional status and limit filters.",
     execute: async (rawInput?: unknown) => {
       const input = readInputObject(rawInput);
       const checkedAt = toIsoTimestamp(options.now);
       const statusFilter = readOptionalString(input.status) ?? "open";
-      const limit = readBoundedInteger(input.limit, DEFAULT_REVIEW_LIMIT, 1, MAX_LIMIT);
+      const limit = readBoundedInteger(
+        input.limit,
+        DEFAULT_REVIEW_LIMIT,
+        1,
+        MAX_LIMIT,
+      );
 
       try {
         const response = await client.listReviews({
           limit,
-          status: statusFilter
+          status: statusFilter,
         });
 
         runtimeState.lastSuccessfulContactAt = checkedAt;
@@ -186,13 +195,14 @@ function createReviewCommand(
           command: "mahilo review",
           items: normalizeReviewItems(response),
           limit,
-          nextCursor: readOptionalString(readObject(response)?.next_cursor) ?? null,
-          status: statusFilter
+          nextCursor:
+            readOptionalString(readObject(response)?.next_cursor) ?? null,
+          status: statusFilter,
         };
 
         return toCommandResult(
           `Mahilo review: fetched ${details.items.length} item(s) for status=${statusFilter}.`,
-          details
+          details,
         );
       } catch (error) {
         const message = toErrorMessage(error);
@@ -204,10 +214,10 @@ function createReviewCommand(
           error: message,
           hints: [
             "Verify plugins.entries.mahilo.config.baseUrl points to the active Mahilo server.",
-            "Verify plugins.entries.mahilo.config.apiKey is valid and has plugin access."
+            "Verify plugins.entries.mahilo.config.apiKey is valid and has plugin access.",
           ],
           limit,
-          status: statusFilter
+          status: statusFilter,
         });
       }
     },
@@ -217,47 +227,49 @@ function createReviewCommand(
       additionalProperties: false,
       properties: {
         limit: { type: "integer" },
-        status: { type: "string" }
+        status: { type: "string" },
       },
-      type: "object"
-    }
+      type: "object",
+    },
   };
 }
 
 function createNetworkCommand(
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
-  options: MahiloDiagnosticsCommandOptions
+  options: MahiloDiagnosticsCommandOptions,
 ): MahiloCommandDefinition {
   return {
     description:
       "Inspect Mahilo contacts, pending requests, sender connections, recent activity, and the last seven days of lightweight product signals from inside OpenClaw.",
     execute: async (rawInput?: unknown) => {
       const input = readInputObject(rawInput);
-      const nowMs = typeof options.now === "function" ? options.now() : Date.now();
+      const nowMs =
+        typeof options.now === "function" ? options.now() : Date.now();
       const checkedAt = new Date(nowMs).toISOString();
       const activityLimit = readBoundedInteger(
         input.activityLimit ?? input.activity_limit ?? input.limit,
         DEFAULT_NETWORK_ACTIVITY_LIMIT,
         1,
-        MAX_LIMIT
+        MAX_LIMIT,
       );
       const result = await getMahiloRelationshipView(client, {
-        activityLimit
+        activityLimit,
       });
 
       if (result.status === "success") {
         runtimeState.lastSuccessfulContactAt = checkedAt;
         runtimeState.lastContactError = result.warnings?.[0];
       } else {
-        runtimeState.lastContactError = result.error?.technicalMessage ?? result.error?.message;
+        runtimeState.lastContactError =
+          result.error?.technicalMessage ?? result.error?.message;
       }
 
       const productSignals =
         options.pluginState && result.status === "success"
           ? options.pluginState.getProductSignalsSnapshot({
               connectedContacts: result.counts?.contacts,
-              nowMs
+              nowMs,
             })
           : null;
       const text =
@@ -270,7 +282,7 @@ function createNetworkCommand(
         command: "mahilo network",
         activityLimit,
         productSignals,
-        ...result
+        ...result,
       });
     },
     label: "Mahilo Network",
@@ -280,29 +292,35 @@ function createNetworkCommand(
       properties: {
         activityLimit: { type: "integer" },
         activity_limit: { type: "integer" },
-        limit: { type: "integer" }
+        limit: { type: "integer" },
       },
-      type: "object"
-    }
+      type: "object",
+    },
   };
 }
 
 function createReconnectCommand(
   client: MahiloContractClient,
   runtimeState: MahiloDiagnosticsRuntimeState,
-  options: MahiloDiagnosticsCommandOptions
+  options: MahiloDiagnosticsCommandOptions,
 ): MahiloCommandDefinition {
   return {
-    description: "Retry Mahilo connectivity checks and report actionable reconnect diagnostics.",
+    description:
+      "Retry Mahilo connectivity checks and report actionable reconnect diagnostics.",
     execute: async (rawInput?: unknown) => {
       const input = readInputObject(rawInput);
       const checkedAt = toIsoTimestamp(options.now);
-      const attempts = readBoundedInteger(input.attempts, DEFAULT_RECONNECT_ATTEMPTS, 1, 10);
+      const attempts = readBoundedInteger(
+        input.attempts,
+        DEFAULT_RECONNECT_ATTEMPTS,
+        1,
+        10,
+      );
       const delayMs = readBoundedInteger(
         input.delayMs ?? input.delay_ms,
         options.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS,
         0,
-        30_000
+        30_000,
       );
       const errors: string[] = [];
 
@@ -318,15 +336,18 @@ function createReconnectCommand(
           runtimeState.lastSuccessfulContactAt = connectedAt;
           runtimeState.lastContactError = undefined;
 
-          return toCommandResult(`Mahilo reconnect: connected on attempt ${attempt}/${attempts}.`, {
-            attempt,
-            attempts,
-            checkedAt,
-            command: "mahilo reconnect",
-            connected: true,
-            delayMs,
-            reconnectCount: runtimeState.reconnectCount
-          });
+          return toCommandResult(
+            `Mahilo reconnect: connected on attempt ${attempt}/${attempts}.`,
+            {
+              attempt,
+              attempts,
+              checkedAt,
+              command: "mahilo reconnect",
+              connected: true,
+              delayMs,
+              reconnectCount: runtimeState.reconnectCount,
+            },
+          );
         } catch (error) {
           const message = toErrorMessage(error);
           errors.push(`attempt ${attempt}: ${message}`);
@@ -348,9 +369,9 @@ function createReconnectCommand(
         hints: [
           "Check Mahilo server reachability from OpenClaw runtime host.",
           "Check plugin API key validity and permission scope.",
-          "Check callbackPath/callbackUrl alignment if inbound delivery appears disconnected."
+          "Check callbackPath/callbackUrl alignment if inbound delivery appears disconnected.",
         ],
-        reconnectCount: runtimeState.reconnectCount
+        reconnectCount: runtimeState.reconnectCount,
       });
     },
     label: "Mahilo Reconnect",
@@ -360,18 +381,20 @@ function createReconnectCommand(
       properties: {
         attempts: { type: "integer" },
         delayMs: { type: "integer" },
-        delay_ms: { type: "integer" }
+        delay_ms: { type: "integer" },
       },
-      type: "object"
-    }
+      type: "object",
+    },
   };
 }
 
 export function registerMahiloOperatorCommand(
   api: OpenClawPluginApi,
-  command: MahiloCommandDefinition
+  command: MahiloCommandDefinition,
 ): void {
-  const registerCommand = api.registerCommand as unknown as (...args: unknown[]) => void;
+  const registerCommand = api.registerCommand as unknown as (
+    ...args: unknown[]
+  ) => void;
   const router = getMahiloOperatorRouter(api);
   const subcommand = readMahiloSubcommand(command.name);
 
@@ -379,11 +402,12 @@ export function registerMahiloOperatorCommand(
     registerCommand({
       description: command.description,
       execute: command.execute,
-      handler: async (ctx: unknown) => normalizeMahiloCommandReply(await command.execute(ctx)),
+      handler: async (ctx: unknown) =>
+        normalizeMahiloCommandReply(await command.execute(ctx)),
       label: command.label,
       name: command.name,
       parameters: command.parameters,
-      run: command.execute
+      run: command.execute,
     });
     return;
   }
@@ -399,15 +423,21 @@ export function registerMahiloOperatorCommand(
       "Mahilo setup and diagnostics. Use /mahilo <setup|status|network|review|reconnect> [json].",
     handler: async (ctx: unknown) => executeMahiloOperatorRouter(router, ctx),
     name: MAHILO_OPERATOR_COMMAND_NAME,
-    requireAuth: true
+    requireAuth: true,
   });
   router.registered = true;
 }
 
-function registerCommandCompat(api: OpenClawPluginApi, command: MahiloCommandDefinition): void {
-  const registerCommand = api.registerCommand as unknown as (...args: unknown[]) => void;
-  const prefersObjectStyle =
-    Boolean((registerCommand as unknown as Record<string, unknown>).__mahiloObjectStyle);
+function registerCommandCompat(
+  api: OpenClawPluginApi,
+  command: MahiloCommandDefinition,
+): void {
+  const registerCommand = api.registerCommand as unknown as (
+    ...args: unknown[]
+  ) => void;
+  const prefersObjectStyle = Boolean(
+    (registerCommand as unknown as Record<string, unknown>).__mahiloObjectStyle,
+  );
 
   // Support both object-style and name/handler-style command registration surfaces.
   if (prefersObjectStyle || registerCommand.length < 2) {
@@ -419,7 +449,7 @@ function registerCommandCompat(api: OpenClawPluginApi, command: MahiloCommandDef
     registerCommand(command.name, command.execute, {
       description: command.description,
       label: command.label,
-      parameters: command.parameters
+      parameters: command.parameters,
     });
     return;
   }
@@ -431,7 +461,7 @@ function registerCommandCompat(api: OpenClawPluginApi, command: MahiloCommandDef
     label: command.label,
     name: command.name,
     parameters: command.parameters,
-    run: command.execute
+    run: command.execute,
   });
 }
 
@@ -440,7 +470,11 @@ function readInputObject(rawInput: unknown): Record<string, unknown> {
     return {};
   }
 
-  if (typeof rawInput !== "object" || rawInput === null || Array.isArray(rawInput)) {
+  if (
+    typeof rawInput !== "object" ||
+    rawInput === null ||
+    Array.isArray(rawInput)
+  ) {
     throw new Error("command input must be an object");
   }
 
@@ -464,7 +498,12 @@ function readOptionalString(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function readBoundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+function readBoundedInteger(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const candidate = Number.isInteger(value) ? Number(value) : fallback;
   if (!Number.isFinite(candidate)) {
     return fallback;
@@ -482,19 +521,21 @@ function readBoundedInteger(value: unknown, fallback: number, min: number, max: 
 }
 
 function toErrorMessage(error: unknown): string {
-  if (error instanceof Error && typeof error.message === "string" && error.message.length > 0) {
+  if (
+    error instanceof Error &&
+    typeof error.message === "string" &&
+    error.message.length > 0
+  ) {
     return error.message;
   }
 
   return String(error);
 }
 
-function hasRecordedProductSignals(
-  snapshot: {
-    queriesSent: number;
-    repliesReceived: number;
-  }
-): boolean {
+function hasRecordedProductSignals(snapshot: {
+  queriesSent: number;
+  repliesReceived: number;
+}): boolean {
   return snapshot.queriesSent > 0 || snapshot.repliesReceived > 0;
 }
 
@@ -505,23 +546,25 @@ function toIsoTimestamp(nowProvider?: () => number): string {
 
 async function probe(
   fn: () => Promise<unknown>,
-  operation: string
+  operation: string,
 ): Promise<{ error?: string; ok: boolean; sampleCount?: number }> {
   try {
     const response = await fn();
     return {
       ok: true,
-      sampleCount: readItemCount(response)
+      sampleCount: readItemCount(response),
     };
   } catch (error) {
     return {
       error: `Failed to ${operation}: ${toErrorMessage(error)}`,
-      ok: false
+      ok: false,
     };
   }
 }
 
-function getMahiloOperatorRouter(api: OpenClawPluginApi): MahiloOperatorCommandRouter {
+function getMahiloOperatorRouter(
+  api: OpenClawPluginApi,
+): MahiloOperatorCommandRouter {
   const key = api as unknown as object;
   const existing = operatorRouters.get(key);
   if (existing) {
@@ -530,7 +573,7 @@ function getMahiloOperatorRouter(api: OpenClawPluginApi): MahiloOperatorCommandR
 
   const created: MahiloOperatorCommandRouter = {
     registered: false,
-    subcommands: new Map()
+    subcommands: new Map(),
   };
   operatorRouters.set(key, created);
   return created;
@@ -542,13 +585,15 @@ function readMahiloSubcommand(name: string): string | null {
     return null;
   }
 
-  const subcommand = normalized.slice(MAHILO_OPERATOR_COMMAND_NAME.length).trim();
+  const subcommand = normalized
+    .slice(MAHILO_OPERATOR_COMMAND_NAME.length)
+    .trim();
   return subcommand.length > 0 ? subcommand : null;
 }
 
 async function executeMahiloOperatorRouter(
   router: MahiloOperatorCommandRouter,
-  ctx: unknown
+  ctx: unknown,
 ): Promise<Record<string, unknown>> {
   const args = readOptionalString(readRecordValue(ctx, "args")) ?? "";
   const [firstToken, ...restTokens] = args.split(/\s+/).filter(Boolean);
@@ -556,14 +601,14 @@ async function executeMahiloOperatorRouter(
 
   if (!subcommand) {
     return {
-      text: buildMahiloCommandHelp(router)
+      text: buildMahiloCommandHelp(router),
     };
   }
 
   const command = router.subcommands.get(subcommand);
   if (!command) {
     return {
-      text: `${buildMahiloCommandHelp(router)}\n\nUnknown subcommand: ${subcommand}`
+      text: `${buildMahiloCommandHelp(router)}\n\nUnknown subcommand: ${subcommand}`,
     };
   }
 
@@ -573,7 +618,7 @@ async function executeMahiloOperatorRouter(
   } catch (error) {
     return {
       isError: true,
-      text: `Mahilo command failed: ${toErrorMessage(error)}`
+      text: `Mahilo command failed: ${toErrorMessage(error)}`,
     };
   }
 }
@@ -583,10 +628,10 @@ function buildMahiloCommandHelp(router: MahiloOperatorCommandRouter): string {
   const base =
     "Usage: /mahilo <setup|status|network|review|reconnect> [json]\n" +
     "Examples:\n" +
-    "/mahilo setup bootstrap-user\n" +
+    "/mahilo setup bootstrap-user mhinv_example\n" +
     "/mahilo status\n" +
     "/mahilo network\n" +
-    "/mahilo review {\"status\":\"open\",\"limit\":10}";
+    '/mahilo review {"status":"open","limit":10}';
 
   if (available.length === 0) {
     return base;
@@ -611,12 +656,16 @@ function parseMahiloCommandArgs(subcommand: string, rawArgs: string): unknown {
   }
 
   if (subcommand === "setup") {
+    const [username, inviteToken] = trimmed.split(/\s+/, 2);
     return {
-      username: trimmed.replace(/^@+/, "")
+      invite_token: inviteToken,
+      username: username?.replace(/^@+/, ""),
     };
   }
 
-  throw new Error("Pass command arguments as JSON, for example /mahilo review {\"status\":\"open\"}");
+  throw new Error(
+    'Pass command arguments as JSON, for example /mahilo review {"status":"open"}',
+  );
 }
 
 function normalizeMahiloCommandReply(result: unknown): Record<string, unknown> {
@@ -624,7 +673,7 @@ function normalizeMahiloCommandReply(result: unknown): Record<string, unknown> {
   if (root && typeof root.text === "string") {
     return {
       isError: root.isError === true,
-      text: root.text
+      text: root.text,
     };
   }
 
@@ -634,7 +683,7 @@ function normalizeMahiloCommandReply(result: unknown): Record<string, unknown> {
     text:
       details && Object.keys(details).length > 0
         ? `${text}\n\n${JSON.stringify(details, null, 2)}`
-        : text
+        : text,
   };
 }
 
@@ -648,7 +697,11 @@ function extractMahiloCommandText(result: unknown): string {
   if (Array.isArray(content)) {
     for (const block of content) {
       const record = readObject(block);
-      if (record && typeof record.text === "string" && record.text.trim().length > 0) {
+      if (
+        record &&
+        typeof record.text === "string" &&
+        record.text.trim().length > 0
+      ) {
         return record.text;
       }
     }
@@ -673,7 +726,9 @@ function readItemCount(value: unknown): number | undefined {
   return undefined;
 }
 
-function normalizeReviewItems(response: unknown): Array<Record<string, unknown>> {
+function normalizeReviewItems(
+  response: unknown,
+): Array<Record<string, unknown>> {
   const root = readObject(response);
   if (!root) {
     return [];
@@ -699,15 +754,14 @@ function normalizeReviewItems(response: unknown): Array<Record<string, unknown>>
       decision: readOptionalString(item.decision) ?? null,
       recipient: readOptionalString(item.recipient) ?? null,
       reviewId: readOptionalString(item.review_id) ?? null,
-      selectors:
-        selectors
-          ? {
-              action: readOptionalString(selectors.action) ?? null,
-              direction: readOptionalString(selectors.direction) ?? null,
-              resource: readOptionalString(selectors.resource) ?? null
-            }
-          : null,
-      summary: readOptionalString(item.summary) ?? null
+      selectors: selectors
+        ? {
+            action: readOptionalString(selectors.action) ?? null,
+            direction: readOptionalString(selectors.direction) ?? null,
+            resource: readOptionalString(selectors.resource) ?? null,
+          }
+        : null,
+      summary: readOptionalString(item.summary) ?? null,
     });
   }
 
@@ -721,11 +775,14 @@ function readRecordValue(value: unknown, key: string): unknown {
 
 function toCommandResult(
   text: string,
-  details: Record<string, unknown>
-): { content: Array<{ text: string; type: "text" }>; details: Record<string, unknown> } {
+  details: Record<string, unknown>,
+): {
+  content: Array<{ text: string; type: "text" }>;
+  details: Record<string, unknown>;
+} {
   return {
     content: [{ text, type: "text" }],
-    details
+    details,
   };
 }
 

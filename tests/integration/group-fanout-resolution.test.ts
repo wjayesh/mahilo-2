@@ -16,7 +16,8 @@ import {
 let app: ReturnType<typeof createApp>;
 let originalTrustedMode: boolean;
 let originalFetch: typeof fetch | null = null;
-const callbacks: Array<{ url: string; body: Record<string, unknown> | null }> = [];
+const callbacks: Array<{ url: string; body: Record<string, unknown> | null }> =
+  [];
 
 function setTrustedMode(value: boolean) {
   (config as unknown as { trustedMode: boolean }).trustedMode = value;
@@ -133,13 +134,14 @@ describe("Group fan-out per-recipient resolution and outcome storage (SRV-050/SR
 
   it("produces mixed per-recipient results and blocks denied recipients from delivery", async () => {
     const db = getTestDb();
-    const { user: sender, apiKey: senderKey } = await createTestUser("fanout_sender");
+    const { user: sender, apiKey: senderKey } =
+      await createTestUser("fanout_sender");
     const { user: deniedRecipient } = await createTestUser("fanout_denied");
     const { user: allowedRecipient } = await createTestUser("fanout_allowed");
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, sender.id));
 
     const senderConnection = await createAgentConnection(sender.id, {
@@ -243,36 +245,44 @@ describe("Group fan-out per-recipient resolution and outcome storage (SRV-050/SR
           decision: "allow",
           delivery_status: "delivered",
         }),
-      ])
+      ]),
     );
 
     expect(callbacks).toHaveLength(1);
-    expect(callbacks[0]?.body?.recipient_connection_id).toBe(allowedConnection.id);
-    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(deniedConnection.id);
+    expect(callbacks[0]?.body?.recipient_connection_id).toBe(
+      allowedConnection.id,
+    );
+    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(
+      deniedConnection.id,
+    );
 
     const deliveries = await db
       .select()
       .from(schema.messageDeliveries)
       .where(eq(schema.messageDeliveries.messageId, body.message_id));
     expect(
-      deliveries.some((delivery) => delivery.recipientConnectionId === deniedConnection.id)
+      deliveries.some(
+        (delivery) => delivery.recipientConnectionId === deniedConnection.id,
+      ),
     ).toBe(false);
     expect(
-      deliveries.some((delivery) => delivery.recipientConnectionId === allowedConnection.id)
+      deliveries.some(
+        (delivery) => delivery.recipientConnectionId === allowedConnection.id,
+      ),
     ).toBe(true);
     const deniedDelivery = deliveries.find(
-      (delivery) => delivery.recipientUserId === deniedRecipient.id
+      (delivery) => delivery.recipientUserId === deniedRecipient.id,
     );
     const allowedDelivery = deliveries.find(
-      (delivery) => delivery.recipientUserId === allowedRecipient.id
+      (delivery) => delivery.recipientUserId === allowedRecipient.id,
     );
     expect(deniedDelivery?.policyDecision).toBe("deny");
     expect(deniedDelivery?.policyDeliveryMode).toBe("blocked");
     expect(deniedDelivery?.policyReasonCode).toBeTruthy();
     expect(deniedDelivery?.winningPolicyId).toBe(denyPolicyId);
-    expect(
-      JSON.parse(deniedDelivery?.matchedPolicyIds || "[]")
-    ).toContain(denyPolicyId);
+    expect(JSON.parse(deniedDelivery?.matchedPolicyIds || "[]")).toContain(
+      denyPolicyId,
+    );
     expect(deniedDelivery?.policyResolutionId).toContain(deniedRecipient.id);
     expect(allowedDelivery?.policyDecision).toBe("allow");
     expect(allowedDelivery?.policyDeliveryMode).toBe("full_send");
@@ -293,20 +303,26 @@ describe("Group fan-out per-recipient resolution and outcome storage (SRV-050/SR
       expect.objectContaining({
         allow: 1,
         deny: 1,
-      })
+      }),
     );
   });
 
   it("marks mixed allow/ask/deny fan-out as partial delivery with deterministic aggregate metadata", async () => {
     const db = getTestDb();
-    const { user: sender, apiKey: senderKey } = await createTestUser("fanout_sender_mixed");
-    const { user: deniedRecipient } = await createTestUser("fanout_denied_mixed");
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "fanout_sender_mixed",
+    );
+    const { user: deniedRecipient } = await createTestUser(
+      "fanout_denied_mixed",
+    );
     const { user: askRecipient } = await createTestUser("fanout_ask_mixed");
-    const { user: allowedRecipient } = await createTestUser("fanout_allowed_mixed");
+    const { user: allowedRecipient } = await createTestUser(
+      "fanout_allowed_mixed",
+    );
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, sender.id));
 
     const senderConnection = await createAgentConnection(sender.id, {
@@ -438,24 +454,32 @@ describe("Group fan-out per-recipient resolution and outcome storage (SRV-050/SR
           decision: "allow",
           delivery_status: "delivered",
         }),
-      ])
+      ]),
     );
 
     expect(callbacks).toHaveLength(1);
-    expect(callbacks[0]?.body?.recipient_connection_id).toBe(allowedConnection.id);
-    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(deniedConnection.id);
-    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(askConnection.id);
+    expect(callbacks[0]?.body?.recipient_connection_id).toBe(
+      allowedConnection.id,
+    );
+    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(
+      deniedConnection.id,
+    );
+    expect(callbacks[0]?.body?.recipient_connection_id).not.toBe(
+      askConnection.id,
+    );
 
     const deliveries = await db
       .select()
       .from(schema.messageDeliveries)
       .where(eq(schema.messageDeliveries.messageId, body.message_id));
     const deniedDelivery = deliveries.find(
-      (delivery) => delivery.recipientUserId === deniedRecipient.id
+      (delivery) => delivery.recipientUserId === deniedRecipient.id,
     );
-    const askDelivery = deliveries.find((delivery) => delivery.recipientUserId === askRecipient.id);
+    const askDelivery = deliveries.find(
+      (delivery) => delivery.recipientUserId === askRecipient.id,
+    );
     const allowedDelivery = deliveries.find(
-      (delivery) => delivery.recipientUserId === allowedRecipient.id
+      (delivery) => delivery.recipientUserId === allowedRecipient.id,
     );
     expect(deniedDelivery?.policyDecision).toBe("deny");
     expect(deniedDelivery?.winningPolicyId).toBe(denyPolicyId);
@@ -480,7 +504,7 @@ describe("Group fan-out per-recipient resolution and outcome storage (SRV-050/SR
         allow: 1,
         ask: 1,
         deny: 1,
-      })
+      }),
     );
   });
 });

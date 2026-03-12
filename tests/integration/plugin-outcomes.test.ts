@@ -93,7 +93,7 @@ describe("Plugin outcome reporting endpoint (SRV-042)", () => {
       expect.objectContaining({
         recorded: true,
         event_id: expect.any(String),
-      })
+      }),
     );
 
     const [storedMessage] = await db
@@ -121,13 +121,13 @@ describe("Plugin outcome reporting endpoint (SRV-042)", () => {
         outcome: "review_approved",
         user_action: "created_one_time_override",
         idempotency_key: "idem_plugin_outcomes_record_1",
-      })
+      }),
     );
     expect(details.plugin_outcome_reports[0].correlation).toEqual(
       expect.objectContaining({
         correlation_id: "corr_plugin_outcomes_record",
         in_response_to: "req_plugin_outcomes_record",
-      })
+      }),
     );
   });
 
@@ -205,8 +205,13 @@ describe("Plugin outcome reporting endpoint (SRV-042)", () => {
   });
 
   it("rejects reports when sender_connection_id does not match the message sender", async () => {
-    const { sender, senderKey, senderConnection, recipient, recipientConnection } =
-      await setupParticipants("plugin_outcomes_sender_mismatch");
+    const {
+      sender,
+      senderKey,
+      senderConnection,
+      recipient,
+      recipientConnection,
+    } = await setupParticipants("plugin_outcomes_sender_mismatch");
 
     const alternateSenderConnection = await createAgentConnection(sender.id, {
       callbackUrl: "polling://plugin_outcomes_sender_mismatch_alt",
@@ -257,8 +262,8 @@ describe("Plugin outcome reporting endpoint (SRV-042)", () => {
       .where(
         and(
           eq(schema.messages.id, sendBody.message_id),
-          eq(schema.messages.senderConnectionId, senderConnection.id)
-        )
+          eq(schema.messages.senderConnectionId, senderConnection.id),
+        ),
       )
       .limit(1);
 
@@ -268,16 +273,18 @@ describe("Plugin outcome reporting endpoint (SRV-042)", () => {
 
 async function setupParticipants(suffix: string) {
   const db = getTestDb();
-  const { user: sender, apiKey: senderKey } = await createTestUser(`sender_${suffix}`);
+  const { user: sender, apiKey: senderKey } = await createTestUser(
+    `sender_${suffix}`,
+  );
   const { user: recipient } = await createTestUser(`recipient_${suffix}`);
 
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, sender.id));
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, recipient.id));
 
   await createFriendship(sender.id, recipient.id, "accepted");

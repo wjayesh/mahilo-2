@@ -9,7 +9,11 @@ import {
   detectMahiloCallbackUrl,
   isLikelyPublicCallbackUrl,
 } from "./callback-url";
-import { MAHILO_RUNTIME_PLUGIN_DESCRIPTION, MAHILO_RUNTIME_PLUGIN_ID, MAHILO_RUNTIME_PLUGIN_NAME } from "./identity";
+import {
+  MAHILO_RUNTIME_PLUGIN_DESCRIPTION,
+  MAHILO_RUNTIME_PLUGIN_ID,
+  MAHILO_RUNTIME_PLUGIN_NAME,
+} from "./identity";
 import {
   registerMahiloOpenClawPlugin as registerLegacyMahiloOpenClawPlugin,
   type MahiloOpenClawPluginDefinition,
@@ -138,7 +142,10 @@ export function registerMahiloOpenClawPlugin(
 ): void {
   const config = parseMahiloPluginConfig(api.pluginConfig ?? {}, {
     defaults: {
-      pluginVersion: readOptionalString((api as unknown as Record<string, unknown>).version) ?? "unknown",
+      pluginVersion:
+        readOptionalString(
+          (api as unknown as Record<string, unknown>).version,
+        ) ?? "unknown",
     },
     requireApiKey: false,
   });
@@ -147,8 +154,9 @@ export function registerMahiloOpenClawPlugin(
   const bootstrapState = runtimeBootstrapStore.read(config.baseUrl);
   const credentialSource = resolveCredentialSource(config, bootstrapState);
   const effectiveApiKey = resolveEffectiveApiKey(config, bootstrapState);
-  const effectiveConfig =
-    effectiveApiKey ? { ...config, apiKey: effectiveApiKey } : config;
+  const effectiveConfig = effectiveApiKey
+    ? { ...config, apiKey: effectiveApiKey }
+    : config;
   const createClient =
     options.createClient ??
     ((nextConfig: MahiloPluginConfig) =>
@@ -174,8 +182,11 @@ export function registerMahiloOpenClawPlugin(
 
   let commandRegistrationMode: CommandRegistrationMode | null = null;
   const originalRegisterCommand =
-    typeof (api as unknown as Record<string, unknown>).registerCommand === "function"
-      ? ((api as unknown as Record<string, unknown>).registerCommand as (...args: unknown[]) => unknown)
+    typeof (api as unknown as Record<string, unknown>).registerCommand ===
+    "function"
+      ? ((api as unknown as Record<string, unknown>).registerCommand as (
+          ...args: unknown[]
+        ) => unknown)
       : null;
   const originalRegisterTool = api.registerTool.bind(api);
   const wrappedRegisterCommand =
@@ -197,13 +208,19 @@ export function registerMahiloOpenClawPlugin(
             registeredCommandNames.add(commandName);
           }
 
-          const patchedArgs = patchCommandRegistrationArgs(args, activeClient, senderResolver);
-          if (registerObjectModeMahiloCommand(
-            api,
-            originalRegisterCommand,
-            commandRouterState,
-            patchedArgs,
-          )) {
+          const patchedArgs = patchCommandRegistrationArgs(
+            args,
+            activeClient,
+            senderResolver,
+          );
+          if (
+            registerObjectModeMahiloCommand(
+              api,
+              originalRegisterCommand,
+              commandRouterState,
+              patchedArgs,
+            )
+          ) {
             return;
           }
           return originalRegisterCommand.apply(api, patchedArgs);
@@ -232,9 +249,12 @@ export function registerMahiloOpenClawPlugin(
   const wrappedApi = Object.create(api) as OpenClawPluginApi;
   wrappedApi.pluginConfig = buildPluginConfigInput(effectiveConfig);
   wrappedApi.registerCommand =
-    (wrappedRegisterCommand ?? (api.registerCommand as OpenClawPluginApi["registerCommand"]));
+    wrappedRegisterCommand ??
+    (api.registerCommand as OpenClawPluginApi["registerCommand"]);
   wrappedApi.registerTool = (tool: AnyAgentTool) =>
-    originalRegisterTool(patchToolDefinition(tool, activeClient, senderResolver));
+    originalRegisterTool(
+      patchToolDefinition(tool, activeClient, senderResolver),
+    );
 
   registerLegacyMahiloOpenClawPlugin(wrappedApi, {
     ...options,
@@ -246,8 +266,10 @@ export function registerMahiloOpenClawPlugin(
   });
 
   const registerService =
-    typeof (api as unknown as Record<string, unknown>).registerService === "function"
-      ? ((api as unknown as Record<string, unknown>).registerService as (service: {
+    typeof (api as unknown as Record<string, unknown>).registerService ===
+    "function"
+      ? ((api as unknown as Record<string, unknown>)
+          .registerService as (service: {
           id: string;
           start: (ctx: unknown) => Promise<void> | void;
         }) => void)
@@ -337,7 +359,9 @@ function buildSetupSummaryText(
   expectedUsername?: string,
 ): string {
   const summary = details.summary;
-  const username = summary?.identity?.username ? `@${summary.identity.username}` : "your Mahilo identity";
+  const username = summary?.identity?.username
+    ? `@${summary.identity.username}`
+    : "your Mahilo identity";
   const sender = summary?.sender?.connectionId;
 
   const usernameMismatch =
@@ -347,12 +371,11 @@ function buildSetupSummaryText(
   const mismatchSuffix = usernameMismatch
     ? ` Expected username @${expectedUsername}, but Mahilo reported @${summary?.identity?.username}.`
     : "";
-  const lead =
-    details.identityBootstrap?.created
-      ? `Mahilo created ${username}`
-      : summary?.connectivity.identityOk
-        ? `Mahilo setup attached ${username}`
-        : "Mahilo setup could not confirm a Mahilo identity";
+  const lead = details.identityBootstrap?.created
+    ? `Mahilo created ${username}`
+    : summary?.connectivity.identityOk
+      ? `Mahilo setup attached ${username}`
+      : "Mahilo setup could not confirm a Mahilo identity";
 
   if (details.blocker) {
     if (sender) {
@@ -382,12 +405,17 @@ function createSetupCommand(
     execute: async (rawInput?: unknown) => {
       const input = readInputObject(rawInput) ?? {};
       const expectedUsername = readOptionalString(input.username);
+      const inviteToken =
+        readOptionalString(input.inviteToken) ??
+        readOptionalString(input.invite_token);
       const displayName =
         readOptionalString(input.displayName) ??
         readOptionalString(input.display_name);
       const preferredSenderConnectionId = readSenderConnectionId(input);
       const ping = readOptionalBoolean(input.ping) ?? true;
-      const runtimeState = options.runtimeBootstrapStore.read(options.config.baseUrl);
+      const runtimeState = options.runtimeBootstrapStore.read(
+        options.config.baseUrl,
+      );
       const setupConfig = await resolveBootstrapConfig(
         options.config,
         runtimeState,
@@ -401,6 +429,7 @@ function createSetupCommand(
         credentialSource: options.credentialSource,
         displayName,
         expectedUsername,
+        inviteToken,
         ping,
         preferredSenderConnectionId,
         runtimeBootstrapStore: options.runtimeBootstrapStore,
@@ -417,7 +446,7 @@ function createSetupCommand(
         callback: details.callback,
         command: "mahilo setup",
         credentialSource: details.credentialSource,
-        error: details.status === "error" ? details.notes[0] ?? null : null,
+        error: details.status === "error" ? (details.notes[0] ?? null) : null,
         expectedUsername: expectedUsername ?? null,
         identityBootstrap: details.identityBootstrap,
         notes: usernameMismatch
@@ -439,23 +468,38 @@ function createSetupCommand(
       properties: {
         ping: {
           default: true,
-          description: "Run a sender connectivity ping after the default sender is selected.",
+          description:
+            "Run a sender connectivity ping after the default sender is selected.",
           type: "boolean",
         },
         display_name: {
-          description: "Optional display name used only when Mahilo needs to bootstrap a new identity.",
+          description:
+            "Optional display name used only when Mahilo needs to bootstrap a new identity.",
           type: "string",
         },
         displayName: {
-          description: "Optional display name used only when Mahilo needs to bootstrap a new identity.",
+          description:
+            "Optional display name used only when Mahilo needs to bootstrap a new identity.",
+          type: "string",
+        },
+        invite_token: {
+          description:
+            "One-time Mahilo invite token required when setup needs to bootstrap a new identity.",
+          type: "string",
+        },
+        inviteToken: {
+          description:
+            "One-time Mahilo invite token required when setup needs to bootstrap a new identity.",
           type: "string",
         },
         sender_connection_id: {
-          description: "Optional sender connection to pin as the plugin default.",
+          description:
+            "Optional sender connection to pin as the plugin default.",
           type: "string",
         },
         senderConnectionId: {
-          description: "Optional sender connection to pin as the plugin default.",
+          description:
+            "Optional sender connection to pin as the plugin default.",
           type: "string",
         },
         username: {
@@ -469,15 +513,22 @@ function createSetupCommand(
   };
 }
 
-function createStartupBootstrapService(options: CreateStartupBootstrapServiceOptions): {
+function createStartupBootstrapService(
+  options: CreateStartupBootstrapServiceOptions,
+): {
   id: string;
   start: (ctx: unknown) => Promise<void>;
 } {
   return {
     id: "mahilo-auto-register",
     start: async (rawContext: unknown) => {
-      const runtimeState = options.runtimeBootstrapStore.read(options.config.baseUrl);
-      const credentialSource = resolveCredentialSource(options.config, runtimeState);
+      const runtimeState = options.runtimeBootstrapStore.read(
+        options.config.baseUrl,
+      );
+      const credentialSource = resolveCredentialSource(
+        options.config,
+        runtimeState,
+      );
       const apiKey = resolveEffectiveApiKey(options.config, runtimeState);
       if (!apiKey) {
         return;
@@ -536,6 +587,7 @@ interface RunMahiloSetupOptions {
   credentialSource: MahiloCredentialSource | null;
   displayName?: string;
   expectedUsername?: string;
+  inviteToken?: string;
   ping: boolean;
   preferredSenderConnectionId?: string;
   runtimeBootstrapStore: MahiloRuntimeBootstrapStore;
@@ -559,8 +611,11 @@ async function runMahiloSetup(
   );
 
   if (!apiKey) {
-    if (!options.expectedUsername) {
-      const blocker = buildIdentityBootstrapBlocker();
+    if (!options.expectedUsername || !options.inviteToken) {
+      const blocker = buildIdentityBootstrapBlocker({
+        missingInviteToken: !options.inviteToken,
+        missingUsername: !options.expectedUsername,
+      });
       return {
         blocker,
         callback,
@@ -579,18 +634,25 @@ async function runMahiloSetup(
       });
       const registration = await bootstrapClient.registerIdentity({
         displayName: options.displayName,
+        inviteToken: options.inviteToken,
         username: options.expectedUsername,
       });
-      const issuedApiKey = readFirstStringFromUnknown(registration, ["api_key", "apiKey"]);
+      const issuedApiKey = readFirstStringFromUnknown(registration, [
+        "api_key",
+        "apiKey",
+      ]);
 
       if (!issuedApiKey) {
-        throw new Error("Mahilo identity registration did not return an api_key");
+        throw new Error(
+          "Mahilo identity registration did not return an api_key",
+        );
       }
 
       options.runtimeBootstrapStore.write(options.config.baseUrl, {
         apiKey: issuedApiKey,
         username:
-          readFirstStringFromUnknown(registration, ["username"]) ?? options.expectedUsername,
+          readFirstStringFromUnknown(registration, ["username"]) ??
+          options.expectedUsername,
       });
       apiKey = issuedApiKey;
       credentialSource = "fresh_registration";
@@ -618,7 +680,9 @@ async function runMahiloSetup(
   });
 
   if (options.preferredSenderConnectionId) {
-    options.senderResolver.rememberPreferredSender(options.preferredSenderConnectionId);
+    options.senderResolver.rememberPreferredSender(
+      options.preferredSenderConnectionId,
+    );
   }
 
   try {
@@ -640,7 +704,8 @@ async function runMahiloSetup(
       {
         ping: options.ping,
         preferredSenderConnectionId:
-          ensuredSender.preferredSenderConnectionId ?? options.preferredSenderConnectionId,
+          ensuredSender.preferredSenderConnectionId ??
+          options.preferredSenderConnectionId,
       },
     );
 
@@ -665,7 +730,13 @@ async function runMahiloSetup(
       callback,
       credentialSource,
       identityBootstrap,
-      notes: buildSetupNotes(summary, callback, senderRegistration, blocker, identityBootstrap),
+      notes: buildSetupNotes(
+        summary,
+        callback,
+        senderRegistration,
+        blocker,
+        identityBootstrap,
+      ),
       senderRegistration,
       status: blocker ? "blocked" : "success",
       summary,
@@ -718,9 +789,15 @@ async function ensureManagedSetupSender(
   const inspection = await options.senderResolver.inspect(options.client, {
     refresh: true,
   });
-  const runtimeState = options.runtimeBootstrapStore.read(options.config.baseUrl);
+  const runtimeState = options.runtimeBootstrapStore.read(
+    options.config.baseUrl,
+  );
   const managedConnection = findManagedSetupConnection(inspection.connections);
-  const callbackUrl = resolveManagedCallbackUrl(options.config, runtimeState, managedConnection);
+  const callbackUrl = resolveManagedCallbackUrl(
+    options.config,
+    runtimeState,
+    managedConnection,
+  );
   const currentSecret = await options.callbackSecretResolver();
 
   if (managedConnection) {
@@ -872,7 +949,9 @@ function buildSetupNotes(
   if (blocker) {
     notes.push(blocker.nextAction);
   } else if (callback.publicUrl) {
-    notes.push(`Mahilo callback readiness is anchored to ${callback.publicUrl}.`);
+    notes.push(
+      `Mahilo callback readiness is anchored to ${callback.publicUrl}.`,
+    );
   }
 
   return dedupeStrings(notes);
@@ -891,17 +970,21 @@ function determineSetupBlocker(options: {
   if (!summary.connectivity.identityOk) {
     return {
       kind: "identity",
-      message: "Mahilo could not confirm the current API key against the configured server.",
+      message:
+        "Mahilo could not confirm the current API key against the configured server.",
       nextAction:
         options.credentialSource === "config"
-          ? "Update the configured apiKey or remove it and rerun `mahilo setup` with a username so Mahilo can bootstrap fresh credentials."
-          : "Rerun `mahilo setup` with a username to bootstrap fresh credentials for this OpenClaw runtime.",
+          ? "Update the configured apiKey or remove it and rerun `mahilo setup` with a username and invite token so Mahilo can bootstrap fresh credentials."
+          : "Rerun `mahilo setup` with a username and invite token to bootstrap fresh credentials for this OpenClaw runtime.",
       operatorOwned: false,
     };
   }
 
   if (senderRegistration?.error) {
-    if (!callback.publicUrl || looksLikeCallbackRegistrationFailure(senderRegistration.error)) {
+    if (
+      !callback.publicUrl ||
+      looksLikeCallbackRegistrationFailure(senderRegistration.error)
+    ) {
       return buildCallbackOperatorBlocker(config, callback.publicUrl);
     }
 
@@ -921,7 +1004,8 @@ function determineSetupBlocker(options: {
 
     return {
       kind: "sender_attachment",
-      message: "Mahilo still does not have a default OpenClaw sender connection attached.",
+      message:
+        "Mahilo still does not have a default OpenClaw sender connection attached.",
       nextAction:
         "Rerun `mahilo setup` after the callback URL is reachable so Mahilo can register the default sender connection.",
       operatorOwned: false,
@@ -961,21 +1045,35 @@ function determineSetupBlocker(options: {
   return null;
 }
 
-function buildIdentityBootstrapBlocker(): MahiloSetupBlocker {
+function buildIdentityBootstrapBlocker(options: {
+  missingInviteToken: boolean;
+  missingUsername: boolean;
+}): MahiloSetupBlocker {
+  const missing: string[] = [];
+  if (options.missingUsername) {
+    missing.push("username");
+  }
+  if (options.missingInviteToken) {
+    missing.push("invite token");
+  }
+
   return {
     kind: "identity",
-    message: "Mahilo needs a username before it can bootstrap your identity inside OpenClaw.",
-    nextAction: "Run `mahilo setup` with `{ \"username\": \"your_handle\" }` to create the identity and continue setup in one pass.",
+    message: `Mahilo needs a ${missing.join(" and ")} before it can bootstrap your identity inside OpenClaw.`,
+    nextAction:
+      'Run `mahilo setup` with `{ "username": "your_handle", "invite_token": "mhinv_..." }` to create the identity and continue setup in one pass.',
     operatorOwned: false,
   };
 }
 
-function buildIdentityRegistrationFailureBlocker(error: unknown): MahiloSetupBlocker {
+function buildIdentityRegistrationFailureBlocker(
+  error: unknown,
+): MahiloSetupBlocker {
   return {
     kind: "identity",
     message: `Mahilo could not bootstrap a new identity (${toErrorMessage(error)}).`,
     nextAction:
-      "Choose a different username or point OpenClaw at the correct Mahilo server, then rerun `mahilo setup`.",
+      "Choose a different username, confirm the invite token is still valid, or point OpenClaw at the correct Mahilo server, then rerun `mahilo setup`.",
     operatorOwned: false,
   };
 }
@@ -990,8 +1088,8 @@ function buildSetupFailureBlocker(
       message: `Mahilo rejected the current credentials (${toErrorMessage(error)}).`,
       nextAction:
         credentialSource === "config"
-          ? "Update the configured apiKey or remove it and rerun `mahilo setup` with a username."
-          : "Rerun `mahilo setup` with a username to mint fresh credentials for this runtime.",
+          ? "Update the configured apiKey or remove it and rerun `mahilo setup` with a username and invite token."
+          : "Rerun `mahilo setup` with a username and invite token to mint fresh credentials for this runtime.",
       operatorOwned: false,
     };
   }
@@ -999,7 +1097,8 @@ function buildSetupFailureBlocker(
   return {
     kind: "sender_attachment",
     message: `Mahilo setup hit an unexpected server failure (${toErrorMessage(error)}).`,
-    nextAction: "Check Mahilo server reachability from the OpenClaw host, then rerun `mahilo setup`.",
+    nextAction:
+      "Check Mahilo server reachability from the OpenClaw host, then rerun `mahilo setup`.",
     operatorOwned: false,
   };
 }
@@ -1025,7 +1124,9 @@ function buildCallbackOperatorBlocker(
   };
 }
 
-function createBootstrapSetupClient(config: MahiloPluginConfig): MahiloContractClient {
+function createBootstrapSetupClient(
+  config: MahiloPluginConfig,
+): MahiloContractClient {
   return new MahiloContractClient({
     baseUrl: config.baseUrl,
     contractVersion: config.contractVersion,
@@ -1033,7 +1134,9 @@ function createBootstrapSetupClient(config: MahiloPluginConfig): MahiloContractC
   });
 }
 
-function buildPluginConfigInput(config: MahiloPluginConfig): Record<string, unknown> {
+function buildPluginConfigInput(
+  config: MahiloPluginConfig,
+): Record<string, unknown> {
   return compactObject({
     apiKey: config.apiKey,
     baseUrl: config.baseUrl,
@@ -1054,10 +1157,14 @@ function createCallbackSecretResolver(
 ): () => Promise<string | undefined> {
   return async () => {
     const runtimeSecret = runtimeBootstrapStore.read(baseUrl)?.callbackSecret;
-    const callbackSecret = readOptionalString(options.webhookRoute?.callbackSecret);
+    const callbackSecret = readOptionalString(
+      options.webhookRoute?.callbackSecret,
+    );
 
     if (typeof options.webhookRoute?.getCallbackSecret === "function") {
-      const explicitSecret = readOptionalString(await options.webhookRoute.getCallbackSecret());
+      const explicitSecret = readOptionalString(
+        await options.webhookRoute.getCallbackSecret(),
+      );
       if (explicitSecret) {
         return explicitSecret;
       }
@@ -1101,7 +1208,10 @@ function resolveStoredOrConfiguredCallbackUrl(
   config: MahiloPluginConfig,
   runtimeState: ReturnType<MahiloRuntimeBootstrapStore["read"]>,
 ): string | undefined {
-  return normalizeOptionalUrl(config.callbackUrl) ?? normalizeOptionalUrl(runtimeState?.callbackUrl);
+  return (
+    normalizeOptionalUrl(config.callbackUrl) ??
+    normalizeOptionalUrl(runtimeState?.callbackUrl)
+  );
 }
 
 async function resolveBootstrapConfig(
@@ -1127,8 +1237,10 @@ function findManagedSetupConnection(
   return (
     connections.find(
       (connection) =>
-        normalizeLowercaseToken(connection.framework) === SETUP_MANAGED_SENDER_FRAMEWORK &&
-        normalizeLowercaseToken(connection.label) === SETUP_MANAGED_SENDER_LABEL,
+        normalizeLowercaseToken(connection.framework) ===
+          SETUP_MANAGED_SENDER_FRAMEWORK &&
+        normalizeLowercaseToken(connection.label) ===
+          SETUP_MANAGED_SENDER_LABEL,
     ) ?? null
   );
 }
@@ -1159,7 +1271,9 @@ function dedupeStrings(values: string[]): string[] {
   return output;
 }
 
-function readOptionalObject(value: unknown): Record<string, unknown> | undefined {
+function readOptionalObject(
+  value: unknown,
+): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
 
@@ -1199,12 +1313,18 @@ function readFirstStringFromUnknown(
   return undefined;
 }
 
-function compactObject(value: Record<string, unknown>): Record<string, unknown> {
-  const entries = Object.entries(value).filter(([, candidate]) => candidate !== undefined);
+function compactObject(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const entries = Object.entries(value).filter(
+    ([, candidate]) => candidate !== undefined,
+  );
   return Object.fromEntries(entries);
 }
 
-function detectCommandRegistrationMode(args: unknown[]): CommandRegistrationMode | null {
+function detectCommandRegistrationMode(
+  args: unknown[],
+): CommandRegistrationMode | null {
   if (args.length === 1 && isRecord(args[0])) {
     return { kind: "object" };
   }
@@ -1212,7 +1332,10 @@ function detectCommandRegistrationMode(args: unknown[]): CommandRegistrationMode
   if (typeof args[0] === "string" && typeof args[1] === "function") {
     return {
       kind: "name-handler",
-      metadataStyle: detectMetadataStyle(args.length >= 3 ? args[2] : undefined, args.length >= 3),
+      metadataStyle: detectMetadataStyle(
+        args.length >= 3 ? args[2] : undefined,
+        args.length >= 3,
+      ),
     };
   }
 
@@ -1223,7 +1346,10 @@ function detectCommandRegistrationMode(args: unknown[]): CommandRegistrationMode
   ) {
     return {
       kind: "name-description-handler",
-      metadataStyle: detectMetadataStyle(args.length >= 4 ? args[3] : undefined, args.length >= 4),
+      metadataStyle: detectMetadataStyle(
+        args.length >= 4 ? args[3] : undefined,
+        args.length >= 4,
+      ),
     };
   }
 
@@ -1238,7 +1364,12 @@ function detectMetadataStyle(
     return "none";
   }
 
-  if (isRecord(metadata) && ("parameters" in metadata || "description" in metadata || "label" in metadata)) {
+  if (
+    isRecord(metadata) &&
+    ("parameters" in metadata ||
+      "description" in metadata ||
+      "label" in metadata)
+  ) {
     return "definition";
   }
 
@@ -1256,15 +1387,30 @@ function patchCommandDefinition(
 
   return {
     ...definition,
-    execute: wrapCommandExecute(definition.name, definition.execute, client, senderResolver),
+    execute: wrapCommandExecute(
+      definition.name,
+      definition.execute,
+      client,
+      senderResolver,
+    ),
     handler:
       typeof definition.handler === "function"
-        ? wrapCommandExecute(definition.name, definition.handler, client, senderResolver)
+        ? wrapCommandExecute(
+            definition.name,
+            definition.handler,
+            client,
+            senderResolver,
+          )
         : definition.handler,
     parameters: patchParameterSchema(definition.parameters),
     run:
       typeof definition.run === "function"
-        ? wrapCommandExecute(definition.name, definition.run, client, senderResolver)
+        ? wrapCommandExecute(
+            definition.name,
+            definition.run,
+            client,
+            senderResolver,
+          )
         : definition.run,
   };
 }
@@ -1281,7 +1427,9 @@ function patchCommandRegistrationArgs(
 
   if (mode.kind === "object") {
     const definition = coerceCommandDefinition(args[0]);
-    return definition ? [patchCommandDefinition(definition, client, senderResolver)] : args;
+    return definition
+      ? [patchCommandDefinition(definition, client, senderResolver)]
+      : args;
   }
 
   if (mode.kind === "name-handler") {
@@ -1292,7 +1440,12 @@ function patchCommandRegistrationArgs(
     return [
       name,
       AUTO_SENDER_COMMAND_NAMES.has(String(name))
-        ? wrapCommandExecute(String(name), execute as (...args: unknown[]) => unknown, client, senderResolver)
+        ? wrapCommandExecute(
+            String(name),
+            execute as (...args: unknown[]) => unknown,
+            client,
+            senderResolver,
+          )
         : execute,
       patchCommandMetadata(String(name), metadata),
       ...args.slice(3),
@@ -1308,7 +1461,12 @@ function patchCommandRegistrationArgs(
     name,
     description,
     AUTO_SENDER_COMMAND_NAMES.has(String(name))
-      ? wrapCommandExecute(String(name), execute as (...args: unknown[]) => unknown, client, senderResolver)
+      ? wrapCommandExecute(
+          String(name),
+          execute as (...args: unknown[]) => unknown,
+          client,
+          senderResolver,
+        )
       : execute,
     patchCommandMetadata(String(name), metadata),
     ...args.slice(4),
@@ -1339,8 +1497,7 @@ function patchParameterSchema(schema: unknown): unknown {
   if (Array.isArray(schema.required)) {
     nextSchema.required = schema.required.filter(
       (entry) =>
-        entry !== "senderConnectionId" &&
-        entry !== "sender_connection_id",
+        entry !== "senderConnectionId" && entry !== "sender_connection_id",
     );
   }
 
@@ -1349,10 +1506,14 @@ function patchParameterSchema(schema: unknown): unknown {
     : null;
   if (properties) {
     if (isRecord(properties.senderConnectionId)) {
-      properties.senderConnectionId = annotateSenderProperty(properties.senderConnectionId);
+      properties.senderConnectionId = annotateSenderProperty(
+        properties.senderConnectionId,
+      );
     }
     if (isRecord(properties.sender_connection_id)) {
-      properties.sender_connection_id = annotateSenderProperty(properties.sender_connection_id);
+      properties.sender_connection_id = annotateSenderProperty(
+        properties.sender_connection_id,
+      );
     }
     nextSchema.properties = properties;
   }
@@ -1376,19 +1537,20 @@ function patchToolDefinition(
     ...tool,
     execute: async (toolCallId: string, rawInput: unknown) => {
       try {
-        const nextInput = await ensureSenderInput(rawInput, client, senderResolver);
+        const nextInput = await ensureSenderInput(
+          rawInput,
+          client,
+          senderResolver,
+        );
         return await execute(toolCallId, nextInput);
       } catch (error) {
-        return toToolResult(
-          `${toolName} failed: ${toErrorMessage(error)}`,
-          {
-            error: toErrorMessage(error),
-            errorType: error instanceof MahiloRequestError ? "network" : "input",
-            retryable: error instanceof MahiloRequestError,
-            status: "error",
-            tool: toolName,
-          },
-        );
+        return toToolResult(`${toolName} failed: ${toErrorMessage(error)}`, {
+          error: toErrorMessage(error),
+          errorType: error instanceof MahiloRequestError ? "network" : "input",
+          retryable: error instanceof MahiloRequestError,
+          status: "error",
+          tool: toolName,
+        });
       }
     },
     parameters: patchParameterSchema(tool.parameters),
@@ -1424,17 +1586,33 @@ function registerSetupCommand(
       return;
     }
 
-    originalRegisterCommand.call(api, definition.name, definition.execute, metadata);
+    originalRegisterCommand.call(
+      api,
+      definition.name,
+      definition.execute,
+      metadata,
+    );
     return;
   }
 
   const metadata = buildCommandMetadata(definition, mode.metadataStyle);
   if (metadata === undefined) {
-    originalRegisterCommand.call(api, definition.name, definition.description, definition.execute);
+    originalRegisterCommand.call(
+      api,
+      definition.name,
+      definition.description,
+      definition.execute,
+    );
     return;
   }
 
-  originalRegisterCommand.call(api, definition.name, definition.description, definition.execute, metadata);
+  originalRegisterCommand.call(
+    api,
+    definition.name,
+    definition.description,
+    definition.execute,
+    metadata,
+  );
 }
 
 function createRuntimeAwareClient(
@@ -1492,7 +1670,8 @@ function registerObjectModeMahiloCommand(
     acceptsArgs: true,
     description:
       "Mahilo setup and diagnostics. Use /mahilo <setup|status|network|review|reconnect> [json].",
-    handler: async (ctx: unknown) => executeMahiloCommandRouter(routerState, ctx),
+    handler: async (ctx: unknown) =>
+      executeMahiloCommandRouter(routerState, ctx),
     name: MAHILO_OPERATOR_COMMAND_NAME,
     requireAuth: true,
   });
@@ -1538,10 +1717,10 @@ function buildMahiloCommandHelp(routerState: MahiloCommandRouterState): string {
   const base =
     "Usage: /mahilo <setup|status|network|review|reconnect> [json]\n" +
     "Examples:\n" +
-    "/mahilo setup bootstrap-user\n" +
+    "/mahilo setup bootstrap-user mhinv_example\n" +
     "/mahilo status\n" +
     "/mahilo network\n" +
-    "/mahilo review {\"status\":\"open\",\"limit\":10}";
+    '/mahilo review {"status":"open","limit":10}';
 
   if (available.length === 0) {
     return base;
@@ -1550,10 +1729,7 @@ function buildMahiloCommandHelp(routerState: MahiloCommandRouterState): string {
   return `${base}\nAvailable: ${available.join(", ")}`;
 }
 
-function parseMahiloCommandArgs(
-  subcommand: string,
-  rawArgs: string,
-): unknown {
+function parseMahiloCommandArgs(subcommand: string, rawArgs: string): unknown {
   const trimmed = rawArgs.trim();
   if (trimmed.length === 0) {
     return {};
@@ -1569,12 +1745,16 @@ function parseMahiloCommandArgs(
   }
 
   if (subcommand === "setup") {
+    const [username, inviteToken] = trimmed.split(/\s+/, 2);
     return {
-      username: trimmed.replace(/^@+/, ""),
+      invite_token: inviteToken,
+      username: username?.replace(/^@+/, ""),
     };
   }
 
-  throw new Error("Pass command arguments as JSON, for example /mahilo review {\"status\":\"open\"}");
+  throw new Error(
+    'Pass command arguments as JSON, for example /mahilo review {"status":"open"}',
+  );
 }
 
 function normalizeMahiloCommandReply(result: unknown): Record<string, unknown> {
@@ -1586,7 +1766,8 @@ function normalizeMahiloCommandReply(result: unknown): Record<string, unknown> {
   }
 
   const text = extractMahiloCommandText(result);
-  const details = isRecord(result) && isRecord(result.details) ? result.details : undefined;
+  const details =
+    isRecord(result) && isRecord(result.details) ? result.details : undefined;
   return {
     text:
       details && Object.keys(details).length > 0
@@ -1604,7 +1785,11 @@ function extractMahiloCommandText(result: unknown): string {
     const content = result.content;
     if (Array.isArray(content)) {
       for (const block of content) {
-        if (isRecord(block) && typeof block.text === "string" && block.text.trim().length > 0) {
+        if (
+          isRecord(block) &&
+          typeof block.text === "string" &&
+          block.text.trim().length > 0
+        ) {
           return block.text;
         }
       }
@@ -1620,7 +1805,9 @@ function readMahiloSubcommand(name: string): string | null {
     return null;
   }
 
-  const subcommand = normalized.slice(MAHILO_OPERATOR_COMMAND_NAME.length).trim();
+  const subcommand = normalized
+    .slice(MAHILO_OPERATOR_COMMAND_NAME.length)
+    .trim();
   return subcommand.length > 0 ? subcommand : null;
 }
 
@@ -1648,9 +1835,12 @@ async function ensureSenderInput(
   };
 }
 
-function annotateSenderProperty(property: Record<string, unknown>): Record<string, unknown> {
+function annotateSenderProperty(
+  property: Record<string, unknown>,
+): Record<string, unknown> {
   const description = readOptionalString(property.description);
-  const suffix = "Optional after `mahilo setup`; the plugin will auto-select a default sender when omitted.";
+  const suffix =
+    "Optional after `mahilo setup`; the plugin will auto-select a default sender when omitted.";
   return {
     ...property,
     description: description ? `${description} ${suffix}` : suffix,
@@ -1679,7 +1869,8 @@ function coerceCommandDefinition(value: unknown): CommandDefinitionLike | null {
   }
 
   return {
-    acceptsArgs: typeof value.acceptsArgs === "boolean" ? value.acceptsArgs : undefined,
+    acceptsArgs:
+      typeof value.acceptsArgs === "boolean" ? value.acceptsArgs : undefined,
     description: value.description,
     execute,
     handler:
@@ -1689,7 +1880,8 @@ function coerceCommandDefinition(value: unknown): CommandDefinitionLike | null {
     label: typeof value.label === "string" ? value.label : value.name,
     name: value.name,
     parameters: value.parameters,
-    requireAuth: typeof value.requireAuth === "boolean" ? value.requireAuth : undefined,
+    requireAuth:
+      typeof value.requireAuth === "boolean" ? value.requireAuth : undefined,
     run:
       typeof value.run === "function"
         ? (value.run as (...args: unknown[]) => unknown)
@@ -1697,7 +1889,9 @@ function coerceCommandDefinition(value: unknown): CommandDefinitionLike | null {
   };
 }
 
-function coerceCommandDefinitionFromArgs(args: unknown[]): CommandDefinitionLike | null {
+function coerceCommandDefinitionFromArgs(
+  args: unknown[],
+): CommandDefinitionLike | null {
   const mode = detectCommandRegistrationMode(args);
   if (!mode) {
     return null;
@@ -1710,7 +1904,9 @@ function coerceCommandDefinitionFromArgs(args: unknown[]): CommandDefinitionLike
   if (mode.kind === "name-handler") {
     const name = readOptionalString(args[0]);
     const execute =
-      typeof args[1] === "function" ? (args[1] as (...args: unknown[]) => unknown) : null;
+      typeof args[1] === "function"
+        ? (args[1] as (...args: unknown[]) => unknown)
+        : null;
     if (!name || !execute) {
       return null;
     }
@@ -1730,7 +1926,9 @@ function coerceCommandDefinitionFromArgs(args: unknown[]): CommandDefinitionLike
   const name = readOptionalString(args[0]);
   const description = readOptionalString(args[1]);
   const execute =
-    typeof args[2] === "function" ? (args[2] as (...args: unknown[]) => unknown) : null;
+    typeof args[2] === "function"
+      ? (args[2] as (...args: unknown[]) => unknown)
+      : null;
   if (!name || !description || !execute) {
     return null;
   }
@@ -1760,21 +1958,28 @@ function readOptionalBoolean(value: unknown): boolean | undefined {
 }
 
 function readOptionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }
 
 function readRecordValue(value: unknown, key: string): unknown {
   return isRecord(value) ? value[key] : undefined;
 }
 
-function readSenderConnectionId(input: Record<string, unknown>): string | undefined {
+function readSenderConnectionId(
+  input: Record<string, unknown>,
+): string | undefined {
   return (
     readOptionalString(input.senderConnectionId) ??
     readOptionalString(input.sender_connection_id)
   );
 }
 
-function toCommandResult(text: string, details: Record<string, unknown>): Record<string, unknown> {
+function toCommandResult(
+  text: string,
+  details: Record<string, unknown>,
+): Record<string, unknown> {
   return {
     content: [
       {
@@ -1801,10 +2006,16 @@ function toErrorMessage(error: unknown): string {
 }
 
 function shouldAttemptIdentityRegistration(error: unknown): boolean {
-  return error instanceof MahiloRequestError && (error.status === 401 || error.status === 403);
+  return (
+    error instanceof MahiloRequestError &&
+    (error.status === 401 || error.status === 403)
+  );
 }
 
-function toToolResult(text: string, details: Record<string, unknown>): Record<string, unknown> {
+function toToolResult(
+  text: string,
+  details: Record<string, unknown>,
+): Record<string, unknown> {
   return {
     content: [
       {
@@ -1825,7 +2036,11 @@ function wrapCommandExecute(
   return async (...args: unknown[]) => {
     try {
       const nextArgs = [...args];
-      nextArgs[0] = await ensureSenderInput(nextArgs[0], client, senderResolver);
+      nextArgs[0] = await ensureSenderInput(
+        nextArgs[0],
+        client,
+        senderResolver,
+      );
       return await execute(...nextArgs);
     } catch (error) {
       return toCommandResult(

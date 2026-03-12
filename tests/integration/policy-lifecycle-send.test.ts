@@ -36,12 +36,16 @@ describe("Policy lifecycle on send", () => {
 
   it("consumes one-time overrides after use and stores override provenance in audit", async () => {
     const db = getTestDb();
-    const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_once");
-    const { user: recipient } = await createTestUser("lifecycle_recipient_once");
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "lifecycle_sender_once",
+    );
+    const { user: recipient } = await createTestUser(
+      "lifecycle_recipient_once",
+    );
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, sender.id));
 
     await createFriendship(sender.id, recipient.id, "accepted");
@@ -195,9 +199,11 @@ describe("Policy lifecycle on send", () => {
     expect(firstEvaluation.winning_policy_id).toBe(overridePolicyId);
     expect(firstEvaluation.winning_policy?.created_by_user_id).toBe(sender.id);
     expect(firstEvaluation.winning_policy?.source).toBe("override");
-    expect(firstEvaluation.winning_policy?.derived_from_message_id).toBe(derivedMessageId);
+    expect(firstEvaluation.winning_policy?.derived_from_message_id).toBe(
+      derivedMessageId,
+    );
     const evaluatedOverride = firstEvaluation.evaluated_policies.find(
-      (policy: { policy_id: string }) => policy.policy_id === overridePolicyId
+      (policy: { policy_id: string }) => policy.policy_id === overridePolicyId,
     );
     expect(evaluatedOverride?.created_by_user_id).toBe(sender.id);
     expect(evaluatedOverride?.source).toBe("override");
@@ -230,7 +236,9 @@ describe("Policy lifecycle on send", () => {
       .limit(1);
 
     expect(secondMessage?.senderConnectionId).toBe(senderConnection.id);
-    const secondEvaluation = JSON.parse(secondMessage?.policiesEvaluated || "{}");
+    const secondEvaluation = JSON.parse(
+      secondMessage?.policiesEvaluated || "{}",
+    );
     expect(secondEvaluation.authenticated_identity).toEqual({
       sender_user_id: sender.id,
       sender_connection_id: senderConnection.id,
@@ -241,12 +249,16 @@ describe("Policy lifecycle on send", () => {
 
   it("consumes one-time deny overrides when they reject a send", async () => {
     const db = getTestDb();
-    const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_deny_once");
-    const { user: recipient } = await createTestUser("lifecycle_recipient_deny_once");
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "lifecycle_sender_deny_once",
+    );
+    const { user: recipient } = await createTestUser(
+      "lifecycle_recipient_deny_once",
+    );
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, sender.id));
 
     await createFriendship(sender.id, recipient.id, "accepted");
@@ -411,7 +423,9 @@ describe("Policy lifecycle on send", () => {
       .limit(1);
 
     expect(secondMessage?.senderConnectionId).toBe(senderConnection.id);
-    const secondEvaluation = JSON.parse(secondMessage?.policiesEvaluated || "{}");
+    const secondEvaluation = JSON.parse(
+      secondMessage?.policiesEvaluated || "{}",
+    );
     expect(secondEvaluation.authenticated_identity).toEqual({
       sender_user_id: sender.id,
       sender_connection_id: senderConnection.id,
@@ -422,12 +436,16 @@ describe("Policy lifecycle on send", () => {
 
   it("consumes one-time ask overrides and falls back after depletion", async () => {
     const db = getTestDb();
-    const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_ask_once");
-    const { user: recipient } = await createTestUser("lifecycle_recipient_ask_once");
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "lifecycle_sender_ask_once",
+    );
+    const { user: recipient } = await createTestUser(
+      "lifecycle_recipient_ask_once",
+    );
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, sender.id));
 
     await createFriendship(sender.id, recipient.id, "accepted");
@@ -578,19 +596,25 @@ describe("Policy lifecycle on send", () => {
       .from(schema.messages)
       .where(eq(schema.messages.id, secondSendData.message_id))
       .limit(1);
-    const secondEvaluation = JSON.parse(secondMessage?.policiesEvaluated || "{}");
+    const secondEvaluation = JSON.parse(
+      secondMessage?.policiesEvaluated || "{}",
+    );
     expect(secondEvaluation.winning_policy_id).toBe(allowPolicyId);
     expect(secondEvaluation.matched_policy_ids).not.toContain(askPolicyId);
   });
 
   it("applies expiring overrides before expiry and skips them after expiry", async () => {
     const db = getTestDb();
-    const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_expiry_boundary");
-    const { user: recipient } = await createTestUser("lifecycle_recipient_expiry_boundary");
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "lifecycle_sender_expiry_boundary",
+    );
+    const { user: recipient } = await createTestUser(
+      "lifecycle_recipient_expiry_boundary",
+    );
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, sender.id));
 
     await createFriendship(sender.id, recipient.id, "accepted");
@@ -710,7 +734,9 @@ describe("Policy lifecycle on send", () => {
       .from(schema.messages)
       .where(eq(schema.messages.id, beforeExpiryData.message_id))
       .limit(1);
-    const beforeExpiryEvaluation = JSON.parse(beforeExpiryMessage?.policiesEvaluated || "{}");
+    const beforeExpiryEvaluation = JSON.parse(
+      beforeExpiryMessage?.policiesEvaluated || "{}",
+    );
     expect(beforeExpiryEvaluation.winning_policy_id).toBe(expiringPolicyId);
 
     await new Promise((resolve) => setTimeout(resolve, 1_400));
@@ -737,19 +763,27 @@ describe("Policy lifecycle on send", () => {
       .from(schema.messages)
       .where(eq(schema.messages.id, afterExpiryData.message_id))
       .limit(1);
-    const afterExpiryEvaluation = JSON.parse(afterExpiryMessage?.policiesEvaluated || "{}");
+    const afterExpiryEvaluation = JSON.parse(
+      afterExpiryMessage?.policiesEvaluated || "{}",
+    );
     expect(afterExpiryEvaluation.winning_policy_id).toBe(allowPolicyId);
-    expect(afterExpiryEvaluation.matched_policy_ids).not.toContain(expiringPolicyId);
+    expect(afterExpiryEvaluation.matched_policy_ids).not.toContain(
+      expiringPolicyId,
+    );
   });
 
   it("stops applying expired rules automatically", async () => {
     const db = getTestDb();
-    const { user: sender, apiKey: senderKey } = await createTestUser("lifecycle_sender_expired");
-    const { user: recipient } = await createTestUser("lifecycle_recipient_expired");
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "lifecycle_sender_expired",
+    );
+    const { user: recipient } = await createTestUser(
+      "lifecycle_recipient_expired",
+    );
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, sender.id));
 
     await createFriendship(sender.id, recipient.id, "accepted");

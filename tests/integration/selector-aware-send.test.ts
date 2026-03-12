@@ -107,7 +107,9 @@ describe("Selector-aware send API (SRV-031, SRV-033)", () => {
       expect(storedMessage?.classifiedResource).toBe("calendar.availability");
       expect(storedMessage?.classifiedAction).toBe("request");
       expect(warningCalls.length).toBeGreaterThan(0);
-      expect(JSON.stringify(warningCalls[0])).toContain("selector-verification");
+      expect(JSON.stringify(warningCalls[0])).toContain(
+        "selector-verification",
+      );
       expect(JSON.stringify(warningCalls[0])).toContain("resource");
     } finally {
       console.warn = originalWarn;
@@ -179,7 +181,9 @@ describe("Selector-aware send API (SRV-031, SRV-033)", () => {
 
     expect(invalidDirectionRes.status).toBe(400);
     const invalidDirectionBody = await invalidDirectionRes.json();
-    expect(JSON.stringify(invalidDirectionBody).toLowerCase()).toContain("direction");
+    expect(JSON.stringify(invalidDirectionBody).toLowerCase()).toContain(
+      "direction",
+    );
   });
 
   it("keeps backward compatibility for old clients using top-level selectors", async () => {
@@ -219,16 +223,18 @@ describe("Selector-aware send API (SRV-031, SRV-033)", () => {
 
 async function setupParticipants(suffix: string) {
   const db = getTestDb();
-  const { user: sender, apiKey: senderKey } = await createTestUser(`sender_${suffix}`);
+  const { user: sender, apiKey: senderKey } = await createTestUser(
+    `sender_${suffix}`,
+  );
   const { user: recipient } = await createTestUser(`recipient_${suffix}`);
 
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, sender.id));
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, recipient.id));
 
   await createFriendship(sender.id, recipient.id, "accepted");

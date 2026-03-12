@@ -3,7 +3,10 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { config } from "../../src/config";
 import { createApp } from "../../src/server";
-import { canonicalToStorage, type PolicyEffect } from "../../src/services/policySchema";
+import {
+  canonicalToStorage,
+  type PolicyEffect,
+} from "../../src/services/policySchema";
 import {
   cleanupTestDatabase,
   createAgentConnection,
@@ -26,7 +29,8 @@ function setTrustedMode(value: boolean) {
 }
 
 function setInboundAskMode(value: InboundAskMode) {
-  (config as unknown as { inboundAskMode: InboundAskMode }).inboundAskMode = value;
+  (config as unknown as { inboundAskMode: InboundAskMode }).inboundAskMode =
+    value;
 }
 
 describe("Review / ask semantics (SRV-023)", () => {
@@ -46,8 +50,14 @@ describe("Review / ask semantics (SRV-023)", () => {
   });
 
   it("blocks outbound ask sends and returns structured review resolution", async () => {
-    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
-      await setupParticipants("outbound_ask");
+    const {
+      db,
+      recipient,
+      recipientConnection,
+      sender,
+      senderConnection,
+      senderKey,
+    } = await setupParticipants("outbound_ask");
 
     await insertAlwaysMatchPolicy(sender.id, "ask", "outbound");
 
@@ -77,7 +87,7 @@ describe("Review / ask semantics (SRV-023)", () => {
         decision: "ask",
         delivery_mode: "review_required",
         delivery_status: "review_required",
-      })
+      }),
     );
 
     const [storedMessage] = await db
@@ -96,8 +106,14 @@ describe("Review / ask semantics (SRV-023)", () => {
 
   it("delivers inbound ask decisions in review-required mode", async () => {
     setInboundAskMode("review_required");
-    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
-      await setupParticipants("inbound_review");
+    const {
+      db,
+      recipient,
+      recipientConnection,
+      sender,
+      senderConnection,
+      senderKey,
+    } = await setupParticipants("inbound_review");
 
     await insertAlwaysMatchPolicy(recipient.id, "ask", "inbound");
 
@@ -132,7 +148,7 @@ describe("Review / ask semantics (SRV-023)", () => {
         decision: "ask",
         delivery_mode: "review_required",
         delivery_status: "delivered",
-      })
+      }),
     );
 
     const [storedMessage] = await db
@@ -152,8 +168,14 @@ describe("Review / ask semantics (SRV-023)", () => {
 
   it("holds inbound ask decisions for approval when strict mode is enabled", async () => {
     setInboundAskMode("hold_for_approval");
-    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
-      await setupParticipants("inbound_hold");
+    const {
+      db,
+      recipient,
+      recipientConnection,
+      sender,
+      senderConnection,
+      senderKey,
+    } = await setupParticipants("inbound_hold");
 
     await insertAlwaysMatchPolicy(recipient.id, "ask", "inbound");
 
@@ -187,7 +209,7 @@ describe("Review / ask semantics (SRV-023)", () => {
         decision: "ask",
         delivery_mode: "hold_for_approval",
         delivery_status: "approval_pending",
-      })
+      }),
     );
 
     const [storedMessage] = await db
@@ -207,8 +229,14 @@ describe("Review / ask semantics (SRV-023)", () => {
 
   it("blocks inbound deny before delivery and persists inbound audit metadata", async () => {
     setInboundAskMode("review_required");
-    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
-      await setupParticipants("inbound_deny");
+    const {
+      db,
+      recipient,
+      recipientConnection,
+      sender,
+      senderConnection,
+      senderKey,
+    } = await setupParticipants("inbound_deny");
 
     await insertAlwaysMatchPolicy(recipient.id, "deny", "inbound");
 
@@ -242,7 +270,7 @@ describe("Review / ask semantics (SRV-023)", () => {
         decision: "deny",
         delivery_mode: "blocked",
         delivery_status: "rejected",
-      })
+      }),
     );
 
     const [storedMessage] = await db
@@ -265,14 +293,20 @@ describe("Review / ask semantics (SRV-023)", () => {
         direction: "inbound",
         resource: "message.general",
         action: "request",
-      })
+      }),
     );
   });
 
   it("resolves inbound ask/deny specificity conflicts using user > global", async () => {
     setInboundAskMode("review_required");
-    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
-      await setupParticipants("inbound_specificity");
+    const {
+      db,
+      recipient,
+      recipientConnection,
+      sender,
+      senderConnection,
+      senderKey,
+    } = await setupParticipants("inbound_specificity");
 
     const globalDeny = canonicalToStorage({
       scope: "global",
@@ -397,14 +431,26 @@ describe("Review / ask semantics (SRV-023)", () => {
     const evaluation = JSON.parse(storedMessage?.policiesEvaluated || "{}");
     expect(evaluation.effect).toBe("ask");
     expect(evaluation.winning_policy_id).toBe(userAskId);
-    expect(evaluation.matched_policy_ids).toEqual(expect.arrayContaining([globalDenyId, userAskId]));
+    expect(evaluation.matched_policy_ids).toEqual(
+      expect.arrayContaining([globalDenyId, userAskId]),
+    );
   });
 
   it("records audit fields that distinguish ask from deny", async () => {
-    const { db, recipient, recipientConnection, sender, senderConnection, senderKey } =
-      await setupParticipants("ask_vs_deny");
+    const {
+      db,
+      recipient,
+      recipientConnection,
+      sender,
+      senderConnection,
+      senderKey,
+    } = await setupParticipants("ask_vs_deny");
 
-    const askPolicyId = await insertAlwaysMatchPolicy(sender.id, "ask", "outbound");
+    const askPolicyId = await insertAlwaysMatchPolicy(
+      sender.id,
+      "ask",
+      "outbound",
+    );
     const askRes = await app.request("/api/v1/messages/send", {
       method: "POST",
       headers: {
@@ -475,12 +521,14 @@ describe("Review / ask semantics (SRV-023)", () => {
 
 async function setupParticipants(suffix: string) {
   const db = getTestDb();
-  const { user: sender, apiKey: senderKey } = await createTestUser(`sender_${suffix}`);
+  const { user: sender, apiKey: senderKey } = await createTestUser(
+    `sender_${suffix}`,
+  );
   const { user: recipient } = await createTestUser(`recipient_${suffix}`);
 
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, sender.id));
 
   await createFriendship(sender.id, recipient.id, "accepted");
@@ -505,7 +553,7 @@ async function setupParticipants(suffix: string) {
 async function insertAlwaysMatchPolicy(
   userId: string,
   effect: PolicyEffect,
-  direction: PolicyDirection
+  direction: PolicyDirection,
 ): Promise<string> {
   const db = getTestDb();
   const policyId = nanoid();

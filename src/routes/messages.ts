@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { eq, and, or, desc, gt, ne, inArray } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
-import { requireAuth, requireVerified } from "../middleware/auth";
+import { requireActive, requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { deliverMessage, deliverToConnection, type ApplicablePolicy } from "../services/delivery";
@@ -610,7 +610,7 @@ function resolveOutcomeMetadata(data: SendMessageInput) {
   return { outcome, outcomeDetails };
 }
 
-messageRoutes.post("/send", requireVerified(), zValidator("json", sendMessageSchema), async (c) => {
+messageRoutes.post("/send", requireActive(), zValidator("json", sendMessageSchema), async (c) => {
   const user = c.get("user")!;
   const data = c.req.valid("json");
   const db = getDb();

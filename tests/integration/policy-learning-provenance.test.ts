@@ -24,12 +24,16 @@ describe("Policy learning provenance (SRV-060)", () => {
 
   it("links policies to source interaction/message and exposes override-to-promotion audit history", async () => {
     const db = getTestDb();
-    const { user: owner, apiKey: ownerKey } = await createTestUser("policy_provenance_owner");
-    const { user: recipient } = await createTestUser("policy_provenance_recipient");
+    const { user: owner, apiKey: ownerKey } = await createTestUser(
+      "policy_provenance_owner",
+    );
+    const { user: recipient } = await createTestUser(
+      "policy_provenance_recipient",
+    );
 
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, owner.id));
 
     const ownerConnection = await createAgentConnection(owner.id, {
@@ -117,23 +121,30 @@ describe("Policy learning provenance (SRV-060)", () => {
       },
     });
     expect(listResponse.status).toBe(200);
-    const listBody = (await listResponse.json()) as Array<Record<string, unknown>>;
-    const promotedPolicy = listBody.find((entry) => entry.id === promotedPolicyId);
+    const listBody = (await listResponse.json()) as Array<
+      Record<string, unknown>
+    >;
+    const promotedPolicy = listBody.find(
+      (entry) => entry.id === promotedPolicyId,
+    );
     expect(promotedPolicy).toBeDefined();
     expect(promotedPolicy?.derived_from_message_id).toBe(sourceMessageId);
     expect(promotedPolicy?.learning_provenance).toEqual(
       expect.objectContaining({
         source_interaction_id: "res_policy_promote_1",
         promoted_from_policy_ids: [overridePolicyId],
-      })
+      }),
     );
 
-    const auditResponse = await app.request(`/api/v1/policies/audit/provenance/${promotedPolicyId}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${ownerKey}`,
+    const auditResponse = await app.request(
+      `/api/v1/policies/audit/provenance/${promotedPolicyId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${ownerKey}`,
+        },
       },
-    });
+    );
     expect(auditResponse.status).toBe(200);
     const auditBody = await auditResponse.json();
 
@@ -143,12 +154,12 @@ describe("Policy learning provenance (SRV-060)", () => {
         source: "user_confirmed",
         derived_from_message_id: sourceMessageId,
         source_interaction_id: "res_policy_promote_1",
-      })
+      }),
     );
     expect(auditBody.source_message).toEqual(
       expect.objectContaining({
         id: sourceMessageId,
-      })
+      }),
     );
     expect(auditBody.lineage).toEqual(
       expect.arrayContaining([
@@ -156,7 +167,7 @@ describe("Policy learning provenance (SRV-060)", () => {
           policy_id: overridePolicyId,
           source: "override",
         }),
-      ])
+      ]),
     );
     expect(auditBody.override_to_promoted_history).toEqual(
       expect.arrayContaining([
@@ -167,7 +178,7 @@ describe("Policy learning provenance (SRV-060)", () => {
           to_source: "user_confirmed",
           source_interaction_id: "res_policy_promote_1",
         }),
-      ])
+      ]),
     );
   });
 

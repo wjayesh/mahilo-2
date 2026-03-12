@@ -6,7 +6,7 @@ import { createHash } from "crypto";
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
-import { requireAuth, requireVerified } from "../middleware/auth";
+import { requireActive, requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { getRolesForFriend, isValidRole } from "../services/roles";
 import { generatePolicySummary } from "../services/policySummary";
@@ -1176,7 +1176,7 @@ async function loadContextPolicies(
   });
 }
 
-pluginRoutes.get("/reviews", requireVerified(), async (c) => {
+pluginRoutes.get("/reviews", requireActive(), async (c) => {
   const user = c.get("user")!;
   const db = getDb();
   const statusFilter = parseReviewStatusFilter(c.req.query("status"));
@@ -1285,7 +1285,7 @@ pluginRoutes.get("/reviews", requireVerified(), async (c) => {
   });
 });
 
-pluginRoutes.get("/events/blocked", requireVerified(), async (c) => {
+pluginRoutes.get("/events/blocked", requireActive(), async (c) => {
   const user = c.get("user")!;
   const db = getDb();
   const directionFilter = parseQueueDirectionFilter(c.req.query("direction"));
@@ -1373,7 +1373,7 @@ pluginRoutes.get("/events/blocked", requireVerified(), async (c) => {
   });
 });
 
-pluginRoutes.get("/suggestions/promotions", requireVerified(), async (c) => {
+pluginRoutes.get("/suggestions/promotions", requireActive(), async (c) => {
   const user = c.get("user")!;
   const minRepetitions = parseBoundedIntegerQuery(
     c.req.query("min_repetitions"),
@@ -1596,7 +1596,7 @@ pluginRoutes.post("/context", zValidator("json", pluginContextRequestSchema), as
 
 pluginRoutes.post(
   "/resolve",
-  requireVerified(),
+  requireActive(),
   zValidator("json", pluginResolveRequestSchema),
   async (c) => {
     const user = c.get("user")!;
@@ -1707,7 +1707,7 @@ pluginRoutes.post(
 
 pluginRoutes.post(
   "/overrides",
-  requireVerified(),
+  requireActive(),
   zValidator("json", pluginOverrideRequestSchema),
   async (c) => {
     const user = c.get("user")!;
@@ -1848,7 +1848,7 @@ pluginRoutes.post(
 
 pluginRoutes.post(
   "/outcomes",
-  requireVerified(),
+  requireActive(),
   zValidator("json", pluginOutcomeRequestSchema),
   async (c) => {
     const user = c.get("user")!;

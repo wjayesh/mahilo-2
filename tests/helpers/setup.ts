@@ -3,7 +3,11 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { eq } from "drizzle-orm";
 import * as schema from "../../src/db/schema";
 import { createApp } from "../../src/server";
-import { generateApiKey } from "../../src/services/auth";
+import {
+  ACTIVE_USER_STATUS,
+  generateApiKey,
+  generateInviteToken,
+} from "../../src/services/auth";
 import { resetDbForTests, setDbForTests } from "../../src/db";
 import { nanoid } from "nanoid";
 
@@ -12,7 +16,9 @@ let testSqlite: Database;
 
 export function getTestDb() {
   if (!testDb) {
-    throw new Error("Test database not initialized. Call setupTestDatabase() first.");
+    throw new Error(
+      "Test database not initialized. Call setupTestDatabase() first.",
+    );
   }
   return testDb;
 }
@@ -34,15 +40,32 @@ export async function setupTestDatabase() {
       display_name TEXT,
       api_key_hash TEXT NOT NULL,
       api_key_id TEXT NOT NULL,
-      twitter_handle TEXT,
-      twitter_verified INTEGER DEFAULT 0,
-      verification_code TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      registration_source TEXT NOT NULL DEFAULT 'invite',
+      verified_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       deleted_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_users_api_key_id ON users(api_key_id);
-    CREATE INDEX IF NOT EXISTS idx_users_twitter ON users(twitter_handle);
+    CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+
+    CREATE TABLE IF NOT EXISTS invite_tokens (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL,
+      token_id TEXT NOT NULL UNIQUE,
+      note TEXT,
+      max_uses INTEGER NOT NULL DEFAULT 1,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      expires_at INTEGER,
+      revoked_at INTEGER,
+      last_used_at INTEGER,
+      created_by TEXT,
+      redeemed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_tokens_token_id_unique ON invite_tokens(token_id);
+    CREATE INDEX IF NOT EXISTS idx_invite_tokens_redeemed_by_user ON invite_tokens(redeemed_by_user_id);
 
     CREATE TABLE IF NOT EXISTS agent_connections (
       id TEXT PRIMARY KEY,
@@ -229,7 +252,10 @@ export function createTestApp() {
 }
 
 // Helper to create a test user and get their API key
-export async function createTestUser(username: string, displayName?: string): Promise<{
+export async function createTestUser(
+  username: string,
+  displayName?: string,
+): Promise<{
   user: schema.User;
   apiKey: string;
 }> {
@@ -242,6 +268,9 @@ export async function createTestUser(username: string, displayName?: string): Pr
     displayName: displayName || null,
     apiKeyHash: hash,
     apiKeyId: keyId,
+    status: ACTIVE_USER_STATUS,
+    registrationSource: "test",
+    verifiedAt: new Date(),
     createdAt: new Date(),
   };
 
@@ -259,11 +288,50 @@ export async function createTestUser(username: string, displayName?: string): Pr
   };
 }
 
+export async function createTestInviteToken(
+  options: Partial<{
+    expiresAt: Date | null;
+    maxUses: number;
+    note: string | null;
+  }> = {},
+): Promise<{
+  inviteToken: string;
+  record: schema.InviteToken;
+}> {
+  const db = getTestDb();
+  const { inviteToken, tokenId, hash } = await generateInviteToken();
+
+  const record: schema.NewInviteToken = {
+    id: nanoid(),
+    createdAt: new Date(),
+    createdBy: "test-suite",
+    expiresAt: options.expiresAt ?? null,
+    maxUses: options.maxUses ?? 1,
+    note: options.note ?? null,
+    tokenHash: hash,
+    tokenId,
+    useCount: 0,
+  };
+
+  await db.insert(schema.inviteTokens).values(record);
+
+  const [createdRecord] = await db
+    .select()
+    .from(schema.inviteTokens)
+    .where(eq(schema.inviteTokens.id, record.id))
+    .limit(1);
+
+  return {
+    inviteToken,
+    record: createdRecord,
+  };
+}
+
 // Helper to create a friendship between two users
 export async function createFriendship(
   requesterId: string,
   addresseeId: string,
-  status: "pending" | "accepted" | "blocked" = "accepted"
+  status: "pending" | "accepted" | "blocked" = "accepted",
 ): Promise<schema.Friendship> {
   const db = getTestDb();
 
@@ -294,7 +362,7 @@ export async function createAgentConnection(
     label: string;
     callbackUrl: string;
     publicKey: string;
-  }> = {}
+  }> = {},
 ): Promise<schema.AgentConnection> {
   const db = getTestDb();
 
@@ -349,7 +417,7 @@ export async function seedTestSystemRoles(): Promise<void> {
 // Helper to add a role to a friendship
 export async function addRoleToFriendship(
   friendshipId: string,
-  roleName: string
+  roleName: string,
 ): Promise<void> {
   const db = getTestDb();
 

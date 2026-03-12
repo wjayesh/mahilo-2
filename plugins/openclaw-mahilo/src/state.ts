@@ -49,6 +49,13 @@ export interface MahiloInboundRouteLookup {
   remoteParticipant?: string;
 }
 
+interface MahiloHookSessionHint {
+  agentId?: string;
+  runId?: string;
+  sessionKey: string;
+  toolCallId?: string;
+}
+
 export interface MahiloAskAroundReply {
   context?: string;
   deliveryId?: string;
@@ -134,6 +141,7 @@ export interface MahiloProductSignalsSnapshot {
 const DEFAULT_DEDUPE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 60;
 const DEFAULT_INBOUND_ROUTE_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_HOOK_SESSION_HINT_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_LEARNING_SUGGESTION_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_NOVEL_DECISION_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PRODUCT_SIGNAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -193,6 +201,8 @@ export class InMemoryPluginState {
   private readonly correlationRoutes = new Map<string, CacheEntry>();
   readonly dedupe: InMemoryDedupeState;
   private readonly groupRoutes = new Map<string, CacheEntry[]>();
+  private readonly hookSessionHints = new Map<string, CacheEntry>();
+  private readonly hookSessionHintTtlMs: number;
   private readonly inboundRouteTtlMs: number;
   private readonly messageRoutes = new Map<string, CacheEntry>();
   private readonly participantRoutes = new Map<string, CacheEntry>();
@@ -219,6 +229,10 @@ export class InMemoryPluginState {
     this.contextCacheTtlMs = Math.max(0, contextCacheTtlSeconds) * 1000;
     this.dedupe = new InMemoryDedupeState(options.dedupeTtlMs);
     this.inboundRouteTtlMs = Math.max(0, options.inboundRouteTtlMs ?? DEFAULT_INBOUND_ROUTE_TTL_MS);
+    this.hookSessionHintTtlMs = Math.min(
+      this.inboundRouteTtlMs,
+      DEFAULT_HOOK_SESSION_HINT_TTL_MS
+    );
     this.askAroundSessionTtlMs = Math.max(
       0,
       options.askAroundSessionTtlMs ?? this.inboundRouteTtlMs
@@ -247,6 +261,71 @@ export class InMemoryPluginState {
       : undefined;
   }
 
+  rememberHookSessionHint(
+    hint: MahiloHookSessionHint,
+    nowMs: number = Date.now()
+  ): void {
+    const normalizedSessionKey = normalizeToken(hint.sessionKey);
+    if (!normalizedSessionKey) {
+      return;
+    }
+
+    const keys = [
+      buildHookSessionHintKey("tool", hint.toolCallId),
+      buildHookSessionHintKey("run", hint.runId)
+    ].filter((value): value is string => Boolean(value));
+    if (keys.length === 0) {
+      return;
+    }
+
+    this.pruneHookSessionHints(nowMs);
+
+    const value = {
+      agentId: normalizeToken(hint.agentId),
+      sessionKey: normalizedSessionKey
+    };
+    const expiresAt = nowMs + this.hookSessionHintTtlMs;
+
+    for (const key of keys) {
+      this.hookSessionHints.set(key, {
+        expiresAt,
+        value
+      });
+    }
+  }
+
+  resolveHookSessionHint(
+    lookup: { runId?: string; toolCallId?: string },
+    nowMs: number = Date.now()
+  ): { agentId?: string; sessionKey: string } | undefined {
+    this.pruneHookSessionHints(nowMs);
+
+    const keys = [
+      buildHookSessionHintKey("tool", lookup.toolCallId),
+      buildHookSessionHintKey("run", lookup.runId)
+    ];
+
+    for (const key of keys) {
+      if (!key) {
+        continue;
+      }
+
+      const entry = this.hookSessionHints.get(key);
+      if (!entry || entry.expiresAt <= nowMs) {
+        this.hookSessionHints.delete(key);
+        continue;
+      }
+
+      const value = entry.value as { agentId?: string; sessionKey: string };
+      return {
+        agentId: value.agentId,
+        sessionKey: value.sessionKey
+      };
+    }
+
+    return undefined;
+  }
+
   getCachedContext(cacheKey: string, nowMs: number = Date.now()): unknown | undefined {
     this.pruneContextCache(nowMs);
 
@@ -272,6 +351,21 @@ export class InMemoryPluginState {
       }
 
       this.contextCache.delete(cacheKey);
+      removed += 1;
+    }
+
+    return removed;
+  }
+
+  pruneHookSessionHints(nowMs: number = Date.now()): number {
+    let removed = 0;
+
+    for (const [key, entry] of this.hookSessionHints.entries()) {
+      if (entry.expiresAt > nowMs) {
+        continue;
+      }
+
+      this.hookSessionHints.delete(key);
       removed += 1;
     }
 
@@ -793,6 +887,14 @@ interface StoredMahiloAskAroundReplySignal {
   recordedAtMs: number;
   sender: string;
   senderConnectionId?: string;
+}
+
+function buildHookSessionHintKey(
+  prefix: "run" | "tool",
+  rawValue: string | undefined
+): string | undefined {
+  const normalized = normalizeToken(rawValue);
+  return normalized ? `${prefix}:${normalized}` : undefined;
 }
 
 function normalizeInboundRoute(route: MahiloInboundSessionRoute): MahiloInboundSessionRoute | undefined {

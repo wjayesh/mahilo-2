@@ -21,8 +21,15 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
     cleanupTestDatabase();
   });
 
-  it("requires authentication and verified users", async () => {
-    const { apiKey: unverifiedKey } = await createTestUser("plugin_events_unverified");
+  it("requires authentication and active accounts", async () => {
+    const db = getTestDb();
+    const { apiKey: unverifiedKey, user } = await createTestUser(
+      "plugin_events_unverified",
+    );
+    await db
+      .update(schema.users)
+      .set({ status: "pending", verifiedAt: null })
+      .where(eq(schema.users.id, user.id));
 
     const unauthenticated = await app.request("/api/v1/plugin/events/blocked", {
       method: "GET",
@@ -40,7 +47,9 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
 
   it("queries the review queue with status and direction filters", async () => {
     const db = getTestDb();
-    const { viewer, viewerKey, peer } = await setupParticipants("plugin_reviews_query");
+    const { viewer, viewerKey, peer } = await setupParticipants(
+      "plugin_reviews_query",
+    );
 
     await db.insert(schema.messages).values([
       {
@@ -147,7 +156,7 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
     expect(body.review_queue).toEqual(
       expect.objectContaining({
         count: 3,
-      })
+      }),
     );
     expect(body.reviews).toHaveLength(3);
     expect(body.reviews[0]).toEqual(
@@ -155,7 +164,7 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         message_id: "msg_review_inbound",
         queue_direction: "inbound",
         status: "review_required",
-      })
+      }),
     );
     expect(body.reviews[1]).toEqual(
       expect.objectContaining({
@@ -163,21 +172,21 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         queue_direction: "outbound",
         status: "approval_pending",
         delivery_mode: "hold_for_approval",
-      })
+      }),
     );
     expect(body.reviews[2]).toEqual(
       expect.objectContaining({
         message_id: "msg_review_outbound",
         queue_direction: "outbound",
         status: "review_required",
-      })
+      }),
     );
     expect(body.reviews[2].audit).toEqual(
       expect.objectContaining({
         resolver_layer: "user_policies",
         winning_policy_id: "pol_review_outbound",
         matched_policy_ids: ["pol_review_outbound"],
-      })
+      }),
     );
     expect(body.reviews[2].audit.evaluated_policies).toEqual(
       expect.arrayContaining([
@@ -186,13 +195,13 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
           effect: "ask",
           matched: true,
         }),
-      ])
+      ]),
     );
     expect(body.reviews[0].audit).toEqual(
       expect.objectContaining({
         policy_owner_user_id: viewer.id,
         policy_evaluation_mode: "inbound_pre_delivery",
-      })
+      }),
     );
 
     for (const review of body.reviews) {
@@ -208,7 +217,7 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         headers: {
           Authorization: `Bearer ${viewerKey}`,
         },
-      }
+      },
     );
 
     expect(filtered.status).toBe(200);
@@ -219,13 +228,15 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         message_id: "msg_review_approval",
         queue_direction: "outbound",
         status: "approval_pending",
-      })
+      }),
     );
   });
 
   it("returns minimal blocked-event logs with optional excerpt", async () => {
     const db = getTestDb();
-    const { viewer, viewerKey, peer } = await setupParticipants("plugin_blocked_events");
+    const { viewer, viewerKey, peer } = await setupParticipants(
+      "plugin_blocked_events",
+    );
 
     const outboundPayload =
       "Bearer secret-token-value plus other sensitive tokens that should stay out of the default blocked event response body and only appear as a hash.";
@@ -300,12 +311,15 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
       },
     ]);
 
-    const response = await app.request("/api/v1/plugin/events/blocked?limit=10", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${viewerKey}`,
+    const response = await app.request(
+      "/api/v1/plugin/events/blocked?limit=10",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${viewerKey}`,
+        },
       },
-    });
+    );
 
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -315,12 +329,13 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         blocked_event_log: "metadata_only",
         payload_excerpt_default: "omitted",
         payload_excerpt_included: false,
-      })
+      }),
     );
     expect(body.blocked_events).toHaveLength(2);
 
     const outboundEvent = body.blocked_events.find(
-      (event: { message_id: string }) => event.message_id === "msg_blocked_outbound"
+      (event: { message_id: string }) =>
+        event.message_id === "msg_blocked_outbound",
     );
     expect(outboundEvent).toBeTruthy();
     expect(outboundEvent).toEqual(
@@ -328,13 +343,13 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         reason_code: "policy.deny.user.structured",
         stored_payload_excerpt: null,
         queue_direction: "outbound",
-      })
+      }),
     );
     expect(outboundEvent.audit).toEqual(
       expect.objectContaining({
         resolver_layer: "user_policies",
         winning_policy_id: "pol_block_outbound",
-      })
+      }),
     );
     expect(outboundEvent.audit.evaluated_policies).toEqual(
       expect.arrayContaining([
@@ -342,19 +357,20 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
           policy_id: "pol_block_outbound",
           effect: "deny",
         }),
-      ])
+      ]),
     );
     expect(outboundEvent.payload_hash).toMatch(/^sha256:[a-f0-9]{64}$/);
 
     const inboundEvent = body.blocked_events.find(
-      (event: { message_id: string }) => event.message_id === "msg_blocked_inbound"
+      (event: { message_id: string }) =>
+        event.message_id === "msg_blocked_inbound",
     );
     expect(inboundEvent).toBeTruthy();
     expect(inboundEvent).toEqual(
       expect.objectContaining({
         reason_code: "policy.deny.inbound.request",
         queue_direction: "inbound",
-      })
+      }),
     );
 
     const withExcerpt = await app.request(
@@ -364,7 +380,7 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
         headers: {
           Authorization: `Bearer ${viewerKey}`,
         },
-      }
+      },
     );
 
     expect(withExcerpt.status).toBe(200);
@@ -374,23 +390,29 @@ describe("Plugin blocked/review event APIs (SRV-044)", () => {
       expect.objectContaining({
         message_id: "msg_blocked_outbound",
         queue_direction: "outbound",
-      })
+      }),
     );
-    expect(typeof withExcerptBody.blocked_events[0].stored_payload_excerpt).toBe("string");
-    expect(withExcerptBody.blocked_events[0].stored_payload_excerpt.length).toBeLessThanOrEqual(120);
+    expect(
+      typeof withExcerptBody.blocked_events[0].stored_payload_excerpt,
+    ).toBe("string");
+    expect(
+      withExcerptBody.blocked_events[0].stored_payload_excerpt.length,
+    ).toBeLessThanOrEqual(120);
   });
 });
 
 async function setupParticipants(suffix: string) {
   const db = getTestDb();
-  const { user: viewer, apiKey: viewerKey } = await createTestUser(`viewer_${suffix}`);
+  const { user: viewer, apiKey: viewerKey } = await createTestUser(
+    `viewer_${suffix}`,
+  );
   const { user: peer } = await createTestUser(`peer_${suffix}`);
 
   await db
     .update(schema.users)
     .set({
-      twitterVerified: true,
-      verificationCode: null,
+      status: "active",
+      verifiedAt: new Date(),
     })
     .where(eq(schema.users.id, viewer.id));
 

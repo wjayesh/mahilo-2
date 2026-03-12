@@ -44,9 +44,7 @@ Then add the installed package to `openclaw.extensions` in your OpenClaw runtime
 ```json
 {
   "openclaw": {
-    "extensions": [
-      "@mahilo/openclaw-mahilo"
-    ]
+    "extensions": ["@mahilo/openclaw-mahilo"]
   }
 }
 ```
@@ -60,9 +58,7 @@ Add the Mahilo plugin entry to the same OpenClaw config file:
 ```json
 {
   "openclaw": {
-    "extensions": [
-      "@mahilo/openclaw-mahilo"
-    ]
+    "extensions": ["@mahilo/openclaw-mahilo"]
   },
   "plugins": {
     "entries": {
@@ -77,7 +73,7 @@ Add the Mahilo plugin entry to the same OpenClaw config file:
 
 By default, the plugin talks to the global Mahilo server at `https://mahilo.io`.
 
-If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will auto-register or repair the default sender on startup. When `apiKey` is omitted, `mahilo setup` can bootstrap the identity and store the issued key locally for the OpenClaw runtime.
+If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will auto-register or repair the default sender on startup. When `apiKey` is omitted, `mahilo setup` can bootstrap the identity from a one-time invite token and store the issued key locally for the OpenClaw runtime.
 
 `plugins.entries.mahilo.config` accepts:
 
@@ -173,10 +169,16 @@ mahilo setup
 
 On a fresh runtime, `mahilo setup` can:
 
-- create the Mahilo identity if you provide a username
+- create the Mahilo identity if you provide a username and one-time invite token
 - store the issued API key locally
 - register or repair the default OpenClaw sender connection
 - tell you the exact remaining blocker when OpenClaw is still not publicly reachable enough for inbound replies
+
+The simplest first-run form is:
+
+```text
+mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}
+```
 
 Then run:
 

@@ -22,6 +22,7 @@ export type AppEnv = {
   Variables: {
     user?: {
       id: string;
+      status: string;
       username: string;
     };
   };
@@ -41,7 +42,7 @@ export function createApp() {
       allowHeaders: ["Content-Type", "Authorization"],
       exposeHeaders: ["X-Request-Id"],
       maxAge: 86400,
-    })
+    }),
   );
 
   // Error handling
@@ -83,7 +84,7 @@ export function createApp() {
         error: "Not Found",
         message: `Route ${c.req.method} ${c.req.path} not found`,
       },
-      404
+      404,
     );
   });
 

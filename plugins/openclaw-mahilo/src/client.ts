@@ -26,6 +26,7 @@ export interface MahiloIdentitySummary {
 
 export interface RegisterMahiloIdentityInput {
   displayName?: string;
+  inviteToken?: string;
   username: string;
 }
 
@@ -93,7 +94,9 @@ export interface MahiloFriendRequestResult {
   success?: boolean;
 }
 
-export type MahiloFriendConnectionsState = "available" | "no_active_connections";
+export type MahiloFriendConnectionsState =
+  | "available"
+  | "no_active_connections";
 
 export interface MahiloFriendConnectionDirectory {
   connections: MahiloAgentConnectionSummary[];
@@ -151,7 +154,7 @@ export class MahiloRequestError extends Error {
     message: string,
     kindOrOptions: MahiloRequestErrorKind | MahiloRequestErrorOptions,
     status?: number,
-    bodyText?: string
+    bodyText?: string,
   ) {
     super(message);
     this.name = "MahiloRequestError";
@@ -164,7 +167,7 @@ export class MahiloRequestError extends Error {
       this.details = undefined;
       this.productState = mapProductState({
         kind: kindOrOptions,
-        status
+        status,
       });
       this.responseBody = undefined;
     } else {
@@ -178,7 +181,7 @@ export class MahiloRequestError extends Error {
         mapProductState({
           code: kindOrOptions.code,
           kind: kindOrOptions.kind,
-          status: kindOrOptions.status
+          status: kindOrOptions.status,
         });
       this.responseBody = kindOrOptions.responseBody;
     }
@@ -208,25 +211,45 @@ export class MahiloContractClient {
     return this.postJson(CONTRACT_ENDPOINTS.context, payload);
   }
 
-  async resolveDraft(payload: Record<string, unknown>, idempotencyKey?: string) {
+  async resolveDraft(
+    payload: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) {
     return this.postJson(CONTRACT_ENDPOINTS.resolve, payload, idempotencyKey);
   }
 
   async sendMessage(payload: Record<string, unknown>, idempotencyKey?: string) {
-    return this.postJson(CONTRACT_ENDPOINTS.sendMessage, payload, idempotencyKey);
+    return this.postJson(
+      CONTRACT_ENDPOINTS.sendMessage,
+      payload,
+      idempotencyKey,
+    );
   }
 
-  async reportOutcome(payload: Record<string, unknown>, idempotencyKey?: string) {
+  async reportOutcome(
+    payload: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) {
     return this.postJson(CONTRACT_ENDPOINTS.outcomes, payload, idempotencyKey);
   }
 
-  async createOverride(payload: Record<string, unknown>, idempotencyKey?: string) {
+  async createOverride(
+    payload: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) {
     return this.postJson(CONTRACT_ENDPOINTS.overrides, payload, idempotencyKey);
   }
 
-  async listReviews(params?: { direction?: string; limit?: number; status?: string }) {
+  async listReviews(params?: {
+    direction?: string;
+    limit?: number;
+    status?: string;
+  }) {
     const search = new URLSearchParams();
-    if (typeof params?.direction === "string" && params.direction.trim().length > 0) {
+    if (
+      typeof params?.direction === "string" &&
+      params.direction.trim().length > 0
+    ) {
       search.set("direction", params.direction.trim());
     }
     if (typeof params?.status === "string" && params.status.trim().length > 0) {
@@ -237,14 +260,19 @@ export class MahiloContractClient {
     }
 
     const endpoint =
-      search.size > 0 ? `${CONTRACT_ENDPOINTS.reviews}?${search.toString()}` : CONTRACT_ENDPOINTS.reviews;
+      search.size > 0
+        ? `${CONTRACT_ENDPOINTS.reviews}?${search.toString()}`
+        : CONTRACT_ENDPOINTS.reviews;
     return this.request(endpoint, {
-      method: "GET"
+      method: "GET",
     });
   }
 
   async decideReview(reviewId: string, decision: Record<string, unknown>) {
-    return this.postJson(`${CONTRACT_ENDPOINTS.reviews}/${encodeURIComponent(reviewId)}/decision`, decision);
+    return this.postJson(
+      `${CONTRACT_ENDPOINTS.reviews}/${encodeURIComponent(reviewId)}/decision`,
+      decision,
+    );
   }
 
   async listBlockedEvents(limitOrOptions: number | { limit?: number } = 20) {
@@ -255,16 +283,19 @@ export class MahiloContractClient {
           ? limitOrOptions.limit
           : 20;
     const search = new URLSearchParams({
-      limit: String(Math.max(1, Math.trunc(limit)))
+      limit: String(Math.max(1, Math.trunc(limit))),
     });
-    return this.request(`${CONTRACT_ENDPOINTS.blockedEvents}?${search.toString()}`, {
-      method: "GET"
-    });
+    return this.request(
+      `${CONTRACT_ENDPOINTS.blockedEvents}?${search.toString()}`,
+      {
+        method: "GET",
+      },
+    );
   }
 
   async listOwnAgentConnections(): Promise<MahiloAgentConnectionSummary[]> {
     const response = await this.request(AGENTS_ENDPOINT, {
-      method: "GET"
+      method: "GET",
     });
     return normalizeAgentConnections(response);
   }
@@ -273,7 +304,9 @@ export class MahiloContractClient {
     return this.listOwnAgentConnections();
   }
 
-  async listFriendships(params?: { status?: MahiloFriendshipStatus | string }): Promise<MahiloFriendshipSummary[]> {
+  async listFriendships(params?: {
+    status?: MahiloFriendshipStatus | string;
+  }): Promise<MahiloFriendshipSummary[]> {
     const search = new URLSearchParams();
     const normalizedStatus = normalizeOptionalString(params?.status);
     if (normalizedStatus) {
@@ -281,70 +314,90 @@ export class MahiloContractClient {
     }
 
     const endpoint =
-      search.size > 0 ? `${FRIENDS_ENDPOINT}?${search.toString()}` : FRIENDS_ENDPOINT;
+      search.size > 0
+        ? `${FRIENDS_ENDPOINT}?${search.toString()}`
+        : FRIENDS_ENDPOINT;
     const response = await this.request(endpoint, {
-      method: "GET"
+      method: "GET",
     });
     return normalizeFriendships(response);
   }
 
-  async listFriends(params?: { status?: MahiloFriendshipStatus | string }): Promise<MahiloFriendshipSummary[]> {
+  async listFriends(params?: {
+    status?: MahiloFriendshipStatus | string;
+  }): Promise<MahiloFriendshipSummary[]> {
     return this.listFriendships(params);
   }
 
   async listGroups(): Promise<MahiloGroupSummary[]> {
     const response = await this.request(GROUPS_ENDPOINT, {
-      method: "GET"
+      method: "GET",
     });
     return normalizeGroups(response);
   }
 
-  async sendFriendRequest(username: string): Promise<MahiloFriendRequestResult> {
+  async sendFriendRequest(
+    username: string,
+  ): Promise<MahiloFriendRequestResult> {
     const normalizedUsername = normalizeMahiloUsername(username, "username");
     const response = await this.postJson(FRIEND_REQUEST_ENDPOINT, {
-      username: normalizedUsername
+      username: normalizedUsername,
     });
     return normalizeFriendRequestResult(response, {
-      success: true
+      success: true,
     });
   }
 
-  async acceptFriendRequest(friendshipId: string): Promise<MahiloFriendRequestResult> {
-    const normalizedFriendshipId = normalizeRequiredString(friendshipId, "friendshipId");
+  async acceptFriendRequest(
+    friendshipId: string,
+  ): Promise<MahiloFriendRequestResult> {
+    const normalizedFriendshipId = normalizeRequiredString(
+      friendshipId,
+      "friendshipId",
+    );
     const response = await this.postJson(
       `${FRIENDS_ENDPOINT}/${encodeURIComponent(normalizedFriendshipId)}/accept`,
-      {}
+      {},
     );
     return normalizeFriendRequestResult(response, {
       friendshipId: normalizedFriendshipId,
-      success: true
+      success: true,
     });
   }
 
-  async rejectFriendRequest(friendshipId: string): Promise<MahiloFriendRequestResult> {
-    const normalizedFriendshipId = normalizeRequiredString(friendshipId, "friendshipId");
+  async rejectFriendRequest(
+    friendshipId: string,
+  ): Promise<MahiloFriendRequestResult> {
+    const normalizedFriendshipId = normalizeRequiredString(
+      friendshipId,
+      "friendshipId",
+    );
     const response = await this.postJson(
       `${FRIENDS_ENDPOINT}/${encodeURIComponent(normalizedFriendshipId)}/reject`,
-      {}
+      {},
     );
     return normalizeFriendRequestResult(response, {
       friendshipId: normalizedFriendshipId,
-      success: true
+      success: true,
     });
   }
 
-  async listFriendAgentConnections(username: string): Promise<MahiloAgentConnectionSummary[]> {
+  async listFriendAgentConnections(
+    username: string,
+  ): Promise<MahiloAgentConnectionSummary[]> {
     const directory = await this.getFriendAgentConnections(username);
     return directory.connections;
   }
 
-  async getFriendAgentConnections(username: string): Promise<MahiloFriendConnectionDirectory> {
+  async getFriendAgentConnections(
+    username: string,
+  ): Promise<MahiloFriendConnectionDirectory> {
     const normalizedUsername = normalizeMahiloUsername(username, "username");
     const response = await this.request(
       `${CONTACTS_ENDPOINT}/${encodeURIComponent(normalizedUsername)}/connections`,
       {
-        method: "GET"
-      }
+        method: "GET",
+      },
     );
     const connections = normalizeAgentConnections(response);
 
@@ -352,26 +405,30 @@ export class MahiloContractClient {
       connections,
       raw: response,
       state: connections.length > 0 ? "available" : "no_active_connections",
-      username: normalizedUsername
+      username: normalizedUsername,
     };
   }
 
   async getCurrentIdentity(): Promise<MahiloIdentitySummary> {
     const response = await this.request(AUTH_ME_ENDPOINT, {
-      method: "GET"
+      method: "GET",
     });
     return normalizeIdentitySummary(response);
   }
 
   async registerIdentity(payload: RegisterMahiloIdentityInput) {
-    return this.postJson(AUTH_REGISTER_ENDPOINT, compactObject({
-      display_name: payload.displayName,
-      username: payload.username
-    }));
+    return this.postJson(
+      AUTH_REGISTER_ENDPOINT,
+      compactObject({
+        display_name: payload.displayName,
+        invite_token: payload.inviteToken,
+        username: payload.username,
+      }),
+    );
   }
 
   async registerAgentConnection(
-    payload: RegisterMahiloAgentConnectionInput
+    payload: RegisterMahiloAgentConnectionInput,
   ): Promise<MahiloAgentRegistrationResult> {
     const response = await this.postJson(
       AGENTS_ENDPOINT,
@@ -386,30 +443,36 @@ export class MahiloContractClient {
         public_key: payload.publicKey,
         public_key_alg: payload.publicKeyAlgorithm,
         rotate_secret: payload.rotateSecret,
-        routing_priority: payload.routingPriority
-      })
+        routing_priority: payload.routingPriority,
+      }),
     );
 
     return normalizeAgentRegistrationResult(response);
   }
 
   async pingAgentConnection(connectionId: string) {
-    return this.postJson(`${AGENTS_ENDPOINT}/${encodeURIComponent(connectionId)}/ping`, {});
+    return this.postJson(
+      `${AGENTS_ENDPOINT}/${encodeURIComponent(connectionId)}/ping`,
+      {},
+    );
   }
 
   private async postJson(
     endpoint: string,
     payload: Record<string, unknown>,
-    idempotencyKey?: string
+    idempotencyKey?: string,
   ) {
     return this.request(endpoint, {
       body: JSON.stringify(payload),
       headers: this.buildHeaders(idempotencyKey, true),
-      method: "POST"
+      method: "POST",
     });
   }
 
-  private buildHeaders(idempotencyKey?: string, includeContentType = false): Headers {
+  private buildHeaders(
+    idempotencyKey?: string,
+    includeContentType = false,
+  ): Headers {
     const headers = new Headers();
     headers.set("accept", "application/json");
     headers.set("x-mahilo-client", DEFAULT_CLIENT_NAME);
@@ -433,17 +496,23 @@ export class MahiloContractClient {
 
   private async request(endpoint: string, init: RequestInit) {
     const headers =
-      init.headers instanceof Headers ? init.headers : this.mergeHeaders(this.buildHeaders(), init.headers);
+      init.headers instanceof Headers
+        ? init.headers
+        : this.mergeHeaders(this.buildHeaders(), init.headers);
 
     let response: Response;
     try {
       response = await fetch(new URL(endpoint, `${this.baseUrl}/`), {
         ...init,
-        headers
+        headers,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "unknown network failure";
-      throw new MahiloRequestError(`Mahilo request failed: ${message}`, "network");
+      const message =
+        error instanceof Error ? error.message : "unknown network failure";
+      throw new MahiloRequestError(
+        `Mahilo request failed: ${message}`,
+        "network",
+      );
     }
 
     const bodyText = await response.text();
@@ -459,8 +528,8 @@ export class MahiloContractClient {
           details: parsedError?.details,
           kind: "http",
           responseBody: parsedError?.raw,
-          status: response.status
-        }
+          status: response.status,
+        },
       );
     }
 
@@ -489,23 +558,32 @@ export class MahiloContractClient {
   }
 }
 
-function normalizeAgentConnections(value: unknown): MahiloAgentConnectionSummary[] {
+function normalizeAgentConnections(
+  value: unknown,
+): MahiloAgentConnectionSummary[] {
   return normalizeCollection(value, normalizeAgentConnection, [
     "agents",
     "connections",
     "items",
     "results",
-    "data"
+    "data",
   ]);
 }
 
-function normalizeAgentConnection(value: unknown): MahiloAgentConnectionSummary | null {
+function normalizeAgentConnection(
+  value: unknown,
+): MahiloAgentConnectionSummary | null {
   const root = readObject(value);
   if (!root) {
     return null;
   }
 
-  const id = readFirstString(root, ["id", "connection_id", "connectionId", "agent_connection_id"]);
+  const id = readFirstString(root, [
+    "id",
+    "connection_id",
+    "connectionId",
+    "agent_connection_id",
+  ]);
   if (!id) {
     return null;
   }
@@ -520,11 +598,19 @@ function normalizeAgentConnection(value: unknown): MahiloAgentConnectionSummary 
     id,
     label: readFirstString(root, ["label", "name", "connection_label"]),
     lastSeen: readFirstString(root, ["last_seen", "lastSeen"]),
-    priority: readFirstNumber(root, ["routing_priority", "routingPriority", "priority"]),
+    priority: readFirstNumber(root, [
+      "routing_priority",
+      "routingPriority",
+      "priority",
+    ]),
     publicKey: readFirstString(root, ["public_key", "publicKey"]),
-    publicKeyAlgorithm: readFirstString(root, ["public_key_alg", "publicKeyAlgorithm", "publicKeyAlg"]),
+    publicKeyAlgorithm: readFirstString(root, [
+      "public_key_alg",
+      "publicKeyAlgorithm",
+      "publicKeyAlg",
+    ]),
     raw: root,
-    status: readFirstString(root, ["status", "state"])
+    status: readFirstString(root, ["status", "state"]),
   };
 }
 
@@ -534,7 +620,7 @@ function normalizeFriendships(value: unknown): MahiloFriendshipSummary[] {
     "friendships",
     "items",
     "results",
-    "data"
+    "data",
   ]);
 }
 
@@ -544,7 +630,11 @@ function normalizeFriendship(value: unknown): MahiloFriendshipSummary | null {
     return null;
   }
 
-  const friendshipId = readFirstString(root, ["friendship_id", "friendshipId", "id"]);
+  const friendshipId = readFirstString(root, [
+    "friendship_id",
+    "friendshipId",
+    "id",
+  ]);
   if (!friendshipId) {
     return null;
   }
@@ -555,42 +645,51 @@ function normalizeFriendship(value: unknown): MahiloFriendshipSummary | null {
     direction: isFriendshipDirection(direction) ? direction : undefined,
     displayName: readFirstString(root, ["display_name", "displayName", "name"]),
     friendshipId,
-    interactionCount: readFirstNumber(root, ["interaction_count", "interactionCount"]),
+    interactionCount: readFirstNumber(root, [
+      "interaction_count",
+      "interactionCount",
+    ]),
     raw: root,
     roles: readStringArray(root.roles),
     since: readFirstString(root, ["since", "created_at", "createdAt"]),
     status: readFirstString(root, ["status", "state"]),
     userId: readFirstString(root, ["user_id", "userId"]),
-    username: readFirstString(root, ["username", "handle"])
+    username: readFirstString(root, ["username", "handle"]),
   };
 }
 
 function normalizeFriendRequestResult(
   value: unknown,
-  fallback: Partial<Omit<MahiloFriendRequestResult, "raw">> = {}
+  fallback: Partial<Omit<MahiloFriendRequestResult, "raw">> = {},
 ): MahiloFriendRequestResult {
   const root = readObject(value);
   const status = root ? readFirstString(root, ["status", "state"]) : undefined;
 
   return {
     friendshipId:
-      (root ? readFirstString(root, ["friendship_id", "friendshipId", "id"]) : undefined) ??
-      fallback.friendshipId,
+      (root
+        ? readFirstString(root, ["friendship_id", "friendshipId", "id"])
+        : undefined) ?? fallback.friendshipId,
     message:
-      (root ? readFirstString(root, ["message", "detail", "error"]) : undefined) ?? fallback.message,
+      (root
+        ? readFirstString(root, ["message", "detail", "error"])
+        : undefined) ?? fallback.message,
     raw: value,
     status: status ?? fallback.status,
     success:
       (root ? readBoolean(root.success) : undefined) ??
       fallback.success ??
-      (status === "accepted" || status === "pending")
+      (status === "accepted" || status === "pending"),
   };
 }
 
-function normalizeAgentRegistrationResult(value: unknown): MahiloAgentRegistrationResult {
+function normalizeAgentRegistrationResult(
+  value: unknown,
+): MahiloAgentRegistrationResult {
   const root = readObject(value);
-  const connectionId =
-    root ? readFirstString(root, ["connection_id", "connectionId", "id"]) : undefined;
+  const connectionId = root
+    ? readFirstString(root, ["connection_id", "connectionId", "id"])
+    : undefined;
 
   if (!connectionId) {
     throw new Error("Mahilo agent registration did not return a connection id");
@@ -599,16 +698,23 @@ function normalizeAgentRegistrationResult(value: unknown): MahiloAgentRegistrati
   const mode = root ? readFirstString(root, ["mode"]) : undefined;
 
   return {
-    callbackSecret: root ? readFirstString(root, ["callback_secret", "callbackSecret"]) : undefined,
+    callbackSecret: root
+      ? readFirstString(root, ["callback_secret", "callbackSecret"])
+      : undefined,
     connectionId,
     mode: mode === "polling" || mode === "webhook" ? mode : undefined,
     raw: value,
-    updated: root ? readBoolean(root.updated) : undefined
+    updated: root ? readBoolean(root.updated) : undefined,
   };
 }
 
 function normalizeGroups(value: unknown): MahiloGroupSummary[] {
-  return normalizeCollection(value, normalizeGroup, ["groups", "items", "results", "data"]);
+  return normalizeCollection(value, normalizeGroup, [
+    "groups",
+    "items",
+    "results",
+    "data",
+  ]);
 }
 
 function normalizeGroup(value: unknown): MahiloGroupSummary | null {
@@ -632,7 +738,7 @@ function normalizeGroup(value: unknown): MahiloGroupSummary | null {
     name,
     raw: root,
     role: readFirstString(root, ["role"]),
-    status: readFirstString(root, ["status", "state"])
+    status: readFirstString(root, ["status", "state"]),
   };
 }
 
@@ -642,29 +748,44 @@ function normalizeIdentitySummary(value: unknown): MahiloIdentitySummary {
     return { raw: value };
   }
 
-  const record =
-    readObject(root.data)
-      ? (root.data as Record<string, unknown>)
-      : root;
+  const record = readObject(root.data)
+    ? (root.data as Record<string, unknown>)
+    : root;
 
   return {
-    displayName: readFirstString(record, ["display_name", "displayName", "name"]),
+    displayName: readFirstString(record, [
+      "display_name",
+      "displayName",
+      "name",
+    ]),
     raw: value,
     userId: readFirstString(record, ["user_id", "userId", "id"]),
     username: readFirstString(record, ["username", "handle"]),
-    verified: typeof record.verified === "boolean" ? record.verified : undefined
+    verified:
+      typeof record.verified === "boolean" ? record.verified : undefined,
   };
 }
 
 function readActiveFlag(root: Record<string, unknown>): boolean {
-  for (const key of ["active", "is_active", "isActive", "connected", "isConnected"]) {
+  for (const key of [
+    "active",
+    "is_active",
+    "isActive",
+    "connected",
+    "isConnected",
+  ]) {
     if (typeof root[key] === "boolean") {
       return root[key] as boolean;
     }
   }
 
   const status = readFirstString(root, ["status", "state"])?.toLowerCase();
-  return status === "active" || status === "connected" || status === "online" || status === "ready";
+  return (
+    status === "active" ||
+    status === "connected" ||
+    status === "online" ||
+    status === "ready"
+  );
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {
@@ -677,7 +798,7 @@ function readObject(value: unknown): Record<string, unknown> | undefined {
 
 function readFirstString(
   root: Record<string, unknown>,
-  keys: readonly string[]
+  keys: readonly string[],
 ): string | undefined {
   for (const key of keys) {
     const value = root[key];
@@ -691,7 +812,7 @@ function readFirstString(
 
 function readFirstNumber(
   root: Record<string, unknown>,
-  keys: readonly string[]
+  keys: readonly string[],
 ): number | undefined {
   for (const key of keys) {
     const value = readNumber(root[key]);
@@ -708,7 +829,9 @@ function readBoolean(value: unknown): boolean | undefined {
 }
 
 function readNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function readStringArray(value: unknown): string[] {
@@ -741,7 +864,10 @@ function normalizeRequiredString(value: unknown, fieldName: string): string {
 }
 
 function normalizeMahiloUsername(value: unknown, fieldName: string): string {
-  const normalized = normalizeRequiredString(value, fieldName).replace(/^@+/, "");
+  const normalized = normalizeRequiredString(value, fieldName).replace(
+    /^@+/,
+    "",
+  );
   if (!normalized) {
     throw new Error(`${fieldName} is required`);
   }
@@ -749,14 +875,16 @@ function normalizeMahiloUsername(value: unknown, fieldName: string): string {
   return normalized;
 }
 
-function isFriendshipDirection(value: string | undefined): value is MahiloFriendshipDirection {
+function isFriendshipDirection(
+  value: string | undefined,
+): value is MahiloFriendshipDirection {
   return value === "received" || value === "sent";
 }
 
 function normalizeCollection<T>(
   value: unknown,
   normalizeItem: (candidate: unknown) => T | null,
-  containerKeys: readonly string[]
+  containerKeys: readonly string[],
 ): T[] {
   if (Array.isArray(value)) {
     return value
@@ -804,7 +932,7 @@ function parseErrorPayload(bodyText: string): ParsedErrorPayload | undefined {
       code: readFirstString(root, ["code"]),
       details: root.details,
       error: readFirstString(root, ["error", "message"]),
-      raw: parsed
+      raw: parsed,
     };
   } catch {
     return undefined;
@@ -860,6 +988,10 @@ function mapProductState(options: {
   return "unknown";
 }
 
-function compactObject(value: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(value).filter(([, candidate]) => candidate !== undefined));
+function compactObject(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, candidate]) => candidate !== undefined),
+  );
 }

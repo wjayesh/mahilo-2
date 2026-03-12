@@ -18,6 +18,10 @@ export const config = {
 
   // Rate limiting (requests per minute per user)
   rateLimitPerMinute: parseInt(process.env.RATE_LIMIT || "100", 10),
+  authRegisterRateLimitPerMinute: parseInt(
+    process.env.AUTH_REGISTER_RATE_LIMIT || "10",
+    10,
+  ),
 
   // Message settings
   maxPayloadSize: parseInt(process.env.MAX_PAYLOAD_SIZE || "32768", 10), // 32KB

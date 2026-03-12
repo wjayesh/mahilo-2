@@ -25,28 +25,40 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
     cleanupTestDatabase();
   });
 
-  it("requires authentication and verified users", async () => {
-    const { apiKey } = await createTestUser("promotion_suggestions_unverified");
+  it("requires authentication and active accounts", async () => {
+    const db = getTestDb();
+    const { apiKey, user } = await createTestUser(
+      "promotion_suggestions_unverified",
+    );
+    await db
+      .update(schema.users)
+      .set({ status: "pending", verifiedAt: null })
+      .where(eq(schema.users.id, user.id));
 
-    const unauthenticated = await app.request("/api/v1/plugin/suggestions/promotions", {
-      method: "GET",
-    });
+    const unauthenticated = await app.request(
+      "/api/v1/plugin/suggestions/promotions",
+      {
+        method: "GET",
+      },
+    );
     expect(unauthenticated.status).toBe(401);
 
-    const unverified = await app.request("/api/v1/plugin/suggestions/promotions", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
+    const unverified = await app.request(
+      "/api/v1/plugin/suggestions/promotions",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
       },
-    });
+    );
     expect(unverified.status).toBe(403);
   });
 
   it("detects repeated temporary override patterns and suggests durable policy promotion", async () => {
     const db = getTestDb();
-    const { owner, ownerKey, ownerConnection, recipient } = await setupParticipants(
-      "promotion_suggestions_detect"
-    );
+    const { owner, ownerKey, ownerConnection, recipient } =
+      await setupParticipants("promotion_suggestions_detect");
 
     const repeatedPolicyIds: string[] = [];
     for (let index = 0; index < 3; index += 1) {
@@ -68,7 +80,8 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
             action: "share",
           },
           effect: "allow",
-          reason: "User repeatedly approved one-time city-level location sharing.",
+          reason:
+            "User repeatedly approved one-time city-level location sharing.",
         }),
       });
 
@@ -161,7 +174,7 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
         headers: {
           Authorization: `Bearer ${ownerKey}`,
         },
-      }
+      },
     );
 
     expect(response.status).toBe(200);
@@ -171,7 +184,7 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
       expect.objectContaining({
         min_repetitions: 3,
         lookback_days: 60,
-      })
+      }),
     );
     expect(Array.isArray(body.promotion_suggestions)).toBe(true);
     expect(body.promotion_suggestions).toHaveLength(1);
@@ -185,14 +198,14 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
     expect(suggestion.repeated_override_pattern).toEqual(
       expect.objectContaining({
         count: 3,
-      })
+      }),
     );
     expect(suggestion.repeated_override_pattern.override_policy_ids).toEqual(
-      expect.arrayContaining(repeatedPolicyIds)
+      expect.arrayContaining(repeatedPolicyIds),
     );
-    expect(suggestion.repeated_override_pattern.override_policy_ids).not.toContain(
-      persistentPolicyId
-    );
+    expect(
+      suggestion.repeated_override_pattern.override_policy_ids,
+    ).not.toContain(persistentPolicyId);
     expect(suggestion.suggested_policy).toEqual(
       expect.objectContaining({
         scope: "user",
@@ -203,19 +216,21 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
         effect: "allow",
         evaluator: "structured",
         source: "user_confirmed",
-      })
+      }),
     );
     expect(
-      suggestion.suggested_policy.learning_provenance.promoted_from_policy_ids
+      suggestion.suggested_policy.learning_provenance.promoted_from_policy_ids,
     ).toEqual(expect.arrayContaining(repeatedPolicyIds));
   });
 
   it("validates numeric query parameters", async () => {
     const db = getTestDb();
-    const { user, apiKey } = await createTestUser("promotion_suggestions_query");
+    const { user, apiKey } = await createTestUser(
+      "promotion_suggestions_query",
+    );
     await db
       .update(schema.users)
-      .set({ twitterVerified: true, verificationCode: null })
+      .set({ status: "active", verifiedAt: new Date() })
       .where(eq(schema.users.id, user.id));
 
     const response = await app.request(
@@ -225,7 +240,7 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
-      }
+      },
     );
 
     expect(response.status).toBe(400);
@@ -236,16 +251,20 @@ describe("Plugin promotion suggestions endpoint (SRV-061)", () => {
 
 async function setupParticipants(suffix: string) {
   const db = getTestDb();
-  const { user: owner, apiKey: ownerKey } = await createTestUser(`promotion_owner_${suffix}`);
-  const { user: recipient } = await createTestUser(`promotion_recipient_${suffix}`);
+  const { user: owner, apiKey: ownerKey } = await createTestUser(
+    `promotion_owner_${suffix}`,
+  );
+  const { user: recipient } = await createTestUser(
+    `promotion_recipient_${suffix}`,
+  );
 
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, owner.id));
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, recipient.id));
 
   await createFriendship(owner.id, recipient.id, "accepted");

@@ -71,6 +71,13 @@
       "when": 1772999400000,
       "tag": "0009_tiny_quicksilver",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1773225600000,
+      "tag": "0010_invite_only_auth",
+      "breakpoints": true
     }
   ]
 }

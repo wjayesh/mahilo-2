@@ -7,7 +7,7 @@ import {
   createMahiloOpenClawPlugin,
   generateCallbackSignature,
   MahiloRequestError,
-  MahiloRuntimeBootstrapStore
+  MahiloRuntimeBootstrapStore,
 } from "../src";
 
 const CALLBACK_SECRET = "callback-secret";
@@ -26,15 +26,24 @@ interface MockClientState {
   groupCalls: number;
   groupsResponse: unknown;
   listReviewCalls: Array<{ limit?: number; status?: string }>;
-  overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
-  outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  overrideCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
+  outcomeCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
   pingCalls: string[];
   promptContextCalls: Array<Record<string, unknown>>;
   registerAgentConnectionCalls: Array<Record<string, unknown>>;
   registerIdentityCalls: Array<Record<string, unknown>>;
   rejectFriendRequestCalls: string[];
   resolveCalls: Array<Record<string, unknown>>;
-  sendCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  sendCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
 }
 
 interface RegisteredTool {
@@ -79,79 +88,75 @@ interface RecordedHeartbeatRequest {
   sessionKey?: string;
 }
 
-function createMockContractClient(options: {
-  acceptFriendRequestError?: Error;
-  acceptFriendRequestResponse?: Record<string, unknown>;
-  agentConnectionsResponse?: unknown;
-  currentIdentityError?: Error;
-  currentIdentityResponse?: Record<string, unknown>;
-  blockedEventsResponse?: unknown;
-  createOverrideError?: Error;
-  friendConnectionErrorsByUsername?: Record<string, Error>;
-  friendConnectionsByUsername?: Record<string, unknown[]>;
-  friendshipsByStatus?: Record<string, unknown>;
-  friendshipsResponse?: unknown;
-  groupsResponse?: unknown;
-  pingAgentConnectionError?: Error;
-  promptContextError?: Error;
-  promptContextResponse?: Record<string, unknown>;
-  rejectFriendRequestError?: Error;
-  rejectFriendRequestResponse?: Record<string, unknown>;
-  registerAgentConnectionError?: Error;
-  registerAgentConnectionResponse?: Record<string, unknown>;
-  registerIdentityError?: Error;
-  registerIdentityResponse?: Record<string, unknown>;
-  resolveError?: Error;
-  resolveResponse?: Record<string, unknown>;
-  reviewsResponse?: unknown;
-  sendError?: Error;
-  sendFriendRequestError?: Error;
-  sendFriendRequestResponse?: Record<string, unknown>;
-} = {}) {
+function createMockContractClient(
+  options: {
+    acceptFriendRequestError?: Error;
+    acceptFriendRequestResponse?: Record<string, unknown>;
+    agentConnectionsResponse?: unknown;
+    currentIdentityError?: Error;
+    currentIdentityResponse?: Record<string, unknown>;
+    blockedEventsResponse?: unknown;
+    createOverrideError?: Error;
+    friendConnectionErrorsByUsername?: Record<string, Error>;
+    friendConnectionsByUsername?: Record<string, unknown[]>;
+    friendshipsByStatus?: Record<string, unknown>;
+    friendshipsResponse?: unknown;
+    groupsResponse?: unknown;
+    pingAgentConnectionError?: Error;
+    promptContextError?: Error;
+    promptContextResponse?: Record<string, unknown>;
+    rejectFriendRequestError?: Error;
+    rejectFriendRequestResponse?: Record<string, unknown>;
+    registerAgentConnectionError?: Error;
+    registerAgentConnectionResponse?: Record<string, unknown>;
+    registerIdentityError?: Error;
+    registerIdentityResponse?: Record<string, unknown>;
+    resolveError?: Error;
+    resolveResponse?: Record<string, unknown>;
+    reviewsResponse?: unknown;
+    sendError?: Error;
+    sendFriendRequestError?: Error;
+    sendFriendRequestResponse?: Record<string, unknown>;
+  } = {},
+) {
   const state: MockClientState = {
     acceptFriendRequestCalls: [],
     agentConnectionCalls: 0,
-    agentConnectionsResponse:
-      options.agentConnectionsResponse ??
-      [
-        {
-          active: true,
-          framework: "openclaw",
-          id: "conn_sender_default",
-          label: "default"
-        }
-      ],
+    agentConnectionsResponse: options.agentConnectionsResponse ?? [
+      {
+        active: true,
+        framework: "openclaw",
+        id: "conn_sender_default",
+        label: "default",
+      },
+    ],
     blockedEventCalls: [],
     currentIdentityCalls: 0,
     friendConnectionCalls: [],
     friendRequestCalls: [],
     friendConnectionsByUsername: options.friendConnectionsByUsername ?? {},
     friendshipCalls: [],
-    friendshipsResponse:
-      options.friendshipsResponse ??
-      [
-        {
-          direction: "sent",
-          displayName: "Alice",
-          friendshipId: "fr_alice",
-          roles: ["friends"],
-          status: "accepted",
-          userId: "usr_alice",
-          username: "alice"
-        }
-      ],
+    friendshipsResponse: options.friendshipsResponse ?? [
+      {
+        direction: "sent",
+        displayName: "Alice",
+        friendshipId: "fr_alice",
+        roles: ["friends"],
+        status: "accepted",
+        userId: "usr_alice",
+        username: "alice",
+      },
+    ],
     groupCalls: 0,
-    groupsResponse:
-      options.groupsResponse ??
-      [
-        {
-          groupId: "grp_hiking",
-          memberCount: 4,
-          name: "Hiking Crew",
-          role: "owner",
-          status: "active"
-        }
-      ],
+    groupsResponse: options.groupsResponse ?? [
+      {
+        groupId: "grp_hiking",
+        memberCount: 4,
+        name: "Hiking Crew",
+        role: "owner",
+        status: "active",
+      },
+    ],
     listReviewCalls: [],
     overrideCalls: [],
     outcomeCalls: [],
@@ -161,37 +166,37 @@ function createMockContractClient(options: {
     registerIdentityCalls: [],
     rejectFriendRequestCalls: [],
     resolveCalls: [],
-    sendCalls: []
+    sendCalls: [],
   };
   const currentIdentityResponse = options.currentIdentityResponse ?? {
     raw: {
-      username: "mahilo-user"
+      username: "mahilo-user",
     },
-    username: "mahilo-user"
+    username: "mahilo-user",
   };
   const promptContextResponse = options.promptContextResponse ?? {
     policy_guidance: {
       default_decision: "ask",
       reason_code: "context.ask.role.structured",
-      summary: "Share only high-level details."
+      summary: "Share only high-level details.",
     },
     recipient: {
       relationship: "friend",
       roles: ["close_friends"],
-      username: "alice"
+      username: "alice",
     },
     recent_interactions: [
       {
         decision: "allow",
         direction: "inbound",
-        summary: "Asked for travel timing."
-      }
+        summary: "Asked for travel timing.",
+      },
     ],
     suggested_selectors: {
       action: "share",
       direction: "inbound",
-      resource: "message.general"
-    }
+      resource: "message.general",
+    },
   };
 
   const client = {
@@ -206,14 +211,17 @@ function createMockContractClient(options: {
           friendshipId,
           raw: {
             friendshipId,
-            status: "accepted"
+            status: "accepted",
           },
           status: "accepted",
-          success: true
+          success: true,
         }
       );
     },
-    createOverride: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+    createOverride: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
       state.overrideCalls.push({ idempotencyKey, payload });
       if (options.createOverrideError) {
         throw options.createOverrideError;
@@ -222,7 +230,7 @@ function createMockContractClient(options: {
       return {
         created: true,
         kind: "one_time",
-        policy_id: "pol_789"
+        policy_id: "pol_789",
       };
     },
     getPromptContext: async (payload: Record<string, unknown>) => {
@@ -245,7 +253,7 @@ function createMockContractClient(options: {
         connections,
         raw: connections,
         state: connections.length > 0 ? "available" : "no_active_connections",
-        username
+        username,
       };
     },
     getCurrentIdentity: async () => {
@@ -267,21 +275,26 @@ function createMockContractClient(options: {
     listFriendships: async (params?: { status?: string }) => {
       state.friendshipCalls.push(params ?? {});
       return (
-        (params?.status ? options.friendshipsByStatus?.[params.status] : undefined) ??
-        state.friendshipsResponse
+        (params?.status
+          ? options.friendshipsByStatus?.[params.status]
+          : undefined) ?? state.friendshipsResponse
       );
     },
     listBlockedEvents: async (limit?: number) => {
       state.blockedEventCalls.push(limit ?? 0);
-      return options.blockedEventsResponse ?? {
-        items: []
-      };
+      return (
+        options.blockedEventsResponse ?? {
+          items: [],
+        }
+      );
     },
     listReviews: async (params?: { limit?: number; status?: string }) => {
       state.listReviewCalls.push(params ?? {});
-      return options.reviewsResponse ?? {
-        items: []
-      };
+      return (
+        options.reviewsResponse ?? {
+          items: [],
+        }
+      );
     },
     pingAgentConnection: async (connectionId: string) => {
       state.pingCalls.push(connectionId);
@@ -291,7 +304,10 @@ function createMockContractClient(options: {
 
       return { success: true };
     },
-    reportOutcome: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+    reportOutcome: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
       state.outcomeCalls.push({ idempotencyKey, payload });
       return { ok: true };
     },
@@ -306,10 +322,10 @@ function createMockContractClient(options: {
           friendshipId,
           raw: {
             friendshipId,
-            status: "declined"
+            status: "declined",
           },
           status: "declined",
-          success: true
+          success: true,
         }
       );
     },
@@ -319,12 +335,11 @@ function createMockContractClient(options: {
         throw options.registerAgentConnectionError;
       }
 
-      const rawResponse =
-        options.registerAgentConnectionResponse ?? {
-          callback_secret: "callback-secret-from-server",
-          connection_id: "conn_registered_default",
-          mode: "webhook"
-        };
+      const rawResponse = options.registerAgentConnectionResponse ?? {
+        callback_secret: "callback-secret-from-server",
+        connection_id: "conn_registered_default",
+        mode: "webhook",
+      };
       const connectionId =
         typeof rawResponse.connectionId === "string"
           ? rawResponse.connectionId
@@ -341,22 +356,26 @@ function createMockContractClient(options: {
         {
           active: true,
           callbackUrl:
-            typeof payload.callbackUrl === "string" ? payload.callbackUrl : undefined,
+            typeof payload.callbackUrl === "string"
+              ? payload.callbackUrl
+              : undefined,
           framework:
-            typeof payload.framework === "string" ? payload.framework : "openclaw",
+            typeof payload.framework === "string"
+              ? payload.framework
+              : "openclaw",
           id: connectionId,
-          label:
-            typeof payload.label === "string" ? payload.label : "default",
-          status: "active"
-        }
+          label: typeof payload.label === "string" ? payload.label : "default",
+          status: "active",
+        },
       ];
 
       return {
         callbackSecret,
         connectionId,
-        mode: typeof rawResponse.mode === "string" ? rawResponse.mode : undefined,
+        mode:
+          typeof rawResponse.mode === "string" ? rawResponse.mode : undefined,
         raw: rawResponse,
-        updated: rawResponse.updated === true
+        updated: rawResponse.updated === true,
       };
     },
     registerIdentity: async (payload: Record<string, unknown>) => {
@@ -368,7 +387,7 @@ function createMockContractClient(options: {
       return (
         options.registerIdentityResponse ?? {
           api_key: "mhl_bootstrap",
-          username: payload.username
+          username: payload.username,
         }
       );
     },
@@ -378,19 +397,24 @@ function createMockContractClient(options: {
         throw options.resolveError;
       }
 
-      return options.resolveResponse ?? {
-        decision: "allow",
-        resolution_id: "res_123"
-      };
+      return (
+        options.resolveResponse ?? {
+          decision: "allow",
+          resolution_id: "res_123",
+        }
+      );
     },
-    sendMessage: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+    sendMessage: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
       state.sendCalls.push({ idempotencyKey, payload });
       if (options.sendError) {
         throw options.sendError;
       }
 
       return {
-        message_id: "msg_123"
+        message_id: "msg_123",
       };
     },
     sendFriendRequest: async (username: string) => {
@@ -404,24 +428,22 @@ function createMockContractClient(options: {
           friendshipId: `fr_pending_${username}`,
           raw: {
             friendshipId: `fr_pending_${username}`,
-            status: "pending"
+            status: "pending",
           },
           status: "pending",
-          success: true
+          success: true,
         }
       );
-    }
+    },
   };
 
   return {
     client: client as never,
-    state
+    state,
   };
 }
 
-function createMockPluginApi(
-  pluginConfig: Record<string, unknown>
-): {
+function createMockPluginApi(pluginConfig: Record<string, unknown>): {
   api: never;
   commands: RegisteredCommand[];
   heartbeatRequests: RecordedHeartbeatRequest[];
@@ -446,7 +468,7 @@ function createMockPluginApi(
       debug: () => {},
       error: () => {},
       info: () => {},
-      warn: () => {}
+      warn: () => {},
     },
     name: "Mahilo",
     on: (name: string, execute: RegisteredHook["execute"]) => {
@@ -484,22 +506,22 @@ function createMockPluginApi(
       system: {
         enqueueSystemEvent: (
           text: string,
-          options: { contextKey?: string | null; sessionKey: string }
+          options: { contextKey?: string | null; sessionKey: string },
         ) => {
           systemEvents.push({
             contextKey: options.contextKey,
             sessionKey: options.sessionKey,
-            text
+            text,
           });
           return true;
         },
         requestHeartbeatNow: (options?: RecordedHeartbeatRequest) => {
           heartbeatRequests.push(options ?? {});
-        }
-      }
+        },
+      },
     },
     source: "tests/openclaw-plugin",
-    version: "1.2.3"
+    version: "1.2.3",
   };
 
   return {
@@ -510,7 +532,7 @@ function createMockPluginApi(
     routes,
     services,
     systemEvents,
-    tools
+    tools,
   };
 }
 
@@ -525,16 +547,18 @@ function createTempRuntimeBootstrapStore(): {
     cleanup: () => {
       rmSync(directory, {
         force: true,
-        recursive: true
+        recursive: true,
       });
     },
     store: new MahiloRuntimeBootstrapStore({
-      path
-    })
+      path,
+    }),
   };
 }
 
-function buildInboundWebhookRawBody(overrides: Record<string, unknown> = {}): string {
+function buildInboundWebhookRawBody(
+  overrides: Record<string, unknown> = {},
+): string {
   return JSON.stringify({
     message: "Incoming Mahilo request.",
     message_id: "msg_inbound_1",
@@ -542,7 +566,7 @@ function buildInboundWebhookRawBody(overrides: Record<string, unknown> = {}): st
     sender: "alice",
     sender_agent: "openclaw",
     timestamp: "2026-03-08T12:15:00.000Z",
-    ...overrides
+    ...overrides,
   });
 }
 
@@ -556,7 +580,7 @@ function createMockWebhookRequest(params: {
     method: params.method ?? "POST",
     [Symbol.asyncIterator]: async function* () {
       yield Buffer.from(params.rawBody, "utf8");
-    }
+    },
   };
 }
 
@@ -581,17 +605,19 @@ function createMockWebhookResponse(): {
     statusCode: 200,
     writeHead: (statusCode: number, _headers?: Record<string, string>) => {
       response.statusCode = statusCode;
-    }
+    },
   };
 
   return {
     body: () => JSON.parse(body) as Record<string, unknown>,
     response,
-    status: () => response.statusCode
+    status: () => response.statusCode,
   };
 }
 
-function parseRegisteredCommand(args: unknown[]): RegisteredCommand | undefined {
+function parseRegisteredCommand(
+  args: unknown[],
+): RegisteredCommand | undefined {
   if (args.length === 0) {
     return undefined;
   }
@@ -605,7 +631,7 @@ function parseRegisteredCommand(args: unknown[]): RegisteredCommand | undefined 
 
     return {
       execute: execute as RegisteredCommand["execute"],
-      name
+      name,
     };
   }
 
@@ -622,7 +648,7 @@ function parseRegisteredCommand(args: unknown[]): RegisteredCommand | undefined 
 
   return {
     execute,
-    name
+    name,
   };
 }
 
@@ -640,7 +666,7 @@ function parseRegisteredHook(args: unknown[]): RegisteredHook | undefined {
 
     return {
       execute: execute as RegisteredHook["execute"],
-      name
+      name,
     };
   }
 
@@ -657,11 +683,13 @@ function parseRegisteredHook(args: unknown[]): RegisteredHook | undefined {
 
   return {
     execute,
-    name
+    name,
   };
 }
 
-function resolveCommandExecutor(candidate: Record<string, unknown>): RegisteredCommand["execute"] | undefined {
+function resolveCommandExecutor(
+  candidate: Record<string, unknown>,
+): RegisteredCommand["execute"] | undefined {
   const execute = candidate.execute;
   if (typeof execute === "function") {
     return execute as RegisteredCommand["execute"];
@@ -693,7 +721,10 @@ function findTool(tools: RegisteredTool[], name: string): RegisteredTool {
   return tool;
 }
 
-function findCommand(commands: RegisteredCommand[], name: string): RegisteredCommand {
+function findCommand(
+  commands: RegisteredCommand[],
+  name: string,
+): RegisteredCommand {
   const command = commands.find((candidate) => candidate.name === name);
   if (!command) {
     throw new Error(`expected command ${name} to be registered`);
@@ -704,7 +735,7 @@ function findCommand(commands: RegisteredCommand[], name: string): RegisteredCom
 
 async function runMahiloOperatorCommand(
   commands: RegisteredCommand[],
-  args: string
+  args: string,
 ): Promise<unknown> {
   const command = findCommand(commands, "mahilo");
   return command.execute({ args });
@@ -723,11 +754,11 @@ describe("createMahiloOpenClawPlugin", () => {
   it("registers stable OpenClaw-native tool names and a single operator command", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, commands, hooks, routes, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -736,11 +767,15 @@ describe("createMahiloOpenClawPlugin", () => {
       "ask_network",
       "manage_network",
       "send_message",
-      "set_boundaries"
+      "set_boundaries",
     ]);
     expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
     expect(hooks.map((hook) => hook.name)).toEqual(
-      expect.arrayContaining(["before_prompt_build", "after_tool_call", "agent_end"])
+      expect.arrayContaining([
+        "before_prompt_build",
+        "after_tool_call",
+        "agent_end",
+      ]),
     );
     expect(routes).toHaveLength(1);
   });
@@ -748,11 +783,11 @@ describe("createMahiloOpenClawPlugin", () => {
   it("registers webhook route with explicit auth mode and raw-body hints", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, routes } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -768,12 +803,12 @@ describe("createMahiloOpenClawPlugin", () => {
   it("uses callbackPath as webhook route path when configured", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, routes } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example",
-      callbackPath: "/hooks/mahilo"
+      callbackPath: "/hooks/mahilo",
     });
 
     await plugin.register?.(api);
@@ -790,27 +825,27 @@ describe("createMahiloOpenClawPlugin", () => {
         agentConnectionsResponse: [],
         currentIdentityResponse: {
           raw: {
-            username: "bootstrap-user"
+            username: "bootstrap-user",
           },
-          username: "bootstrap-user"
+          username: "bootstrap-user",
         },
         registerAgentConnectionResponse: {
           callback_secret: "callback-secret-from-server",
           connection_id: "conn_registered_default",
-          mode: "webhook"
+          mode: "webhook",
         },
         registerIdentityResponse: {
           api_key: "mhl_bootstrap",
-          username: "bootstrap-user"
-        }
+          username: "bootstrap-user",
+        },
       });
       const plugin = createMahiloOpenClawPlugin({
         createClient: () => client,
-        runtimeBootstrapStore: runtimeStore.store
+        runtimeBootstrapStore: runtimeStore.store,
       });
       const { api, commands, tools } = createMockPluginApi({
         baseUrl: "https://mahilo.example",
-        callbackUrl: "https://openclaw.example/mahilo/incoming"
+        callbackUrl: "https://openclaw.example/mahilo/incoming",
       });
 
       await plugin.register?.(api);
@@ -820,16 +855,20 @@ describe("createMahiloOpenClawPlugin", () => {
         "ask_network",
         "manage_network",
         "send_message",
-        "set_boundaries"
+        "set_boundaries",
       ]);
 
-      const result = await runMahiloOperatorCommand(commands, "setup bootstrap-user");
+      const result = await runMahiloOperatorCommand(
+        commands,
+        "setup bootstrap-user mhinv_bootstrap_token",
+      );
 
       expect(state.registerIdentityCalls).toEqual([
         {
           displayName: undefined,
-          username: "bootstrap-user"
-        }
+          inviteToken: "mhinv_bootstrap_token",
+          username: "bootstrap-user",
+        },
       ]);
       expect(state.registerAgentConnectionCalls).toEqual([
         expect.objectContaining({
@@ -837,8 +876,8 @@ describe("createMahiloOpenClawPlugin", () => {
           framework: "openclaw",
           label: "default",
           mode: "webhook",
-          rotateSecret: true
-        })
+          rotateSecret: true,
+        }),
       ]);
       expect(state.pingCalls).toEqual(["conn_registered_default"]);
       const replyText =
@@ -846,15 +885,15 @@ describe("createMahiloOpenClawPlugin", () => {
           ? ((result as Record<string, unknown>).text as string)
           : "";
       expect(replyText).toContain("saved in the local Mahilo runtime store");
-      expect(replyText).toContain("\"credentialSource\": \"fresh_registration\"");
-      expect(replyText).toContain("\"connectionId\": \"conn_registered_default\"");
+      expect(replyText).toContain('"credentialSource": "fresh_registration"');
+      expect(replyText).toContain('"connectionId": "conn_registered_default"');
 
       expect(runtimeStore.store.read("https://mahilo.example")).toMatchObject({
         apiKey: "mhl_bootstrap",
         callbackConnectionId: "conn_registered_default",
         callbackSecret: "callback-secret-from-server",
         callbackUrl: "https://openclaw.example/mahilo/incoming",
-        username: "bootstrap-user"
+        username: "bootstrap-user",
       });
     } finally {
       runtimeStore.cleanup();
@@ -869,7 +908,7 @@ describe("createMahiloOpenClawPlugin", () => {
         apiKey: "mhl_cached_bootstrap",
         callbackSecret: "callback-secret-from-store",
         callbackUrl: "https://openclaw.example/mahilo/incoming",
-        username: "cached-user"
+        username: "cached-user",
       });
 
       const { client } = createMockContractClient();
@@ -878,10 +917,10 @@ describe("createMahiloOpenClawPlugin", () => {
           expect(config.apiKey).toBe("mhl_cached_bootstrap");
           return client;
         },
-        runtimeBootstrapStore: runtimeStore.store
+        runtimeBootstrapStore: runtimeStore.store,
       });
       const { api, commands, tools } = createMockPluginApi({
-        baseUrl: "https://mahilo.example"
+        baseUrl: "https://mahilo.example",
       });
 
       await plugin.register?.(api);
@@ -891,7 +930,7 @@ describe("createMahiloOpenClawPlugin", () => {
         "ask_network",
         "manage_network",
         "send_message",
-        "set_boundaries"
+        "set_boundaries",
       ]);
     } finally {
       runtimeStore.cleanup();
@@ -903,15 +942,15 @@ describe("createMahiloOpenClawPlugin", () => {
 
     try {
       const { client } = createMockContractClient({
-        agentConnectionsResponse: []
+        agentConnectionsResponse: [],
       });
       const plugin = createMahiloOpenClawPlugin({
         createClient: () => client,
-        runtimeBootstrapStore: runtimeStore.store
+        runtimeBootstrapStore: runtimeStore.store,
       });
       const { api, commands } = createMockPluginApi({
         apiKey: "mhl_test",
-        baseUrl: "https://mahilo.example"
+        baseUrl: "https://mahilo.example",
       });
 
       await plugin.register?.(api);
@@ -924,7 +963,7 @@ describe("createMahiloOpenClawPlugin", () => {
           : "";
       expect(replyText).toContain("Connectivity checks passed");
       expect(replyText).toContain("http://localhost:18789/mahilo/incoming");
-      expect(replyText).toContain("\"status\": \"success\"");
+      expect(replyText).toContain('"status": "success"');
     } finally {
       runtimeStore.cleanup();
     }
@@ -936,15 +975,15 @@ describe("createMahiloOpenClawPlugin", () => {
     try {
       const { client } = createMockContractClient({
         agentConnectionsResponse: [],
-        pingAgentConnectionError: new Error("connect ECONNREFUSED")
+        pingAgentConnectionError: new Error("connect ECONNREFUSED"),
       });
       const plugin = createMahiloOpenClawPlugin({
         createClient: () => client,
-        runtimeBootstrapStore: runtimeStore.store
+        runtimeBootstrapStore: runtimeStore.store,
       });
       const { api, commands } = createMockPluginApi({
         apiKey: "mhl_test",
-        baseUrl: "https://mahilo.example"
+        baseUrl: "https://mahilo.example",
       });
 
       await plugin.register?.(api);
@@ -955,9 +994,9 @@ describe("createMahiloOpenClawPlugin", () => {
           ? ((result as Record<string, unknown>).text as string)
           : "";
 
-      expect(replyText).toContain("\"kind\": \"callback_readiness\"");
+      expect(replyText).toContain('"kind": "callback_readiness"');
       expect(replyText).toContain("Enable gateway remote/Tailscale exposure");
-      expect(replyText).toContain("\"status\": \"blocked\"");
+      expect(replyText).toContain('"status": "blocked"');
     } finally {
       runtimeStore.cleanup();
     }
@@ -968,32 +1007,34 @@ describe("createMahiloOpenClawPlugin", () => {
 
     try {
       const { client, state } = createMockContractClient({
-        agentConnectionsResponse: []
+        agentConnectionsResponse: [],
       });
       const plugin = createMahiloOpenClawPlugin({
         createClient: () => client,
-        runtimeBootstrapStore: runtimeStore.store
+        runtimeBootstrapStore: runtimeStore.store,
       });
       const { api, services, tools } = createMockPluginApi({
         apiKey: "mhl_test",
-        baseUrl: "https://mahilo.example"
+        baseUrl: "https://mahilo.example",
       });
 
       await plugin.register?.(api);
 
-      expect(services.map((service) => service.id)).toContain("mahilo-auto-register");
+      expect(services.map((service) => service.id)).toContain(
+        "mahilo-auto-register",
+      );
 
       await services[0]!.start({
         config: {
           gateway: {
-            port: 19123
-          }
+            port: 19123,
+          },
         },
         logger: {
           info: () => {},
-          warn: () => {}
+          warn: () => {},
         },
-        stateDir: "/tmp/mahilo-openclaw-tests"
+        stateDir: "/tmp/mahilo-openclaw-tests",
       });
 
       expect(state.registerAgentConnectionCalls).toEqual([
@@ -1001,27 +1042,29 @@ describe("createMahiloOpenClawPlugin", () => {
           callbackUrl: "http://localhost:19123/mahilo/incoming",
           framework: "openclaw",
           label: "default",
-          mode: "webhook"
-        })
+          mode: "webhook",
+        }),
       ]);
       expect(runtimeStore.store.read("https://mahilo.example")).toMatchObject({
         callbackConnectionId: "conn_registered_default",
         callbackSecret: "callback-secret-from-server",
-        callbackUrl: "http://localhost:19123/mahilo/incoming"
+        callbackUrl: "http://localhost:19123/mahilo/incoming",
       });
 
       const tool = findTool(tools, "send_message");
       const result = await tool.execute("tool_call_auto_setup_1", {
         message: "hello",
-        recipient: "alice"
+        recipient: "alice",
       });
 
       expect(result).toMatchObject({
         details: {
-          status: "sent"
-        }
+          status: "sent",
+        },
       });
-      expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_registered_default");
+      expect(state.sendCalls[0]?.payload.sender_connection_id).toBe(
+        "conn_registered_default",
+      );
     } finally {
       runtimeStore.cleanup();
     }
@@ -1032,12 +1075,20 @@ describe("createMahiloOpenClawPlugin", () => {
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
-    const { api, commands, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+    const {
+      api,
+      commands,
+      heartbeatRequests,
+      hooks,
+      routes,
+      systemEvents,
+      tools,
+    } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -1047,7 +1098,7 @@ describe("createMahiloOpenClawPlugin", () => {
       correlationId: "corr_routing_1",
       message: "hello",
       recipient: "alice",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
     const toolResult = await tool.execute("tool_call_route_1", outboundInput);
 
@@ -1056,15 +1107,15 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "send_message"
+        toolName: "send_message",
       },
       {
         agentId: "mahilo-agent",
         runId: "run_route_1",
         sessionKey: "session_route_1",
         toolCallId: "tool_call_route_1",
-        toolName: "send_message"
-      }
+        toolName: "send_message",
+      },
     );
 
     systemEvents.length = 0;
@@ -1074,17 +1125,21 @@ describe("createMahiloOpenClawPlugin", () => {
       correlation_id: "corr_routing_1",
       message: "Replying in the same Mahilo thread.",
       recipient_connection_id: "conn_sender",
-      sender_connection_id: "conn_alice"
+      sender_connection_id: "conn_alice",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1093,23 +1148,25 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(response.status()).toBe(200);
     expect(response.body()).toMatchObject({
       messageId: "msg_inbound_1",
-      status: "accepted"
+      status: "accepted",
     });
     expect(systemEvents).toEqual([
       expect.objectContaining({
         contextKey: "mahilo:inbound:direct:msg_inbound_1",
         sessionKey: "session_route_1",
-        text: expect.stringContaining("[MahiloInbound/v1]")
-      })
+        text: expect.stringContaining("[MahiloInbound/v1]"),
+      }),
     ]);
     expect(systemEvents[0]?.text).toContain("[thread corr_routing_1]");
-    expect(systemEvents[0]?.text).toContain("Replying in the same Mahilo thread.");
+    expect(systemEvents[0]?.text).toContain(
+      "Replying in the same Mahilo thread.",
+    );
     expect(heartbeatRequests).toEqual([
       {
         agentId: "mahilo-agent",
         reason: "mahilo:inbound-message",
-        sessionKey: "session_route_1"
-      }
+        sessionKey: "session_route_1",
+      },
     ]);
   });
 
@@ -1118,12 +1175,20 @@ describe("createMahiloOpenClawPlugin", () => {
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
-    const { api, commands, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+    const {
+      api,
+      commands,
+      heartbeatRequests,
+      hooks,
+      routes,
+      systemEvents,
+      tools,
+    } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -1132,7 +1197,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const outboundInput = {
       message: "hello",
       recipient: "alice",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
     const toolResult = await tool.execute("tool_call_route_2", outboundInput);
 
@@ -1141,15 +1206,15 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "send_message"
+        toolName: "send_message",
       },
       {
         agentId: "mahilo-agent-2",
         runId: "run_route_2",
         sessionKey: "session_route_2",
         toolCallId: "tool_call_route_2",
-        toolName: "send_message"
-      }
+        toolName: "send_message",
+      },
     );
 
     systemEvents.length = 0;
@@ -1159,17 +1224,21 @@ describe("createMahiloOpenClawPlugin", () => {
       message: "Fallback route should still hit the active session.",
       recipient_connection_id: "conn_sender",
       sender: "Alice",
-      sender_connection_id: "conn_alice"
+      sender_connection_id: "conn_alice",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1179,15 +1248,17 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(systemEvents).toEqual([
       expect.objectContaining({
         sessionKey: "session_route_2",
-        text: expect.stringContaining("Fallback route should still hit the active session.")
-      })
+        text: expect.stringContaining(
+          "Fallback route should still hit the active session.",
+        ),
+      }),
     ]);
     expect(heartbeatRequests).toEqual([
       {
         agentId: "mahilo-agent-2",
         reason: "mahilo:inbound-message",
-        sessionKey: "session_route_2"
-      }
+        sessionKey: "session_route_2",
+      },
     ]);
   });
 
@@ -1196,13 +1267,14 @@ describe("createMahiloOpenClawPlugin", () => {
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
-    const { api, heartbeatRequests, routes, systemEvents } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
+    const { api, heartbeatRequests, routes, systemEvents } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
 
     await plugin.register?.(api);
 
@@ -1211,17 +1283,21 @@ describe("createMahiloOpenClawPlugin", () => {
       message_id: "msg_inbound_main_1",
       recipient_connection_id: "conn_sender",
       sender: "Alice",
-      sender_connection_id: "conn_alice"
+      sender_connection_id: "conn_alice",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_main_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1231,33 +1307,43 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(systemEvents).toEqual([
       expect.objectContaining({
         sessionKey: "main",
-        text: expect.stringContaining("Deliver this even without a remembered route.")
-      })
+        text: expect.stringContaining(
+          "Deliver this even without a remembered route.",
+        ),
+      }),
     ]);
     expect(heartbeatRequests).toEqual([
       {
         agentId: undefined,
         reason: "mahilo:inbound-message",
-        sessionKey: "main"
-      }
+        sessionKey: "main",
+      },
     ]);
   });
 
   it("routes inbound webhook callbacks back to the originating session after ask_network fan-out", async () => {
     const { client } = createMockContractClient({
       friendConnectionsByUsername: {
-        alice: [{ active: true, id: "conn_alice" }]
-      }
+        alice: [{ active: true, id: "conn_alice" }],
+      },
     });
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
-    const { api, commands, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
+    const {
+      api,
+      commands,
+      heartbeatRequests,
+      hooks,
+      routes,
+      systemEvents,
+      tools,
+    } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -1266,24 +1352,27 @@ describe("createMahiloOpenClawPlugin", () => {
     const outboundInput = {
       correlationId: "corr_network_route_1",
       question: "Who knows a good ramen spot?",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_network_route_1", outboundInput);
+    const toolResult = await tool.execute(
+      "tool_call_network_route_1",
+      outboundInput,
+    );
 
     const afterToolCall = findHook(hooks, "after_tool_call");
     await afterToolCall.execute(
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "ask_network"
+        toolName: "ask_network",
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_route_1",
         sessionKey: "session_network_route_1",
         toolCallId: "tool_call_network_route_1",
-        toolName: "ask_network"
-      }
+        toolName: "ask_network",
+      },
     );
 
     systemEvents.length = 0;
@@ -1295,17 +1384,21 @@ describe("createMahiloOpenClawPlugin", () => {
       message_id: "msg_inbound_network_1",
       recipient_connection_id: "conn_sender",
       sender: "Alice",
-      sender_connection_id: "conn_alice"
+      sender_connection_id: "conn_alice",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_network_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1316,19 +1409,23 @@ describe("createMahiloOpenClawPlugin", () => {
       expect.objectContaining({
         contextKey: "mahilo:inbound:direct:msg_inbound_network_1",
         sessionKey: "session_network_route_1",
-        text: expect.stringContaining("Try Mensho for the broth.")
-      })
+        text: expect.stringContaining("Try Mensho for the broth."),
+      }),
     ]);
     expect(systemEvents[0]?.text).toContain("Mahilo ask-around update");
-    expect(systemEvents[0]?.text).toContain("Question: Who knows a good ramen spot?");
-    expect(systemEvents[0]?.text).toContain("Synthesized summary (plugin-generated):");
+    expect(systemEvents[0]?.text).toContain(
+      "Question: Who knows a good ramen spot?",
+    );
+    expect(systemEvents[0]?.text).toContain(
+      "Synthesized summary (plugin-generated):",
+    );
     expect(systemEvents[0]?.text).toContain("Direct replies:");
     expect(heartbeatRequests).toEqual([
       {
         agentId: "mahilo-network-agent",
         reason: "mahilo:inbound-message",
-        sessionKey: "session_network_route_1"
-      }
+        sessionKey: "session_network_route_1",
+      },
     ]);
 
     const networkResult = await runMahiloOperatorCommand(commands, "network");
@@ -1338,26 +1435,27 @@ describe("createMahiloOpenClawPlugin", () => {
         ? ((networkResult as Record<string, unknown>).text as string)
         : "";
     expect(networkReplyText).toContain("Mahilo product signals (last 7 days):");
-    expect(networkReplyText).toContain("\"command\": \"mahilo network\"");
-    expect(networkReplyText).toContain("\"queriesSent\": 1");
+    expect(networkReplyText).toContain('"command": "mahilo network"');
+    expect(networkReplyText).toContain('"queriesSent": 1');
   });
 
   it("recovers ask_network session routing when after_tool_call omits sessionKey", async () => {
     const { client } = createMockContractClient({
       friendConnectionsByUsername: {
-        alice: [{ active: true, id: "conn_alice" }]
-      }
+        alice: [{ active: true, id: "conn_alice" }],
+      },
     });
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
-    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
 
     await plugin.register?.(api);
 
@@ -1367,34 +1465,37 @@ describe("createMahiloOpenClawPlugin", () => {
     const outboundInput = {
       correlationId: "corr_network_route_recovered_1",
       question: "Who knows a good ramen spot?",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_network_route_recovered_1", outboundInput);
+    const toolResult = await tool.execute(
+      "tool_call_network_route_recovered_1",
+      outboundInput,
+    );
 
     await beforeToolCall.execute(
       {
         params: outboundInput,
-        toolName: "ask_network"
+        toolName: "ask_network",
       },
       {
         agentId: "mahilo-network-agent",
         sessionKey: "session_network_route_recovered_1",
-        toolName: "ask_network"
-      }
+        toolName: "ask_network",
+      },
     );
 
     await afterToolCall.execute(
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "ask_network"
+        toolName: "ask_network",
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_route_recovered_1",
         toolCallId: "tool_call_network_route_recovered_1",
-        toolName: "ask_network"
-      }
+        toolName: "ask_network",
+      },
     );
 
     systemEvents.length = 0;
@@ -1406,17 +1507,21 @@ describe("createMahiloOpenClawPlugin", () => {
       message_id: "msg_inbound_network_recovered_1",
       recipient_connection_id: "conn_sender",
       sender: "Alice",
-      sender_connection_id: "conn_alice"
+      sender_connection_id: "conn_alice",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_network_recovered_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1427,15 +1532,134 @@ describe("createMahiloOpenClawPlugin", () => {
       expect.objectContaining({
         contextKey: "mahilo:inbound:direct:msg_inbound_network_recovered_1",
         sessionKey: "session_network_route_recovered_1",
-        text: expect.stringContaining("Try Mensho for the broth.")
-      })
+        text: expect.stringContaining("Try Mensho for the broth."),
+      }),
     ]);
     expect(heartbeatRequests).toEqual([
       {
         agentId: "mahilo-network-agent",
         reason: "mahilo:inbound-message",
-        sessionKey: "session_network_route_recovered_1"
-      }
+        sessionKey: "session_network_route_recovered_1",
+      },
+    ]);
+  });
+
+  it("keeps ask_network reply routing tied to the originating toolCallId when another session becomes active first", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+      },
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET,
+      },
+    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "ask_network");
+    const beforeToolCall = findHook(hooks, "before_tool_call");
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    const outboundInput = {
+      correlationId: "corr_network_route_tool_call_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender",
+    };
+    const toolCallId = "tool_call_network_route_tool_call_1";
+    const toolResult = await tool.execute(toolCallId, outboundInput);
+
+    await beforeToolCall.execute(
+      {
+        params: outboundInput,
+        toolName: "ask_network",
+      },
+      {
+        agentId: "mahilo-network-agent",
+        sessionKey: "session_network_route_tool_call_1",
+        toolCallId,
+        toolName: "ask_network",
+      },
+    );
+
+    await beforeToolCall.execute(
+      {
+        params: {
+          action: "list",
+        },
+        toolName: "manage_network",
+      },
+      {
+        agentId: "main-agent",
+        sessionKey: "main",
+        toolCallId: "tool_call_other_session_1",
+        toolName: "manage_network",
+      },
+    );
+
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "ask_network",
+      },
+      {
+        agentId: "mahilo-network-agent",
+        runId: "run_network_route_tool_call_1",
+        toolCallId,
+        toolName: "ask_network",
+      },
+    );
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const rawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_route_tool_call_1",
+      message: "Try Mensho for the broth.",
+      message_id: "msg_inbound_network_tool_call_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice",
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_network_tool_call_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp),
+      },
+      rawBody,
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        contextKey: "mahilo:inbound:direct:msg_inbound_network_tool_call_1",
+        sessionKey: "session_network_route_tool_call_1",
+        text: expect.stringContaining("Try Mensho for the broth."),
+      }),
+    ]);
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-network-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_network_route_tool_call_1",
+      },
     ]);
   });
 
@@ -1444,13 +1668,14 @@ describe("createMahiloOpenClawPlugin", () => {
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
-    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
 
     await plugin.register?.(api);
 
@@ -1458,9 +1683,12 @@ describe("createMahiloOpenClawPlugin", () => {
     const outboundInput = {
       group: "the hiking group",
       question: "Has anyone done Half Dome recently?",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_group_route_1", outboundInput);
+    const toolResult = await tool.execute(
+      "tool_call_group_route_1",
+      outboundInput,
+    );
 
     expect(state.groupCalls).toBe(1);
     expect(toolResult).toMatchObject({
@@ -1470,9 +1698,9 @@ describe("createMahiloOpenClawPlugin", () => {
           groupId: "grp_hiking",
           groupName: "Hiking Crew",
           kind: "group",
-          memberCount: 4
-        }
-      }
+          memberCount: 4,
+        },
+      },
     });
 
     const afterToolCall = findHook(hooks, "after_tool_call");
@@ -1480,15 +1708,15 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "ask_network"
+        toolName: "ask_network",
       },
       {
         agentId: "mahilo-group-agent",
         runId: "run_group_route_1",
         sessionKey: "session_group_route_1",
         toolCallId: "tool_call_group_route_1",
-        toolName: "ask_network"
-      }
+        toolName: "ask_network",
+      },
     );
 
     systemEvents.length = 0;
@@ -1502,17 +1730,21 @@ describe("createMahiloOpenClawPlugin", () => {
       recipient_connection_id: "conn_sender",
       sender: "Alice",
       sender_connection_id: "conn_alice",
-      timestamp: "2026-03-10T12:15:00.000Z"
+      timestamp: "2026-03-10T12:15:00.000Z",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_group_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1523,27 +1755,29 @@ describe("createMahiloOpenClawPlugin", () => {
       expect.objectContaining({
         contextKey: "mahilo:inbound:group:msg_inbound_group_1",
         sessionKey: "session_group_route_1",
-        text: expect.stringContaining("Mahilo ask-around update")
-      })
+        text: expect.stringContaining("Mahilo ask-around update"),
+      }),
     ]);
     const eventText = systemEvents[0]?.text ?? "";
-    expect(eventText).toContain("Question: Has anyone done Half Dome recently?");
+    expect(eventText).toContain(
+      "Question: Has anyone done Half Dome recently?",
+    );
     expect(eventText).toContain('Asked: group "Hiking Crew" (4 members).');
     expect(eventText).toContain(
-      'Synthesized summary (plugin-generated): 1 contact has replied so far from group "Hiking Crew".'
+      'Synthesized summary (plugin-generated): 1 contact has replied so far from group "Hiking Crew".',
     );
     expect(eventText).toContain(
-      "Alice (2026-03-10T12:15:00.000Z) said: We went last weekend; cables were crowded."
+      "Alice (2026-03-10T12:15:00.000Z) said: We went last weekend; cables were crowded.",
     );
     expect(eventText).toContain(
-      "- Alice via openclaw at 2026-03-10T12:15:00.000Z [message msg_inbound_group_1]. Direct reply: We went last weekend; cables were crowded."
+      "- Alice via openclaw at 2026-03-10T12:15:00.000Z [message msg_inbound_group_1]. Direct reply: We went last weekend; cables were crowded.",
     );
     expect(heartbeatRequests).toEqual([
       {
         agentId: "mahilo-group-agent",
         reason: "mahilo:inbound-message",
-        sessionKey: "session_group_route_1"
-      }
+        sessionKey: "session_group_route_1",
+      },
     ]);
   });
 
@@ -1551,7 +1785,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const { client } = createMockContractClient({
       friendConnectionsByUsername: {
         alice: [{ active: true, id: "conn_alice" }],
-        bob: [{ active: true, id: "conn_bob" }]
+        bob: [{ active: true, id: "conn_bob" }],
       },
       friendshipsResponse: [
         {
@@ -1561,7 +1795,7 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_alice",
-          username: "alice"
+          username: "alice",
         },
         {
           direction: "sent",
@@ -1570,19 +1804,19 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_bob",
-          username: "bob"
-        }
-      ]
+          username: "bob",
+        },
+      ],
     });
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
     const { api, hooks, routes, systemEvents, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -1591,24 +1825,27 @@ describe("createMahiloOpenClawPlugin", () => {
     const outboundInput = {
       correlationId: "corr_network_summary_1",
       question: "Who knows a good ramen spot?",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_network_summary_1", outboundInput);
+    const toolResult = await tool.execute(
+      "tool_call_network_summary_1",
+      outboundInput,
+    );
 
     const afterToolCall = findHook(hooks, "after_tool_call");
     await afterToolCall.execute(
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "ask_network"
+        toolName: "ask_network",
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_summary_1",
         sessionKey: "session_network_summary_1",
         toolCallId: "tool_call_network_summary_1",
-        toolName: "ask_network"
-      }
+        toolName: "ask_network",
+      },
     );
 
     const firstReplyBody = buildInboundWebhookRawBody({
@@ -1618,21 +1855,21 @@ describe("createMahiloOpenClawPlugin", () => {
       message_id: "msg_inbound_summary_1",
       recipient_connection_id: "conn_sender",
       sender: "Alice",
-      sender_connection_id: "conn_alice"
+      sender_connection_id: "conn_alice",
     });
     const firstTimestamp = Math.floor(Date.now() / 1000);
     const firstSignature = generateCallbackSignature(
       firstReplyBody,
       CALLBACK_SECRET,
-      firstTimestamp
+      firstTimestamp,
     );
     const firstRequest = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_summary_1",
         "x-mahilo-signature": `sha256=${firstSignature}`,
-        "x-mahilo-timestamp": String(firstTimestamp)
+        "x-mahilo-timestamp": String(firstTimestamp),
       },
-      rawBody: firstReplyBody
+      rawBody: firstReplyBody,
     });
     const firstResponse = createMockWebhookResponse();
 
@@ -1640,14 +1877,14 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(firstResponse.status()).toBe(200);
     expect(systemEvents[0]?.text).toContain(
-      "Synthesized summary (plugin-generated): 1 of 2 contacted people has replied so far."
+      "Synthesized summary (plugin-generated): 1 of 2 contacted people has replied so far.",
     );
     expect(systemEvents[0]?.text).toContain(
-      "Alice (context: Went last month) said: Try Mensho for the broth."
+      "Alice (context: Went last month) said: Try Mensho for the broth.",
     );
     expect(systemEvents[0]?.text).toContain("Direct replies:");
     expect(systemEvents[0]?.text).toContain(
-      "- Alice via openclaw at 2026-03-08T12:15:00.000Z [message msg_inbound_summary_1]. Experience context: Went last month. Direct reply: Try Mensho for the broth."
+      "- Alice via openclaw at 2026-03-08T12:15:00.000Z [message msg_inbound_summary_1]. Experience context: Went last month. Direct reply: Try Mensho for the broth.",
     );
 
     const secondReplyBody = buildInboundWebhookRawBody({
@@ -1657,21 +1894,21 @@ describe("createMahiloOpenClawPlugin", () => {
       recipient_connection_id: "conn_sender",
       sender: "Bob",
       sender_connection_id: "conn_bob",
-      timestamp: "2026-03-08T12:17:00.000Z"
+      timestamp: "2026-03-08T12:17:00.000Z",
     });
     const secondTimestamp = Math.floor(Date.now() / 1000);
     const secondSignature = generateCallbackSignature(
       secondReplyBody,
       CALLBACK_SECRET,
-      secondTimestamp
+      secondTimestamp,
     );
     const secondRequest = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_summary_2",
         "x-mahilo-signature": `sha256=${secondSignature}`,
-        "x-mahilo-timestamp": String(secondTimestamp)
+        "x-mahilo-timestamp": String(secondTimestamp),
       },
-      rawBody: secondReplyBody
+      rawBody: secondReplyBody,
     });
     const secondResponse = createMockWebhookResponse();
 
@@ -1680,20 +1917,20 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(secondResponse.status()).toBe(200);
     const finalEventText = systemEvents[1]?.text ?? "";
     expect(finalEventText).toContain(
-      "Synthesized summary (plugin-generated): 2 of 2 contacted people have replied so far."
+      "Synthesized summary (plugin-generated): 2 of 2 contacted people have replied so far.",
     );
     expect(finalEventText).toContain(
-      "Alice (context: Went last month) said: Try Mensho for the broth."
+      "Alice (context: Went last month) said: Try Mensho for the broth.",
     );
     expect(finalEventText).toContain(
-      "Bob (2026-03-08T12:17:00.000Z) said: Ramen Shop is worth the wait."
+      "Bob (2026-03-08T12:17:00.000Z) said: Ramen Shop is worth the wait.",
     );
     expect(finalEventText).toContain("Direct replies:");
     expect(finalEventText).toContain(
-      "- Alice via openclaw at 2026-03-08T12:15:00.000Z [message msg_inbound_summary_1]. Experience context: Went last month. Direct reply: Try Mensho for the broth."
+      "- Alice via openclaw at 2026-03-08T12:15:00.000Z [message msg_inbound_summary_1]. Experience context: Went last month. Direct reply: Try Mensho for the broth.",
     );
     expect(finalEventText).toContain(
-      "- Bob via openclaw at 2026-03-08T12:17:00.000Z [message msg_inbound_summary_2]. Direct reply: Ramen Shop is worth the wait."
+      "- Bob via openclaw at 2026-03-08T12:17:00.000Z [message msg_inbound_summary_2]. Direct reply: Ramen Shop is worth the wait.",
     );
   });
 
@@ -1701,7 +1938,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const { client } = createMockContractClient({
       friendConnectionsByUsername: {
         alice: [{ active: true, id: "conn_alice" }],
-        bob: [{ active: true, id: "conn_bob" }]
+        bob: [{ active: true, id: "conn_bob" }],
       },
       friendshipsResponse: [
         {
@@ -1711,7 +1948,7 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_alice",
-          username: "alice"
+          username: "alice",
         },
         {
           direction: "sent",
@@ -1720,19 +1957,19 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_bob",
-          username: "bob"
-        }
-      ]
+          username: "bob",
+        },
+      ],
     });
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
     const { api, hooks, routes, systemEvents, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -1741,29 +1978,32 @@ describe("createMahiloOpenClawPlugin", () => {
     const outboundInput = {
       correlationId: "corr_network_unknown_1",
       question: "Who knows a good ramen spot?",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_network_unknown_1", outboundInput);
+    const toolResult = await tool.execute(
+      "tool_call_network_unknown_1",
+      outboundInput,
+    );
 
     const afterToolCall = findHook(hooks, "after_tool_call");
     await afterToolCall.execute(
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "ask_network"
+        toolName: "ask_network",
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_unknown_1",
         sessionKey: "session_network_unknown_1",
         toolCallId: "tool_call_network_unknown_1",
-        toolName: "ask_network"
-      }
+        toolName: "ask_network",
+      },
     );
 
     const noGroundedReply = JSON.stringify({
       message: "I don't know.",
-      outcome: "no_grounded_answer"
+      outcome: "no_grounded_answer",
     });
     const rawBody = buildInboundWebhookRawBody({
       correlation_id: "corr_network_unknown_1",
@@ -1773,17 +2013,21 @@ describe("createMahiloOpenClawPlugin", () => {
       recipient_connection_id: "conn_sender",
       sender: "Bob",
       sender_connection_id: "conn_bob",
-      timestamp: "2026-03-08T12:16:00.000Z"
+      timestamp: "2026-03-08T12:16:00.000Z",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_unknown_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1792,11 +2036,11 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(response.status()).toBe(200);
     const eventText = systemEvents[0]?.text ?? "";
     expect(eventText).toContain(
-      "Synthesized summary (plugin-generated): 1 of 2 contacted people has replied so far. Bob (2026-03-08T12:16:00.000Z) reported no grounded answer."
+      "Synthesized summary (plugin-generated): 1 of 2 contacted people has replied so far. Bob (2026-03-08T12:16:00.000Z) reported no grounded answer.",
     );
     expect(eventText).not.toContain("Bob (2026-03-08T12:16:00.000Z) said:");
     expect(eventText).toContain(
-      "- Bob via openclaw at 2026-03-08T12:16:00.000Z [message msg_inbound_unknown_1]. Outcome: no grounded answer. Direct reply: I don't know."
+      "- Bob via openclaw at 2026-03-08T12:16:00.000Z [message msg_inbound_unknown_1]. Outcome: no grounded answer. Direct reply: I don't know.",
     );
   });
 
@@ -1804,7 +2048,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const { client } = createMockContractClient({
       friendConnectionsByUsername: {
         alice: [{ active: true, id: "conn_alice" }],
-        bob: [{ active: true, id: "conn_bob" }]
+        bob: [{ active: true, id: "conn_bob" }],
       },
       friendshipsResponse: [
         {
@@ -1814,7 +2058,7 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_alice",
-          username: "alice"
+          username: "alice",
         },
         {
           direction: "sent",
@@ -1823,19 +2067,19 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_bob",
-          username: "bob"
-        }
-      ]
+          username: "bob",
+        },
+      ],
     });
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
       webhookRoute: {
-        callbackSecret: CALLBACK_SECRET
-      }
+        callbackSecret: CALLBACK_SECRET,
+      },
     });
     const { api, hooks, routes, systemEvents, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -1844,24 +2088,27 @@ describe("createMahiloOpenClawPlugin", () => {
     const outboundInput = {
       correlationId: "corr_network_unverified_1",
       question: "Who knows a good ramen spot?",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_network_unverified_1", outboundInput);
+    const toolResult = await tool.execute(
+      "tool_call_network_unverified_1",
+      outboundInput,
+    );
 
     const afterToolCall = findHook(hooks, "after_tool_call");
     await afterToolCall.execute(
       {
         params: outboundInput,
         result: toolResult,
-        toolName: "ask_network"
+        toolName: "ask_network",
       },
       {
         agentId: "mahilo-network-agent",
         runId: "run_network_unverified_1",
         sessionKey: "session_network_unverified_1",
         toolCallId: "tool_call_network_unverified_1",
-        toolName: "ask_network"
-      }
+        toolName: "ask_network",
+      },
     );
 
     const rawBody = buildInboundWebhookRawBody({
@@ -1871,17 +2118,21 @@ describe("createMahiloOpenClawPlugin", () => {
       recipient_connection_id: "conn_sender",
       sender: "Mallory",
       sender_connection_id: "conn_mallory",
-      timestamp: "2026-03-08T12:18:00.000Z"
+      timestamp: "2026-03-08T12:18:00.000Z",
     });
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateCallbackSignature(rawBody, CALLBACK_SECRET, timestamp);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
     const request = createMockWebhookRequest({
       headers: {
         "x-mahilo-message-id": "msg_inbound_unverified_1",
         "x-mahilo-signature": `sha256=${signature}`,
-        "x-mahilo-timestamp": String(timestamp)
+        "x-mahilo-timestamp": String(timestamp),
       },
-      rawBody
+      rawBody,
     });
     const response = createMockWebhookResponse();
 
@@ -1890,25 +2141,28 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(response.status()).toBe(200);
     const eventText = systemEvents[0]?.text ?? "";
     expect(eventText).toContain(
-      "Synthesized summary (plugin-generated): 0 of 2 contacted people have replied so far. 1 reply could not be safely attributed to a contacted friend and is kept separate below."
+      "Synthesized summary (plugin-generated): 0 of 2 contacted people have replied so far. 1 reply could not be safely attributed to a contacted friend and is kept separate below.",
     );
     expect(eventText).not.toContain("Mallory said:");
     expect(eventText).toContain(
-      '- Unverified sender claim "Mallory" via openclaw at 2026-03-08T12:18:00.000Z [message msg_inbound_unverified_1]. Mahilo couldn\'t confirm this sender was one of the contacts asked in this thread. Raw reply: Go to Ramen Shop.'
+      '- Unverified sender claim "Mallory" via openclaw at 2026-03-08T12:18:00.000Z [message msg_inbound_unverified_1]. Mahilo couldn\'t confirm this sender was one of the contacts asked in this thread. Raw reply: Go to Ramen Shop.',
     );
   });
 
   it("surfaces setup nudges when ask-around cannot reach anyone yet", async () => {
     const { client } = createMockContractClient({
       friendConnectionErrorsByUsername: {
-        bob: new MahiloRequestError("Mahilo request failed with status 403: Not friends", {
-          code: "NOT_FRIENDS",
-          kind: "http",
-          status: 403
-        })
+        bob: new MahiloRequestError(
+          "Mahilo request failed with status 403: Not friends",
+          {
+            code: "NOT_FRIENDS",
+            kind: "http",
+            status: 403,
+          },
+        ),
       },
       friendConnectionsByUsername: {
-        alice: []
+        alice: [],
       },
       friendshipsResponse: [
         {
@@ -1918,7 +2172,7 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_alice",
-          username: "alice"
+          username: "alice",
         },
         {
           direction: "sent",
@@ -1927,16 +2181,16 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["friends"],
           status: "accepted",
           userId: "usr_bob",
-          username: "bob"
-        }
-      ]
+          username: "bob",
+        },
+      ],
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -1944,59 +2198,63 @@ describe("createMahiloOpenClawPlugin", () => {
     const tool = findTool(tools, "ask_network");
     const result = await tool.execute("tool_call_network_gap_1", {
       question: "Who has a good dentist in SF?",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     });
 
     expect(result).toMatchObject({
       content: [
         {
-          text: expect.stringContaining("Nothing is waiting on a reply.")
-        }
+          text: expect.stringContaining("Nothing is waiting on a reply."),
+        },
       ],
       details: {
         action: "ask_around",
         deliveries: [
           expect.objectContaining({
             reason: expect.stringContaining(
-              "Your circle is started. Ask them to finish Mahilo setup in OpenClaw"
-            )
+              "Your circle is started. Ask them to finish Mahilo setup in OpenClaw",
+            ),
           }),
           expect.objectContaining({
             reason: expect.stringContaining(
-              "Build your circle from this same tool: use action=send_request"
-            )
-          })
+              "Build your circle from this same tool: use action=send_request",
+            ),
+          }),
         ],
         gaps: [
           expect.objectContaining({
             kind: "needs_agent_connection",
             recipientLabels: ["Alice"],
             suggestedAction: expect.stringContaining(
-              "Your circle is started. Ask them to finish Mahilo setup in OpenClaw"
-            )
+              "Your circle is started. Ask them to finish Mahilo setup in OpenClaw",
+            ),
           }),
           expect.objectContaining({
             kind: "not_in_network",
             recipientLabels: ["Bob"],
             suggestedAction: expect.stringContaining(
-              "Build your circle from this same tool: use action=send_request"
-            )
-          })
+              "Build your circle from this same tool: use action=send_request",
+            ),
+          }),
         ],
-        replyExpectation: expect.stringContaining("Nothing is waiting on a reply."),
-        summary: expect.stringContaining("couldn't ask your 2 contacts right now")
-      }
+        replyExpectation: expect.stringContaining(
+          "Nothing is waiting on a reply.",
+        ),
+        summary: expect.stringContaining(
+          "couldn't ask your 2 contacts right now",
+        ),
+      },
     });
   });
 
   it("executes send_message sends with sender_connection_id alias", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2005,17 +2263,19 @@ describe("createMahiloOpenClawPlugin", () => {
     const result = await tool.execute("tool_call_1", {
       message: "hello",
       recipient: "alice",
-      sender_connection_id: "conn_sender"
+      sender_connection_id: "conn_sender",
     });
 
     expect(result).toMatchObject({
       details: {
         messageId: "msg_123",
-        status: "sent"
-      }
+        status: "sent",
+      },
     });
     expect(state.sendCalls).toHaveLength(1);
-    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender");
+    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe(
+      "conn_sender",
+    );
   });
 
   it("resolves a default sender connection for send_message sends when input omits it", async () => {
@@ -2025,22 +2285,22 @@ describe("createMahiloOpenClawPlugin", () => {
           active: true,
           framework: "other",
           id: "conn_other",
-          label: "zeta"
+          label: "zeta",
         },
         {
           active: true,
           framework: "openclaw",
           id: "conn_sender_default",
-          label: "primary"
-        }
-      ]
+          label: "primary",
+        },
+      ],
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2048,16 +2308,18 @@ describe("createMahiloOpenClawPlugin", () => {
     const tool = findTool(tools, "send_message");
     const result = await tool.execute("tool_call_2", {
       message: "hello",
-      recipient: "alice"
+      recipient: "alice",
     });
 
     expect(result).toMatchObject({
       details: {
-        status: "sent"
-      }
+        status: "sent",
+      },
     });
     expect(state.agentConnectionCalls).toBe(1);
-    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
+    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe(
+      "conn_sender_default",
+    );
   });
 
   it("lists contacts from Mahilo server data through manage_network instead of the host contacts provider", async () => {
@@ -2068,9 +2330,9 @@ describe("createMahiloOpenClawPlugin", () => {
           {
             id: "blocked_msg_123",
             reason: "Message blocked by policy.",
-            timestamp: "2026-03-09T10:00:00.000Z"
-          }
-        ]
+            timestamp: "2026-03-09T10:00:00.000Z",
+          },
+        ],
       },
       friendConnectionsByUsername: {
         alice: [
@@ -2078,9 +2340,9 @@ describe("createMahiloOpenClawPlugin", () => {
             active: true,
             id: "conn_alice_primary",
             label: "primary",
-            priority: 5
-          }
-        ]
+            priority: 5,
+          },
+        ],
       },
       friendshipsResponse: [
         {
@@ -2090,8 +2352,8 @@ describe("createMahiloOpenClawPlugin", () => {
           roles: ["close_friends"],
           status: "accepted",
           userId: "usr_alice",
-          username: "alice"
-        }
+          username: "alice",
+        },
       ],
       reviewsResponse: {
         reviews: [
@@ -2099,10 +2361,10 @@ describe("createMahiloOpenClawPlugin", () => {
             created_at: "2026-03-10T11:00:00.000Z",
             review_id: "rev_123",
             status: "review_required",
-            summary: "Current location share requires confirmation."
-          }
-        ]
-      }
+            summary: "Current location share requires confirmation.",
+          },
+        ],
+      },
     });
     const plugin = createMahiloOpenClawPlugin({
       contactsProvider: async () => {
@@ -2111,15 +2373,15 @@ describe("createMahiloOpenClawPlugin", () => {
           {
             id: "provider-alice",
             label: " Provider Alice ",
-            type: "user"
-          }
+            type: "user",
+          },
         ];
       },
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2127,7 +2389,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const tool = findTool(tools, "manage_network");
     const result = await tool.execute("tool_call_3", {
       action: "list_contacts",
-      activityLimit: 4
+      activityLimit: 4,
     });
 
     expect(result).toMatchObject({
@@ -2136,8 +2398,8 @@ describe("createMahiloOpenClawPlugin", () => {
         agentConnections: [
           {
             id: "conn_sender_default",
-            label: "default"
-          }
+            label: "default",
+          },
         ],
         contacts: [
           {
@@ -2148,38 +2410,41 @@ describe("createMahiloOpenClawPlugin", () => {
             metadata: {
               connectionCount: 1,
               connectionState: "available",
-              friendshipId: "fr_alice"
+              friendshipId: "fr_alice",
             },
-            type: "user"
-          }
+            type: "user",
+          },
         ],
         recentActivity: [
           {
             kind: "review",
-            reviewId: "rev_123"
+            reviewId: "rev_123",
           },
           {
             kind: "blocked_event",
-            messageId: "blocked_msg_123"
-          }
+            messageId: "blocked_msg_123",
+          },
         ],
         recentActivityCounts: {
           blockedEvents: 1,
           reviews: 1,
-          total: 2
+          total: 2,
         },
-        status: "success"
-      }
+        status: "success",
+      },
     });
     expect(providerCalls).toBe(0);
-    expect(state.friendshipCalls).toEqual([{ status: "accepted" }, { status: "pending" }]);
+    expect(state.friendshipCalls).toEqual([
+      { status: "accepted" },
+      { status: "pending" },
+    ]);
     expect(state.friendConnectionCalls).toEqual(["alice"]);
     expect(state.agentConnectionCalls).toBe(1);
     expect(state.listReviewCalls).toEqual([
       {
         limit: 4,
-        status: "review_required,approval_pending"
-      }
+        status: "review_required,approval_pending",
+      },
     ]);
     expect(state.blockedEventCalls).toEqual([4]);
   });
@@ -2187,11 +2452,11 @@ describe("createMahiloOpenClawPlugin", () => {
   it("executes manage_network to send friend requests by @username", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2199,7 +2464,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const tool = findTool(tools, "manage_network");
     const result = await tool.execute("tool_call_relationship_add", {
       action: "send_friend_request",
-      username: "@alice"
+      username: "@alice",
     });
 
     expect(result).toMatchObject({
@@ -2208,11 +2473,11 @@ describe("createMahiloOpenClawPlugin", () => {
         request: {
           friendshipId: "fr_pending_alice",
           status: "pending",
-          username: "alice"
+          username: "alice",
         },
         status: "success",
-        summary: "Sent a Mahilo friend request to @alice."
-      }
+        summary: "Sent a Mahilo friend request to @alice.",
+      },
     });
     expect(state.friendRequestCalls).toEqual(["alice"]);
   });
@@ -2224,16 +2489,16 @@ describe("createMahiloOpenClawPlugin", () => {
         {
           code: "USER_NOT_FOUND",
           kind: "http",
-          status: 404
-        }
-      )
+          status: 404,
+        },
+      ),
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2241,27 +2506,27 @@ describe("createMahiloOpenClawPlugin", () => {
     const tool = findTool(tools, "manage_network");
     const result = await tool.execute("tool_call_relationship_add_missing", {
       action: "send_friend_request",
-      username: "@alice"
+      username: "@alice",
     });
 
     expect(result).toMatchObject({
       content: [
         {
           text: expect.stringContaining(
-            "If they have not joined yet, ask them to set up Mahilo in OpenClaw"
-          )
-        }
+            "If they have not joined yet, ask them to set up Mahilo in OpenClaw",
+          ),
+        },
       ],
       details: {
         action: "send_request",
         error: {
           message: expect.stringContaining(
-            "If they have not joined yet, ask them to set up Mahilo in OpenClaw"
+            "If they have not joined yet, ask them to set up Mahilo in OpenClaw",
           ),
-          productState: "not_found"
+          productState: "not_found",
         },
-        status: "error"
-      }
+        status: "error",
+      },
     });
   });
 
@@ -2274,17 +2539,17 @@ describe("createMahiloOpenClawPlugin", () => {
             displayName: "Alice",
             friendshipId: "fr_pending_alice",
             status: "pending",
-            username: "alice"
-          }
-        ]
-      }
+            username: "alice",
+          },
+        ],
+      },
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2293,7 +2558,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const result = await tool.execute("tool_call_relationship_accept", {
       action: "respond_to_request",
       decision: "accept",
-      username: "alice"
+      username: "alice",
     });
 
     expect(result).toMatchObject({
@@ -2302,11 +2567,11 @@ describe("createMahiloOpenClawPlugin", () => {
         request: {
           friendshipId: "fr_pending_alice",
           status: "accepted",
-          username: "alice"
+          username: "alice",
         },
         status: "success",
-        summary: "Accepted the Mahilo request from @alice."
-      }
+        summary: "Accepted the Mahilo request from @alice.",
+      },
     });
     expect(state.friendshipCalls).toEqual([{ status: "pending" }]);
     expect(state.acceptFriendRequestCalls).toEqual(["fr_pending_alice"]);
@@ -2318,27 +2583,27 @@ describe("createMahiloOpenClawPlugin", () => {
         policy_guidance: {
           default_decision: "ask",
           reason_code: "context.ask.role.structured",
-          summary: "Location shares require explicit approval."
+          summary: "Location shares require explicit approval.",
         },
         recipient: {
           id: "usr_alice",
           relationship: "friend",
           roles: ["close_friends"],
-          username: "alice"
+          username: "alice",
         },
         suggested_selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
-        }
-      }
+          resource: "location.current",
+        },
+      },
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2349,16 +2614,16 @@ describe("createMahiloOpenClawPlugin", () => {
       category: "location",
       durationMinutes: 30,
       recipient: "alice",
-      sourceResolutionId: "res_123"
+      sourceResolutionId: "res_123",
     });
 
     expect(result).toMatchObject({
       content: [
         {
           text: expect.stringContaining(
-            "Boundary exception saved: allow sharing location with alice for 30 minutes."
-          )
-        }
+            "Boundary exception saved: allow sharing location with alice for 30 minutes.",
+          ),
+        },
       ],
       details: {
         action: "exception",
@@ -2373,18 +2638,18 @@ describe("createMahiloOpenClawPlugin", () => {
             selector: {
               action: "share",
               direction: "outbound",
-              resource: "location.current"
-            }
+              resource: "location.current",
+            },
           },
           {
             selector: {
               action: "share",
               direction: "outbound",
-              resource: "location.history"
-            }
-          }
-        ]
-      }
+              resource: "location.history",
+            },
+          },
+        ],
+      },
     });
     expect(state.agentConnectionCalls).toBe(1);
     expect(state.promptContextCalls).toEqual([
@@ -2392,14 +2657,14 @@ describe("createMahiloOpenClawPlugin", () => {
         draft_selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
+          resource: "location.current",
         },
         include_recent_interactions: false,
         interaction_limit: 1,
         recipient: "alice",
         recipient_type: "user",
-        sender_connection_id: "conn_sender_default"
-      }
+        sender_connection_id: "conn_sender_default",
+      },
     ]);
     expect(state.overrideCalls).toHaveLength(2);
     expect(state.overrideCalls[0]?.payload).toMatchObject({
@@ -2409,12 +2674,12 @@ describe("createMahiloOpenClawPlugin", () => {
       selectors: {
         action: "share",
         direction: "outbound",
-        resource: "location.current"
+        resource: "location.current",
       },
       sender_connection_id: "conn_sender_default",
       source_resolution_id: "res_123",
       target_id: "usr_alice",
-      ttl_seconds: 1800
+      ttl_seconds: 1800,
     });
     expect(state.overrideCalls[1]?.payload).toMatchObject({
       effect: "allow",
@@ -2423,28 +2688,31 @@ describe("createMahiloOpenClawPlugin", () => {
       selectors: {
         action: "share",
         direction: "outbound",
-        resource: "location.history"
+        resource: "location.history",
       },
       sender_connection_id: "conn_sender_default",
       source_resolution_id: "res_123",
       target_id: "usr_alice",
-      ttl_seconds: 1800
+      ttl_seconds: 1800,
     });
   });
 
   it("returns graceful server failures for send_message sends", async () => {
     const { client } = createMockContractClient({
-      sendError: new MahiloRequestError("Mahilo request failed with status 503", {
-        kind: "http",
-        status: 503
-      })
+      sendError: new MahiloRequestError(
+        "Mahilo request failed with status 503",
+        {
+          kind: "http",
+          status: 503,
+        },
+      ),
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, tools } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2453,7 +2721,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const result = await tool.execute("tool_call_7", {
       message: "hello",
       recipient: "alice",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     });
 
     expect(result).toMatchObject({
@@ -2462,19 +2730,19 @@ describe("createMahiloOpenClawPlugin", () => {
         errorType: "server",
         retryable: true,
         status: "error",
-        tool: "send_message"
-      }
+        tool: "send_message",
+      },
     });
   });
 
   it("returns diagnostics output for mahilo status", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, commands } = createMockPluginApi({
       apiKey: "mhl_test_secret",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2486,9 +2754,9 @@ describe("createMahiloOpenClawPlugin", () => {
         ? ((result as Record<string, unknown>).text as string)
         : "";
     expect(replyText).toContain("Mahilo status: connected");
-    expect(replyText).toContain("\"command\": \"mahilo status\"");
-    expect(replyText).toContain("\"reconnectCount\": 0");
-    expect(replyText).toContain("\"apiKey\": \"mh***et\"");
+    expect(replyText).toContain('"command": "mahilo status"');
+    expect(replyText).toContain('"reconnectCount": 0');
+    expect(replyText).toContain('"apiKey": "mh***et"');
     expect(state.listReviewCalls).toHaveLength(1);
     expect(state.blockedEventCalls).toHaveLength(1);
   });
@@ -2500,9 +2768,9 @@ describe("createMahiloOpenClawPlugin", () => {
           {
             id: "blocked_msg_123",
             reason: "Message blocked by policy.",
-            timestamp: "2026-03-09T12:00:00.000Z"
-          }
-        ]
+            timestamp: "2026-03-09T12:00:00.000Z",
+          },
+        ],
       },
       friendConnectionsByUsername: {
         alice: [
@@ -2510,9 +2778,9 @@ describe("createMahiloOpenClawPlugin", () => {
             active: true,
             id: "conn_alice_primary",
             label: "primary",
-            priority: 5
-          }
-        ]
+            priority: 5,
+          },
+        ],
       },
       friendshipsByStatus: {
         pending: [
@@ -2521,9 +2789,9 @@ describe("createMahiloOpenClawPlugin", () => {
             displayName: "Bob",
             friendshipId: "fr_bob_pending",
             status: "pending",
-            username: "bob"
-          }
-        ]
+            username: "bob",
+          },
+        ],
       },
       friendshipsResponse: [
         {
@@ -2532,8 +2800,8 @@ describe("createMahiloOpenClawPlugin", () => {
           friendshipId: "fr_alice",
           roles: ["friends"],
           status: "accepted",
-          username: "alice"
-        }
+          username: "alice",
+        },
       ],
       reviewsResponse: {
         reviews: [
@@ -2541,24 +2809,24 @@ describe("createMahiloOpenClawPlugin", () => {
             created_at: "2026-03-10T12:00:00.000Z",
             review_id: "rev_123",
             status: "review_required",
-            summary: "Current location share requires confirmation."
-          }
-        ]
-      }
+            summary: "Current location share requires confirmation.",
+          },
+        ],
+      },
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, commands } = createMockPluginApi({
       apiKey: "mhl_test_secret",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
 
     const result = await runMahiloOperatorCommand(
       commands,
-      'network {"activityLimit":4}'
+      'network {"activityLimit":4}',
     );
 
     const replyText =
@@ -2566,17 +2834,17 @@ describe("createMahiloOpenClawPlugin", () => {
         ? ((result as Record<string, unknown>).text as string)
         : "";
     expect(replyText).toContain("Mahilo product signals (last 7 days):");
-    expect(replyText).toContain("\"action\": \"list\"");
-    expect(replyText).toContain("\"activityLimit\": 4");
-    expect(replyText).toContain("\"command\": \"mahilo network\"");
-    expect(replyText).toContain("\"contacts\": 1");
-    expect(replyText).toContain("\"blockedEvents\": 1");
+    expect(replyText).toContain('"action": "list"');
+    expect(replyText).toContain('"activityLimit": 4');
+    expect(replyText).toContain('"command": "mahilo network"');
+    expect(replyText).toContain('"contacts": 1');
+    expect(replyText).toContain('"blockedEvents": 1');
     expect(state.agentConnectionCalls).toBe(1);
     expect(state.listReviewCalls).toEqual([
       {
         limit: 4,
-        status: "review_required,approval_pending"
-      }
+        status: "review_required,approval_pending",
+      },
     ]);
     expect(state.blockedEventCalls).toEqual([4]);
   });
@@ -2584,12 +2852,13 @@ describe("createMahiloOpenClawPlugin", () => {
   it("queues Mahilo outcome notes and learning suggestions after novel send results", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
-    const { api, heartbeatRequests, hooks, systemEvents, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
 
     await plugin.register?.(api);
 
@@ -2597,11 +2866,11 @@ describe("createMahiloOpenClawPlugin", () => {
     const input = {
       declaredSelectors: {
         action: "share",
-        resource: "location.current"
+        resource: "location.current",
       },
       message: "hello",
       recipient: "alice",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
     const toolResult = await tool.execute("tool_call_post_send_1", input);
 
@@ -2610,21 +2879,21 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: toolResult,
-        toolName: "send_message"
+        toolName: "send_message",
       },
       {
         agentId: "mahilo-agent",
         runId: "run_1",
         sessionKey: "session_1",
         toolCallId: "tool_call_post_send_1",
-        toolName: "send_message"
-      }
+        toolName: "send_message",
+      },
     );
 
     expect(systemEvents).toHaveLength(1);
     expect(systemEvents[0]?.sessionKey).toBe("session_1");
     expect(String(systemEvents[0]?.text ?? "")).toContain(
-      "Mahilo outcome: sent to alice (location.current/share)"
+      "Mahilo outcome: sent to alice (location.current/share)",
     );
 
     const agentEnd = findHook(hooks, "agent_end");
@@ -2632,38 +2901,41 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         durationMs: 1_200,
         messages: [],
-        success: true
+        success: true,
       },
       {
         agentId: "mahilo-agent",
-        sessionKey: "session_1"
-      }
+        sessionKey: "session_1",
+      },
     );
 
     expect(systemEvents).toHaveLength(2);
     expect(systemEvents[1]?.sessionKey).toBe("session_1");
     expect(String(systemEvents[1]?.text ?? "")).toContain(
-      "Mahilo learning opportunity:"
+      "Mahilo learning opportunity:",
     );
-    expect(String(systemEvents[1]?.text ?? "")).toContain("location.current/share");
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "location.current/share",
+    );
     expect(heartbeatRequests).toEqual([
       {
         agentId: "mahilo-agent",
         reason: "mahilo:learning-suggestion",
-        sessionKey: "session_1"
-      }
+        sessionKey: "session_1",
+      },
     ]);
   });
 
   it("does not repeat learning suggestions for the same Mahilo decision fingerprint", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
-    const { api, heartbeatRequests, hooks, systemEvents, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
 
     await plugin.register?.(api);
 
@@ -2673,11 +2945,11 @@ describe("createMahiloOpenClawPlugin", () => {
     const input = {
       declaredSelectors: {
         action: "share",
-        resource: "location.current"
+        resource: "location.current",
       },
       message: "hello",
       recipient: "alice",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
 
     const firstResult = await tool.execute("tool_call_post_send_2a", input);
@@ -2685,23 +2957,23 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: firstResult,
-        toolName: "send_message"
+        toolName: "send_message",
       },
       {
         runId: "run_2a",
         sessionKey: "session_2",
         toolCallId: "tool_call_post_send_2a",
-        toolName: "send_message"
-      }
+        toolName: "send_message",
+      },
     );
     await agentEnd.execute(
       {
         messages: [],
-        success: true
+        success: true,
       },
       {
-        sessionKey: "session_2"
-      }
+        sessionKey: "session_2",
+      },
     );
 
     const secondResult = await tool.execute("tool_call_post_send_2b", input);
@@ -2709,27 +2981,27 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: secondResult,
-        toolName: "send_message"
+        toolName: "send_message",
       },
       {
         runId: "run_2b",
         sessionKey: "session_2",
         toolCallId: "tool_call_post_send_2b",
-        toolName: "send_message"
-      }
+        toolName: "send_message",
+      },
     );
     await agentEnd.execute(
       {
         messages: [],
-        success: true
+        success: true,
       },
       {
-        sessionKey: "session_2"
-      }
+        sessionKey: "session_2",
+      },
     );
 
     const learningEvents = systemEvents.filter((event) =>
-      event.text.includes("Mahilo learning opportunity:")
+      event.text.includes("Mahilo learning opportunity:"),
     );
 
     expect(learningEvents).toHaveLength(1);
@@ -2739,12 +3011,13 @@ describe("createMahiloOpenClawPlugin", () => {
   it("keeps routine message.general sends out of the learning-suggestion path", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
-    const { api, heartbeatRequests, hooks, systemEvents, tools } = createMockPluginApi({
-      apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
-    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
 
     await plugin.register?.(api);
 
@@ -2752,7 +3025,7 @@ describe("createMahiloOpenClawPlugin", () => {
     const input = {
       message: "hello",
       recipient: "alice",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     };
     const toolResult = await tool.execute("tool_call_post_send_3", input);
 
@@ -2761,30 +3034,30 @@ describe("createMahiloOpenClawPlugin", () => {
       {
         params: input,
         result: toolResult,
-        toolName: "send_message"
+        toolName: "send_message",
       },
       {
         sessionKey: "session_3",
         toolCallId: "tool_call_post_send_3",
-        toolName: "send_message"
-      }
+        toolName: "send_message",
+      },
     );
 
     const agentEnd = findHook(hooks, "agent_end");
     await agentEnd.execute(
       {
         messages: [],
-        success: true
+        success: true,
       },
       {
-        sessionKey: "session_3"
-      }
+        sessionKey: "session_3",
+      },
     );
 
     expect(systemEvents).toHaveLength(1);
     expect(JSON.stringify(systemEvents[0])).toContain("message.general/share");
     expect(JSON.stringify(systemEvents[0])).not.toContain(
-      "Mahilo learning opportunity:"
+      "Mahilo learning opportunity:",
     );
     expect(heartbeatRequests).toHaveLength(0);
   });
@@ -2796,32 +3069,32 @@ describe("createMahiloOpenClawPlugin", () => {
           default_decision: "ask",
           reason_code: "context.ask.role.structured",
           summary:
-            "This is a very long summary intended to verify prompt-size controls remain bounded even when the server returns more context than needed."
+            "This is a very long summary intended to verify prompt-size controls remain bounded even when the server returns more context than needed.",
         },
         recipient: {
           relationship: "friend",
           roles: ["close_friends", "trusted", "long_list_role"],
-          username: "alice"
+          username: "alice",
         },
         recent_interactions: [
           { direction: "inbound", decision: "allow", summary: "one" },
           { direction: "outbound", decision: "ask", summary: "two" },
           { direction: "inbound", decision: "deny", summary: "three" },
-          { direction: "outbound", decision: "allow", summary: "four" }
+          { direction: "outbound", decision: "allow", summary: "four" },
         ],
         suggested_selectors: {
           action: "share",
           direction: "inbound",
-          resource: "message.general"
-        }
-      }
+          resource: "message.general",
+        },
+      },
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, hooks } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2834,33 +3107,39 @@ describe("createMahiloOpenClawPlugin", () => {
         selectors: {
           action: "share",
           direction: "inbound",
-          resource: "message.general"
-        }
+          resource: "message.general",
+        },
       },
-      prompt: "You are a helpful assistant."
+      prompt: "You are a helpful assistant.",
     });
 
     expect(state.promptContextCalls).toHaveLength(1);
     expect(state.promptContextCalls[0]).toMatchObject({
       recipient: "alice",
       recipient_type: "user",
-      sender_connection_id: "conn_receiver"
+      sender_connection_id: "conn_receiver",
     });
 
     expect(isRecord(result)).toBe(true);
     if (!isRecord(result)) {
-      throw new Error("expected before_prompt_build hook to return a payload object");
+      throw new Error(
+        "expected before_prompt_build hook to return a payload object",
+      );
     }
 
     const promptValue = result.prompt;
     if (typeof promptValue !== "string") {
-      throw new Error("expected before_prompt_build hook to return prompt as string");
+      throw new Error(
+        "expected before_prompt_build hook to return prompt as string",
+      );
     }
 
     const prompt = promptValue;
     expect(prompt).toContain("[MahiloContext/v1]");
     expect(prompt).toContain("guidance=ask:context.ask.role.structured");
-    expect(prompt).toContain("recipient=name=alice; relationship=friend; roles=close_friends,trusted,long_list_role");
+    expect(prompt).toContain(
+      "recipient=name=alice; relationship=friend; roles=close_friends,trusted,long_list_role",
+    );
     expect(prompt).toContain("recent_1=");
     expect(prompt).toContain("recent_2=");
     expect(prompt).not.toContain("recent_3=");
@@ -2875,22 +3154,22 @@ describe("createMahiloOpenClawPlugin", () => {
           active: true,
           framework: "other",
           id: "conn_other",
-          label: "zeta"
+          label: "zeta",
         },
         {
           active: true,
           framework: "openclaw",
           id: "conn_sender_default",
-          label: "primary"
-        }
-      ]
+          label: "primary",
+        },
+      ],
     });
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, hooks } = createMockPluginApi({
       apiKey: "mhl_test",
-      baseUrl: "https://mahilo.example"
+      baseUrl: "https://mahilo.example",
     });
 
     await plugin.register?.(api);
@@ -2902,29 +3181,29 @@ describe("createMahiloOpenClawPlugin", () => {
         selectors: {
           action: "share",
           direction: "inbound",
-          resource: "message.general"
-        }
+          resource: "message.general",
+        },
       },
-      prompt: "You are a helpful assistant."
+      prompt: "You are a helpful assistant.",
     });
 
     expect(state.agentConnectionCalls).toBe(1);
     expect(state.promptContextCalls[0]).toMatchObject({
       recipient: "alice",
       recipient_type: "user",
-      sender_connection_id: "conn_sender_default"
+      sender_connection_id: "conn_sender_default",
     });
   });
 
   it("does not register prompt hook when promptContextEnabled is false", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
-      createClient: () => client
+      createClient: () => client,
     });
     const { api, hooks } = createMockPluginApi({
       apiKey: "mhl_test",
       baseUrl: "https://mahilo.example",
-      promptContextEnabled: false
+      promptContextEnabled: false,
     });
 
     await plugin.register?.(api);

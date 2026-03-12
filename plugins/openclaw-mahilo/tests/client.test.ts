@@ -5,7 +5,7 @@ import {
   MAHILO_CONTRACT_VERSION,
   MAHILO_PLUGIN_RELEASE_VERSION,
   MahiloContractClient,
-  MahiloRequestError
+  MahiloRequestError,
 } from "../src";
 
 interface FetchCall {
@@ -21,12 +21,15 @@ const pluginVersion = MAHILO_PLUGIN_RELEASE_VERSION;
 describe("MahiloContractClient", () => {
   beforeEach(() => {
     fetchCalls.length = 0;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCalls.push({ init, input });
 
       return new Response(JSON.stringify({ ok: true }), {
         headers: { "Content-Type": "application/json" },
-        status: 200
+        status: 200,
       });
     }) as typeof fetch;
   });
@@ -39,33 +42,37 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.getPromptContext({
       recipient: "alice",
       recipient_type: "user",
-      sender_connection_id: "conn_123"
+      sender_connection_id: "conn_123",
     });
 
     expect(fetchCalls).toHaveLength(1);
 
     const call = fetchCalls[0];
-    expect(String(call.input)).toBe(`https://mahilo.example${CONTRACT_ENDPOINTS.context}`);
+    expect(String(call.input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.context}`,
+    );
     expect(call.init?.method).toBe("POST");
 
     const headers = new Headers(call.init?.headers);
     expect(headers.get("authorization")).toBe("Bearer mahilo-key");
     expect(headers.get("x-mahilo-client")).toBe("openclaw-plugin");
     expect(headers.get("x-mahilo-plugin-version")).toBe(pluginVersion);
-    expect(headers.get("x-mahilo-contract-version")).toBe(MAHILO_CONTRACT_VERSION);
+    expect(headers.get("x-mahilo-contract-version")).toBe(
+      MAHILO_CONTRACT_VERSION,
+    );
   });
 
   it("includes idempotency header for send operations", async () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example/",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.sendMessage({ message: "hello" }, "idem-123");
@@ -73,7 +80,9 @@ describe("MahiloContractClient", () => {
     expect(fetchCalls).toHaveLength(1);
 
     const call = fetchCalls[0];
-    expect(String(call.input)).toBe(`https://mahilo.example${CONTRACT_ENDPOINTS.sendMessage}`);
+    expect(String(call.input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.sendMessage}`,
+    );
 
     const headers = new Headers(call.init?.headers);
     expect(headers.get("idempotency-key")).toBe("idem-123");
@@ -82,12 +91,13 @@ describe("MahiloContractClient", () => {
   it("omits authorization when bootstrapping identity registration without an apiKey", async () => {
     const client = new MahiloContractClient({
       baseUrl: "https://mahilo.example/",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.registerIdentity({
       displayName: "Bootstrap User",
-      username: "bootstrap-user"
+      inviteToken: "mhinv_bootstrap_token",
+      username: "bootstrap-user",
     });
 
     expect(fetchCalls).toHaveLength(1);
@@ -96,8 +106,9 @@ describe("MahiloContractClient", () => {
     expect(fetchCalls[0]?.init?.body).toBe(
       JSON.stringify({
         display_name: "Bootstrap User",
-        username: "bootstrap-user"
-      })
+        invite_token: "mhinv_bootstrap_token",
+        username: "bootstrap-user",
+      }),
     );
   });
 
@@ -105,7 +116,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.listReviews({ limit: 20, status: "open" });
@@ -113,7 +124,9 @@ describe("MahiloContractClient", () => {
     expect(fetchCalls).toHaveLength(1);
 
     const call = fetchCalls[0];
-    expect(String(call.input)).toBe("https://mahilo.example/api/v1/plugin/reviews?status=open&limit=20");
+    expect(String(call.input)).toBe(
+      "https://mahilo.example/api/v1/plugin/reviews?status=open&limit=20",
+    );
     expect(call.init?.method).toBe("GET");
   });
 
@@ -121,27 +134,29 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.listReviews();
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0].input)).toBe(`https://mahilo.example${CONTRACT_ENDPOINTS.reviews}`);
+    expect(String(fetchCalls[0].input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.reviews}`,
+    );
   });
 
   it("encodes review ids for decision endpoints", async () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.decideReview("review/with space", { decision: "approve" });
 
     expect(fetchCalls).toHaveLength(1);
     expect(String(fetchCalls[0].input)).toBe(
-      "https://mahilo.example/api/v1/plugin/reviews/review%2Fwith%20space/decision"
+      "https://mahilo.example/api/v1/plugin/reviews/review%2Fwith%20space/decision",
     );
     expect(fetchCalls[0].init?.method).toBe("POST");
   });
@@ -150,37 +165,42 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.listBlockedEvents(25);
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/plugin/events/blocked?limit=25");
+    expect(String(fetchCalls[0].input)).toBe(
+      "https://mahilo.example/api/v1/plugin/events/blocked?limit=25",
+    );
     expect(fetchCalls[0].init?.method).toBe("GET");
   });
 
   it("registers or updates agent connections through the existing agents endpoint", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCalls.push({ init, input });
 
       return new Response(
         JSON.stringify({
           callback_secret: "callback-secret-from-server",
           connection_id: "conn_registered_default",
-          updated: true
+          updated: true,
         }),
         {
           headers: { "Content-Type": "application/json" },
-          status: 200
-        }
+          status: 200,
+        },
       );
     }) as typeof fetch;
 
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const result = await client.registerAgentConnection({
@@ -190,11 +210,13 @@ describe("MahiloContractClient", () => {
       framework: "openclaw",
       label: "default",
       mode: "webhook",
-      rotateSecret: true
+      rotateSecret: true,
     });
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0]?.input)).toBe("https://mahilo.example/api/v1/agents");
+    expect(String(fetchCalls[0]?.input)).toBe(
+      "https://mahilo.example/api/v1/agents",
+    );
     expect(fetchCalls[0]?.init?.method).toBe("POST");
     expect(fetchCalls[0]?.init?.body).toBe(
       JSON.stringify({
@@ -204,8 +226,8 @@ describe("MahiloContractClient", () => {
         framework: "openclaw",
         label: "default",
         mode: "webhook",
-        rotate_secret: true
-      })
+        rotate_secret: true,
+      }),
     );
     expect(result).toEqual({
       callbackSecret: "callback-secret-from-server",
@@ -214,14 +236,17 @@ describe("MahiloContractClient", () => {
       raw: {
         callback_secret: "callback-secret-from-server",
         connection_id: "conn_registered_default",
-        updated: true
+        updated: true,
       },
-      updated: true
+      updated: true,
     });
   });
 
   it("normalizes own agent connections into typed summaries", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCalls.push({ init, input });
 
       return new Response(
@@ -237,26 +262,28 @@ describe("MahiloContractClient", () => {
             public_key: "pk_live",
             public_key_alg: "ed25519",
             routing_priority: 9,
-            status: "active"
-          }
+            status: "active",
+          },
         ]),
         {
           headers: { "Content-Type": "application/json" },
-          status: 200
-        }
+          status: 200,
+        },
       );
     }) as typeof fetch;
 
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const result = await client.listOwnAgentConnections();
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/agents");
+    expect(String(fetchCalls[0].input)).toBe(
+      "https://mahilo.example/api/v1/agents",
+    );
     expect(result).toEqual([
       expect.objectContaining({
         active: true,
@@ -270,13 +297,16 @@ describe("MahiloContractClient", () => {
         priority: 9,
         publicKey: "pk_live",
         publicKeyAlgorithm: "ed25519",
-        status: "active"
-      })
+        status: "active",
+      }),
     ]);
   });
 
   it("lists friendships through the Mahilo social endpoint with query params", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCalls.push({ init, input });
 
       return new Response(
@@ -291,27 +321,29 @@ describe("MahiloContractClient", () => {
               since: "2026-03-01T10:00:00.000Z",
               status: "accepted",
               user_id: "usr_alice",
-              username: "alice"
-            }
-          ]
+              username: "alice",
+            },
+          ],
         }),
         {
           headers: { "Content-Type": "application/json" },
-          status: 200
-        }
+          status: 200,
+        },
       );
     }) as typeof fetch;
 
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const result = await client.listFriendships({ status: "accepted" });
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/friends?status=accepted");
+    expect(String(fetchCalls[0].input)).toBe(
+      "https://mahilo.example/api/v1/friends?status=accepted",
+    );
     expect(fetchCalls[0].init?.method).toBe("GET");
     expect(result).toEqual([
       expect.objectContaining({
@@ -323,13 +355,16 @@ describe("MahiloContractClient", () => {
         since: "2026-03-01T10:00:00.000Z",
         status: "accepted",
         userId: "usr_alice",
-        username: "alice"
-      })
+        username: "alice",
+      }),
     ]);
   });
 
   it("lists groups through the Mahilo social endpoint", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCalls.push({ init, input });
 
       return new Response(
@@ -342,26 +377,28 @@ describe("MahiloContractClient", () => {
             member_count: 4,
             name: "Hiking Crew",
             role: "owner",
-            status: "active"
-          }
+            status: "active",
+          },
         ]),
         {
           headers: { "Content-Type": "application/json" },
-          status: 200
-        }
+          status: 200,
+        },
       );
     }) as typeof fetch;
 
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const result = await client.listGroups();
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/groups");
+    expect(String(fetchCalls[0].input)).toBe(
+      "https://mahilo.example/api/v1/groups",
+    );
     expect(fetchCalls[0].init?.method).toBe("GET");
     expect(result).toEqual([
       expect.objectContaining({
@@ -372,8 +409,8 @@ describe("MahiloContractClient", () => {
         memberCount: 4,
         name: "Hiking Crew",
         role: "owner",
-        status: "active"
-      })
+        status: "active",
+      }),
     ]);
   });
 
@@ -381,51 +418,58 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const result = await client.sendFriendRequest("@alice");
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/friends/request");
+    expect(String(fetchCalls[0].input)).toBe(
+      "https://mahilo.example/api/v1/friends/request",
+    );
     expect(fetchCalls[0].init?.method).toBe("POST");
-    expect(fetchCalls[0].init?.body).toBe(JSON.stringify({ username: "alice" }));
+    expect(fetchCalls[0].init?.body).toBe(
+      JSON.stringify({ username: "alice" }),
+    );
     expect(result).toEqual({
       friendshipId: undefined,
       message: undefined,
       raw: { ok: true },
       status: undefined,
-      success: true
+      success: true,
     });
   });
 
   it("accepts and rejects friend requests through typed client methods", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCalls.push({ init, input });
 
       if (String(input).endsWith("/accept")) {
         return new Response(
           JSON.stringify({
             friendship_id: "fr_accepted",
-            status: "accepted"
+            status: "accepted",
           }),
           {
             headers: { "Content-Type": "application/json" },
-            status: 200
-          }
+            status: 200,
+          },
         );
       }
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { "Content-Type": "application/json" },
-        status: 200
+        status: 200,
       });
     }) as typeof fetch;
 
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const accepted = await client.acceptFriendRequest("fr/accepted");
@@ -433,55 +477,60 @@ describe("MahiloContractClient", () => {
 
     expect(fetchCalls).toHaveLength(2);
     expect(String(fetchCalls[0].input)).toBe(
-      "https://mahilo.example/api/v1/friends/fr%2Faccepted/accept"
+      "https://mahilo.example/api/v1/friends/fr%2Faccepted/accept",
     );
     expect(String(fetchCalls[1].input)).toBe(
-      "https://mahilo.example/api/v1/friends/fr_rejected/reject"
+      "https://mahilo.example/api/v1/friends/fr_rejected/reject",
     );
     expect(accepted).toEqual({
       friendshipId: "fr_accepted",
       message: undefined,
       raw: {
         friendship_id: "fr_accepted",
-        status: "accepted"
+        status: "accepted",
       },
       status: "accepted",
-      success: true
+      success: true,
     });
     expect(rejected).toEqual({
       friendshipId: "fr_rejected",
       message: undefined,
       raw: { success: true },
       status: undefined,
-      success: true
+      success: true,
     });
   });
 
   it("surfaces friend connection availability as a product-level state", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       fetchCalls.push({ init, input });
 
       return new Response(JSON.stringify([]), {
         headers: { "Content-Type": "application/json" },
-        status: 200
+        status: 200,
       });
     }) as typeof fetch;
 
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const result = await client.getFriendAgentConnections("@alice");
 
     expect(fetchCalls).toHaveLength(1);
-    expect(String(fetchCalls[0].input)).toBe("https://mahilo.example/api/v1/contacts/alice/connections");
+    expect(String(fetchCalls[0].input)).toBe(
+      "https://mahilo.example/api/v1/contacts/alice/connections",
+    );
     expect(result).toEqual({
       connections: [],
       raw: [],
       state: "no_active_connections",
-      username: "alice"
+      username: "alice",
     });
   });
 
@@ -493,7 +542,7 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     const result = await client.reportOutcome({ outcome: "sent" }, "idem-204");
@@ -505,7 +554,7 @@ describe("MahiloContractClient", () => {
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
       contractVersion: "9.9.9",
-      pluginVersion
+      pluginVersion,
     });
 
     await client.resolveDraft({ message: "hello" });
@@ -523,11 +572,11 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(
-      "Mahilo request failed with status 403: forbidden"
+      "Mahilo request failed with status 403: forbidden",
     );
   });
 
@@ -536,19 +585,19 @@ describe("MahiloContractClient", () => {
       return new Response(
         JSON.stringify({
           code: "ALREADY_FRIENDS",
-          error: "Already friends with this user"
+          error: "Already friends with this user",
         }),
         {
           headers: { "Content-Type": "application/json" },
-          status: 409
-        }
+          status: 409,
+        },
       );
     }) as typeof fetch;
 
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     try {
@@ -557,9 +606,11 @@ describe("MahiloContractClient", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(MahiloRequestError);
       expect((error as MahiloRequestError).code).toBe("ALREADY_FRIENDS");
-      expect((error as MahiloRequestError).productState).toBe("already_connected");
+      expect((error as MahiloRequestError).productState).toBe(
+        "already_connected",
+      );
       expect((error as MahiloRequestError).message).toBe(
-        "Mahilo request failed with status 409: Already friends with this user"
+        "Mahilo request failed with status 409: Already friends with this user",
       );
     }
   });
@@ -572,12 +623,14 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
-    await expect(client.resolveDraft({ message: "hello" })).rejects.toBeInstanceOf(MahiloRequestError);
+    await expect(
+      client.resolveDraft({ message: "hello" }),
+    ).rejects.toBeInstanceOf(MahiloRequestError);
     await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(
-      "Mahilo request failed: socket hang up"
+      "Mahilo request failed: socket hang up",
     );
   });
 
@@ -589,11 +642,11 @@ describe("MahiloContractClient", () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
       baseUrl: "https://mahilo.example",
-      pluginVersion
+      pluginVersion,
     });
 
     await expect(client.resolveDraft({ message: "hello" })).rejects.toThrow(
-      "Mahilo request failed with status 500"
+      "Mahilo request failed with status 500",
     );
   });
 });

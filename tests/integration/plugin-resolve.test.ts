@@ -3,7 +3,10 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createApp } from "../../src/server";
 import { config } from "../../src/config";
-import { canonicalToStorage, type PolicyDirection } from "../../src/services/policySchema";
+import {
+  canonicalToStorage,
+  type PolicyDirection,
+} from "../../src/services/policySchema";
 import {
   cleanupTestDatabase,
   createAgentConnection,
@@ -49,8 +52,13 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
 
   it("returns structured preflight resolution without creating delivery records", async () => {
     const db = getTestDb();
-    const { sender, senderKey, senderConnection, recipient, recipientConnection } =
-      await setupParticipants("plugin_resolve_structured");
+    const {
+      sender,
+      senderKey,
+      senderConnection,
+      recipient,
+      recipientConnection,
+    } = await setupParticipants("plugin_resolve_structured");
 
     await insertCanonicalPolicy({
       action: "share",
@@ -65,7 +73,9 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
       user_id: sender.id,
     });
 
-    const beforeMessages = await db.select({ id: schema.messages.id }).from(schema.messages);
+    const beforeMessages = await db
+      .select({ id: schema.messages.id })
+      .from(schema.messages);
 
     const response = await app.request("/api/v1/plugin/resolve", {
       method: "POST",
@@ -120,16 +130,23 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
         recipient: recipient.username,
         recipient_connection_id: recipientConnection.id,
         recipient_type: "user",
-      })
+      }),
     );
 
-    const afterMessages = await db.select({ id: schema.messages.id }).from(schema.messages);
+    const afterMessages = await db
+      .select({ id: schema.messages.id })
+      .from(schema.messages);
     expect(afterMessages).toHaveLength(beforeMessages.length);
   });
 
   it("matches actual send-time resolution behavior for the same draft", async () => {
-    const { sender, senderKey, senderConnection, recipient, recipientConnection } =
-      await setupParticipants("plugin_resolve_match_send");
+    const {
+      sender,
+      senderKey,
+      senderConnection,
+      recipient,
+      recipientConnection,
+    } = await setupParticipants("plugin_resolve_match_send");
 
     await insertCanonicalPolicy({
       action: "share",
@@ -195,23 +212,25 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
         recipient: recipient.username,
         decision: "deny",
         delivery_mode: "blocked",
-      })
+      }),
     );
   });
 });
 
 async function setupParticipants(suffix: string) {
   const db = getTestDb();
-  const { user: sender, apiKey: senderKey } = await createTestUser(`sender_${suffix}`);
+  const { user: sender, apiKey: senderKey } = await createTestUser(
+    `sender_${suffix}`,
+  );
   const { user: recipient } = await createTestUser(`recipient_${suffix}`);
 
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, sender.id));
   await db
     .update(schema.users)
-    .set({ twitterVerified: true, verificationCode: null })
+    .set({ status: "active", verifiedAt: new Date() })
     .where(eq(schema.users.id, recipient.id));
 
   await createFriendship(sender.id, recipient.id, "accepted");
