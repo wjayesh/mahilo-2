@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +8,14 @@ import {
   generateCallbackSignature,
   MahiloRequestError,
   MahiloRuntimeBootstrapStore,
+  resetSharedMahiloPluginStates,
 } from "../src";
 
 const CALLBACK_SECRET = "callback-secret";
+
+beforeEach(() => {
+  resetSharedMahiloPluginStates();
+});
 
 interface MockClientState {
   acceptFriendRequestCalls: string[];
@@ -1641,6 +1646,300 @@ describe("createMahiloOpenClawPlugin", () => {
         agentId: "mahilo-network-agent",
         reason: "mahilo:inbound-message",
         sessionKey: "session_network_route_recovered_1",
+      },
+    ]);
+  });
+
+  it("routes ask_network replies using before_tool_call route metadata when live after_tool_call lacks ids", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+      },
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET,
+      },
+    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "ask_network");
+    const beforeToolCall = findHook(hooks, "before_tool_call");
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    const outboundInput = {
+      correlationId: "corr_network_route_live_contract_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender",
+    };
+    const beforeResult = (await beforeToolCall.execute(
+      {
+        params: outboundInput,
+        toolName: "ask_network",
+      },
+      {
+        agentId: "mahilo-network-agent",
+        sessionKey: "session_network_route_live_contract_1",
+        toolName: "ask_network",
+      },
+    )) as { params?: Record<string, unknown> } | undefined;
+    const runtimeParams = {
+      ...outboundInput,
+      ...(beforeResult?.params ?? {}),
+    };
+    const toolResult = await tool.execute(
+      "tool_call_network_route_live_contract_1",
+      runtimeParams,
+    );
+
+    expect(beforeResult).toEqual({
+      params: {
+        __mahiloRouteContext: {
+          agentId: "mahilo-network-agent",
+          sessionKey: "session_network_route_live_contract_1",
+        },
+      },
+    });
+
+    await beforeToolCall.execute(
+      {
+        params: {
+          action: "list",
+        },
+        toolName: "manage_network",
+      },
+      {
+        agentId: "main-agent",
+        sessionKey: "main",
+        toolName: "manage_network",
+      },
+    );
+
+    await afterToolCall.execute(
+      {
+        params: runtimeParams,
+        result: toolResult,
+        toolName: "ask_network",
+      },
+      {
+        toolName: "ask_network",
+      },
+    );
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const rawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_route_live_contract_1",
+      message: "Try Mensho for the broth.",
+      message_id: "msg_inbound_network_live_contract_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice",
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = generateCallbackSignature(
+      rawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
+    const request = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_network_live_contract_1",
+        "x-mahilo-signature": `sha256=${signature}`,
+        "x-mahilo-timestamp": String(timestamp),
+      },
+      rawBody,
+    });
+    const response = createMockWebhookResponse();
+
+    await routes[0]!.handler(request, response.response);
+
+    expect(response.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        contextKey: "mahilo:inbound:direct:msg_inbound_network_live_contract_1",
+        sessionKey: "session_network_route_live_contract_1",
+        text: expect.stringContaining("Try Mensho for the broth."),
+      }),
+    ]);
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-network-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_network_route_live_contract_1",
+      },
+    ]);
+  });
+
+  it("shares ask_network routing across hook and webhook plugin instances while keeping main fallback for unrelated replies", async () => {
+    const { client } = createMockContractClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+      },
+    });
+    const hookPlugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET,
+      },
+    });
+    const webhookPlugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET,
+      },
+    });
+    const {
+      api: hookApi,
+      hooks,
+      tools,
+    } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+    const {
+      api: webhookApi,
+      heartbeatRequests,
+      routes,
+      systemEvents,
+    } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await hookPlugin.register?.(hookApi);
+    await webhookPlugin.register?.(webhookApi);
+
+    const tool = findTool(tools, "ask_network");
+    const beforeToolCall = findHook(hooks, "before_tool_call");
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    const outboundInput = {
+      correlationId: "corr_network_route_shared_state_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender",
+    };
+    const beforeResult = (await beforeToolCall.execute(
+      {
+        params: outboundInput,
+        toolName: "ask_network",
+      },
+      {
+        agentId: "mahilo-network-agent",
+        sessionKey: "session_network_route_shared_state_1",
+        toolName: "ask_network",
+      },
+    )) as { params?: Record<string, unknown> } | undefined;
+    const runtimeParams = {
+      ...outboundInput,
+      ...(beforeResult?.params ?? {}),
+    };
+    const toolResult = await tool.execute(
+      "tool_call_network_route_shared_state_1",
+      runtimeParams,
+    );
+
+    await afterToolCall.execute(
+      {
+        params: runtimeParams,
+        result: toolResult,
+        toolName: "ask_network",
+      },
+      {
+        toolName: "ask_network",
+      },
+    );
+
+    const correlatedRawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_route_shared_state_1",
+      message: "Try Mensho for the broth.",
+      message_id: "msg_inbound_network_shared_state_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice",
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const correlatedSignature = generateCallbackSignature(
+      correlatedRawBody,
+      CALLBACK_SECRET,
+      timestamp,
+    );
+    const correlatedRequest = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_network_shared_state_1",
+        "x-mahilo-signature": `sha256=${correlatedSignature}`,
+        "x-mahilo-timestamp": String(timestamp),
+      },
+      rawBody: correlatedRawBody,
+    });
+    const correlatedResponse = createMockWebhookResponse();
+
+    await routes[0]!.handler(correlatedRequest, correlatedResponse.response);
+
+    expect(correlatedResponse.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        contextKey: "mahilo:inbound:direct:msg_inbound_network_shared_state_1",
+        sessionKey: "session_network_route_shared_state_1",
+        text: expect.stringContaining("Try Mensho for the broth."),
+      }),
+    ]);
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-network-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_network_route_shared_state_1",
+      },
+    ]);
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const unrelatedRawBody = buildInboundWebhookRawBody({
+      correlation_id: "corr_network_route_unrelated_1",
+      message: "This should stay on main because no route matches.",
+      message_id: "msg_inbound_network_unrelated_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Bob",
+      sender_connection_id: "conn_bob",
+    });
+    const unrelatedSignature = generateCallbackSignature(
+      unrelatedRawBody,
+      CALLBACK_SECRET,
+      timestamp + 1,
+    );
+    const unrelatedRequest = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_network_unrelated_1",
+        "x-mahilo-signature": `sha256=${unrelatedSignature}`,
+        "x-mahilo-timestamp": String(timestamp + 1),
+      },
+      rawBody: unrelatedRawBody,
+    });
+    const unrelatedResponse = createMockWebhookResponse();
+
+    await routes[0]!.handler(unrelatedRequest, unrelatedResponse.response);
+
+    expect(unrelatedResponse.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "main",
+        text: expect.stringContaining(
+          "This should stay on main because no route matches.",
+        ),
+      }),
+    ]);
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: undefined,
+        reason: "mahilo:inbound-message",
+        sessionKey: "main",
       },
     ]);
   });

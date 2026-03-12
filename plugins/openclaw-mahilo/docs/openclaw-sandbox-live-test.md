@@ -334,26 +334,35 @@ Expected:
 - the model calls `ask_network`
 - the transcript file under `"$OPENCLAW_HOME/.openclaw/agents/main/sessions/"` contains the `toolCall` and `toolResult`
 
-## 8. Current live blocker
+## 8. Historical live blocker and regression target
 
-The current repo passes plugin load, direct tool invocation, send, network, and boundary checks in the sandbox.
+The sandbox originally exposed a live-only routing gap that the unit tests were not modeling closely enough.
 
-The current repo does **not** yet prove live same-thread inbound routing end to end.
+Observed blocker before the fix:
 
-Observed blocker:
-
-- after a real model turn that successfully calls `ask_network`, the live OpenClaw runtime currently logs:
+- after a real model turn that successfully calls `ask_network`, the live OpenClaw runtime logged:
 
 ```text
 [Mahilo] rememberInboundRoute: no sessionKey in context, skipping route storage
 [Mahilo] No exact route for inbound message <id> (correlation=<corr>, in_response_to=none, routeCount=0); falling back to configured inbound session main.
 ```
 
-- this means the live `after_tool_call` hook path is currently arriving without `sessionKey`, so the plugin never stores the correlated ask-around route
-- the fallback delivery still works, but exact same-thread reply routing does not
-- this is now a narrower, evidence-backed live-runtime bug; the issue is no longer “maybe the route state is lost later,” it is “the route is never written because the live hook context is missing `sessionKey`”
+- root cause: in the embedded OpenClaw runtime, `before_tool_call` includes `{ toolName, agentId, sessionKey }`, but live `after_tool_call` omits `sessionKey`, `toolCallId`, and `runId`
+- that means correlated reply routing cannot rely on the live `after_tool_call` ctx alone, and ambient fallbacks like “last active session” are vulnerable when another session becomes active first
+- the plugin fix is to stamp a reserved `__mahiloRouteContext` payload into Mahilo tool params during `before_tool_call`, then recover the original session from those params during the live `after_tool_call` route-write path
+- the final live-runtime root cause was one layer deeper: OpenClaw can load Mahilo into one plugin registry for tool/hooks execution and a different registry for HTTP webhook handling, so the route write and the inbound lookup can land on different `InMemoryPluginState` instances unless Mahilo shares state across plugin instances in the same process
+- the final plugin fix is to use a shared process-local Mahilo plugin state keyed to the active runtime/bootstrap configuration, so the `after_tool_call` route write and `/mahilo/incoming` lookup see the same route cache
+- regression coverage now needs to prove the live contract shape:
+  - `before_tool_call` has the session
+  - `after_tool_call` has only the tool name
+  - the webhook can be handled by a different live plugin instance than the tool/hook path
+  - another session can become active before the inbound reply arrives
+  - the correlated reply still lands in the originating session, while genuinely uncorrelated messages still fall back to `main`
 
-Until that is fixed, treat inbound same-thread routing as a known regression in live OpenClaw sandbox testing.
+The focused regression tests for that contract live in `tests/openclaw-plugin.test.ts` under:
+
+- `routes ask_network replies using before_tool_call route metadata when live after_tool_call lacks ids`
+- `shares ask_network routing across hook and webhook plugin instances while keeping main fallback for unrelated replies`
 
 ## 9. Cleanup
 

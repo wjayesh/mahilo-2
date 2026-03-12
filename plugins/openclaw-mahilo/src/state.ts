@@ -145,6 +145,11 @@ const DEFAULT_HOOK_SESSION_HINT_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_LEARNING_SUGGESTION_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_NOVEL_DECISION_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PRODUCT_SIGNAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MAHILO_SHARED_PLUGIN_STATE_REGISTRY_KEY = Symbol.for(
+  "mahilo.openclaw.shared-plugin-state-registry"
+);
+
+type MahiloSharedPluginStateRegistry = Map<string, InMemoryPluginState>;
 
 export class InMemoryDedupeState implements DedupeState {
   private readonly entries = new Map<string, number>();
@@ -189,6 +194,54 @@ export class InMemoryDedupeState implements DedupeState {
   size(): number {
     return this.entries.size;
   }
+}
+
+function getSharedPluginStateRegistry(): MahiloSharedPluginStateRegistry {
+  const globalScope = globalThis as typeof globalThis & {
+    [MAHILO_SHARED_PLUGIN_STATE_REGISTRY_KEY]?: MahiloSharedPluginStateRegistry;
+  };
+  let registry = globalScope[MAHILO_SHARED_PLUGIN_STATE_REGISTRY_KEY];
+  if (!registry) {
+    registry = new Map<string, InMemoryPluginState>();
+    globalScope[MAHILO_SHARED_PLUGIN_STATE_REGISTRY_KEY] = registry;
+  }
+  return registry;
+}
+
+export function getOrCreateSharedMahiloPluginState(
+  sharedKey: string,
+  createState: () => InMemoryPluginState
+): InMemoryPluginState {
+  const normalizedKey = sharedKey.trim();
+  if (normalizedKey.length === 0) {
+    return createState();
+  }
+
+  const registry = getSharedPluginStateRegistry();
+  const existing = registry.get(normalizedKey);
+  if (existing) {
+    return existing;
+  }
+
+  const created = createState();
+  registry.set(normalizedKey, created);
+  return created;
+}
+
+export function resetSharedMahiloPluginStates(sharedKey?: string): void {
+  const registry = getSharedPluginStateRegistry();
+  if (typeof sharedKey !== "string") {
+    registry.clear();
+    return;
+  }
+
+  const normalizedKey = sharedKey.trim();
+  if (normalizedKey.length === 0) {
+    registry.clear();
+    return;
+  }
+
+  registry.delete(normalizedKey);
 }
 
 export class InMemoryPluginState {

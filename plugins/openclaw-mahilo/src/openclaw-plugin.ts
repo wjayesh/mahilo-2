@@ -29,6 +29,7 @@ import {
   resolveMahiloSenderConnection,
 } from "./sender-resolution";
 import { InMemoryPluginState, type MahiloAskAroundSession } from "./state";
+import { getOrCreateSharedMahiloPluginState } from "./state";
 import {
   MAHILO_RUNTIME_PLUGIN_ID,
   MAHILO_RUNTIME_PLUGIN_NAME,
@@ -82,11 +83,31 @@ const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
 const MAHILO_ASK_NETWORK_TOOL_NAME = "ask_network";
 const MAHILO_MANAGE_NETWORK_TOOL_NAME = "manage_network";
+// The embedded OpenClaw runtime currently strips session identifiers from
+// live after_tool_call hooks, so route recovery has to survive in the params.
+const MAHILO_ROUTE_CONTEXT_PARAM = "__mahiloRouteContext";
 const MAHILO_SEND_MESSAGE_TOOL_NAME = "send_message";
 const MAHILO_SET_BOUNDARIES_TOOL_NAME = "set_boundaries";
+const MAHILO_TOOL_NAMES = new Set([
+  MAHILO_ASK_NETWORK_TOOL_NAME,
+  MAHILO_MANAGE_NETWORK_TOOL_NAME,
+  MAHILO_SEND_MESSAGE_TOOL_NAME,
+  MAHILO_SET_BOUNDARIES_TOOL_NAME,
+]);
 const MAHILO_AUTH_REGISTER_PATH = "/api/v1/auth/register";
 const MAHILO_INVITE_TOKEN_EXAMPLE = "mhinv_...";
 const MAHILO_RUNTIME_API_KEY_EXAMPLE = "mhl_...";
+
+function buildMahiloSharedPluginStateKey(config: MahiloPluginConfig): string {
+  return [
+    config.baseUrl.replace(/\/+$/, ""),
+    config.apiKey ?? "",
+    config.callbackPath ?? "",
+    config.inboundSessionKey,
+    config.inboundAgentId ?? "",
+    resolveMahiloRuntimeBootstrapPath(),
+  ].join("::");
+}
 
 function buildMahiloSetupInstructions(baseUrl: string): string {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
@@ -175,10 +196,14 @@ export function registerMahiloOpenClawPlugin(
       : () => rawToolBootstrapError ?? buildMahiloNotConfiguredMessage(config.baseUrl);
   const pluginState =
     options.pluginState ??
-    new InMemoryPluginState({
-      contextCacheTtlSeconds: config.cacheTtlSeconds,
-      dedupeTtlMs: options.webhookRoute?.dedupeTtlMs,
-    });
+    getOrCreateSharedMahiloPluginState(
+      buildMahiloSharedPluginStateKey(config),
+      () =>
+        new InMemoryPluginState({
+          contextCacheTtlSeconds: config.cacheTtlSeconds,
+          dedupeTtlMs: options.webhookRoute?.dedupeTtlMs,
+        }),
+    );
   const externalAcceptedDelivery = options.webhookRoute?.onAcceptedDelivery;
   const webhookRouteOptions: MahiloWebhookRouteOptions = {
     ...options.webhookRoute,
@@ -1159,7 +1184,7 @@ function registerMahiloPostSendHooks(
   api: OpenClawPluginApi,
   pluginState: InMemoryPluginState,
 ): void {
-  api.on("before_tool_call", async (_event, ctx) => {
+  api.on("before_tool_call", async (event, ctx) => {
     const sessionKey = readOptionalString(ctx.sessionKey);
     if (!sessionKey) {
       return;
@@ -1173,12 +1198,29 @@ function registerMahiloPostSendHooks(
       sessionKey,
       toolCallId: readOptionalString(ctx.toolCallId),
     });
+
+    const toolName =
+      readOptionalString(ctx.toolName) ??
+      readOptionalString(readOptionalObject(event)?.toolName);
+    if (!toolName || !MAHILO_TOOL_NAMES.has(toolName)) {
+      return;
+    }
+
+    return {
+      params: {
+        [MAHILO_ROUTE_CONTEXT_PARAM]: {
+          ...(agentId ? { agentId } : {}),
+          sessionKey,
+        },
+      },
+    };
   });
 
   api.on("after_tool_call", async (event, ctx) => {
     try {
       const params = readOptionalObject(event.params) ?? {};
       const hookContext = resolveMahiloRouteHookContext(pluginState, event, ctx);
+      const routeCountBefore = pluginState.inboundRouteCount();
       rememberMahiloInboundRoute(
         pluginState,
         {
@@ -1187,6 +1229,11 @@ function registerMahiloPostSendHooks(
           toolName: event.toolName,
         },
         hookContext,
+      );
+      api.logger?.debug?.(
+        `[Mahilo] after_tool_call tool=${readOptionalString(event.toolName) ?? "unknown"} session=${
+          hookContext.sessionKey ?? "none"
+        } routeCount=${pluginState.inboundRouteCount()} (was ${routeCountBefore})`,
       );
       const postSendEvent = extractMahiloPostSendEvent({
         error: readOptionalString(event.error),
@@ -1358,7 +1405,10 @@ function collectMahiloRouteHookContextSources(
     addSource(source.event);
     addSource(source.meta);
     addSource(source.metadata);
+    addSource(source.params);
     addSource(source.payload);
+    addSource(source.result);
+    addSource(source[MAHILO_ROUTE_CONTEXT_PARAM]);
   }
 
   return sources;
@@ -1567,6 +1617,7 @@ function routeAcceptedMahiloDelivery(
   payload: MahiloInboundWebhookPayload,
   messageId: string,
 ): void {
+  const routeCount = pluginState.inboundRouteCount();
   let route = pluginState.resolveInboundRoute({
     correlationId: payload.correlation_id,
     groupId: payload.group_id ?? undefined,
@@ -1578,7 +1629,9 @@ function routeAcceptedMahiloDelivery(
 
   if (!route) {
     api.logger?.info?.(
-      `[Mahilo] No exact route for inbound message ${messageId}; falling back to configured inbound session ${config.inboundSessionKey}.`,
+      `[Mahilo] No exact route for inbound message ${messageId} (correlation=${
+        payload.correlation_id ?? "none"
+      }, in_response_to=${payload.in_response_to ?? "none"}, routeCount=${routeCount}); falling back to configured inbound session ${config.inboundSessionKey}.`,
     );
     route = {
       agentId: config.inboundAgentId,
@@ -1587,6 +1640,12 @@ function routeAcceptedMahiloDelivery(
       remoteParticipant: payload.sender,
       sessionKey: config.inboundSessionKey,
     };
+  } else {
+    api.logger?.debug?.(
+      `[Mahilo] Resolved exact route for inbound message ${messageId} to session ${route.sessionKey} (correlation=${
+        payload.correlation_id ?? "none"
+      }, routeCount=${routeCount}).`,
+    );
   }
 
   const correlationId = payload.correlation_id ?? route.correlationId;
