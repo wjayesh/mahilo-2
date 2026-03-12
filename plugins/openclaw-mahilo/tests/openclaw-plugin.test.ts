@@ -1070,6 +1070,112 @@ describe("createMahiloOpenClawPlugin", () => {
     }
   });
 
+  it("returns agent-facing bootstrap guidance from Mahilo tools before setup is finished", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, tools } = createMockPluginApi({
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const result = await tool.execute("tool_call_needs_setup_1", {
+      message: "hello",
+      recipient: "alice",
+    });
+
+    expect(state.agentConnectionCalls).toBe(0);
+    expect(isRecord(result)).toBe(true);
+    if (!isRecord(result)) {
+      throw new Error("expected send_message to return a structured error");
+    }
+
+    const contentBlocks = Array.isArray(result.content) ? result.content : [];
+    const firstBlock = contentBlocks[0];
+    const replyText =
+      isRecord(firstBlock) && typeof firstBlock.text === "string"
+        ? firstBlock.text
+        : "";
+
+    expect(replyText).toContain(
+      "Mahilo is not bootstrapped for this runtime yet.",
+    );
+    expect(replyText).toContain(
+      "POST https://mahilo.example/api/v1/auth/register",
+    );
+    expect(replyText).toContain(
+      "POST https://mahilo.example/api/v1/agents",
+    );
+    expect(replyText).toContain("openclaw-plugin-runtime.json");
+    expect(replyText).toContain("callback_url http://localhost:18789/mahilo/incoming");
+    expect(replyText).toContain(
+      "I should not ask the human to run /mahilo setup",
+    );
+    expect(replyText).toContain(
+      "I should assume I do not have access to any Mahilo repo checkout",
+    );
+    expect(replyText).toContain(
+      "I should not inspect local source code or docs for bootstrap steps",
+    );
+    expect(replyText).not.toContain(
+      "could not find any agent connections for the current identity",
+    );
+  });
+
+  it("starts using Mahilo tools without restart after the runtime bootstrap store gets an api key", async () => {
+    const runtimeStore = createTempRuntimeBootstrapStore();
+
+    try {
+      const createClientCalls: Array<string | undefined> = [];
+      const { client, state } = createMockContractClient();
+      const plugin = createMahiloOpenClawPlugin({
+        createClient: (nextConfig) => {
+          createClientCalls.push(nextConfig.apiKey);
+          return client;
+        },
+        runtimeBootstrapStore: runtimeStore.store,
+      });
+      const { api, tools } = createMockPluginApi({
+        baseUrl: "https://mahilo.example",
+      });
+
+      await plugin.register?.(api);
+
+      runtimeStore.store.write("https://mahilo.example", {
+        apiKey: "mhl_bootstrap_from_agent",
+        username: "sandboxoc",
+      });
+
+      const tool = findTool(tools, "manage_network");
+      const result = await tool.execute("tool_call_runtime_store_1", {
+        action: "list_contacts",
+      });
+
+      expect(state.friendshipCalls.length).toBeGreaterThan(0);
+      expect(createClientCalls).toContain("mhl_bootstrap_from_agent");
+      expect(isRecord(result)).toBe(true);
+      if (!isRecord(result)) {
+        throw new Error(
+          "expected manage_network to return a structured response",
+        );
+      }
+
+      const contentBlocks = Array.isArray(result.content) ? result.content : [];
+      const firstBlock = contentBlocks[0];
+      const replyText =
+        isRecord(firstBlock) && typeof firstBlock.text === "string"
+          ? firstBlock.text
+          : "";
+
+      expect(replyText).not.toContain("not bootstrapped");
+    } finally {
+      runtimeStore.cleanup();
+    }
+  });
+
   it("routes inbound webhook callbacks back to the originating session by correlation id", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
@@ -3145,6 +3251,54 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(prompt).not.toContain("recent_3=");
     expect(prompt).toContain("You are a helpful assistant.");
     expect(prompt.length).toBeLessThan(1400);
+  });
+
+  it("injects agent-facing bootstrap instructions into prompt before Mahilo is configured", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, hooks } = createMockPluginApi({
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const hook = findHook(hooks, "before_prompt_build");
+    const result = await hook.execute({
+      prompt: "You are a helpful assistant.",
+    });
+
+    expect(isRecord(result)).toBe(true);
+    if (!isRecord(result)) {
+      throw new Error(
+        "expected before_prompt_build hook to return a payload object",
+      );
+    }
+
+    const promptValue = result.prompt;
+    if (typeof promptValue !== "string") {
+      throw new Error(
+        "expected before_prompt_build hook to return prompt as string",
+      );
+    }
+
+    expect(promptValue).toContain("[MahiloSetup/v1]");
+    expect(promptValue).toContain(
+      "curl -sS -X POST https://mahilo.example/api/v1/auth/register",
+    );
+    expect(promptValue).toContain(
+      "curl -sS -X POST https://mahilo.example/api/v1/agents",
+    );
+    expect(promptValue).toContain("openclaw-plugin-runtime.json");
+    expect(promptValue).toContain("Do not ask the human to run /mahilo setup.");
+    expect(promptValue).toContain(
+      "Assume you do not have access to any Mahilo repo checkout.",
+    );
+    expect(promptValue).toContain(
+      "Do not inspect local source code or docs for bootstrap steps;",
+    );
+    expect(promptValue).toContain("You are a helpful assistant.");
   });
 
   it("resolves prompt-hook sender context from active Mahilo connections when none is passed", async () => {

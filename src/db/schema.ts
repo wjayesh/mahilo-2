@@ -5,6 +5,7 @@ import {
   index,
   unique,
 } from "drizzle-orm/sqlite-core";
+import { nanoid } from "nanoid";
 
 // Users table
 export const users = sqliteTable(
@@ -396,6 +397,16 @@ export const friendRoles = sqliteTable(
   ],
 );
 
+// Waitlist emails table
+export const waitlistEmails = sqliteTable("waitlist_emails", {
+  id: text("id").primaryKey().$defaultFn(() => nanoid()),
+  email: text("email").notNull().unique(),
+  source: text("source").notNull().default("landing"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // Type exports for use in services
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -421,3 +432,5 @@ export type UserRole = typeof userRoles.$inferSelect;
 export type NewUserRole = typeof userRoles.$inferInsert;
 export type FriendRole = typeof friendRoles.$inferSelect;
 export type NewFriendRole = typeof friendRoles.$inferInsert;
+export type WaitlistEmail = typeof waitlistEmails.$inferSelect;
+export type NewWaitlistEmail = typeof waitlistEmails.$inferInsert;

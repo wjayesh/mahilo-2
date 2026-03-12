@@ -116,7 +116,7 @@ Expected Mahilo tool names:
 
 ## 4. First-use auth check
 
-Without bootstrap state or `apiKey`, the current plugin does **not** self-bootstrap yet.
+Without bootstrap state or `apiKey`, the plugin should return raw-HTTP bootstrap guidance for the current runtime.
 
 ```bash
 curl -sS http://127.0.0.1:19123/tools/invoke \
@@ -126,8 +126,10 @@ curl -sS http://127.0.0.1:19123/tools/invoke \
 
 Current expected result:
 
-- Mahilo returns an auth-shaped error like `Missing Authorization header`
-- this is a known UX gap
+- Mahilo returns a structured bootstrap message for the current runtime
+- the message tells the agent not to ask the human to run `/mahilo setup`
+- the message tells the agent to assume it does not have access to any Mahilo repo checkout or docs
+- the message includes exact `POST /api/v1/auth/register` and `POST /api/v1/agents` calls plus the exact runtime bootstrap store path
 
 ## 5. Auto-register from a configured apiKey
 

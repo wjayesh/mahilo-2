@@ -628,7 +628,7 @@ function buildMahiloCommandHelp(router: MahiloOperatorCommandRouter): string {
   const base =
     "Usage: /mahilo <setup|status|network|review|reconnect> [json]\n" +
     "Examples:\n" +
-    "/mahilo setup bootstrap-user mhinv_example\n" +
+    '/mahilo setup {"username":"bootstrap-user","invite_token":"mhinv_example"}\n' +
     "/mahilo status\n" +
     "/mahilo network\n" +
     '/mahilo review {"status":"open","limit":10}';

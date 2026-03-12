@@ -17,6 +17,7 @@ import { preferencesRoutes } from "./routes/preferences";
 import { contactRoutes } from "./routes/contacts";
 import { adminRoutes } from "./routes/admin";
 import { rolesRoutes } from "./routes/roles";
+import { waitlistRoutes } from "./routes/waitlist";
 
 export type AppEnv = {
   Variables: {
@@ -74,6 +75,7 @@ export function createApp() {
   api.route("/preferences", preferencesRoutes);
   api.route("/roles", rolesRoutes);
   api.route("/admin", adminRoutes);
+  api.route("/waitlist", waitlistRoutes);
 
   app.route(config.apiPrefix, api);
 

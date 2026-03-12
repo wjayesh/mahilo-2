@@ -50,6 +50,7 @@ import {
   registerMahiloWebhookRoute,
   type MahiloWebhookRouteOptions,
 } from "./webhook-route";
+import { resolveMahiloRuntimeBootstrapPath } from "./runtime-bootstrap";
 import {
   extractMahiloPostSendEvent,
   formatMahiloLearningSuggestion,
@@ -61,7 +62,10 @@ export interface MahiloOpenClawPluginOptions {
   contactsProvider?: ContactsProvider;
   createClient?: (config: MahiloPluginConfig) => MahiloContractClient;
   diagnosticsCommands?: MahiloDiagnosticsCommandOptions;
+  isBootstrapReady?: () => boolean;
   pluginState?: InMemoryPluginState;
+  setupInstructions?: string;
+  toolBootstrapError?: string;
   webhookRoute?: MahiloWebhookRouteOptions;
 }
 
@@ -80,20 +84,35 @@ const MAHILO_ASK_NETWORK_TOOL_NAME = "ask_network";
 const MAHILO_MANAGE_NETWORK_TOOL_NAME = "manage_network";
 const MAHILO_SEND_MESSAGE_TOOL_NAME = "send_message";
 const MAHILO_SET_BOUNDARIES_TOOL_NAME = "set_boundaries";
+const MAHILO_AUTH_REGISTER_PATH = "/api/v1/auth/register";
+const MAHILO_INVITE_TOKEN_EXAMPLE = "mhinv_...";
+const MAHILO_RUNTIME_API_KEY_EXAMPLE = "mhl_...";
 
-const MAHILO_SETUP_INSTRUCTIONS = `[MahiloSetup/v1]
-Mahilo plugin installed but not configured (no API key).
-To set up:
-1. Ask your human for either:
-   - a Mahilo API key, or
-   - a one-time Mahilo invite token
-2. If you received an invite token, run:
-   /mahilo setup {"username":"<handle>","invite_token":"mhinv_..."}
-   Mahilo will mint the API key, save it locally, and continue setup.
-3. If you received an API key instead, patch gateway config with the key:
-   Use gateway tool: config.patch → plugins.entries.mahilo.config.apiKey = "mhl_..."
-   Gateway restarts and Mahilo connects automatically.
-Do NOT try to call /mahilo setup as a tool — it is a slash command, not a tool.`;
+function buildMahiloSetupInstructions(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const registerUrl = `${normalizedBaseUrl}${MAHILO_AUTH_REGISTER_PATH}`;
+  const runtimeStatePath = resolveMahiloRuntimeBootstrapPath();
+
+  return `[MahiloSetup/v1]
+Mahilo plugin installed but not bootstrapped for this runtime yet.
+Do not ask the human to run /mahilo setup.
+Assume you do not have access to any Mahilo repo checkout. Do not inspect local source code or docs for bootstrap steps; use only the exact runtime-specific instructions below.
+The authoritative Mahilo runtime bootstrap store for this runtime is exactly ${runtimeStatePath}. If source code or docs mention a different default path, ignore them and use this exact file.
+Do not restart OpenClaw after writing the runtime bootstrap store. Mahilo re-reads this file on every tool call, so retry the Mahilo action immediately after you save it.
+If the human gives you a one-time Mahilo invite token, register directly with:
+  curl -sS -X POST ${registerUrl} -H 'Content-Type: application/json' -d '{"username":"your_handle","invite_token":"${MAHILO_INVITE_TOKEN_EXAMPLE}"}'
+Mahilo returns an api_key. Save that api_key in the Mahilo runtime bootstrap store at ${runtimeStatePath} under the server key ${normalizedBaseUrl}, preserving any other existing servers. Store both apiKey and username in that server entry.
+If the human already has a Mahilo API key that starts with ${MAHILO_RUNTIME_API_KEY_EXAMPLE}, write that apiKey to the same runtime bootstrap store instead of calling register.
+After the apiKey is saved, retry the Mahilo action you were attempting.`;
+}
+
+function buildMahiloNotConfiguredMessage(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const registerUrl = `${normalizedBaseUrl}${MAHILO_AUTH_REGISTER_PATH}`;
+  const runtimeStatePath = resolveMahiloRuntimeBootstrapPath();
+
+  return `Mahilo is not bootstrapped for this runtime yet. I should register directly with POST ${registerUrl} using {"username":"your_handle","invite_token":"${MAHILO_INVITE_TOKEN_EXAMPLE}"} or save an existing Mahilo API key (${MAHILO_RUNTIME_API_KEY_EXAMPLE}) into the Mahilo runtime bootstrap store at ${runtimeStatePath} under server ${normalizedBaseUrl}, then retry this Mahilo action. I should not ask the human to run /mahilo setup. I should assume I do not have access to any Mahilo repo checkout, and I should not inspect local source code or docs for bootstrap steps.`;
+}
 
 type MahiloBoundaryToolAction = "exception" | "set";
 type MahiloBoundaryToolDetails = MahiloBoundaryChangeResult;
@@ -145,7 +164,12 @@ export function registerMahiloOpenClawPlugin(
 
   const createClient = options.createClient ?? createMahiloClientFromConfig;
   const client = createClient(config);
-  const needsSetup = !config.apiKey;
+  const isBootstrapReady =
+    options.isBootstrapReady ?? (() => Boolean(config.apiKey));
+  const setupInstructions =
+    options.setupInstructions ?? buildMahiloSetupInstructions(config.baseUrl);
+  const notConfiguredMessage =
+    options.toolBootstrapError ?? buildMahiloNotConfiguredMessage(config.baseUrl);
   const pluginState =
     options.pluginState ??
     new InMemoryPluginState({
@@ -173,11 +197,26 @@ export function registerMahiloOpenClawPlugin(
     pluginState,
   };
 
-  api.registerTool(createSendMessageTool(client, needsSetup));
-  api.registerTool(createManageNetworkTool(client, needsSetup));
-  api.registerTool(createAskNetworkTool(client, needsSetup));
-  api.registerTool(createSetBoundariesTool(client, needsSetup));
-  registerPromptContextHook(api, client, config, pluginState, needsSetup);
+  api.registerTool(
+    createSendMessageTool(client, isBootstrapReady, notConfiguredMessage),
+  );
+  api.registerTool(
+    createManageNetworkTool(client, isBootstrapReady, notConfiguredMessage),
+  );
+  api.registerTool(
+    createAskNetworkTool(client, isBootstrapReady, notConfiguredMessage),
+  );
+  api.registerTool(
+    createSetBoundariesTool(client, isBootstrapReady, notConfiguredMessage),
+  );
+  registerPromptContextHook(
+    api,
+    client,
+    config,
+    pluginState,
+    isBootstrapReady,
+    setupInstructions,
+  );
   attachMahiloSenderResolutionCache(client, pluginState);
   registerMahiloPostSendHooks(api, pluginState);
   registerMahiloWebhookRoute(api, config, webhookRouteOptions);
@@ -194,7 +233,8 @@ export default defaultMahiloOpenClawPlugin;
 
 function createSendMessageTool(
   client: MahiloContractClient,
-  needsSetup: boolean,
+  isBootstrapReady: () => boolean,
+  notConfiguredMessage: string,
 ): AnyAgentTool {
   return {
     description:
@@ -203,8 +243,8 @@ function createSendMessageTool(
       executeMahiloTool<MahiloSendMessageToolDetails>(
         MAHILO_SEND_MESSAGE_TOOL_NAME,
         async () => {
-          if (needsSetup) {
-            return notConfiguredToolResult(MAHILO_SEND_MESSAGE_TOOL_NAME);
+          if (!isBootstrapReady()) {
+            return notConfiguredToolResult(notConfiguredMessage);
           }
           const { input, recipientType } = parseSendMessageToolInput(rawInput);
           const context = parseToolContext(rawInput);
@@ -249,7 +289,8 @@ function createSendMessageTool(
 
 function createManageNetworkTool(
   client: MahiloContractClient,
-  needsSetup: boolean,
+  isBootstrapReady: () => boolean,
+  notConfiguredMessage: string,
 ): AnyAgentTool {
   return {
     description:
@@ -258,8 +299,8 @@ function createManageNetworkTool(
       executeMahiloTool<MahiloManageNetworkToolDetails>(
         MAHILO_MANAGE_NETWORK_TOOL_NAME,
         async () => {
-          if (needsSetup) {
-            return notConfiguredToolResult(MAHILO_MANAGE_NETWORK_TOOL_NAME);
+          if (!isBootstrapReady()) {
+            return notConfiguredToolResult(notConfiguredMessage);
           }
           const input = parseManageNetworkToolInput(rawInput);
           const result = await executeMahiloRelationshipAction(client, input);
@@ -289,7 +330,8 @@ function createManageNetworkTool(
 
 function createAskNetworkTool(
   client: MahiloContractClient,
-  needsSetup: boolean,
+  isBootstrapReady: () => boolean,
+  notConfiguredMessage: string,
 ): AnyAgentTool {
   return {
     description:
@@ -298,8 +340,8 @@ function createAskNetworkTool(
       executeMahiloTool<MahiloAskNetworkToolDetails>(
         MAHILO_ASK_NETWORK_TOOL_NAME,
         async () => {
-          if (needsSetup) {
-            return notConfiguredToolResult(MAHILO_ASK_NETWORK_TOOL_NAME);
+          if (!isBootstrapReady()) {
+            return notConfiguredToolResult(notConfiguredMessage);
           }
           const input = parseAskNetworkToolInput(rawInput);
           const result = await executeMahiloNetworkAction(
@@ -336,7 +378,8 @@ function createAskNetworkTool(
 
 function createSetBoundariesTool(
   client: MahiloContractClient,
-  needsSetup: boolean,
+  isBootstrapReady: () => boolean,
+  notConfiguredMessage: string,
 ): AnyAgentTool {
   return {
     description:
@@ -345,8 +388,8 @@ function createSetBoundariesTool(
       executeMahiloTool<MahiloBoundaryToolDetails>(
         MAHILO_SET_BOUNDARIES_TOOL_NAME,
         async () => {
-          if (needsSetup) {
-            return notConfiguredToolResult(MAHILO_SET_BOUNDARIES_TOOL_NAME);
+          if (!isBootstrapReady()) {
+            return notConfiguredToolResult(notConfiguredMessage);
           }
           const input = parseSetBoundariesToolInput(rawInput);
           const result = await createMahiloBoundaryChange(client, input);
@@ -977,9 +1020,9 @@ function readRecipientType(value: unknown): "group" | "user" | undefined {
   return value === "group" || value === "user" ? value : undefined;
 }
 
-function notConfiguredToolResult(_toolName: string): never {
+function notConfiguredToolResult(message: string): never {
   throw new MahiloToolInputError(
-    "Mahilo API key not set. Ask your human for either a Mahilo API key or a one-time invite token, then run `mahilo setup` to bootstrap credentials for this OpenClaw runtime.",
+    message,
   );
 }
 
@@ -1046,9 +1089,10 @@ function registerPromptContextHook(
   client: MahiloContractClient,
   config: MahiloPluginConfig,
   pluginState: InMemoryPluginState,
-  needsSetup: boolean,
+  isBootstrapReady: () => boolean,
+  setupInstructions: string,
 ): void {
-  if (!config.promptContextEnabled && !needsSetup) {
+  if (!config.promptContextEnabled && isBootstrapReady()) {
     return;
   }
 
@@ -1056,8 +1100,8 @@ function registerPromptContextHook(
     "before_prompt_build",
     async (rawHookInput: unknown) => {
       try {
-        if (needsSetup) {
-          return injectSetupInstructionsIntoPrompt(rawHookInput);
+        if (!isBootstrapReady()) {
+          return injectSetupInstructionsIntoPrompt(rawHookInput, setupInstructions);
         }
         return await injectMahiloContextIntoPrompt(
           rawHookInput,
@@ -1073,13 +1117,16 @@ function registerPromptContextHook(
     },
     {
       description:
-        "Injects bounded Mahilo relationship and policy context before prompt build.",
+        "Injects Mahilo bootstrap or bounded relationship/policy context before prompt build.",
       name: "mahilo.before_prompt_build",
     },
   );
 }
 
-function injectSetupInstructionsIntoPrompt(rawHookInput: unknown): unknown {
+function injectSetupInstructionsIntoPrompt(
+  rawHookInput: unknown,
+  setupInstructions: string,
+): unknown {
   const hookInput = readOptionalObject(rawHookInput);
   if (!hookInput) {
     return rawHookInput;
@@ -1089,7 +1136,7 @@ function injectSetupInstructionsIntoPrompt(rawHookInput: unknown): unknown {
     return rawHookInput;
   }
 
-  return injectPromptPayload(hookInput, MAHILO_SETUP_INSTRUCTIONS);
+  return injectPromptPayload(hookInput, setupInstructions);
 }
 
 function alreadyContainsMahiloSetupContext(

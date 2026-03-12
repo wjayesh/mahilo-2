@@ -171,7 +171,7 @@ export class MahiloSenderResolver {
 
     if (!sender) {
       notes.push(
-        "No Mahilo sender connection is attached to this plugin yet. Attach an existing agent connection or register one on the Mahilo server, then rerun mahilo setup."
+        "No Mahilo sender connection is attached to this plugin yet. Register or repair the default OpenClaw sender via POST /api/v1/agents, then retry the Mahilo action."
       );
     }
 
@@ -214,7 +214,9 @@ export class MahiloSenderResolver {
   ): ResolvedMahiloSenderConnection {
     const connections = inspection.connections;
     if (connections.length === 0) {
-      throw new Error("Mahilo setup could not find any agent connections for the current identity.");
+      throw new Error(
+        "Mahilo could not find any agent connections for the current identity. Register the default OpenClaw sender via POST /api/v1/agents and retry.",
+      );
     }
 
     const explicitId = normalizeConnectionId(explicitSenderConnectionId);

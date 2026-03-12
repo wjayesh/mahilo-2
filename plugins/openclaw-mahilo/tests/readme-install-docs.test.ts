@@ -69,6 +69,8 @@ describe("README install docs", () => {
     expect(readme).toContain("opinions/recommendations");
     expect(readme).toContain("health, financial, and contact details");
     expect(readme).toContain("mahilo setup");
+    expect(readme).toContain("invite token");
+    expect(readme).toContain(`"invite_token":"mhinv_..."`);
     expect(readme).toContain("mahilo network");
     expect(readme).toContain("mahilo status");
     expect(readme).toContain("mahilo reconnect");

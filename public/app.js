@@ -116,19 +116,22 @@ const API = {
       });
     },
 
-    async verify(userId, tweetUrl) {
-      return API.request(`/auth/verify/${userId}`, {
-        method: 'POST',
-        body: JSON.stringify({ tweet_url: tweetUrl }),
-      });
-    },
-
     async me() {
       return API.request('/auth/me');
     },
 
     async rotateKey() {
       return API.request('/auth/rotate-key', { method: 'POST' });
+    },
+  },
+
+  // Waitlist endpoint
+  waitlist: {
+    async join(email) {
+      return API.request('/waitlist', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
     },
   },
 
@@ -524,36 +527,20 @@ const UI = {
       DataLoader.loadAll();
       WebSocketManager.connect();
     } else {
-      this.showAuth();
+      this.showLanding();
     }
   },
 
   // Bind all event listeners
   bindEvents() {
-    // User type tabs (Human vs Agent)
-    document.querySelectorAll('.type-tab').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const type = e.currentTarget.dataset.type;
-        this.switchUserType(type);
-      });
-    });
-
-    // Auth tabs
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const tab = e.target.dataset.tab;
-        this.switchAuthTab(tab);
-      });
-    });
-
-    // Login form
-    document.getElementById('login-form').addEventListener('submit', (e) => {
+    // Login form (may not exist if landing page replaced auth screen)
+    document.getElementById('login-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
       this.handleLogin();
     });
 
-    // Register form
-    document.getElementById('register-form').addEventListener('submit', (e) => {
+    // Register form (may not exist if landing page replaced auth screen)
+    document.getElementById('register-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
       this.handleRegister();
     });
@@ -728,17 +715,8 @@ const UI = {
       this.copyToClipboard(document.getElementById('new-api-key').textContent);
     });
 
-    document.getElementById('copy-tweet')?.addEventListener('click', () => {
-      this.copyToClipboard(document.getElementById('verification-tweet').textContent);
-    });
-
     document.getElementById('copy-callback-secret')?.addEventListener('click', () => {
       this.copyToClipboard(document.getElementById('new-callback-secret').textContent);
-    });
-
-    // Twitter verification
-    document.getElementById('verify-twitter-btn')?.addEventListener('click', () => {
-      this.handleVerifyTwitter();
     });
 
     // Send test message (developer)
@@ -758,24 +736,34 @@ const UI = {
     document.getElementById('dev-rotate-api-key')?.addEventListener('click', () => {
       this.handleRotateKey();
     });
-  },
 
-  // Switch user type (Human vs Agent)
-  switchUserType(type) {
-    document.querySelectorAll('.type-tab').forEach(btn => btn.classList.remove('active'));
-    document.querySelector(`.type-tab[data-type="${type}"]`).classList.add('active');
+    // Landing page: hamburger menu
+    document.getElementById('landing-hamburger')?.addEventListener('click', () => {
+      document.getElementById('landing-mobile-menu')?.classList.toggle('open');
+    });
 
-    document.querySelectorAll('.user-type-section').forEach(section => section.classList.remove('active'));
-    document.getElementById(`${type}-section`).classList.add('active');
-  },
+    // Landing page: close mobile menu on link click
+    document.querySelectorAll('.landing-mobile-link').forEach(link => {
+      link.addEventListener('click', () => {
+        document.getElementById('landing-mobile-menu')?.classList.remove('open');
+      });
+    });
 
-  // Switch auth tab
-  switchAuthTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelector(`.tab-btn[data-tab="${tab}"]`).classList.add('active');
+    // Landing page: waitlist form
+    document.getElementById('waitlist-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.handleWaitlistSubmit();
+    });
 
-    document.querySelectorAll('.auth-form').forEach(form => form.classList.remove('active'));
-    document.getElementById(`${tab}-form`).classList.add('active');
+    // Landing page: smooth scroll for nav links
+    document.querySelectorAll('.landing-nav a[href^="#"], .hero-cta[href^="#"]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) target.scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('landing-mobile-menu')?.classList.remove('open');
+      });
+    });
   },
 
   // Handle login
@@ -803,7 +791,6 @@ const UI = {
     }
   },
 
-  // Handle register
   async handleRegister() {
     const username = document.getElementById('reg-username').value.trim();
     const displayName = document.getElementById('reg-display-name').value.trim();
@@ -823,52 +810,14 @@ const UI = {
       };
       State.save();
 
-      // Show API key + verification modal
+      // Show simplified API key modal (no Twitter verification)
       document.getElementById('new-api-key').textContent = result.api_key;
-      document.getElementById('verification-tweet').textContent = result.verification_tweet || '';
-      document.getElementById('verify-user-id').value = result.user_id;
-
-      // Set up Twitter intent link
-      const tweetText = encodeURIComponent(result.verification_tweet || '');
-      document.getElementById('tweet-intent-link').href = `https://twitter.com/intent/tweet?text=${tweetText}`;
-
-      // Clear previous status
-      document.getElementById('verification-status').textContent = '';
-      document.getElementById('verification-status').className = 'verification-status';
-      document.getElementById('tweet-url-input').value = '';
-
       this.showModal('api-key-modal');
 
       this.showDashboard();
       WebSocketManager.connect();
     } catch (error) {
       this.showToast(error.message || 'Registration failed', 'error');
-    }
-  },
-
-  // Handle Twitter verification
-  async handleVerifyTwitter() {
-    const tweetUrl = document.getElementById('tweet-url-input').value.trim();
-    const userId = document.getElementById('verify-user-id').value;
-    const statusEl = document.getElementById('verification-status');
-
-    if (!tweetUrl) {
-      statusEl.textContent = 'Please enter your tweet URL';
-      statusEl.className = 'verification-status error';
-      return;
-    }
-
-    statusEl.textContent = 'Verifying...';
-    statusEl.className = 'verification-status';
-
-    try {
-      const result = await API.auth.verify(userId, tweetUrl);
-      statusEl.textContent = '✓ Verified! Welcome to Mahilo!';
-      statusEl.className = 'verification-status success';
-      this.showToast('Twitter verified successfully!', 'success');
-    } catch (error) {
-      statusEl.textContent = error.message || 'Verification failed';
-      statusEl.className = 'verification-status error';
     }
   },
 
@@ -900,8 +849,45 @@ const UI = {
     WebSocketManager.disconnect();
     State.clear();
     this.hideModals();
-    this.showAuth();
+    this.showLanding();
     this.showToast('Logged out successfully', 'success');
+  },
+
+  // Handle waitlist form submission
+  async handleWaitlistSubmit() {
+    const emailInput = document.getElementById('waitlist-email');
+    const submitBtn = document.getElementById('waitlist-submit-btn');
+    const btnText = submitBtn.querySelector('.waitlist-btn-text');
+    const btnLoading = submitBtn.querySelector('.waitlist-btn-loading');
+    const btnSuccess = submitBtn.querySelector('.waitlist-btn-success');
+    const email = emailInput.value.trim();
+
+    if (!email) return;
+
+    // Show loading
+    btnText.classList.add('hidden');
+    btnLoading.classList.remove('hidden');
+    submitBtn.disabled = true;
+
+    try {
+      await API.waitlist.join(email);
+
+      // Show success
+      btnLoading.classList.add('hidden');
+      btnSuccess.classList.remove('hidden');
+
+      // Hide form, show confirmation
+      setTimeout(() => {
+        document.getElementById('waitlist-form').classList.add('hidden');
+        document.getElementById('waitlist-confirmation').classList.remove('hidden');
+      }, 800);
+    } catch (error) {
+      // Reset button
+      btnLoading.classList.add('hidden');
+      btnText.classList.remove('hidden');
+      submitBtn.disabled = false;
+      this.showToast(error.message || 'Something went wrong. Try again.', 'error');
+    }
   },
 
   // Handle rotate API key
@@ -1292,15 +1278,75 @@ const UI = {
     }
   },
 
-  // Show auth screen
-  showAuth() {
-    document.getElementById('auth-screen').classList.remove('hidden');
+  // Show landing page
+  showLanding() {
+    document.getElementById('landing-page').classList.remove('hidden');
     document.getElementById('dashboard-screen').classList.add('hidden');
+    this.initLandingAnimations();
+  },
+
+  // Initialize landing page animations
+  initLandingAnimations() {
+    // Scroll reveal observer
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('revealed');
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.reveal-on-scroll').forEach(el => observer.observe(el));
+
+    // Nav scroll effect
+    const handleScroll = () => {
+      const nav = document.querySelector('.landing-nav');
+      if (nav) nav.classList.toggle('scrolled', window.scrollY > 50);
+    };
+    window.addEventListener('scroll', handleScroll);
+    handleScroll();
+
+    // Typewriter effect for solution demo
+    const demoText = '"Hey, ask my contacts if anyone knows a good dentist in SF."';
+    const demoEl = document.getElementById('demo-prompt-text');
+    const demoSection = document.getElementById('solution-section');
+
+    if (demoEl && demoSection) {
+      let typed = false;
+      const typeObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting && !typed) {
+            typed = true;
+            let i = 0;
+            demoEl.textContent = '';
+            const cursor = demoEl.previousElementSibling;
+            const interval = setInterval(() => {
+              demoEl.textContent += demoText[i];
+              i++;
+              if (i >= demoText.length) {
+                clearInterval(interval);
+                if (cursor) cursor.style.display = 'none';
+                // Show response cards after typing finishes
+                setTimeout(() => {
+                  document.querySelectorAll('.demo-response').forEach((card, idx) => {
+                    setTimeout(() => {
+                      card.style.opacity = '1';
+                      card.style.transform = 'translateY(0)';
+                    }, idx * 400);
+                  });
+                }, 300);
+              }
+            }, 35);
+          }
+        });
+      }, { threshold: 0.3 });
+      typeObserver.observe(demoSection);
+    }
   },
 
   // Show dashboard
   showDashboard() {
-    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('landing-page').classList.add('hidden');
     document.getElementById('dashboard-screen').classList.remove('hidden');
     
     // Update sidebar

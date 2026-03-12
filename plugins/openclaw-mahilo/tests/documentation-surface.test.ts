@@ -25,6 +25,7 @@ describe("documentation surface", () => {
     expect(guidedFirstRun).toContain("set_boundaries");
     expect(guidedFirstRun).toContain("https://mahilo.io");
     expect(guidedFirstRun).toContain("\"username\": \"your_handle\"");
+    expect(guidedFirstRun).toContain("\"invite_token\": \"mhinv_...\"");
     expect(guidedFirstRun).toContain("Success Scorecard");
   });
 

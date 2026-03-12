@@ -23,7 +23,7 @@ The single recommended first-run path is [Guided First Run](./docs/guided-first-
 
 If you only want the raw command/tool sequence, the loop is:
 
-1. If you already have a Mahilo API key in plugin config, restart OpenClaw and let the plugin auto-attach the default sender on startup. If you do not, run `mahilo setup` once to bootstrap identity and sender attachment.
+1. If you already have a Mahilo API key in plugin config, restart OpenClaw and let the plugin auto-attach the default sender on startup. If you do not, ask a human to enter `/mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}` once in OpenClaw to bootstrap identity and sender attachment.
 2. Run `mahilo status` to confirm connectivity and webhook alignment.
 3. Run `mahilo network` or `manage_network` with `action=list` to see whether your circle is ready.
 4. If the network is empty, stay in `manage_network` and use `action=send_request` to invite one trusted person. If they already invited you, use `action=accept`, then have them bring their Mahilo plugin online in OpenClaw.
@@ -164,7 +164,7 @@ When a send, preview, or context-fetch call omits `senderConnectionId`, the plug
 After installing the plugin, restart OpenClaw and run:
 
 ```text
-mahilo setup
+/mahilo setup
 ```
 
 On a fresh runtime, `mahilo setup` can:
@@ -177,13 +177,13 @@ On a fresh runtime, `mahilo setup` can:
 The simplest first-run form is:
 
 ```text
-mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}
+/mahilo setup {"username":"your_handle","invite_token":"mhinv_..."}
 ```
 
 Then run:
 
 ```text
-mahilo status
+/mahilo status
 ```
 
 A healthy install reports:

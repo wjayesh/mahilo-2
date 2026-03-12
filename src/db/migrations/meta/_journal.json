@@ -78,6 +78,13 @@
       "when": 1773225600000,
       "tag": "0010_invite_only_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1773580800000,
+      "tag": "0011_waitlist_emails",
+      "breakpoints": true
     }
   ]
 }

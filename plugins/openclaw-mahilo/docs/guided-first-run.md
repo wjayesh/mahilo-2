@@ -17,12 +17,13 @@ The only operator-owned step that still happens outside OpenClaw is installing t
 
 ## Recommended Five-Minute Path
 
-1. Run `mahilo setup`.
-   If this runtime does not have credentials yet, include a username once:
+1. Run `/mahilo setup`.
+   If this runtime does not have credentials yet, include both a username and a one-time invite token:
 
    ```json
    {
-     "username": "your_handle"
+     "username": "your_handle",
+     "invite_token": "mhinv_..."
    }
    ```
 
