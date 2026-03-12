@@ -595,7 +595,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
   - 2026-03-10T01:53:20.830Z: PAL-020 completed via orchestrator integration.
 ### 1.8 Live Ask-Network Reply Routing Fix
 - **ID**: `PAL-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `PAL-012`
 - **Description**:
@@ -610,6 +610,7 @@ Mahilo is the trust and control layer behind the plugin: it knows who is in your
 
 - **Notes**:
   - 2026-03-11T13:41:51.921Z: Live sandbox repro shows `rememberInboundRoute: no sessionKey in context, skipping route storage`, followed by `No exact route for inbound message ... routeCount=0`, so the correlated route is never written in the live `after_tool_call` path.
+  - 2026-03-12T20:36:26.206Z: PAL-021 completed via orchestrator integration.
 ## Recommended Execution Order
 
 1. `PAL-001` -> `PAL-002`
