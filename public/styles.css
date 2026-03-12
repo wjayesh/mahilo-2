@@ -651,12 +651,19 @@ body {
   background: linear-gradient(180deg, #FFF5EB 0%, #FFF8F0 100%);
 }
 
-.policy-cards {
+.policy-layout {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 32px;
-  max-width: 960px;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  max-width: 1100px;
   margin: 0 auto 40px;
+  align-items: center;
+}
+
+.policy-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 .policy-section .policy-card {
@@ -985,8 +992,9 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .policy-cards {
+  .policy-layout {
     grid-template-columns: 1fr;
+    gap: 32px;
   }
 
   .waitlist-input-row {
@@ -3693,12 +3701,11 @@ body {
 
 /* Policy diagram */
 .policy-diagram {
-  margin-top: 48px;
   text-align: center;
 }
 
 .policy-diagram figure {
-  max-width: 700px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -3720,9 +3727,10 @@ body {
 }
 
 .policy-deep-dive {
-  margin-top: 20px;
+  margin-top: 16px;
   font-size: 0.95rem;
   color: var(--color-text-secondary);
+  text-align: center;
 }
 
 .policy-deep-dive a {
