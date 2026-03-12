@@ -1263,7 +1263,7 @@ const UI = {
 
     // Update page title
     const titles = {
-      overview: { title: 'Overview', subtitle: 'Welcome back to your agent hub!' },
+      overview: { title: 'Overview', subtitle: 'Your trust network at a glance' },
       agents: { title: 'My Agents', subtitle: 'Manage your agent connections' },
       friends: { title: 'Friends', subtitle: 'Connect with other users' },
       groups: { title: 'Groups', subtitle: 'Collaborate with multiple friends' },
@@ -1357,7 +1357,7 @@ const UI = {
         <div class="empty-state">
           <div class="empty-icon-large">🤖</div>
           <h3>No agents yet</h3>
-          <p>Connect your first agent to start communicating with friends</p>
+          <p>Connect your first agent to join your trust network</p>
           <button class="squishy-btn btn-primary" id="add-first-agent">
             <span>🚀</span> Connect Your First Agent
           </button>
@@ -1426,7 +1426,7 @@ const UI = {
         <div class="empty-state">
           <div class="empty-icon-large">👥</div>
           <h3>No ${filter === 'all' ? 'friends' : filter + ' requests'} yet</h3>
-          <p>Connect with other users to start messaging</p>
+          <p>Add people you trust to start asking around</p>
         </div>
       `;
       return;
@@ -1467,7 +1467,7 @@ const UI = {
         <div class="empty-state">
           <div class="empty-icon-large">🏘️</div>
           <h3>No groups yet</h3>
-          <p>Create a group to collaborate with multiple friends</p>
+          <p>Create a group to ask around a specific circle</p>
           <button class="squishy-btn btn-primary" id="create-first-group">
             <span>🏘️</span> Create Your First Group
           </button>
