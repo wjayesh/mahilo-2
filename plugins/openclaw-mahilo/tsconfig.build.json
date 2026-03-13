@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": false,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "typeRoots": ["./types"],
+    "types": ["mahilo-build"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "types/**/*.d.ts"],
+  "exclude": ["dist", "node_modules", "tests"]
+}

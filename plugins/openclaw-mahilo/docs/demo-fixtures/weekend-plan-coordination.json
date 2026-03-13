@@ -1,0 +1,170 @@
+{
+  "id": "weekend-plan-coordination",
+  "order": 2,
+  "title": "Weekend Plan / Coordination",
+  "persona": "Community seed user",
+  "prompt": "What time should we leave for Saturday's Tahoe day trip?",
+  "summary": "Use Mahilo ask-around as lightweight coordination across a small trusted circle without turning the flow into manual outreach.",
+  "trustSignals": [
+    "The ask is scoped to the weekend_planners role instead of every contact in the network.",
+    "Replies come back into the same thread with who-said-what attribution and experience context.",
+    "The opening ask result explains that silence does not block the run, which keeps coordination usable with a small network."
+  ],
+  "mock": {
+    "identity": {
+      "displayName": "Jay",
+      "raw": {
+        "username": "jay"
+      },
+      "userId": "usr_jay",
+      "username": "jay",
+      "verified": true
+    },
+    "agentConnections": [
+      {
+        "active": true,
+        "framework": "openclaw",
+        "id": "conn_sender_default",
+        "label": "default",
+        "raw": {
+          "id": "conn_sender_default",
+          "is_default": true
+        }
+      }
+    ],
+    "friendships": [
+      {
+        "direction": "sent",
+        "displayName": "Priya",
+        "friendshipId": "fr_priya",
+        "raw": {
+          "friendshipId": "fr_priya"
+        },
+        "roles": [
+          "weekend_planners",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_priya",
+        "username": "priya"
+      },
+      {
+        "direction": "sent",
+        "displayName": "Omar",
+        "friendshipId": "fr_omar",
+        "raw": {
+          "friendshipId": "fr_omar"
+        },
+        "roles": [
+          "weekend_planners",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_omar",
+        "username": "omar"
+      },
+      {
+        "direction": "sent",
+        "displayName": "Nina",
+        "friendshipId": "fr_nina",
+        "raw": {
+          "friendshipId": "fr_nina"
+        },
+        "roles": [
+          "weekend_planners",
+          "friends"
+        ],
+        "status": "accepted",
+        "userId": "usr_nina",
+        "username": "nina"
+      }
+    ],
+    "friendConnectionsByUsername": {
+      "priya": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_priya",
+          "label": "default",
+          "raw": {
+            "id": "conn_priya"
+          }
+        }
+      ],
+      "omar": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_omar",
+          "label": "default",
+          "raw": {
+            "id": "conn_omar"
+          }
+        }
+      ],
+      "nina": [
+        {
+          "active": true,
+          "framework": "openclaw",
+          "id": "conn_nina",
+          "label": "default",
+          "raw": {
+            "id": "conn_nina"
+          }
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "command",
+      "label": "Connect Mahilo and confirm the sender for this session",
+      "name": "mahilo setup",
+      "input": {
+        "username": "jay"
+      }
+    },
+    {
+      "kind": "tool",
+      "label": "Ask only the weekend planners for departure timing",
+      "name": "ask_network",
+      "note": "Nina never replies in this fixture, so the story keeps moving with partial coordination data.",
+      "input": {
+        "action": "ask_around",
+        "correlationId": "corr_demo_weekend",
+        "question": "What time should we leave for Saturday's Tahoe day trip?",
+        "roles": [
+          "weekend_planners"
+        ]
+      }
+    },
+    {
+      "kind": "webhook",
+      "label": "Priya answers with recent experience",
+      "payload": {
+        "context": "Drove it two weekends ago",
+        "correlation_id": "corr_demo_weekend",
+        "message": "Leave by 7:30 a.m. or parking gets rough.",
+        "message_id": "msg_demo_weekend_1",
+        "recipient_connection_id": "conn_sender_default",
+        "sender": "Priya",
+        "sender_connection_id": "conn_priya",
+        "timestamp": "2026-03-09T09:10:00.000Z"
+      }
+    },
+    {
+      "kind": "webhook",
+      "label": "Omar confirms he can coordinate the shared plan",
+      "payload": {
+        "context": "Happy to drive and bring snacks",
+        "correlation_id": "corr_demo_weekend",
+        "message": "I can leave SF by 7:45 and bring breakfast for the car.",
+        "message_id": "msg_demo_weekend_2",
+        "recipient_connection_id": "conn_sender_default",
+        "sender": "Omar",
+        "sender_connection_id": "conn_omar",
+        "timestamp": "2026-03-09T09:12:00.000Z"
+      }
+    }
+  ]
+}
