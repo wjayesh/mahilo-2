@@ -10,8 +10,7 @@ const CONFIG = {
   // Always use production mahilo.io server
   API_URL: 'https://mahilo.io/api/v1',
   WS_URL: 'wss://mahilo.io/api/v1/notifications/ws',
-  // Google Apps Script waitlist endpoint (writes to Google Sheets)
-  WAITLIST_URL: 'REPLACE_WITH_APPS_SCRIPT_URL',
+
   STORAGE_KEY: 'mahilo_session',
   PING_INTERVAL: 30000,
 };
@@ -130,15 +129,10 @@ const API = {
   // Waitlist endpoint
   waitlist: {
     async join(email) {
-      // Write to Google Sheets via Apps Script
-      const res = await fetch(CONFIG.WAITLIST_URL, {
+      return API.request('/waitlist', {
         method: 'POST',
-        body: JSON.stringify({ email, source: 'landing' }),
-        headers: { 'Content-Type': 'text/plain' }, // Apps Script needs text/plain to avoid CORS preflight
+        body: JSON.stringify({ email }),
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Failed to join waitlist');
-      return data;
     },
   },
 
