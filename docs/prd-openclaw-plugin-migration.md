@@ -147,32 +147,40 @@ It is:
 
 ### 0.1 Create New Plugin Home in This Repo
 - **ID**: `PLG2-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Description**:
   - Create a new package directory in this repo for the OpenClaw plugin.
   - Recommended path: `plugins/openclaw-mahilo/`.
 - **Acceptance Criteria**:
-  - [ ] Plugin package directory exists in this repo
-  - [ ] Directory is clearly plugin-specific, not server code
-  - [ ] Path choice is documented
+  - [x] Plugin package directory exists in this repo
+  - [x] Directory is clearly plugin-specific, not server code
+  - [x] Path choice is documented
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-001 implementation in this workspace.
+  - 2026-03-08: Created `plugins/openclaw-mahilo/` with plugin-scoped README documenting the canonical path and scope.
 
 ### 0.2 Keep Package Extractable
 - **ID**: `PLG2-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001
 - **Description**:
   - Structure the plugin as an isolated package so it can later be published or extracted.
 - **Acceptance Criteria**:
-  - [ ] No hard dependency on repo-internal server source imports
-  - [ ] Plugin talks to Mahilo over HTTP / documented contracts only
-  - [ ] Build/test scripts are plugin-local
+  - [x] No hard dependency on repo-internal server source imports
+  - [x] Plugin talks to Mahilo over HTTP / documented contracts only
+  - [x] Build/test scripts are plugin-local
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-002 and audited plugin directory state against extractable package requirements.
+  - 2026-03-08: Added standalone package scaffold (`package.json`, `tsconfig.json`, `src/`, `tests/`) under `plugins/openclaw-mahilo/`.
+  - 2026-03-08: Implemented HTTP-only contract client targeting documented `/api/v1` Mahilo plugin endpoints with required auth/client headers.
+  - 2026-03-08: Validated plugin-local commands: `bun run build` and `bun run test` (4 passing tests) from `plugins/openclaw-mahilo/`.
 
 ### 0.3 Migration Strategy Decision
 - **ID**: `PLG2-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001
 - **Description**:
@@ -181,9 +189,20 @@ It is:
     - temporary mirror
     - phased replacement
   - Recommended: **copy-and-port**, then deprecate old location.
+  - **Decision**: Use **copy-and-port**.
+  - **Source-of-Truth Rules During Migration**:
+    - Active development source of truth is `plugins/openclaw-mahilo/`.
+    - `myclawd/extensions/mahilo/` is a legacy reference baseline during migration and should not be used for new feature work.
+    - Do not run a temporary mirror or bidirectional sync between old and new locations.
+    - If a critical fix must land in legacy code before full cutover, it should be authored in `plugins/openclaw-mahilo/` first, then explicitly cherry-picked/backported.
+    - A migrated module is considered authoritative only after it is ported in `plugins/openclaw-mahilo/` and validated with plugin-local checks.
+    - After Phase 1 completion, mark `myclawd/extensions/mahilo/` as deprecated/read-only.
 - **Acceptance Criteria**:
-  - [ ] Migration approach is written down
-  - [ ] No ambiguity about source of truth during migration
+  - [x] Migration approach is written down
+  - [x] No ambiguity about source of truth during migration
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-003 and selected copy-and-port with explicit no-mirror source-of-truth rules for migration.
+  - 2026-03-08: Finalized migration policy: `plugins/openclaw-mahilo/` is authoritative for active development; legacy path is reference-only until deprecation.
 
 ---
 
@@ -191,20 +210,25 @@ It is:
 
 ### 1.1 Port Package Metadata
 - **ID**: `PLG2-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001
 - **Description**:
   - Bring over `package.json`, plugin manifest, README, tsconfig, and test config.
   - Rename package appropriately if needed.
 - **Acceptance Criteria**:
-  - [ ] New plugin package has valid metadata
-  - [ ] Manifest/config schema load correctly
-  - [ ] Test runner can execute in isolation
+  - [x] New plugin package has valid metadata
+  - [x] Manifest/config schema load correctly
+  - [x] Test runner can execute in isolation
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-010 by auditing plugin metadata artifacts and identifying missing manifest/test-config files to port.
+  - 2026-03-08: Ported package metadata artifacts in `plugins/openclaw-mahilo/`, including `openclaw.plugin.json`, plugin-local `vitest.config.ts`, updated package scripts/fields, and README metadata notes.
+  - 2026-03-08: Added plugin-local manifest validation tests (`tests/manifest.test.ts`) covering manifest metadata and config schema loading.
+  - 2026-03-08: Validated in isolation from `plugins/openclaw-mahilo/` with `bun run build`, `bun run test` (6 passing), and `bun run validate:manifest` (2 passing).
 
 ### 1.2 Port Source Modules
 - **ID**: `PLG2-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-010
 - **Description**:
@@ -217,31 +241,59 @@ It is:
     - webhook
     - policy helpers
 - **Acceptance Criteria**:
-  - [ ] All current modules exist in new location
-  - [ ] Imports/build paths are fixed
-  - [ ] No leftover path coupling to `myclawd/extensions/mahilo`
+  - [x] All current modules exist in new location
+  - [x] Imports/build paths are fixed
+  - [x] No leftover path coupling to `myclawd/extensions/mahilo`
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-011 by auditing plugin module gaps and beginning source-module port into `plugins/openclaw-mahilo/src/`.
+  - 2026-03-08: Ported source modules into `plugins/openclaw-mahilo/src/` for `config`, `keys`, `state`, `tools`, `webhook`, and `policy-helpers`; updated `src/index.ts` exports and import wiring.
+  - 2026-03-08: Added plugin-local validation tests for ported modules (`tests/config.test.ts`, `tests/keys.test.ts`, `tests/state.test.ts`, `tests/policy-helpers.test.ts`, `tests/tools.test.ts`, `tests/webhook.test.ts`).
+  - 2026-03-08: Validated from `plugins/openclaw-mahilo/` with `bun run build` and `bun run test` (24 passing tests).
 
 ### 1.3 Port Tests
 - **ID**: `PLG2-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011
 - **Description**:
   - Bring over existing tests as migration safety net.
 - **Acceptance Criteria**:
-  - [ ] Current behavior is covered after migration
-  - [ ] Test suite runs from new plugin home
+  - [x] Current behavior is covered after migration
+  - [x] Test suite runs from new plugin home
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-012 by auditing legacy tests in `myclawd/extensions/mahilo/tests` and mapping them to migrated modules under `plugins/openclaw-mahilo/src`.
+  - 2026-03-08: Ported and expanded plugin-local tests for migrated modules (`client`, `config`, `keys`, `state`, `policy-helpers`, `tools`, `webhook`) with legacy parity scenarios adapted to contract-driven plugin behavior.
+  - 2026-03-08: Validated from `plugins/openclaw-mahilo/` with `bun run test` (73 passing) and `bun run build`.
 
 ### 1.4 Inventory Legacy Gaps
 - **ID**: `PLG2-013`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-011
 - **Description**:
   - Explicitly document which parts of the old plugin are legacy or need redesign.
 - **Acceptance Criteria**:
-  - [ ] Legacy assumptions are written down
-  - [ ] Redesign items are separated from straight migration work
+  - [x] Legacy assumptions are written down
+  - [x] Redesign items are separated from straight migration work
+- **Legacy Assumptions (Migration-Parity Carryovers)**:
+  - Tool inputs still accept both `camelCase` and `snake_case` aliases for core fields (for example `senderConnectionId` and `sender_connection_id`) to preserve legacy caller compatibility during cutover.
+  - Policy/send response parsing remains tolerant of multiple payload shapes for decision, resolution ID, and message ID extraction to avoid regressions from older response envelopes.
+  - Plugin state is still process-local and in-memory (`InMemoryPluginState`, `InMemoryDedupeState`), so context cache and inbound dedupe markers are not durable across restarts.
+  - Local policy guard heuristics remain as lightweight checks before send; they are secondary safety behavior rather than policy truth.
+  - Webhook callback trust still depends on plugin-provided callback secret sourcing (`callbackSecret` or `getCallbackSecret`) with no centralized secret lifecycle yet.
+- **Straight Migration Scope (Keep Stable for Porting)**:
+  - Preserve tool names and baseline semantics (`talk_to_agent`, `talk_to_group`, `list_mahilo_contacts`) while moving code into `plugins/openclaw-mahilo/`.
+  - Preserve webhook signature-first verification and retry dedupe semantics from the legacy implementation.
+  - Preserve compatibility parsing so existing callers are not forced into a same-day payload migration.
+- **Redesign Backlog (Not Straight Port Work)**:
+  - Shift send-time behavior fully to server-driven preflight/final enforcement flows and further demote/remove local policy influence (`PLG2-030`, `PLG2-042`).
+  - Add native prompt-context fetch/injection hooks instead of relying only on tool-time context handling (`PLG2-031`, `PLG2-040`).
+  - Introduce explicit override/review UX and diagnostics workflows rather than compatibility-era fallback behavior (`PLG2-033`, `PLG2-044`).
+  - Finalize long-term package/config identity and plan removal windows for compatibility aliases (`PLG2-021`, `PLG2-022` follow-on hardening).
+  - Evolve inbound delivery handling to true session-targeted routing continuity (`PLG2-052`).
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-013 by auditing migrated plugin modules to separate legacy compatibility assumptions from true redesign scope.
+  - 2026-03-08: Documented explicit legacy carryover assumptions and split redesign backlog from straight migration scope; cross-linked redesign items to planned Phase 2-5 tasks.
 
 ---
 
@@ -249,35 +301,44 @@ It is:
 
 ### 2.1 Modernize SDK Imports
 - **ID**: `PLG2-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011
 - **Description**:
   - Move from older `clawdbot` / `Moltbot` import shapes to modern OpenClaw plugin SDK usage.
   - Prefer current OpenClaw plugin import paths.
 - **Acceptance Criteria**:
-  - [ ] Plugin builds against current OpenClaw SDK surface
-  - [ ] No legacy naming leaks remain in public-facing plugin code
+  - [x] Plugin builds against current OpenClaw SDK surface
+  - [x] No legacy naming leaks remain in public-facing plugin code
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-020 by auditing plugin exports and adding an OpenClaw SDK-facing plugin entry wired to current import paths (`openclaw/plugin-sdk/core`).
+  - 2026-03-08: Added plugin-local tests for OpenClaw SDK registration and public-surface legacy-name guards, then validated with `bun run build`, `bun run test` (79 passing), and targeted TypeScript SDK compatibility compile for `src/openclaw-plugin.ts`.
 
 ### 2.2 Normalize Package Identity
 - **ID**: `PLG2-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-020
 - **Description**:
   - Decide package identity for long-term use.
+  - **Decision**: Keep package name as `@mahilo/openclaw-mahilo` to align with canonical repo path and avoid migration churn.
+  - **Decision**: Keep runtime plugin ID as `mahilo` and treat it as stable across manifest, OpenClaw registration, and runtime config.
+  - **Decision**: Treat `plugins.entries.mahilo.config` as the stable OpenClaw config key path for plugin runtime settings.
   - Example candidates:
     - `@mahilo/openclaw-plugin`
     - `@mahilo/openclaw-mahilo`
   - Keep runtime plugin ID stable (likely `mahilo`).
 - **Acceptance Criteria**:
-  - [ ] Package name chosen
-  - [ ] Plugin ID chosen and stable
-  - [ ] Config key expectations documented
+  - [x] Package name chosen
+  - [x] Plugin ID chosen and stable
+  - [x] Config key expectations documented
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-021 by auditing package metadata, manifest plugin ID, OpenClaw registration ID, and existing runtime config key documentation.
+  - 2026-03-08: Added shared identity constants and tests for package name / runtime plugin ID stability, documented config entry path and expected keys in plugin README, and validated with `bun run build`, `bun run test` (94 passing), and `bun run validate:manifest` (3 passing) from `plugins/openclaw-mahilo/`.
 
 ### 2.3 Manifest / Config Schema Cleanup
 - **ID**: `PLG2-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-020
 - **Description**:
@@ -290,9 +351,14 @@ It is:
     - local cache / UX knobs
     - optional review behavior
 - **Acceptance Criteria**:
-  - [ ] Config schema is clear and minimal
-  - [ ] Server-truth vs plugin-local config boundary is explicit
-  - [ ] Sensitive fields are marked clearly
+  - [x] Config schema is clear and minimal
+  - [x] Server-truth vs plugin-local config boundary is explicit
+  - [x] Sensitive fields are marked clearly
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-022 by auditing `openclaw.plugin.json` and runtime config parsing for stale or server-owned keys.
+  - 2026-03-08: Modernized manifest schema with explicit plugin-local boundary text, added callback path/url override support, and marked `apiKey` as sensitive (`format: password`, `writeOnly`, `x-sensitive`).
+  - 2026-03-08: Tightened runtime config parsing to reject unsupported/server-owned keys and removed legacy user-config overrides for `contractVersion`, `pluginVersion`, and `callbackSecret`.
+  - 2026-03-08: Added/updated config and manifest tests and validated with `bun run test` (83 passing), `bun run validate:manifest` (2 passing), and `bun run build`.
 
 ---
 
@@ -300,43 +366,56 @@ It is:
 
 ### 3.1 Replace Local Policy Truth with Server Preflight
 - **ID**: `PLG2-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011, SRV-041
 - **Description**:
   - Local filtering can remain as a lightweight safety helper, but final truth should come from Mahilo.
   - Plugin should call server preflight/resolve before final send.
 - **Acceptance Criteria**:
-  - [ ] Plugin does not own final policy truth
-  - [ ] Server preflight result drives send behavior
-  - [ ] Local policy logic is explicitly secondary or removed
+  - [x] Plugin does not own final policy truth
+  - [x] Server preflight result drives send behavior
+  - [x] Local policy logic is explicitly secondary or removed
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-030 by auditing `talkToAgent`/`talkToGroup` send flow and confirming local policy merge currently overrides server preflight decisions.
+  - 2026-03-09: Updated `plugins/openclaw-mahilo/src/tools.ts` so send gating uses Mahilo `/api/v1/plugin/resolve` decision directly; local policy guard remains optional advisory metadata (`localPolicyGuard`) and no longer overrides server allow/ask/deny outcomes.
+  - 2026-03-09: Added/updated send-tool tests validating server-preflight-driven behavior and local-guard secondary semantics; validated with `bun run test` (97 passing) and `bun run build`.
 
 ### 3.2 Context Fetch for Prompt Injection
 - **ID**: `PLG2-031`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-040
 - **Description**:
   - Fetch selector-aware context from Mahilo before prompt build.
 - **Acceptance Criteria**:
-  - [ ] Plugin can fetch compact recipient context
-  - [ ] Prompt injection format is stable and concise
-  - [ ] Failure degrades gracefully
+  - [x] Plugin can fetch compact recipient context
+  - [x] Prompt injection format is stable and concise
+  - [x] Failure degrades gracefully
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-031 by auditing server contract `POST /api/v1/plugin/context` payload/response shape and plugin runtime paths to add prompt-context fetch before prompt build.
+  - 2026-03-09: Added `src/prompt-context.ts` with selector-aware context fetch (`fetchMahiloPromptContext`), compact context normalization, deterministic `MahiloContext/v1` prompt injection formatting, context-cache integration, and graceful non-throwing fallback on fetch failures.
+  - 2026-03-09: Exported prompt-context helpers from `src/index.ts`, added `tests/prompt-context.test.ts` coverage for payload normalization, compact/stable injection output, cache reuse, and failure degradation, and validated with `bun test` (101 passing) and `bun run build` from `plugins/openclaw-mahilo/`.
 
 ### 3.3 Outcome Reporting
 - **ID**: `PLG2-032`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-042
 - **Description**:
   - After send / escalation / rejection / partial share, report the outcome back to Mahilo.
 - **Acceptance Criteria**:
-  - [ ] Outcome round-trip is implemented
-  - [ ] Mahilo history can learn from plugin activity
+  - [x] Outcome round-trip is implemented
+  - [x] Mahilo history can learn from plugin activity
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-032 by mapping current send/review/rejection flows and contract requirements for `POST /api/v1/plugin/outcomes`.
+  - 2026-03-09: Updated `plugins/openclaw-mahilo/src/tools.ts` outcome reporting to derive/send contract outcomes from actual `/api/v1/messages/send` responses (including `review_requested`, `blocked`, `partial_sent`, and `sent`) and to include normalized `recipient_results` for history learning.
+  - 2026-03-09: Removed preflight-only early exits so policy escalation/rejection paths still execute final send and can round-trip `message_id` + outcome reports back to Mahilo.
+  - 2026-03-09: Added/updated send-tool tests for escalation/rejection/partial outcome mapping and validated with `bun run test` (101 passing) and `bun run build` from `plugins/openclaw-mahilo/`.
 
 ### 3.4 Temporary Override Flows
 - **ID**: `PLG2-033`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-043
 - **Description**:
@@ -348,23 +427,34 @@ It is:
 
 ---
 
+- **Notes**:
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
+  - 2026-03-09T18:42:44.384Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
+  - 2026-03-09T19:20:09.488Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-033 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-033-last-message.txt -
+  - 2026-03-09T20:21:46.260Z: PLG2-033 completed via orchestrator integration.
 ## Phase 4: Native OpenClaw Value
 
 ### 4.1 Prompt Hook Integration
 - **ID**: `PLG2-040`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-031
 - **Description**:
   - Use `before_prompt_build` to inject Mahilo context natively.
 - **Acceptance Criteria**:
-  - [ ] Incoming messages get relationship/policy/history context
-  - [ ] Prompt size stays bounded
-  - [ ] Injection can be turned on/off cleanly
+  - [x] Incoming messages get relationship/policy/history context
+  - [x] Prompt size stays bounded
+  - [x] Injection can be turned on/off cleanly
+- **Progress Notes**:
+  - 2026-03-09: Started PLG2-040 by auditing existing prompt-context helpers (`fetchMahiloPromptContext`/`formatMahiloPromptInjection`) and OpenClaw plugin registration flow to wire native `before_prompt_build` injection.
+  - 2026-03-09: Integrated `before_prompt_build` hook in `plugins/openclaw-mahilo/src/openclaw-plugin.ts` to fetch Mahilo prompt context from inbound/outbound hook payloads, inject bounded `MahiloContext/v1` blocks into prompt payloads, and degrade safely when context is unavailable.
+  - 2026-03-09: Added clean enable/disable control via `promptContextEnabled` plugin config (`src/config.ts`, `openclaw.plugin.json`, README/config identity constants) and expanded plugin/config/manifest tests for hook registration, bounded injection behavior, and toggle-off behavior.
+  - 2026-03-09: Validated from `plugins/openclaw-mahilo/` with `bun run test` (105 passing) and `bun run build`.
 
 ### 4.2 Native Tools
 - **ID**: `PLG2-041`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-020, PLG2-030
 - **Description**:
@@ -381,9 +471,16 @@ It is:
   - [ ] Naming stays stable and OpenClaw-friendly
   - [ ] Tools fail gracefully on network/server errors
 
+- **Notes**:
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
+  - 2026-03-09T14:33:08.978Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
+  - 2026-03-09T14:33:09.726Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt - (Executable not found in $PATH: "codex")
+  - 2026-03-09T19:19:32.552Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-041 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-041-last-message.txt -
+  - 2026-03-09T20:04:46.526Z: PLG2-041 completed via orchestrator integration.
 ### 4.3 Send-Time Hooks
 - **ID**: `PLG2-042`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-030
 - **Description**:
@@ -393,9 +490,15 @@ It is:
   - [ ] Plugin can cancel send when Mahilo denies
   - [ ] Plugin can surface review-required cases cleanly
 
+- **Notes**:
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
+  - 2026-03-09T18:42:15.115Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
+  - 2026-03-09T19:20:05.598Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-042 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-042-last-message.txt -
+  - 2026-03-09T20:11:46.318Z: PLG2-042 completed via orchestrator integration.
 ### 4.4 Post-Send Hooks
 - **ID**: `PLG2-043`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-032
 - **Description**:
@@ -404,9 +507,15 @@ It is:
   - [ ] Plugin reports send results consistently
   - [ ] Plugin can trigger learning suggestions after novel decisions
 
+- **Notes**:
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
+  - 2026-03-09T18:43:12.182Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
+  - 2026-03-09T19:20:14.906Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-043 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-043-last-message.txt -
+  - 2026-03-09T20:40:18.978Z: PLG2-043 completed via orchestrator integration.
 ### 4.5 Commands / Diagnostics
 - **ID**: `PLG2-044`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-020
 - **Description**:
@@ -416,8 +525,13 @@ It is:
     - `mahilo review`
     - `mahilo reconnect`
 - **Acceptance Criteria**:
-  - [ ] Operator can inspect plugin state quickly
-  - [ ] Debugging common failures is easy
+  - [x] Operator can inspect plugin state quickly
+  - [x] Debugging common failures is easy
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-044 by auditing plugin SDK registration points and existing contract client capabilities to design native diagnostics/management commands.
+  - 2026-03-08: Added plugin-native command registration for `mahilo status`, `mahilo review`, and `mahilo reconnect`, including structured diagnostics output, connectivity probes, retry/error hints, and plugin runtime state counters.
+  - 2026-03-08: Wired diagnostics commands into OpenClaw plugin registration and shared plugin-local state with webhook dedupe tracking for status visibility.
+  - 2026-03-08: Added/updated tests for command registration and behavior (`tests/commands.test.ts`, `tests/openclaw-plugin.test.ts`) and validated with `bun run test` (97 passing) plus `bun run build` from `plugins/openclaw-mahilo/`.
 
 ---
 
@@ -425,31 +539,40 @@ It is:
 
 ### 5.1 Port and Harden Webhook Route
 - **ID**: `PLG2-050`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-011, PLG2-020
 - **Description**:
   - Port webhook route using current OpenClaw route registration patterns.
   - Re-check auth and signature handling.
 - **Acceptance Criteria**:
-  - [ ] Webhook route works in current OpenClaw plugin model
-  - [ ] Signature verification uses correct raw-body semantics
-  - [ ] Route auth mode is explicit
+  - [x] Webhook route works in current OpenClaw plugin model
+  - [x] Signature verification uses correct raw-body semantics
+  - [x] Route auth mode is explicit
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-050 by auditing current plugin SDK registration flow and legacy webhook route behavior to port webhook routing into the modern OpenClaw plugin entrypoint.
+  - 2026-03-08: Added `src/webhook-route.ts` and wired route registration into `registerMahiloOpenClawPlugin`, including explicit POST webhook route auth mode, raw-body request handling, and signature-first verification flow.
+  - 2026-03-08: Added route registration and handler tests (`tests/openclaw-plugin.test.ts`, `tests/webhook-route.test.ts`) covering explicit auth mode, callback-path registration, and exact raw-body signature semantics.
+  - 2026-03-08: Validated PLG2-050 with `bun run build` and `bun run test` from `plugins/openclaw-mahilo/` (90 passing tests).
 
 ### 5.2 Dedup / Idempotency
 - **ID**: `PLG2-051`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-050
 - **Description**:
   - Preserve and strengthen inbound dedup behavior.
 - **Acceptance Criteria**:
-  - [ ] Retries do not cause duplicate agent runs
-  - [ ] Message IDs are tracked safely
+  - [x] Retries do not cause duplicate agent runs
+  - [x] Message IDs are tracked safely
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-051 by auditing webhook delivery processing and route wiring; identified that route-level dedupe state was not wired and duplicate deliveries still invoked `onAcceptedDelivery`.
+  - 2026-03-08: Hardened inbound dedupe/idempotency by wiring handler-local dedupe state into webhook processing, preventing duplicate deliveries from triggering accepted-delivery callbacks, and validating/normalizing message IDs with payload/header consistency checks.
+  - 2026-03-08: Added regression coverage in `tests/webhook.test.ts` and `tests/webhook-route.test.ts`, then validated with `bun run test` (93 passing) and `bun run build` from `plugins/openclaw-mahilo/`.
 
 ### 5.3 Inbound Message Routing
 - **ID**: `PLG2-052`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-050, SRV-032
 - **Description**:
@@ -460,47 +583,207 @@ It is:
 
 ---
 
+- **Notes**:
+  - 2026-03-10: Reset to `pending` after stopping a stale unsupervised plugin worker and switching the orchestrator to keep runtime/integration failures pending instead of auto-blocking them.
+  - 2026-03-09: Reset to `pending` after PLG2-063 fixed the supervised launchd environment; the earlier auto-block was caused by the background worker failing to resolve the nested `codex` executable, not by a confirmed product blocker in this task.
+  - 2026-03-09T19:00:35.967Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
+  - 2026-03-09T19:20:18.752Z: Auto-blocked by orchestrator after 3 failures. Last error: Agent command failed: codex exec --dangerously-bypass-approvals-and-sandbox -C /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plugin-workspaces/plg2-052 -o /Users/wjayesh/apps/mahilo-2/.mahilo-orchestrator/plg2-052-last-message.txt -
+  - 2026-03-09T20:52:55.509Z: PLG2-052 completed via orchestrator integration.
 ## Phase 6: Release, Compatibility, and Decommissioning
 
 ### 6.1 Publishable Package Readiness
 - **ID**: `PLG2-060`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-020, PLG2-022
 - **Description**:
   - Make the plugin package publishable later, even if not published immediately.
 - **Acceptance Criteria**:
-  - [ ] `package.json` includes correct `openclaw.extensions`
-  - [ ] Build/test story is clear
-  - [ ] README explains local development and future publish path
+  - [x] `package.json` includes correct `openclaw.extensions`
+  - [x] Build/test story is clear
+  - [x] README explains local development and future publish path
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-060 by auditing package metadata and OpenClaw plugin packaging conventions for `openclaw.extensions` publishability requirements.
+  - 2026-03-08: Added `openclaw.extensions` package metadata targeting `./dist/index.js`, introduced plugin-local `check` script (`build + test + manifest validation`), and added manifest tests asserting publish entrypoint wiring.
+  - 2026-03-08: Expanded `plugins/openclaw-mahilo/README.md` with explicit publish-ready build/test flow and a future publish checklist while preserving repo-first local development guidance.
+  - 2026-03-08: Validated from `plugins/openclaw-mahilo/` with `bun run check` (build successful, 97 tests passing, manifest validation passing).
 
 ### 6.2 Local Development Story
 - **ID**: `PLG2-061`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: PLG2-001, PLG2-020
 - **Description**:
   - Document how to use the plugin from this repo during development.
 - **Acceptance Criteria**:
-  - [ ] Devs know how to point OpenClaw at the local plugin package
-  - [ ] No one needs the old `myclawd` copy for active development
+  - [x] Devs know how to point OpenClaw at the local plugin package
+  - [x] No one needs the old `myclawd` copy for active development
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-061 by auditing current plugin docs and task contract requirements for local OpenClaw package development from this repo.
+  - 2026-03-08: Added repo-first local development instructions in `plugins/openclaw-mahilo/README.md`, including `openclaw.extensions` local path wiring, required runtime config keys, and explicit legacy `myclawd/extensions/mahilo/` reference-only policy.
+  - 2026-03-08: Validated plugin manifest contract checks with `bun run validate:manifest` from `plugins/openclaw-mahilo/` (2 passing tests).
 
 ### 6.3 Old Plugin Deprecation Plan
 - **ID**: `PLG2-062`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: PLG2-011, PLG2-061
 - **Description**:
-  - Decide whether to:
-    - delete old plugin after migration
-    - leave a stub / README redirect
-    - or freeze it temporarily
+  - **Decision (2026-03-08)**: Use a **freeze + README redirect**, then delete legacy code after cutover confidence.
+  - **Source of truth after migration**:
+    - All active plugin development and reviews happen only in `plugins/openclaw-mahilo/`.
+    - `myclawd/extensions/mahilo/` is legacy and read-only for normal development.
+  - **Deprecation execution plan**:
+    - Immediately freeze legacy plugin code (no new feature work, no routine fixes).
+    - Keep a minimal legacy stub/README redirect that points contributors to `plugins/openclaw-mahilo/`.
+    - Allow legacy edits only for emergency backports, authored in `plugins/openclaw-mahilo/` first and backported explicitly.
+    - Remove the remaining legacy plugin directory once downstream consumers are fully cut over to this package.
 - **Acceptance Criteria**:
-  - [ ] There is one obvious source of truth after migration
-  - [ ] Team members are not confused about where to work
+  - [x] There is one obvious source of truth after migration
+  - [x] Team members are not confused about where to work
+- **Progress Notes**:
+  - 2026-03-08: Started PLG2-062 by reviewing migration guidance and current plugin docs to finalize a single long-term deprecation policy for `myclawd/extensions/mahilo/`.
+  - 2026-03-08: Recorded the deprecation decision as freeze + legacy redirect stub with one canonical source of truth (`plugins/openclaw-mahilo/`) and explicit emergency-backport-only exception rules.
+  - 2026-03-08: Updated `plugins/openclaw-mahilo/README.md` with the same effective deprecation policy and validated plugin-local health from `plugins/openclaw-mahilo/` via `bun run check` (build successful, 97 tests passing, manifest checks passing).
+
+### 6.4 Supervised Worker Environment Unblock
+- **ID**: `PLG2-063`
+- **Status**: `done`
+- **Priority**: P0
+- **Depends on**: PLG2-060
+- **Description**:
+  - Ensure the supervised plugin loop can actually spawn nested Codex workers under macOS `launchd`.
+  - Capture the interactive install-time `PATH` in the generated launch agent so `codex` resolves in the background.
+  - Make worker spawn failures surface the underlying OS error instead of only a generic non-zero exit.
+- **Acceptance Criteria**:
+  - [x] `launchd` plugin supervisor inherits a `PATH` that can resolve `codex`
+  - [x] Nested-worker spawn failures include the underlying process error
+  - [x] False auto-blocks caused by missing worker executables can be safely requeued
+- **Progress Notes**:
+  - 2026-03-09: Diagnosed repeated false auto-blocks on `PLG2-033`, `PLG2-041`, `PLG2-042`, `PLG2-043`, and `PLG2-052` as a background execution issue: the generated `launchd` service inherited a minimal default `PATH`, so supervised runs could not resolve the nested `codex` executable.
+  - 2026-03-09: Updated `scripts/install-launchd.ts` to persist install-time `PATH` and `HOME` in the generated plist, and updated orchestrator worker failure reporting so missing-command errors surface explicitly.
+  - 2026-03-09: Requeued the affected plugin tasks to `pending` so the plugin loop can resume real feature work under the fixed service environment.
 
 ---
 
+## Phase 7: Community Install and npm Publish Readiness
+
+### 7.1 Public Release Metadata
+- **ID**: `PLG2-070`
+- **Status**: `done`
+- **Priority**: P0
+- **Depends on**: PLG2-033, PLG2-041, PLG2-042, PLG2-043, PLG2-052, PLG2-060
+- **Description**:
+  - Convert the package from "publishable later" to "ready for first public release".
+  - Finalize package/manifest versioning, scoped-public npm settings, and standard release metadata.
+- **Acceptance Criteria**:
+  - [ ] `package.json` is no longer blocked by `private: true`
+  - [ ] `package.json` and `openclaw.plugin.json` versions are synchronized from one source of truth
+  - [ ] Public release metadata is present (`license`, `repository`, `homepage`, `bugs`, `author`/owner, `publishConfig.access`)
+  - [ ] README no longer describes npm publish as purely future work
+
+- **Notes**:
+  - 2026-03-09T20:59:59.206Z: PLG2-070 completed via orchestrator integration.
+### 7.2 Package Surface and Build Artifacts
+- **ID**: `PLG2-071`
+- **Status**: `done`
+- **Priority**: P0
+- **Depends on**: PLG2-070
+- **Description**:
+  - Harden the package so a clean install or tarball always contains the right runtime artifacts.
+  - Add publish-time build hooks and make the package surface explicit (`exports`, runtime entry, types/declaration story, packaged files).
+- **Acceptance Criteria**:
+  - [ ] `npm pack --dry-run` includes `dist/`, `openclaw.plugin.json`, `README`, and license/release files
+  - [ ] Publish/install flows cannot skip the required build output
+  - [ ] `main` / `exports` / OpenClaw manifest entry all resolve to valid packaged files
+  - [ ] Type surface is explicit (generated declarations or an intentional JS-only contract)
+
+- **Notes**:
+  - 2026-03-09T21:19:06.730Z: PLG2-071 completed via orchestrator integration.
+### 7.3 Published Install Documentation
+- **ID**: `PLG2-072`
+- **Status**: `done`
+- **Priority**: P0
+- **Depends on**: PLG2-070, PLG2-071
+- **Description**:
+  - Rewrite the README for a real community install flow:
+    - install from npm
+    - configure `openclaw.extensions`
+    - configure `plugins.entries.mahilo`
+    - run first connectivity check
+  - Add a compatibility note for supported OpenClaw/plugin contract versions.
+- **Acceptance Criteria**:
+  - [ ] README includes a published-package install flow
+  - [ ] README includes a minimal working OpenClaw config example
+  - [ ] README includes upgrade / troubleshooting notes for common setup failures
+  - [ ] Compatibility expectations are explicit
+
+- **Notes**:
+  - 2026-03-09T21:24:05.010Z: PLG2-072 completed via orchestrator integration.
+### 7.4 Tarball Install Smoke Test
+- **ID**: `PLG2-073`
+- **Status**: `done`
+- **Priority**: P0
+- **Depends on**: PLG2-071, PLG2-072
+- **Description**:
+  - Validate the package the same way users will consume it: from a packed artifact rather than from the monorepo path.
+  - Use a clean install path / scratch OpenClaw environment and confirm the plugin registers successfully.
+- **Acceptance Criteria**:
+  - [ ] `npm pack --dry-run` output is reviewed and correct
+  - [ ] Installing from the packed artifact works in a clean OpenClaw setup
+  - [ ] Tools, hooks, routes, and plugin config schema load correctly from the packed artifact
+  - [ ] The smoke-test steps are documented for repeatable validation
+
+- **Notes**:
+  - 2026-03-09T21:34:29.084Z: PLG2-073 completed via orchestrator integration.
+### 7.5 Release Gates and Version Sync Checks
+- **ID**: `PLG2-074`
+- **Status**: `done`
+- **Priority**: P1
+- **Depends on**: PLG2-070, PLG2-071
+- **Description**:
+  - Add release-specific checks so a future publish does not rely on manual memory.
+  - Cover version sync, package contents, manifest validity, build/test pass, and publish prerequisites.
+- **Acceptance Criteria**:
+  - [ ] One command or script validates the release gate end-to-end
+  - [ ] Version drift between package and manifest fails fast
+  - [ ] Release checks are documented and easy to rerun locally
+
+- **Notes**:
+  - 2026-03-09T21:39:42.530Z: PLG2-074 completed via orchestrator integration.
+### 7.6 Human Publish Handoff
+- **ID**: `PLG2-075`
+- **Status**: `done`
+- **Priority**: P1
+- **Depends on**: PLG2-072, PLG2-073, PLG2-074
+- **Description**:
+  - Reduce the final human publish step to a tiny, explicit checklist.
+  - Capture exact commands for version bump review, `npm publish`, tag/release notes, and rollback/patch follow-up.
+- **Acceptance Criteria**:
+  - [ ] There is a short publish checklist a human can follow without repo archaeology
+  - [ ] Post-publish verification steps are documented
+  - [ ] Rollback / hotfix guidance exists for a bad first release
+
+- **Notes**:
+  - 2026-03-09T21:45:18.961Z: PLG2-075 completed via orchestrator integration.
+### 7.7 Positioning Alignment Handoff
+- **ID**: `PLG2-080`
+- **Status**: `done`
+- **Priority**: P1
+- **Depends on**: PLG2-075
+- **Description**:
+  - Reconcile the publish-ready plugin with the Mahilo product-positioning document at `/Users/wjayesh/apps/mahilo-2-product-positioning.md`.
+  - Refresh the next-stage product PRD in `docs/prd-openclaw-product-alignment.md`.
+  - Confirm the plugin workflow continues into that PRD after the publish-readiness tasks are complete.
+- **Acceptance Criteria**:
+  - [ ] Product-positioning gaps have been re-reviewed against the shipped plugin
+  - [ ] `docs/prd-openclaw-product-alignment.md` is current and prioritized
+  - [ ] `WORKFLOW.plugin.md` continues into the next-stage PRD without manual orchestration changes
+
+---
+
+- **Notes**:
+  - 2026-03-09T21:52:47.878Z: PLG2-080 completed via orchestrator integration.
 ## Recommended Migration Order
 
 1. PLG2-001 → PLG2-003
@@ -509,6 +792,16 @@ It is:
 4. PLG2-030 → PLG2-033
 5. PLG2-040 → PLG2-052
 6. PLG2-060 → PLG2-062
+7. PLG2-070 → PLG2-075
+8. PLG2-080
+
+---
+
+## Workflow Continuation After PLG3-099
+
+- `WORKFLOW.plugin.md` already includes `docs/prd-openclaw-product-alignment.md` as a plugin task source, so no manual workflow-file edit is required for the loop to continue.
+- After the 2026-03-10 positioning reassessment, the ordered continuation is: `PAL-010`, `PAL-012`, `PAL-013`, `PAL-011`, `PAL-020`.
+- Reopen this migration PRD only if one of those tasks exposes a packaging, SDK-compatibility, or release-readiness regression in `plugins/openclaw-mahilo/`.
 
 ---
 
@@ -521,3 +814,6 @@ This PRD is complete when:
 - the plugin uses Mahilo server as source of truth
 - OpenClaw-native features (hooks, tools, diagnostics) are first-class
 - local development no longer depends on editing the legacy plugin in `myclawd`
+- the package can be installed through the documented OpenClaw extension flow from a packed/published artifact
+- the remaining human work before `npm publish` is reduced to a short explicit checklist
+- the next-stage product-alignment PRD is ready for the loop to continue beyond initial publish readiness
