@@ -165,7 +165,7 @@ describe("openclaw.plugin.json", () => {
       return;
     }
 
-    expect(manifest.id).toBe(MAHILO_RUNTIME_PLUGIN_ID);
+    expect(manifest.id).toBe("openclaw-mahilo");
     expect(manifest.name).toBe(MAHILO_RUNTIME_PLUGIN_NAME);
     expect(manifest.version).toBe(packageJson.version);
     expect(manifest.description).toBe(

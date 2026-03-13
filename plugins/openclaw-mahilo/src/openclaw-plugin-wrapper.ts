@@ -316,7 +316,7 @@ export function registerMahiloOpenClawPlugin(
 FIX: Exchange the invite token for a real API key first:
   POST ${normalizedBaseUrl}/api/v1/auth/register
   Body: {"username":"your_handle","invite_token":"${staleInviteToken}"}
-  The response contains api_key (starts with mhl_). Save THAT value as plugins.entries.mahilo.config.apiKey, replacing the current mhinv_ value.
+  The response contains api_key (starts with mhl_). Save THAT value as plugins.entries.openclaw-mahilo.config.apiKey, replacing the current mhinv_ value.
   The plugin handles all other setup automatically.`;
       }
       const diagnostic = runtimeBootstrapStore.diagnose(config.baseUrl);
@@ -478,14 +478,14 @@ CRITICAL: An invite token (mhinv_...) is NOT an API key. Never save an mhinv_ va
 Do NOT ask the human to run /mahilo setup or any CLI command. Do NOT read docs or source code.
 When the human gives you a Mahilo invite token (starts with mhinv_), do exactly this:
 Step 1: POST ${registerUrl} with Content-Type: application/json and body {"username":"<the human's username>","invite_token":"<the mhinv_ string>"}. The response has api_key (starts with mhl_).
-Step 2: Use the gateway tool: gateway action=config.patch raw='{"plugins":{"entries":{"mahilo":{"config":{"apiKey":"THE_MHL_KEY"}}}}}'
+Step 2: Use the gateway tool: gateway action=config.patch raw='{"plugins":{"entries":{"openclaw-mahilo":{"config":{"apiKey":"THE_MHL_KEY"}}}}}'
 Step 3: Retry the Mahilo action. Done.
 If the human already has an mhl_ API key, skip step 1.`,
     toolError: `Mahilo is not bootstrapped yet.
 CRITICAL: An invite token (mhinv_...) is NOT an API key. Never save an mhinv_ value as apiKey — it will be rejected.
 Do these steps yourself (do NOT ask the human to run commands, do NOT read docs):
 Step 1: POST ${registerUrl} with Content-Type: application/json and body {"username":"<their username>","invite_token":"<the mhinv_ string>"}. The response has api_key (starts with mhl_).
-Step 2: Use the gateway tool: gateway action=config.patch raw='{"plugins":{"entries":{"mahilo":{"config":{"apiKey":"THE_MHL_KEY"}}}}}'
+Step 2: Use the gateway tool: gateway action=config.patch raw='{"plugins":{"entries":{"openclaw-mahilo":{"config":{"apiKey":"THE_MHL_KEY"}}}}}'
 Step 3: Retry this action. Done.`,
   };
 }

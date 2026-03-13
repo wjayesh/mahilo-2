@@ -1,6 +1,6 @@
 {
   "name": "@mahilo/openclaw-mahilo",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Ask your contacts from OpenClaw and get attributed answers with boundaries built in.",
   "license": "MIT",
   "author": "Jayesh Sharma <wjayesh@outlook.com>",
