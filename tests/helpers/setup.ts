@@ -3,7 +3,11 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { eq } from "drizzle-orm";
 import * as schema from "../../src/db/schema";
 import { createApp } from "../../src/server";
-import { generateApiKey } from "../../src/services/auth";
+import {
+  ACTIVE_USER_STATUS,
+  generateApiKey,
+  generateInviteToken,
+} from "../../src/services/auth";
 import { resetDbForTests, setDbForTests } from "../../src/db";
 import { nanoid } from "nanoid";
 
@@ -12,7 +16,9 @@ let testSqlite: Database;
 
 export function getTestDb() {
   if (!testDb) {
-    throw new Error("Test database not initialized. Call setupTestDatabase() first.");
+    throw new Error(
+      "Test database not initialized. Call setupTestDatabase() first.",
+    );
   }
   return testDb;
 }
@@ -34,15 +40,32 @@ export async function setupTestDatabase() {
       display_name TEXT,
       api_key_hash TEXT NOT NULL,
       api_key_id TEXT NOT NULL,
-      twitter_handle TEXT,
-      twitter_verified INTEGER DEFAULT 0,
-      verification_code TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      registration_source TEXT NOT NULL DEFAULT 'invite',
+      verified_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       deleted_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_users_api_key_id ON users(api_key_id);
-    CREATE INDEX IF NOT EXISTS idx_users_twitter ON users(twitter_handle);
+    CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+
+    CREATE TABLE IF NOT EXISTS invite_tokens (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL,
+      token_id TEXT NOT NULL UNIQUE,
+      note TEXT,
+      max_uses INTEGER NOT NULL DEFAULT 1,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      expires_at INTEGER,
+      revoked_at INTEGER,
+      last_used_at INTEGER,
+      created_by TEXT,
+      redeemed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_tokens_token_id_unique ON invite_tokens(token_id);
+    CREATE INDEX IF NOT EXISTS idx_invite_tokens_redeemed_by_user ON invite_tokens(redeemed_by_user_id);
 
     CREATE TABLE IF NOT EXISTS agent_connections (
       id TEXT PRIMARY KEY,
@@ -79,7 +102,15 @@ export async function setupTestDatabase() {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       correlation_id TEXT,
+      direction TEXT NOT NULL DEFAULT 'outbound',
+      resource TEXT NOT NULL DEFAULT 'message.general',
+      action TEXT NOT NULL DEFAULT 'share',
+      in_response_to TEXT,
+      outcome TEXT,
+      outcome_details TEXT,
+      policies_evaluated TEXT,
       sender_user_id TEXT NOT NULL REFERENCES users(id),
+      sender_connection_id TEXT REFERENCES agent_connections(id),
       sender_agent TEXT NOT NULL,
       recipient_type TEXT NOT NULL,
       recipient_id TEXT NOT NULL,
@@ -93,20 +124,90 @@ export async function setupTestDatabase() {
       rejection_reason TEXT,
       retry_count INTEGER NOT NULL DEFAULT 0,
       idempotency_key TEXT,
+      classified_direction TEXT,
+      classified_resource TEXT,
+      classified_action TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       delivered_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_user_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender_connection ON messages(sender_connection_id);
     CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_type, recipient_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_selectors ON messages(direction, resource, action);
+    CREATE INDEX IF NOT EXISTS idx_messages_in_response_to ON messages(in_response_to);
+    CREATE INDEX IF NOT EXISTS idx_messages_resource_sender ON messages(resource, sender_user_id);
     CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
     CREATE INDEX IF NOT EXISTS idx_messages_idempotency ON messages(idempotency_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_idempotency_sender ON messages(sender_user_id, idempotency_key);
+
+    CREATE TABLE IF NOT EXISTS message_deliveries (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      recipient_user_id TEXT NOT NULL REFERENCES users(id),
+      recipient_connection_id TEXT REFERENCES agent_connections(id),
+      policy_decision TEXT,
+      policy_delivery_mode TEXT,
+      policy_reason TEXT,
+      policy_reason_code TEXT,
+      policy_resolution_id TEXT,
+      winning_policy_id TEXT,
+      matched_policy_ids TEXT,
+      resolver_layer TEXT,
+      guardrail_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      delivered_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_message ON message_deliveries(message_id);
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_recipient ON message_deliveries(recipient_user_id);
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_status ON message_deliveries(status);
+    CREATE INDEX IF NOT EXISTS idx_message_deliveries_policy_decision ON message_deliveries(policy_decision);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_message_deliveries_unique ON message_deliveries(message_id, recipient_connection_id);
+
+    CREATE TABLE IF NOT EXISTS groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invite_only INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name);
+    CREATE INDEX IF NOT EXISTS idx_groups_owner ON groups(owner_user_id);
+
+    CREATE TABLE IF NOT EXISTS group_memberships (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'member',
+      status TEXT NOT NULL DEFAULT 'pending',
+      invited_by_user_id TEXT REFERENCES users(id),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      UNIQUE(group_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_memberships_group ON group_memberships(group_id);
+    CREATE INDEX IF NOT EXISTS idx_group_memberships_user ON group_memberships(user_id);
+    CREATE INDEX IF NOT EXISTS idx_group_memberships_status ON group_memberships(status);
 
     CREATE TABLE IF NOT EXISTS policies (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       scope TEXT NOT NULL,
       target_id TEXT,
+      direction TEXT,
+      resource TEXT,
+      action TEXT,
+      effect TEXT,
+      evaluator TEXT,
+      effective_from INTEGER,
+      expires_at INTEGER,
+      max_uses INTEGER,
+      remaining_uses INTEGER,
+      source TEXT,
+      derived_from_message_id TEXT REFERENCES messages(id),
       policy_type TEXT NOT NULL,
       policy_content TEXT NOT NULL,
       priority INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +216,9 @@ export async function setupTestDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_policies_user ON policies(user_id);
     CREATE INDEX IF NOT EXISTS idx_policies_scope ON policies(scope, target_id);
+    CREATE INDEX IF NOT EXISTS idx_policies_lookup ON policies(user_id, enabled, scope, target_id);
+    CREATE INDEX IF NOT EXISTS idx_policies_selectors ON policies(direction, resource, action);
+    CREATE INDEX IF NOT EXISTS idx_policies_lifecycle ON policies(effective_from, expires_at, remaining_uses);
 
     CREATE TABLE IF NOT EXISTS user_roles (
       id TEXT PRIMARY KEY,
@@ -148,7 +252,10 @@ export function createTestApp() {
 }
 
 // Helper to create a test user and get their API key
-export async function createTestUser(username: string, displayName?: string): Promise<{
+export async function createTestUser(
+  username: string,
+  displayName?: string,
+): Promise<{
   user: schema.User;
   apiKey: string;
 }> {
@@ -161,6 +268,9 @@ export async function createTestUser(username: string, displayName?: string): Pr
     displayName: displayName || null,
     apiKeyHash: hash,
     apiKeyId: keyId,
+    status: ACTIVE_USER_STATUS,
+    registrationSource: "test",
+    verifiedAt: new Date(),
     createdAt: new Date(),
   };
 
@@ -178,11 +288,50 @@ export async function createTestUser(username: string, displayName?: string): Pr
   };
 }
 
+export async function createTestInviteToken(
+  options: Partial<{
+    expiresAt: Date | null;
+    maxUses: number;
+    note: string | null;
+  }> = {},
+): Promise<{
+  inviteToken: string;
+  record: schema.InviteToken;
+}> {
+  const db = getTestDb();
+  const { inviteToken, tokenId, hash } = await generateInviteToken();
+
+  const record: schema.NewInviteToken = {
+    id: nanoid(),
+    createdAt: new Date(),
+    createdBy: "test-suite",
+    expiresAt: options.expiresAt ?? null,
+    maxUses: options.maxUses ?? 1,
+    note: options.note ?? null,
+    tokenHash: hash,
+    tokenId,
+    useCount: 0,
+  };
+
+  await db.insert(schema.inviteTokens).values(record);
+
+  const [createdRecord] = await db
+    .select()
+    .from(schema.inviteTokens)
+    .where(eq(schema.inviteTokens.id, record.id))
+    .limit(1);
+
+  return {
+    inviteToken,
+    record: createdRecord,
+  };
+}
+
 // Helper to create a friendship between two users
 export async function createFriendship(
   requesterId: string,
   addresseeId: string,
-  status: "pending" | "accepted" | "blocked" = "accepted"
+  status: "pending" | "accepted" | "blocked" = "accepted",
 ): Promise<schema.Friendship> {
   const db = getTestDb();
 
@@ -213,7 +362,7 @@ export async function createAgentConnection(
     label: string;
     callbackUrl: string;
     publicKey: string;
-  }> = {}
+  }> = {},
 ): Promise<schema.AgentConnection> {
   const db = getTestDb();
 
@@ -268,7 +417,7 @@ export async function seedTestSystemRoles(): Promise<void> {
 // Helper to add a role to a friendship
 export async function addRoleToFriendship(
   friendshipId: string,
-  roleName: string
+  roleName: string,
 ): Promise<void> {
   const db = getTestDb();
 

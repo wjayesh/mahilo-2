@@ -1,8 +1,29 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { generateApiKey, parseApiKey, validateUsername, verifyApiKey } from "../../src/services/auth";
-import { cleanupTestDatabase, createTestUser, setupTestDatabase } from "../helpers/setup";
+import {
+  generateApiKey,
+  generateInviteToken,
+  parseApiKey,
+  parseInviteToken,
+  validateUsername,
+  verifyApiKey,
+  verifyInviteToken,
+} from "../../src/services/auth";
+import {
+  cleanupTestDatabase,
+  createTestInviteToken,
+  createTestUser,
+  setupTestDatabase,
+} from "../helpers/setup";
 
 describe("Auth Service", () => {
+  beforeAll(async () => {
+    await setupTestDatabase();
+  });
+
+  afterAll(() => {
+    cleanupTestDatabase();
+  });
+
   describe("generateApiKey", () => {
     it("should generate a key with correct format", async () => {
       const result = await generateApiKey();
@@ -47,15 +68,36 @@ describe("Auth Service", () => {
     });
   });
 
+  describe("invite tokens", () => {
+    it("should generate a token with correct format", async () => {
+      const result = await generateInviteToken();
+
+      expect(result.inviteToken).toMatch(
+        /^mhinv_[a-zA-Z0-9_-]+_[a-zA-Z0-9_-]+$/,
+      );
+      expect(result.tokenId).toBeTruthy();
+      expect(result.hash).toBeTruthy();
+    });
+
+    it("should parse a valid invite token", () => {
+      const result = parseInviteToken(
+        "mhinv_abc12345_secret123456789012345678",
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.prefix).toBe("mhinv");
+      expect(result!.tokenId).toBe("abc12345");
+      expect(result!.secret).toBe("secret123456789012345678");
+    });
+
+    it("should reject invalid invite tokens", () => {
+      expect(parseInviteToken("abc12345_secret")).toBeNull();
+      expect(parseInviteToken("mhinv_short")).toBeNull();
+      expect(parseInviteToken("")).toBeNull();
+    });
+  });
+
   describe("verifyApiKey", () => {
-    beforeAll(async () => {
-      await setupTestDatabase();
-    });
-
-    afterAll(() => {
-      cleanupTestDatabase();
-    });
-
     it("should verify a valid API key", async () => {
       const { apiKey, user } = await createTestUser("verifyuser");
       const verified = await verifyApiKey(apiKey);
@@ -66,6 +108,21 @@ describe("Auth Service", () => {
 
     it("should reject an invalid API key", async () => {
       const verified = await verifyApiKey("mhl_invalid_key_secret");
+      expect(verified).toBeNull();
+    });
+  });
+
+  describe("verifyInviteToken", () => {
+    it("should verify a valid invite token", async () => {
+      const { inviteToken, record } = await createTestInviteToken();
+      const verified = await verifyInviteToken(inviteToken);
+
+      expect(verified).not.toBeNull();
+      expect(verified!.id).toBe(record.id);
+    });
+
+    it("should reject an invalid invite token", async () => {
+      const verified = await verifyInviteToken("mhinv_invalid_token_secret");
       expect(verified).toBeNull();
     });
   });

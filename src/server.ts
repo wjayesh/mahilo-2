@@ -12,15 +12,18 @@ import { groupRoutes } from "./routes/groups";
 import { messageRoutes } from "./routes/messages";
 import { notificationRoutes } from "./routes/notifications";
 import { policyRoutes } from "./routes/policies";
+import { pluginRoutes } from "./routes/plugin";
 import { preferencesRoutes } from "./routes/preferences";
 import { contactRoutes } from "./routes/contacts";
 import { adminRoutes } from "./routes/admin";
 import { rolesRoutes } from "./routes/roles";
+import { waitlistRoutes } from "./routes/waitlist";
 
 export type AppEnv = {
   Variables: {
     user?: {
       id: string;
+      status: string;
       username: string;
     };
   };
@@ -40,7 +43,7 @@ export function createApp() {
       allowHeaders: ["Content-Type", "Authorization"],
       exposeHeaders: ["X-Request-Id"],
       maxAge: 86400,
-    })
+    }),
   );
 
   // Error handling
@@ -67,10 +70,12 @@ export function createApp() {
   api.route("/groups", groupRoutes);
   api.route("/messages", messageRoutes);
   api.route("/notifications", notificationRoutes);
+  api.route("/plugin", pluginRoutes);
   api.route("/policies", policyRoutes);
   api.route("/preferences", preferencesRoutes);
   api.route("/roles", rolesRoutes);
   api.route("/admin", adminRoutes);
+  api.route("/waitlist", waitlistRoutes);
 
   app.route(config.apiPrefix, api);
 
@@ -81,7 +86,7 @@ export function createApp() {
         error: "Not Found",
         message: `Route ${c.req.method} ${c.req.path} not found`,
       },
-      404
+      404,
     );
   });
 
