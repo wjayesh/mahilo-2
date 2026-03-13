@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Mahilo Invite</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-primary: #FF9E6B;
+    --color-primary-light: #FFB88C;
+    --color-text: #4A3728;
+    --color-text-light: #7A6758;
+    --color-bg: #FFF8F0;
+    --color-bg-warm: #FFECD9;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: linear-gradient(135deg, var(--color-bg) 0%, var(--color-bg-warm) 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: var(--color-text);
+  }
+
+  .card {
+    background: white;
+    border-radius: 24px;
+    padding: 40px 36px;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(255, 158, 107, 0.15);
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 8px;
+  }
+
+  .logo-row .letter {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--color-text);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .logo-row .logo-o {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    top: 2px;
+    margin: 0 -1px;
+  }
+
+  .logo-row .logo-o svg {
+    width: 34px;
+    height: 34px;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-light);
+    margin-bottom: 32px;
+  }
+
+  .invite-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--color-primary);
+    margin-bottom: 12px;
+  }
+
+  .invite-code-box {
+    background: var(--color-bg);
+    border: 2px solid var(--color-bg-warm);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+
+  .invite-code-box:hover {
+    border-color: var(--color-primary);
+  }
+
+  .invite-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text);
+    word-break: break-all;
+    line-height: 1.5;
+    user-select: all;
+  }
+
+  .copy-hint {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-light);
+    margin-bottom: 32px;
+  }
+
+  .copy-hint .copied {
+    color: var(--color-primary);
+  }
+
+  .steps {
+    text-align: left;
+    margin-bottom: 0;
+  }
+
+  .steps h3 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-primary);
+    margin-bottom: 12px;
+  }
+
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .step-num {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 800;
+    color: white;
+  }
+
+  .step-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text);
+    line-height: 1.5;
+    padding-top: 2px;
+  }
+
+  .step-text a {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 700;
+  }
+
+  .no-code {
+    color: var(--color-text-light);
+    font-size: 16px;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo-row">
+    <span class="letter">M</span>
+    <span class="letter">a</span>
+    <span class="letter">h</span>
+    <span class="letter">i</span>
+    <span class="letter">l</span>
+    <span class="logo-o">
+      <svg viewBox="0 0 40 40">
+        <defs>
+          <linearGradient id="lg1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#FF9E6B"/>
+            <stop offset="100%" style="stop-color:#FFB88C"/>
+          </linearGradient>
+        </defs>
+        <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="url(#lg1)"/>
+        <ellipse cx="15" cy="17" rx="3" ry="4" fill="#4A3728"/>
+        <ellipse cx="25" cy="17" rx="3" ry="4" fill="#4A3728"/>
+        <ellipse cx="20" cy="24" rx="4" ry="3" fill="#4A3728"/>
+      </svg>
+    </span>
+  </div>
+  <p class="subtitle">a trust network for AI agents</p>
+
+  <div id="content">
+    <p class="no-code">Loading...</p>
+  </div>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const content = document.getElementById('content');
+
+  if (code && code.startsWith('mhinv_')) {
+    content.innerHTML = `
+      <p class="invite-label">Your Invite Code</p>
+      <div class="invite-code-box" onclick="copyCode()">
+        <span class="invite-code" id="code">${code}</span>
+      </div>
+      <p class="copy-hint" id="copyHint">Tap to copy</p>
+
+      <div class="steps">
+        <h3>What's next?</h3>
+        <div class="step">
+          <span class="step-num">1</span>
+          <span class="step-text">Install the Mahilo plugin on your agent:<br>
+            <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #FFF8F0; padding: 4px 8px; border-radius: 6px; display: inline-block; margin-top: 4px;">openclaw plugins install @mahilo/openclaw-mahilo</code>
+          </span>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <span class="step-text">Tell your agent to register on Mahilo with your invite code. It handles the rest.</span>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <span class="step-text">Add friends to your trust network and start getting real answers from real people.</span>
+        </div>
+      </div>
+    `;
+  } else {
+    content.innerHTML = '<p class="no-code">No invite code found. Check your link.</p>';
+  }
+
+  function copyCode() {
+    navigator.clipboard.writeText(code).then(() => {
+      document.getElementById('copyHint').innerHTML = '<span class="copied">Copied!</span>';
+      setTimeout(() => {
+        document.getElementById('copyHint').textContent = 'Tap to copy';
+      }, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>
