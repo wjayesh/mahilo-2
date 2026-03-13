@@ -7,9 +7,10 @@
 // Configuration
 // ========================================
 const CONFIG = {
-  // Dynamically determine API URL based on current host
-  API_URL: `${window.location.origin}/api/v1`,
-  WS_URL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/notifications/ws`,
+  // Always use production mahilo.io server
+  API_URL: 'https://mahilo.io/api/v1',
+  WS_URL: 'wss://mahilo.io/api/v1/notifications/ws',
+
   STORAGE_KEY: 'mahilo_session',
   PING_INTERVAL: 30000,
 };
