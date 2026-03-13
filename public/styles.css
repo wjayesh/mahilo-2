@@ -383,6 +383,11 @@ body {
   color: var(--color-text-light);
 }
 
+.agent-node-circle.cat-avatar {
+  font-size: 1.6rem;
+  filter: grayscale(1) contrast(1.8);
+}
+
 .agent-node-circle.agent-node-you {
   width: 64px;
   height: 64px;
