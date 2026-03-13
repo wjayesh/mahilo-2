@@ -639,6 +639,18 @@ body {
   margin-bottom: 8px;
 }
 
+.install-command {
+  display: block;
+  background: #1a1a2e;
+  color: #a8e6cf;
+  padding: 0.6rem 0.9rem;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  margin: 0.5rem 0;
+  word-break: break-all;
+}
+
 .step-desc {
   font-size: 0.9rem;
   color: var(--color-text-light);
