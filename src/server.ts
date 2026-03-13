@@ -58,6 +58,9 @@ export function createApp() {
     });
   });
 
+  // Serve invite page at clean URL
+  app.get("/invite", serveStatic({ path: "./public/invite.html" }));
+
   // Serve static files (dashboard)
   app.use("/*", serveStatic({ root: "./public" }));
 
