@@ -561,6 +561,11 @@ body {
   flex-shrink: 0;
 }
 
+.cat-avatar {
+  font-size: 1.3rem;
+  filter: grayscale(1) contrast(1.8);
+}
+
 .response-content {
   flex: 1;
 }
