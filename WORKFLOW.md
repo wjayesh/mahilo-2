@@ -14,9 +14,15 @@ agent_command: codex
 agent_args:
   - exec
   - --dangerously-bypass-approvals-and-sandbox
-max_iterations: 50
+max_iterations: 0
 poll_interval_seconds: 3
 completion_phrase: COMPLETE
+required_branch: autonomous/server-integration
+auto_commit_on_done: true
+auto_push_every_commits: 3
+task_failure_retry_limit: 3
+task_failure_backoff_seconds: 30
+runtime_stall_timeout_seconds: 1800
 ---
 # Mahilo Server Autonomous Workflow
 
@@ -30,16 +36,15 @@ Your job is to autonomously move the server task list forward using the task doc
 - Read the assigned task section carefully, including dependencies and acceptance criteria.
 - Implement the task fully before moving on.
 - Prefer focused, incremental changes that keep the repo working.
-- Update the task status in the source task file as soon as the state changes.
-- Add a short progress note after each iteration.
+- Do not edit task-tracker status metadata in the PRD; the orchestrator records task state.
+- Do not add tracker progress notes unless the task itself is explicitly about editing that document.
 - Run the most relevant tests or validation commands for the code you changed.
 - Do not start unrelated tasks just because they are nearby.
 
 ## Task Completion Rules
 
-- Mark tasks `in-progress` when work begins.
-- Mark tasks `done` only when the implementation and the relevant validation are complete.
-- Mark tasks `blocked` only when there is a real dependency or external blocker.
+- Signal terminal completion with `TASK_DONE <id>`.
+- Signal a real blocker with `TASK_BLOCKED <id>: <reason>`.
 - If all tracked tasks are done, say `COMPLETE`.
 
 ## Coordination Rules

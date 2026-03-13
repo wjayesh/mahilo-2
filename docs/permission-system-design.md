@@ -1700,6 +1700,13 @@ Users should be able to inspect blocked events, but Mahilo should store **minima
 
 Full payload retention for blocked inbound messages should be opt-in or tightly redacted.
 
+Current server behavior (SRV-044):
+
+- `GET /api/v1/plugin/events/blocked` returns metadata-only blocked events by default.
+- Each event includes `payload_hash` for correlation.
+- `stored_payload_excerpt` is omitted unless `include_payload_excerpt=true` is requested.
+- Full message payloads may still exist in `messages` storage for delivery/audit compatibility during the current migration phase.
+
 ---
 
 ## Implementation Considerations
@@ -1750,32 +1757,38 @@ type PolicyScope = 'global' | 'user' | 'role' | 'group';
 type PolicyEffect = 'allow' | 'ask' | 'deny';
 type PolicyEvaluator = 'structured' | 'heuristic' | 'llm';
 
-type PolicySource = 'default' | 'learned' | 'user_confirmed' | 'override';
+type PolicySource =
+  | 'default'
+  | 'learned'
+  | 'user_confirmed'
+  | 'override'
+  | 'user_created'
+  | 'legacy_migrated';
 
-interface Policy {
+interface CanonicalPolicy {
   id: string;
-  userId: string;
   scope: PolicyScope;
-  targetId: string | null;
-  direction: 'request' | 'response' | 'notification' | 'error' | null;
-  resource: string | null;
+  target_id: string | null;
+  direction: 'outbound' | 'inbound' | 'request' | 'response' | 'notification' | 'error';
+  resource: string;
   action: string | null;
   effect: PolicyEffect;
   evaluator: PolicyEvaluator;
-  policyContent: string;
+  policy_content: unknown;
+  effective_from: string | null;
+  expires_at: string | null;
+  max_uses: number | null;
+  remaining_uses: number | null;
+  source: PolicySource;
+  derived_from_message_id: string | null;
   priority: number;
   enabled: boolean;
-  effectiveFrom: Date | null;
-  expiresAt: Date | null;
-  maxUses: number | null;
-  remainingUses: number | null;
-  source: PolicySource;
-  derivedFromMessageId: string | null;
-  createdAt: Date;
+  created_at: string | null;
+  updated_at: string | null;
 }
 ```
 
-`policyContent` can be:
+`policy_content` can be:
 
 - structured JSON for `structured`
 - structured JSON for `heuristic`

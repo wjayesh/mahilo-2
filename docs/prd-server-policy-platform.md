@@ -79,7 +79,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 0.1 Canonical Policy Schema
 - **ID**: `SRV-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Description**:
@@ -100,13 +100,15 @@ These are strong starting points, but they need canonical policy semantics and s
     - `derived_from_message_id`
   - Keep `priority`, `enabled`, and timestamps.
 - **Acceptance Criteria**:
-  - [ ] Canonical TS type exists in server code
-  - [ ] Canonical schema documented in code and docs
-  - [ ] All new APIs use the new model
+  - [x] Canonical TS type exists in server code
+  - [x] Canonical schema documented in code and docs
+  - [x] All new APIs use the new model
+- **Notes**:
+  - 2026-03-08: Added `src/services/policySchema.ts` for the canonical schema + compatibility adapter, and migrated policy-facing APIs to canonical fields (`direction`, `resource`, `action`, `effect`, `evaluator`, lifecycle, and provenance).
 
 ### 0.2 Separate Guardrails from User Policies
 - **ID**: `SRV-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001
 - **Description**:
@@ -114,13 +116,16 @@ These are strong starting points, but they need canonical policy semantics and s
   - Guardrails are non-overridable by user policy.
   - User policies resolve after guardrails.
 - **Acceptance Criteria**:
-  - [ ] Guardrails are represented separately from user policies
-  - [ ] Resolver order is documented and tested
-  - [ ] A user allow cannot override a platform deny
+  - [x] Guardrails are represented separately from user policies
+  - [x] Resolver order is documented and tested
+  - [x] A user allow cannot override a platform deny
+- **Notes**:
+  - 2026-03-08: Started implementation by splitting resolver responsibilities into a dedicated platform guardrail layer and user-policy layer in the policy service.
+  - 2026-03-08: Added `src/services/policyGuardrails.ts`, wired resolver order (`platform_guardrails` then `user_policies`) in `src/services/policy.ts`, and added unit coverage proving a canonical user `allow` policy cannot override a platform guardrail deny.
 
 ### 0.3 Resolution Semantics
 - **ID**: `SRV-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001, SRV-002
 - **Description**:
@@ -130,9 +135,13 @@ These are strong starting points, but they need canonical policy semantics and s
     - group overlay as additional constraint
     - same-level conflict resolution via `deny > ask > allow`
 - **Acceptance Criteria**:
-  - [ ] Resolver returns exactly one final effect
-  - [ ] Conflict behavior is deterministic
-  - [ ] Resolution explanation is preserved for audit
+  - [x] Resolver returns exactly one final effect
+  - [x] Conflict behavior is deterministic
+  - [x] Resolution explanation is preserved for audit
+- **Notes**:
+  - 2026-03-08: Replaced additive fail-fast evaluation in `src/services/policy.ts` with deterministic effect resolution (`allow`/`ask`/`deny`) using specificity order (`user > role > global`), same-scope conflict precedence (`deny > ask > allow`), and group overlay constraints.
+  - 2026-03-08: Added audit-friendly resolver metadata (`resolution_explanation`, `winning_policy_id`, `matched_policy_ids`) and expanded unit coverage for specificity, deterministic conflicts, and group overlay behavior.
+  - 2026-03-08: Validation run: `bun test tests/unit/policy.test.ts` and `bun test tests/integration/policy-context.test.ts`.
 
 ---
 
@@ -140,42 +149,55 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 1.1 Policies Table Expansion
 - **ID**: `SRV-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001
 - **Description**:
   - Add selector, effect, evaluator, lifecycle, and provenance columns.
   - Preserve backward compatibility long enough for migration.
 - **Acceptance Criteria**:
-  - [ ] Migration adds all new columns
-  - [ ] Indexes exist for lookup and lifecycle queries
-  - [ ] Existing data remains readable during migration
+  - [x] Migration adds all new columns
+  - [x] Indexes exist for lookup and lifecycle queries
+  - [x] Existing data remains readable during migration
+- **Notes**:
+  - 2026-03-08: Started SRV-010 implementation; preparing policy table expansion migration and compatibility updates for legacy policy rows.
+  - 2026-03-08: Added migration `0007_breezy_hammer` for selector/effect/evaluator/lifecycle/provenance columns + lookup/selectors/lifecycle indexes, expanded policy schema and compatibility adapters, and validated with `bun test tests/unit/policy.test.ts tests/unit/defaultPolicies.test.ts tests/integration/policy-context.test.ts tests/integration/message-policies.test.ts`, `DATABASE_URL=/tmp/mahilo_srv010_migration_test.db bun run src/db/migrate.ts`, and `bun run build`.
 
 ### 1.2 Message Table Expansion
 - **ID**: `SRV-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-001
 - **Description**:
   - Add `direction`, `resource`, `action`, `in_response_to`, `outcome`, `outcome_details`, `policies_evaluated`, `sender_connection_id`.
   - Optionally add `classified_*` fields for future selector verification.
 - **Acceptance Criteria**:
-  - [ ] Messages persist selectors and outcomes
-  - [ ] Sender connection can be tied to each message
-  - [ ] Existing send flow keeps working during migration
+  - [x] Messages persist selectors and outcomes
+  - [x] Sender connection can be tied to each message
+  - [x] Existing send flow keeps working during migration
+- **Notes**:
+  - 2026-03-08: Started SRV-011 implementation; expanding message schema/migration and wiring send-path persistence for selector, outcome, and sender connection metadata with backward compatibility.
+  - 2026-03-08: Added migration `0008_heavy_storm` for message selector/outcome/sender-connection columns and indexes, expanded message schema and send-route persistence (including optional declared selectors/outcome metadata and sender connection ownership checks), and validated via `bun test tests/e2e/message-exchange.test.ts tests/integration/message-policies.test.ts tests/unit/interactions.test.ts`, `DATABASE_URL=/tmp/mahilo_srv011_migration_test.db bun run src/db/migrate.ts`, and `bun run build`.
 
 ### 1.3 Backfill / Compatibility Layer
 - **ID**: `SRV-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-010, SRV-011
 - **Description**:
   - Support old policy rows while the server migrates.
   - Add read/write translation where necessary.
 - **Acceptance Criteria**:
-  - [ ] Old rows can still be listed/read
-  - [ ] New rows are written in the canonical format
-  - [ ] Compatibility strategy is documented
+  - [x] Old rows can still be listed/read
+  - [x] New rows are written in the canonical format
+  - [x] Compatibility strategy is documented
+- **Compatibility Strategy**:
+  - Legacy database rows (missing canonical selector/effect/evaluator columns) are normalized at read time via `dbPolicyToCanonical`, which backfills canonical defaults while preserving legacy `policy_content`.
+  - New writes persist canonical storage payloads (`schema_version: canonical_policy_v1`) through `canonicalToStorage`, while still populating legacy columns for transition safety.
+  - API writes accept both canonical `evaluator` and legacy `policy_type` inputs; legacy requests are translated to canonical evaluator semantics before validation and persistence.
+- **Notes**:
+  - 2026-03-08: Started SRV-012 implementation by auditing policy read/write paths and identifying remaining non-canonical writes + legacy request compatibility gaps.
+  - 2026-03-08: Completed SRV-012 by canonicalizing default-policy writes, adding `policy_type` write aliases on policy create/update, adding compatibility integration coverage (`tests/integration/policies-compatibility.test.ts`) plus canonical storage coverage in `tests/unit/defaultPolicies.test.ts`, and validating with `bun test tests/integration/policies-compatibility.test.ts tests/unit/defaultPolicies.test.ts tests/integration/policy-context.test.ts` and `bun run build`.
 
 ---
 
@@ -183,7 +205,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 2.1 Active Policy Filtering
 - **ID**: `SRV-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-010
 - **Description**:
@@ -192,13 +214,16 @@ These are strong starting points, but they need canonical policy semantics and s
     - effective time window
     - remaining uses > 0
 - **Acceptance Criteria**:
-  - [ ] Expired policies never participate
-  - [ ] Spent one-time overrides never participate
-  - [ ] Tests cover lifecycle boundaries
+  - [x] Expired policies never participate
+  - [x] Spent one-time overrides never participate
+  - [x] Tests cover lifecycle boundaries
+- **Notes**:
+  - 2026-03-08: Started SRV-020 implementation by wiring active-policy lifecycle filtering (`enabled`, effective window, remaining uses) into resolver lookups and adding lifecycle boundary coverage in policy tests.
+  - 2026-03-08: Completed active lifecycle filtering in `src/services/policy.ts` using DB-level constraints for `effective_from`, `expires_at`, and `remaining_uses`; added boundary tests in `tests/unit/policy.test.ts`; validated with `bun test tests/unit/policy.test.ts` and `bun test tests/integration/message-policies.test.ts`.
 
 ### 2.2 Deterministic Resolver
 - **ID**: `SRV-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-003, SRV-020
 - **Description**:
@@ -206,13 +231,16 @@ These are strong starting points, but they need canonical policy semantics and s
   - Evaluate contextual LLM policies second.
   - Merge into a single final effect.
 - **Acceptance Criteria**:
-  - [ ] Returns `allow` / `ask` / `deny`
-  - [ ] Returns winning policy and evaluated policies
-  - [ ] Returns minimal reason code + full audit explanation
+  - [x] Returns `allow` / `ask` / `deny`
+  - [x] Returns winning policy and evaluated policies
+  - [x] Returns minimal reason code + full audit explanation
+- **Notes**:
+  - 2026-03-08: Started SRV-021 implementation to introduce two-phase resolver evaluation (`structured`/`heuristic` first, `llm` second) with deterministic merge metadata and reason-code output.
+  - 2026-03-08: Completed SRV-021 by adding explicit resolver phases in `src/services/policy.ts`, returning `reason_code` + `evaluated_policies` alongside winning policy metadata, serializing enriched policy evaluation payloads in `src/routes/messages.ts`, and validating with `bun test tests/unit/policy.test.ts`, `bun test tests/integration/message-policies.test.ts`, `bun test tests/e2e/message-exchange.test.ts`, and `bun run build`.
 
 ### 2.3 One-Time Overrides and Expiring Rules
 - **ID**: `SRV-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-020, SRV-021
 - **Description**:
@@ -220,13 +248,16 @@ These are strong starting points, but they need canonical policy semantics and s
   - Support `expires_at`
   - Support override provenance
 - **Acceptance Criteria**:
-  - [ ] One-time overrides are consumed after use
-  - [ ] Expiring rules stop applying automatically
-  - [ ] Audit shows who/what created them
+  - [x] One-time overrides are consumed after use
+  - [x] Expiring rules stop applying automatically
+  - [x] Audit shows who/what created them
+- **Notes**:
+  - 2026-03-08: Started SRV-022 implementation by auditing override lifecycle handling and provenance propagation across resolver, send flow, and policy audit payloads.
+  - 2026-03-08: Completed SRV-022 by adding winning-policy use consumption in `src/services/policy.ts` + `src/routes/messages.ts`, enriching policy audit payloads with lifecycle/provenance fields (`created_by_user_id`, `source`, `derived_from_message_id`, use/expiry metadata), and validating with `bun test tests/unit/policy.test.ts tests/integration/policy-lifecycle-send.test.ts` and `bun run build`.
 
 ### 2.4 Review / Ask Semantics
 - **ID**: `SRV-023`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021
 - **Description**:
@@ -234,9 +265,12 @@ These are strong starting points, but they need canonical policy semantics and s
   - Outbound: do not send until escalated or explicitly overridden.
   - Inbound: either mark review-required or hold for approval depending on mode.
 - **Acceptance Criteria**:
-  - [ ] Server behavior is consistent across flows
-  - [ ] Plugin/server clients receive structured resolution
-  - [ ] Audit distinguishes `ask` from `deny`
+  - [x] Server behavior is consistent across flows
+  - [x] Plugin/server clients receive structured resolution
+  - [x] Audit distinguishes `ask` from `deny`
+- **Notes**:
+  - 2026-03-08: Started SRV-023 by reviewing current `ask` handling in `src/routes/messages.ts` across outbound and inbound send paths.
+  - 2026-03-08: Completed SRV-023 by adding explicit inbound ask mode config (`review_required` vs `hold_for_approval`), tightening stored-resolution fallback for review/approval states, and adding integration coverage for outbound/inbound ask behavior plus ask-vs-deny audit fields (`bun test tests/integration/review-ask-semantics.test.ts`).
 
 ---
 
@@ -244,53 +278,66 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 3.1 Bind Messages to Authenticated Identity
 - **ID**: `SRV-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-011
 - **Description**:
   - Persist sender connection identity in the send path.
   - Ensure policy resolution uses authenticated sender identity + connection.
 - **Acceptance Criteria**:
-  - [ ] Every outbound message can reference sender user + connection
-  - [ ] Resolver input includes authenticated identity
-  - [ ] Signature / sender metadata are not the only identity source
+  - [x] Every outbound message can reference sender user + connection
+  - [x] Resolver input includes authenticated identity
+  - [x] Signature / sender metadata are not the only identity source
+- **Notes**:
+  - 2026-03-08: Started SRV-030 by binding `/api/v1/messages/send` to an authenticated sender connection and threading authenticated sender identity into policy resolution/audit payloads.
+  - 2026-03-08: Completed SRV-030 by auto-resolving/validating authenticated sender connections on send, passing authenticated sender identity into policy resolver inputs, persisting identity-bound policy evaluation metadata, and validating with `bun test tests/unit/policy.test.ts`, `bun test tests/integration/policy-lifecycle-send.test.ts`, `bun test tests/integration/review-ask-semantics.test.ts`, `bun test tests/e2e/message-exchange.test.ts`, and `bun run build`.
 
 ### 3.2 Selector-Aware Send API
 - **ID**: `SRV-031`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-011
 - **Description**:
   - Extend `POST /messages/send` to accept canonical selectors.
   - Treat declared selectors as hints from trusted clients.
 - **Acceptance Criteria**:
-  - [ ] `direction`, `resource`, `action` accepted and stored
-  - [ ] Validation exists for known resources/directions
-  - [ ] Backward compatibility exists for old clients during transition
+  - [x] `direction`, `resource`, `action` accepted and stored
+  - [x] Validation exists for known resources/directions
+  - [x] Backward compatibility exists for old clients during transition
+- **Notes**:
+  - 2026-03-08: Started SRV-031 by wiring selector registry-backed validation into the send API while preserving legacy top-level selector field compatibility.
+  - 2026-03-08: Completed SRV-031 by adding known selector direction/resource validation (with namespaced resource extension support), preserving dual input compatibility (`declared_selectors` + legacy top-level selector fields), and validating via `bun test tests/integration/selector-aware-send.test.ts tests/e2e/message-exchange.test.ts tests/integration/review-ask-semantics.test.ts` and `bun run build`.
 
 ### 3.3 Inbound Request Policy Engine
 - **ID**: `SRV-032`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-030, SRV-031
 - **Description**:
   - Add pre-delivery request evaluation.
   - Support inbound `allow` / `ask` / `deny` semantics.
 - **Acceptance Criteria**:
-  - [ ] Inbound deny blocks before delivery
-  - [ ] Inbound ask produces review-required behavior
-  - [ ] Inbound audit log exists
+  - [x] Inbound deny blocks before delivery
+  - [x] Inbound ask produces review-required behavior
+  - [x] Inbound audit log exists
+- **Notes**:
+  - 2026-03-08: Started SRV-032 by implementing recipient-owned inbound pre-delivery policy resolution in `/api/v1/messages/send`, plus integration coverage for inbound deny/ask audit behavior.
+  - 2026-03-08: Completed SRV-032 by adding recipient-owned inbound policy evaluation (`evaluateInboundPolicies`) with selector-aware policy retrieval, enforcing deny/ask decisions before delivery, persisting inbound audit metadata in `messages.policies_evaluated`, and validating via `bun test tests/unit/policy.test.ts tests/integration/review-ask-semantics.test.ts tests/integration/selector-aware-send.test.ts`, `bun test tests/e2e/message-exchange.test.ts`, and `bun run build`.
 
 ### 3.4 Selector Verification Hooks (Future-Friendly)
 - **ID**: `SRV-033`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Depends on**: SRV-031
 - **Description**:
   - Lay groundwork for comparing declared selectors with Mahilo-side classification.
 - **Acceptance Criteria**:
-  - [ ] Classified fields or hook points exist
-  - [ ] Mismatch can be logged without blocking initial rollout
+  - [x] Classified fields or hook points exist
+  - [x] Mismatch can be logged without blocking initial rollout
+- **Notes**:
+  - 2026-03-08: Started SRV-033 by adding selector-classification verification hooks to compare declared selectors against lightweight Mahilo-side classification without blocking send/preflight behavior.
+  - 2026-03-08: Completed SRV-033 by adding `src/services/selectorVerification.ts` (heuristic classifier + mismatch detection hooks), wiring non-blocking mismatch warning logs and `selector_verification` audit metadata into `POST /api/v1/messages/send`, persisting `classified_direction/resource/action` on all send-path message writes, and extending tests (`tests/integration/selector-aware-send.test.ts`, `tests/unit/selectorVerification.test.ts`) for classified field persistence plus mismatch logging behavior.
+  - 2026-03-08: Validation run: `bun test tests/unit/selectorVerification.test.ts tests/integration/selector-aware-send.test.ts tests/integration/review-ask-semantics.test.ts`, `bun test tests/integration/plugin-events-reviews.test.ts`, and `bun run build`.
 
 ---
 
@@ -298,20 +345,24 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 4.1 Context Endpoint v2
 - **ID**: `SRV-040`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-031
 - **Description**:
   - Evolve recipient context endpoint to include selector-aware policy context.
   - Include relationship, roles, recent interactions, relevant decisions, and summary.
 - **Acceptance Criteria**:
-  - [ ] Plugin can fetch compact prompt-ready context
-  - [ ] Response includes selectors and resolved guidance
-  - [ ] Context stays stable enough for plugin consumption
+  - [x] Plugin can fetch compact prompt-ready context
+  - [x] Response includes selectors and resolved guidance
+  - [x] Context stays stable enough for plugin consumption
+- **Notes**:
+  - 2026-03-08: Started SRV-040 by implementing a plugin-facing context v2 endpoint with selector-aware guidance and compact interaction decision context.
+  - 2026-03-08: Completed SRV-040 by adding `POST /api/v1/plugin/context` in `src/routes/plugin.ts`, wiring route registration in `src/server.ts`, and returning contract-versioned prompt context with sender/recipient relationship details, selector-aware policy guidance (`default_decision`, `reason_code`, `winning_policy_id`), relevant decisions, compact recent interactions, and suggested selectors.
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-context.test.ts`, `bun test tests/integration/policy-context.test.ts`, and `bun run build`.
 
 ### 4.2 Draft Resolution / Preflight Endpoint
 - **ID**: `SRV-041`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-031
 - **Description**:
@@ -319,45 +370,61 @@ These are strong starting points, but they need canonical policy semantics and s
   - Input: recipient, selectors, content, context, routing info.
   - Output: `allow` / `ask` / `deny`, summary, applied policy info.
 - **Acceptance Criteria**:
-  - [ ] Can be called without creating final delivery
-  - [ ] Matches actual send-time resolution behavior
-  - [ ] Returns structured result for plugin UX
+  - [x] Can be called without creating final delivery
+  - [x] Matches actual send-time resolution behavior
+  - [x] Returns structured result for plugin UX
+- **Notes**:
+  - 2026-03-08: Started SRV-041 by mapping `/api/v1/messages/send` resolution steps (selector normalization, recipient routing, trusted-mode policy evaluation, and delivery-mode mapping) to reuse for preflight without creating a delivery record.
+  - 2026-03-08: Completed SRV-041 by adding `POST /api/v1/plugin/resolve` in `src/routes/plugin.ts` with verified-auth sender checks, selector-aware draft resolution, routing-aware recipient preflight, trusted-mode policy evaluation parity with send-time behavior, and structured plugin UX payloads (decision/delivery mode/summary/guidance/applied policy metadata) without message creation.
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-resolve.test.ts`, `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts`, and `bun run build`.
 
 ### 4.3 Outcome Reporting Endpoint
 - **ID**: `SRV-042`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-011
 - **Description**:
   - Endpoint to report whether a draft was shared, withheld, escalated, or partially sent.
 - **Acceptance Criteria**:
-  - [ ] Plugin can report outcomes after send or review
-  - [ ] Server stores outcome for learning/audit
-  - [ ] Correlates with original request/response pair
+  - [x] Plugin can report outcomes after send or review
+  - [x] Server stores outcome for learning/audit
+  - [x] Correlates with original request/response pair
+- **Notes**:
+  - 2026-03-08: Started SRV-042 implementation by designing `POST /api/v1/plugin/outcomes` correlation flow against message metadata (`message_id`, `resolution_id`, sender connection ownership) and outcome audit persistence.
+  - 2026-03-08: Completed SRV-042 by adding `POST /api/v1/plugin/outcomes` in `src/routes/plugin.ts` with verified auth, sender connection ownership checks, idempotent retry handling, and durable outcome audit entries embedded in `messages.outcome_details` while updating canonical message `outcome`.
+  - 2026-03-08: Added integration coverage in `tests/integration/plugin-outcomes.test.ts` (auth, success correlation/audit storage, idempotency dedupe, sender mismatch rejection) and validated via `bun test tests/integration/plugin-outcomes.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-context.test.ts` and `bun run build`.
 
 ### 4.4 Temporary Override Creation Endpoint
 - **ID**: `SRV-043`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-022
 - **Description**:
   - Either extend policy create endpoint or add specialized helper behavior for one-time / expiring overrides.
 - **Acceptance Criteria**:
-  - [ ] One-time override creation is straightforward for plugin clients
-  - [ ] Override source/provenance is explicit
-  - [ ] Validation prevents malformed overrides
+  - [x] One-time override creation is straightforward for plugin clients
+  - [x] Override source/provenance is explicit
+  - [x] Validation prevents malformed overrides
+- **Notes**:
+  - 2026-03-08: Started SRV-043 by implementing a plugin-facing override creation helper endpoint and associated validation/provenance tests.
+  - 2026-03-08: Completed SRV-043 by adding `POST /api/v1/plugin/overrides` in `src/routes/plugin.ts` with verified sender-connection checks, one-time/temporary/persistent lifecycle validation, canonical override creation (`source: override`), and explicit provenance metadata (`source_resolution_id`, reason, sender connection, optional `derived_from_message_id`) embedded in canonical policy content.
+  - 2026-03-08: Added integration coverage in `tests/integration/plugin-overrides.test.ts` (auth, one-time creation, temporary TTL creation, malformed lifecycle rejection) and validated via `bun test tests/integration/plugin-overrides.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-outcomes.test.ts tests/integration/plugin-context.test.ts` and `bun run build`.
 
 ### 4.5 Blocked / Review Event APIs
 - **ID**: `SRV-044`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-023, SRV-032
 - **Description**:
   - Provide APIs to inspect blocked events and review-required events.
 - **Acceptance Criteria**:
-  - [ ] Minimal redacted blocked-event log exists
-  - [ ] Review queue can be queried
-  - [ ] Sensitive payload retention behavior is documented
+  - [x] Minimal redacted blocked-event log exists
+  - [x] Review queue can be queried
+  - [x] Sensitive payload retention behavior is documented
+- **Notes**:
+  - 2026-03-08: Started SRV-044 by adding plugin-facing blocked-event and review-queue read APIs plus retention/redaction documentation updates.
+  - 2026-03-08: Completed SRV-044 by adding `GET /api/v1/plugin/reviews` and `GET /api/v1/plugin/events/blocked` in `src/routes/plugin.ts` (verified-auth, query filters, metadata-first blocked-event responses with payload hashing, and review queue querying), adding integration coverage in `tests/integration/plugin-events-reviews.test.ts`, and updating retention/contract docs (`docs/openclaw-plugin-server-contract.md`, `docs/permission-system-design.md`).
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-events-reviews.test.ts`, `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-outcomes.test.ts tests/integration/plugin-overrides.test.ts`, and `bun run build`.
 
 ---
 
@@ -365,27 +432,35 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 5.1 Per-Recipient Fan-Out Resolution
 - **ID**: `SRV-050`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-030, SRV-031
 - **Description**:
   - Group delivery must resolve policies per recipient.
   - Group policy acts as overlay, not sole decision-maker.
 - **Acceptance Criteria**:
-  - [ ] A group message can produce mixed per-recipient results
-  - [ ] Denied recipients do not receive the message
-  - [ ] Partial delivery is explicitly logged
+  - [x] A group message can produce mixed per-recipient results
+  - [x] Denied recipients do not receive the message
+  - [x] Partial delivery is explicitly logged
+- **Notes**:
+  - 2026-03-08: Started SRV-050 by replacing single group-level policy gating with per-recipient fan-out resolution so each group member is evaluated with recipient-specific policies plus group overlay constraints.
+  - 2026-03-08: Completed SRV-050 by switching `/api/v1/messages/send` group fan-out to recipient-specific policy resolution (`evaluatePolicies(..., groupId)`), blocking deny/ask recipients from delivery attempts, recording partial fan-out audit metadata in `messages.policies_evaluated`, and returning per-recipient outcomes in send responses.
+  - 2026-03-08: Validation run: `bun test tests/unit/policy.test.ts tests/integration/group-fanout-resolution.test.ts`, `bun test tests/integration/plugin-resolve.test.ts`, `bun test tests/integration/groups.test.ts`, and `bun run build`.
 
 ### 5.2 Per-Recipient Outcome Storage
 - **ID**: `SRV-051`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-050
 - **Description**:
   - Persist allow/ask/deny result per delivery target.
 - **Acceptance Criteria**:
-  - [ ] Delivery table or equivalent stores resolution per member
-  - [ ] Group audit can explain who got what and why
+  - [x] Delivery table or equivalent stores resolution per member
+  - [x] Group audit can explain who got what and why
+- **Notes**:
+  - 2026-03-08: Started SRV-051 by adding structured per-recipient resolution persistence to delivery records for group fan-out and extending audit coverage.
+  - 2026-03-08: Completed SRV-051 by extending `message_deliveries` with per-recipient policy resolution metadata (`policy_decision`, delivery mode, reason/reason_code, winner/matched policy IDs, resolver layer, guardrail ID, and resolution ID), persisting those fields for allowed/ask/deny fan-out recipients in `POST /api/v1/messages/send`, and adding integration assertions proving group audit rows explain per-member outcomes.
+  - 2026-03-08: Validation run: `bun test tests/integration/group-fanout-resolution.test.ts`, `bun test tests/integration/groups.test.ts`, `bun test tests/integration/plugin-resolve.test.ts`, `DATABASE_URL=/tmp/mahilo_srv051_migration_test.db bun run src/db/migrate.ts`, and `bun run build`.
 
 ---
 
@@ -393,37 +468,48 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 6.1 Learning Provenance
 - **ID**: `SRV-060`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-010, SRV-011, SRV-042
 - **Description**:
   - Track which interaction created or suggested a policy.
 - **Acceptance Criteria**:
-  - [ ] Policies can point to source message/interaction
-  - [ ] Audit can show override → promoted rule history
+  - [x] Policies can point to source message/interaction
+  - [x] Audit can show override → promoted rule history
+- **Notes**:
+  - 2026-03-08: Started SRV-060 by auditing current policy provenance fields and plugin outcome/override audit trails to wire interaction-level learning provenance and override-to-promotion history.
+  - 2026-03-08: Completed SRV-060 by wiring canonical learning provenance (`source_interaction_id`, `promoted_from_policy_ids`) through policy create/update/read flows, adding provenance audit endpoint `GET /api/v1/policies/audit/provenance/:id` with override→promotion lineage reconstruction, and ensuring plugin overrides stamp interaction-level provenance.
+  - 2026-03-08: Validation run: `bun test tests/integration/policy-learning-provenance.test.ts tests/integration/policies-compatibility.test.ts tests/integration/policy-context.test.ts tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-overrides.test.ts tests/integration/plugin-outcomes.test.ts` and `bun run build`.
 
 ### 6.2 Promotion Suggestions Model
 - **ID**: `SRV-061`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P2
 - **Depends on**: SRV-022, SRV-042, SRV-060
 - **Description**:
   - Support repeated temporary overrides leading to a suggestion to create a durable policy.
 - **Acceptance Criteria**:
-  - [ ] Server can detect repeated patterns
-  - [ ] Suggestion logic is separated from enforcement
+  - [x] Server can detect repeated patterns
+  - [x] Suggestion logic is separated from enforcement
+- **Notes**:
+  - 2026-03-08: Started SRV-061 by designing a learning-only promotion detector for temporary override repetition without changing policy enforcement behavior.
+  - 2026-03-08: Completed SRV-061 by adding `src/services/promotionSuggestions.ts` and `GET /api/v1/plugin/suggestions/promotions` in `src/routes/plugin.ts`; the endpoint groups repeated temporary overrides by scope/target/selectors/effect and returns durable policy suggestions with promotion provenance (`promoted_from_policy_ids`).
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-promotion-suggestions.test.ts tests/integration/plugin-overrides.test.ts tests/integration/plugin-outcomes.test.ts`, `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-events-reviews.test.ts`, and `bun run build`.
 
 ### 6.3 Agent-Facing vs User-Facing Explanations
 - **ID**: `SRV-062`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-021, SRV-044
 - **Description**:
   - Minimal reason codes for agent clients
   - Rich detailed audit for users/admins
 - **Acceptance Criteria**:
-  - [ ] Agent-facing payload avoids oversharing policy details
-  - [ ] User-facing audit includes enough debugging context
+  - [x] Agent-facing payload avoids oversharing policy details
+  - [x] User-facing audit includes enough debugging context
+- **Notes**:
+  - 2026-03-08: Started SRV-062 by auditing plugin preflight/send/context payloads and review/blocked audit routes to separate agent-facing explanation payloads from user/admin debugging surfaces.
+  - 2026-03-08: Completed SRV-062 by redacting policy internals from agent-facing responses (`/api/v1/plugin/resolve`, `/api/v1/messages/send`, and plugin context guidance), adding rich `audit` diagnostics to `/api/v1/plugin/reviews` and `/api/v1/plugin/events/blocked`, updating contract docs, and validating via `bun test tests/integration/plugin-resolve.test.ts tests/integration/plugin-context.test.ts tests/integration/plugin-events-reviews.test.ts tests/integration/review-ask-semantics.test.ts tests/integration/group-fanout-resolution.test.ts` plus `bun run build`.
 
 ---
 
@@ -431,7 +517,7 @@ These are strong starting points, but they need canonical policy semantics and s
 
 ### 7.1 Resolver Test Matrix
 - **ID**: `SRV-070`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-021, SRV-022, SRV-032, SRV-050
 - **Description**:
@@ -442,30 +528,63 @@ These are strong starting points, but they need canonical policy semantics and s
     - inbound ask/deny
     - group partial delivery
 - **Acceptance Criteria**:
-  - [ ] High-risk policy semantics are covered by tests
-  - [ ] Regressions are easy to catch
+  - [x] High-risk policy semantics are covered by tests
+  - [x] Regressions are easy to catch
+- **Notes**:
+  - 2026-03-08: Started SRV-070 by auditing existing policy/resolver coverage and preparing matrix expansions for specificity conflicts, lifecycle overrides, inbound ask/deny, and group partial fan-out behavior.
+  - 2026-03-08: Completed SRV-070 by adding resolver conflict matrix coverage (`tests/unit/policy.test.ts`), lifecycle override expiry + one-time ask depletion coverage (`tests/integration/policy-lifecycle-send.test.ts`), inbound ask/deny specificity coverage (`tests/integration/review-ask-semantics.test.ts`), and mixed allow/ask/deny group partial-delivery coverage (`tests/integration/group-fanout-resolution.test.ts`); validation: `bun test tests/unit/policy.test.ts tests/integration/policy-lifecycle-send.test.ts tests/integration/review-ask-semantics.test.ts tests/integration/group-fanout-resolution.test.ts`.
 
 ### 7.2 Contract Documentation
 - **ID**: `SRV-071`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: SRV-040, SRV-041, SRV-042, SRV-043
 - **Description**:
   - Document plugin-facing APIs and payloads.
 - **Acceptance Criteria**:
-  - [ ] API examples match actual implementation
-  - [ ] Plugin/client teams can integrate without guessing
+  - [x] API examples match actual implementation
+  - [x] Plugin/client teams can integrate without guessing
+- **Notes**:
+  - 2026-03-08: Started SRV-071 by auditing `src/routes/plugin.ts` and plugin integration tests to reconcile contract docs with actual request/response payloads and auth semantics.
+  - 2026-03-08: Completed SRV-071 by rewriting `docs/openclaw-plugin-server-contract.md` to match implemented payloads for `/api/v1/plugin/context`, `/api/v1/plugin/resolve`, `/api/v1/plugin/outcomes`, `/api/v1/plugin/overrides`, and plugin-facing `/api/v1/messages/send` fields, including verification requirements, selector defaults, idempotency behavior, callback payload/header semantics, and actual error envelope/codes.
+  - 2026-03-08: Validation run: `bun test tests/integration/plugin-context.test.ts tests/integration/plugin-resolve.test.ts tests/integration/plugin-outcomes.test.ts tests/integration/plugin-overrides.test.ts tests/integration/selector-aware-send.test.ts`.
 
 ### 7.3 Migration Notes
 - **ID**: `SRV-072`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: SRV-012
 - **Description**:
   - Document old → new policy model migration.
 - **Acceptance Criteria**:
-  - [ ] Migration path is explicit
-  - [ ] Breaking changes are called out clearly
+  - [x] Migration path is explicit
+  - [x] Breaking changes are called out clearly
+- **Migration Path (old → canonical)**:
+  1. Apply schema migrations first (`bun run db:migrate`), including `0007_breezy_hammer` (policy canonical columns) and `0008_heavy_storm` (message selector/outcome metadata).
+  2. Keep legacy rows readable during rollout: `dbPolicyToCanonical` normalizes old rows and backfills canonical defaults (`direction=outbound`, `resource=message.general`, `action=share`, `effect=deny`, `source=legacy_migrated`).
+  3. Shift writes to canonical format: policy create/update now persists `schema_version: canonical_policy_v1` payloads via `canonicalToStorage`, while still backfilling legacy storage columns for transition safety.
+  4. Migrate clients to canonical fields on policy APIs: `direction`, `resource`, `action`, `effect`, `evaluator`, lifecycle (`effective_from`, `expires_at`, `max_uses`, `remaining_uses`), and provenance (`source`, `derived_from_message_id`, `learning_provenance`).
+  5. Complete client payload migration for selector-aware flows by sending canonical selector objects (`declared_selectors` or route-specific selector payloads) instead of relying on legacy top-level selector fields.
+  6. Remove compatibility aliases only after all callers are updated and compatibility tests are no longer needed.
+- **Legacy → Canonical Mapping**:
+
+  | Legacy model/input | Canonical model/input | Notes |
+  |---|---|---|
+  | `policy_type` | `evaluator` | `policy_type` is a temporary write alias; when both are supplied they must match. |
+  | Mixed implicit rule intent (`resource_rule`, `resource_block`) | Explicit `effect` (`allow`/`ask`/`deny`) | Effect is now first-class and always resolved deterministically. |
+  | Flat/overlapping type matching (`applicable_types`) | Selector tuple (`direction`, `resource`, `action`) | Selectors are now normalized and validated. |
+  | No lifecycle controls | `effective_from`, `expires_at`, `max_uses`, `remaining_uses` | Enables temporary and one-time policies. |
+  | No explicit provenance | `source`, `derived_from_message_id`, `learning_provenance` | Supports audit lineage and learning history. |
+  | Legacy `policy_content` blobs | `policy_content` wrapped in `canonical_policy_v1` storage payload | Read-path compatibility preserves legacy content semantics. |
+- **Breaking Changes (explicit)**:
+  - Policy resolution semantics changed from additive fail-fast behavior to deterministic canonical resolution (`user > role > global`, same-scope tie break `deny > ask > allow`, with platform guardrails evaluated first).
+  - Policy API consumers must handle canonical response fields; relying only on legacy fields is no longer sufficient.
+  - Policy validation is stricter: `global` scope cannot set `target_id`, while `user`/`role`/`group` scopes require `target_id`.
+  - Supplying both `evaluator` and `policy_type` with different values now returns validation errors.
+  - Compatibility aliases remain temporary (`policy_type` aliasing and legacy top-level selector inputs); removing them will be a deliberate future breaking change after caller cutover.
+- **Notes**:
+  - 2026-03-08: Started SRV-072 by auditing SRV-001/SRV-010/SRV-012 implementation details (`policySchema`, policy routes, compatibility tests) and drafting explicit old→canonical migration guidance + breaking change callouts.
+  - 2026-03-08: Completed SRV-072 by documenting the explicit migration sequence, legacy→canonical mapping table, and concrete breaking-change list in this PRD section; validation run: `bun run build`.
 
 ---
 
