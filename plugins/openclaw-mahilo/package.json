@@ -77,5 +77,10 @@
     "extensions": [
       "./dist/index.js"
     ]
+  },
+  "clawdbot": {
+    "extensions": [
+      "./dist/index.js"
+    ]
   }
 }

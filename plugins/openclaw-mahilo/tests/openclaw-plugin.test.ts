@@ -1106,20 +1106,17 @@ describe("createMahiloOpenClawPlugin", () => {
         : "";
 
     expect(replyText).toContain(
-      "Mahilo is not bootstrapped for this runtime yet.",
+      "Mahilo is not bootstrapped yet.",
     );
     expect(replyText).toContain(
       "POST https://mahilo.example/api/v1/auth/register",
     );
     expect(replyText).toContain(
-      "do NOT ask the human to run /mahilo setup",
+      "do NOT ask the human to run commands",
     );
-    expect(replyText).toContain(
-      "do NOT inspect source code or docs",
-    );
-    expect(replyText).toContain("BOOTSTRAP STEPS");
-    expect(replyText).toContain("plugins.entries.mahilo.config.apiKey");
-    expect(replyText).toContain("plugin handles sender registration");
+    expect(replyText).toContain("config.patch");
+    expect(replyText).toContain('"apiKey"');
+    expect(replyText).toContain("invite token (mhinv_...) is NOT an API key");
     expect(replyText).not.toContain(
       "could not find any agent connections for the current identity",
     );
@@ -3579,14 +3576,15 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(promptValue).toContain("[MahiloSetup/v1]");
     expect(promptValue).toContain(
-      "curl -sS -X POST https://mahilo.example/api/v1/auth/register",
+      "POST https://mahilo.example/api/v1/auth/register",
     );
-    expect(promptValue).toContain("plugins.entries.mahilo.config.apiKey");
-    expect(promptValue).toContain("Do not ask the human to run /mahilo setup.");
+    expect(promptValue).toContain("config.patch");
+    expect(promptValue).toContain('"apiKey"');
+    expect(promptValue).toContain("Do NOT ask the human to run /mahilo setup");
     expect(promptValue).toContain(
-      "Do not inspect local source code or docs.",
+      "Do NOT read docs or source code.",
     );
-    expect(promptValue).toContain("plugin will automatically register the sender");
+    expect(promptValue).toContain("invite token (mhinv_...) is NOT an API key");
     expect(promptValue).toContain("You are a helpful assistant.");
   });
 

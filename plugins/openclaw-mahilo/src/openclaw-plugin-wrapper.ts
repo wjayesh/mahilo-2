@@ -308,6 +308,17 @@ export function registerMahiloOpenClawPlugin(
     isBootstrapReady,
     setupInstructions: bootstrapGuidance.prompt,
     toolBootstrapError: () => {
+      const staleInviteToken = detectInviteTokenInPluginConfig(config, api.pluginConfig);
+      if (staleInviteToken) {
+        const normalizedBaseUrl = config.baseUrl.replace(/\/+$/, "");
+        return `ERROR: The plugin config apiKey field contains an invite token (${staleInviteToken.slice(0, 12)}...), not an API key. An invite token is NOT an API key.
+
+FIX: Exchange the invite token for a real API key first:
+  POST ${normalizedBaseUrl}/api/v1/auth/register
+  Body: {"username":"your_handle","invite_token":"${staleInviteToken}"}
+  The response contains api_key (starts with mhl_). Save THAT value as plugins.entries.mahilo.config.apiKey, replacing the current mhinv_ value.
+  The plugin handles all other setup automatically.`;
+      }
       const diagnostic = runtimeBootstrapStore.diagnose(config.baseUrl);
       if (diagnostic.kind === "ok") {
         return bootstrapGuidance.toolError;
@@ -459,35 +470,23 @@ function buildRawHttpBootstrapGuidance(options: {
 }): MahiloRawHttpBootstrapGuidance {
   const normalizedBaseUrl = options.config.baseUrl.replace(/\/+$/, "");
   const registerUrl = `${normalizedBaseUrl}/api/v1/auth/register`;
-  const registerPayload =
-    '{"username":"your_handle","invite_token":"mhinv_..."}';
 
   return {
     prompt: `[MahiloSetup/v1]
-Mahilo plugin installed but not bootstrapped for this runtime yet.
-Do not ask the human to run /mahilo setup. Do not inspect local source code or docs.
-If the human gives you a one-time Mahilo invite token (a string starting with mhinv_), finish Mahilo bootstrap in one step:
-1. Create the Mahilo identity:
-  curl -sS -X POST ${registerUrl} -H 'Content-Type: application/json' -d '${registerPayload}'
-  The invite_token field is the mhinv_... string the human gave you. Capture api_key from the response.
-2. Save the api_key to this OpenClaw plugin config by setting plugins.entries.mahilo.config.apiKey to the mhl_... value from step 1.
-If the human already has a Mahilo API key that starts with mhl_, skip step 1 and go straight to step 2.
-The plugin will automatically register the sender connection and handle all other setup.
-After saving the apiKey to the plugin config, retry the Mahilo action you were attempting immediately. Do not restart OpenClaw.`,
-    toolError: `Mahilo is not bootstrapped for this runtime yet.
-
-BOOTSTRAP STEPS (do these yourself, do NOT ask the human to run /mahilo setup, do NOT inspect source code or docs):
-
-1. If the human gave you a one-time invite token (a string starting with mhinv_), register the identity:
-   POST ${registerUrl}
-   Body: ${registerPayload}
-   The invite_token is the mhinv_... string. Capture api_key from the response.
-   If the human already has a Mahilo API key (starts with mhl_), skip this step.
-
-2. Save the api_key to the OpenClaw plugin config: set plugins.entries.mahilo.config.apiKey to the mhl_... value.
-   The plugin handles sender registration and all other setup automatically.
-
-3. Retry this Mahilo action immediately. Do NOT restart OpenClaw.`,
+Mahilo plugin installed but not bootstrapped yet.
+CRITICAL: An invite token (mhinv_...) is NOT an API key. Never save an mhinv_ value as apiKey — it will be rejected.
+Do NOT ask the human to run /mahilo setup or any CLI command. Do NOT read docs or source code.
+When the human gives you a Mahilo invite token (starts with mhinv_), do exactly this:
+Step 1: POST ${registerUrl} with Content-Type: application/json and body {"username":"<the human's username>","invite_token":"<the mhinv_ string>"}. The response has api_key (starts with mhl_).
+Step 2: Use the gateway tool: gateway action=config.patch raw='{"plugins":{"entries":{"mahilo":{"config":{"apiKey":"THE_MHL_KEY"}}}}}'
+Step 3: Retry the Mahilo action. Done.
+If the human already has an mhl_ API key, skip step 1.`,
+    toolError: `Mahilo is not bootstrapped yet.
+CRITICAL: An invite token (mhinv_...) is NOT an API key. Never save an mhinv_ value as apiKey — it will be rejected.
+Do these steps yourself (do NOT ask the human to run commands, do NOT read docs):
+Step 1: POST ${registerUrl} with Content-Type: application/json and body {"username":"<their username>","invite_token":"<the mhinv_ string>"}. The response has api_key (starts with mhl_).
+Step 2: Use the gateway tool: gateway action=config.patch raw='{"plugins":{"entries":{"mahilo":{"config":{"apiKey":"THE_MHL_KEY"}}}}}'
+Step 3: Retry this action. Done.`,
   };
 }
 
@@ -1324,12 +1323,18 @@ function resolveCredentialSource(
   return bootstrapState?.apiKey ? "store" : null;
 }
 
+function isInviteToken(value: string): boolean {
+  return value.startsWith("mhinv_");
+}
+
 function resolveEffectiveApiKey(
   config: MahiloPluginConfig,
   bootstrapState: ReturnType<MahiloRuntimeBootstrapStore["read"]>,
   livePluginConfig?: unknown,
 ): string | undefined {
-  return config.apiKey ?? bootstrapState?.apiKey ?? readApiKeyFromLivePluginConfig(livePluginConfig);
+  const raw = config.apiKey ?? bootstrapState?.apiKey ?? readApiKeyFromLivePluginConfig(livePluginConfig);
+  if (raw && isInviteToken(raw)) return undefined;
+  return raw;
 }
 
 function readApiKeyFromLivePluginConfig(pluginConfig: unknown): string | undefined {
@@ -1338,6 +1343,16 @@ function readApiKeyFromLivePluginConfig(pluginConfig: unknown): string | undefin
   }
   const apiKey = (pluginConfig as Record<string, unknown>).apiKey;
   return typeof apiKey === "string" && apiKey.trim().length > 0 ? apiKey.trim() : undefined;
+}
+
+function detectInviteTokenInPluginConfig(
+  config: MahiloPluginConfig,
+  livePluginConfig?: unknown,
+): string | undefined {
+  if (config.apiKey && isInviteToken(config.apiKey)) return config.apiKey;
+  const live = readApiKeyFromLivePluginConfig(livePluginConfig);
+  if (live && isInviteToken(live)) return live;
+  return undefined;
 }
 
 function resolveManagedCallbackUrl(

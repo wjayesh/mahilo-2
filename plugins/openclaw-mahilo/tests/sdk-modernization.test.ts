@@ -13,6 +13,12 @@ const PUBLIC_PLUGIN_FILES = [
 
 const LEGACY_NAMES = [/\bclawdbot\b/i, /\bmoltbot\b/i];
 
+// The "clawdbot" field in package.json is an intentional compatibility shim
+// for the Clawdbot runtime's plugin discovery. Exclude it from the legacy check.
+const LEGACY_CHECK_EXCEPTIONS: Record<string, RegExp[]> = {
+  "package.json": [/\bclawdbot\b/i],
+};
+
 describe("SDK modernization", () => {
   it("uses current OpenClaw plugin SDK import paths", () => {
     const source = readFileSync(
@@ -26,8 +32,10 @@ describe("SDK modernization", () => {
   it("keeps legacy framework naming out of public-facing plugin files", () => {
     for (const filePath of PUBLIC_PLUGIN_FILES) {
       const content = readFileSync(join(process.cwd(), filePath), "utf8");
+      const exceptions = LEGACY_CHECK_EXCEPTIONS[filePath] ?? [];
 
       for (const pattern of LEGACY_NAMES) {
+        if (exceptions.some((ex) => ex.source === pattern.source)) continue;
         if (pattern.test(content)) {
           throw new Error(
             `legacy name ${pattern.source} found in ${filePath}`
