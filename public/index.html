@@ -53,10 +53,12 @@
           <div class="hero-illustration">
             <div class="agent-node agent-node-left">
               <div class="agent-node-circle mahilo-face">
-                <svg viewBox="0 0 40 40" width="36" height="36">
-                  <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="#FFE0CC"/>
-                  <ellipse cx="14" cy="17" rx="2.5" ry="3.5" fill="#4A3728"/>
-                  <ellipse cx="26" cy="17" rx="2.5" ry="3.5" fill="#4A3728"/>
+                <!-- Jayesh: winking, playful -->
+                <svg viewBox="0 0 40 40">
+                  <defs><linearGradient id="faceGrad1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FF9E6B"/><stop offset="100%" style="stop-color:#FFB88C"/></linearGradient></defs>
+                  <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="url(#faceGrad1)"/>
+                  <ellipse cx="15" cy="17" rx="3" ry="4" fill="#4A3728"/>
+                  <path d="M22 17 Q25 14 28 17" stroke="#4A3728" stroke-width="2.2" fill="none" stroke-linecap="round"/>
                   <path d="M14 25 Q20 30 26 25" stroke="#4A3728" stroke-width="2" fill="none" stroke-linecap="round"/>
                 </svg>
               </div>
@@ -65,9 +67,10 @@
             <div class="agent-connection-line line-left"></div>
             <div class="agent-node agent-node-center">
               <div class="agent-node-circle agent-node-you mahilo-face">
-                <svg viewBox="0 0 40 40" width="40" height="40">
-                  <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="url(#heroLogoGrad)"/>
-                  <defs><linearGradient id="heroLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FF9E6B"/><stop offset="100%" style="stop-color:#FFB88C"/></linearGradient></defs>
+                <!-- You: standard mahilo face (same as nav logo) -->
+                <svg viewBox="0 0 40 40">
+                  <defs><linearGradient id="faceGrad2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FF9E6B"/><stop offset="100%" style="stop-color:#FFB88C"/></linearGradient></defs>
+                  <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="url(#faceGrad2)"/>
                   <ellipse cx="15" cy="17" rx="3" ry="4" fill="#4A3728"/>
                   <ellipse cx="25" cy="17" rx="3" ry="4" fill="#4A3728"/>
                   <ellipse cx="20" cy="24" rx="4" ry="3" fill="#4A3728"/>
@@ -78,13 +81,13 @@
             <div class="agent-connection-line line-right"></div>
             <div class="agent-node agent-node-right">
               <div class="agent-node-circle mahilo-face">
-                <svg viewBox="0 0 40 40" width="36" height="36">
-                  <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="#D5E8F5"/>
-                  <ellipse cx="13" cy="16" rx="2.5" ry="3" fill="#4A3728"/>
-                  <ellipse cx="27" cy="16" rx="2.5" ry="3" fill="#4A3728"/>
-                  <circle cx="14" cy="16" r="1" fill="white"/>
-                  <circle cx="28" cy="16" r="1" fill="white"/>
-                  <path d="M15 25 Q20 28 25 25" stroke="#4A3728" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                <!-- Sid: surprised/curious, open mouth -->
+                <svg viewBox="0 0 40 40">
+                  <defs><linearGradient id="faceGrad3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FF9E6B"/><stop offset="100%" style="stop-color:#FFB88C"/></linearGradient></defs>
+                  <path d="M20 5 C30 5, 37 13, 37 20 C37 30, 29 37, 20 37 C10 37, 3 29, 3 20 C3 10, 11 5, 20 5" fill="url(#faceGrad3)"/>
+                  <ellipse cx="15" cy="16" rx="3" ry="4.5" fill="#4A3728"/>
+                  <ellipse cx="25" cy="16" rx="3" ry="4.5" fill="#4A3728"/>
+                  <ellipse cx="20" cy="25" rx="3" ry="3.5" fill="#4A3728"/>
                 </svg>
               </div>
               <span class="agent-node-label">Sid's agent</span>
