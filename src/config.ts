@@ -1,3 +1,8 @@
+const inboundAskMode =
+  process.env.INBOUND_ASK_MODE === "hold_for_approval"
+    ? "hold_for_approval"
+    : "review_required";
+
 export const config = {
   port: parseInt(process.env.PORT || "8080", 10),
   host: process.env.HOST || "0.0.0.0",
@@ -5,6 +10,7 @@ export const config = {
   secretKey: process.env.SECRET_KEY || "dev-secret-change-in-production",
   nodeEnv: process.env.NODE_ENV || "development",
   trustedMode: process.env.TRUSTED_MODE === "true",
+  inboundAskMode,
 
   // API settings
   apiVersion: "v1",
@@ -12,6 +18,10 @@ export const config = {
 
   // Rate limiting (requests per minute per user)
   rateLimitPerMinute: parseInt(process.env.RATE_LIMIT || "100", 10),
+  authRegisterRateLimitPerMinute: parseInt(
+    process.env.AUTH_REGISTER_RATE_LIMIT || "10",
+    10,
+  ),
 
   // Message settings
   maxPayloadSize: parseInt(process.env.MAX_PAYLOAD_SIZE || "32768", 10), // 32KB

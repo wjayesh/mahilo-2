@@ -14,6 +14,7 @@ import {
   setupTestDatabase,
 } from "../helpers/setup";
 import * as schema from "../../src/db/schema";
+import { dbPolicyToCanonical } from "../../src/services/policySchema";
 
 describe("Default Policies Service", () => {
   describe("defaultPolicies constant", () => {
@@ -156,6 +157,31 @@ describe("Default Policies Service", () => {
       expect(priorities).toContain(100);
       expect(priorities).toContain(90);
       expect(priorities).toContain(80);
+    });
+
+    it("should persist canonical storage payloads while staying readable", async () => {
+      const db = getTestDb();
+      const { user } = await createTestUser("default_policy_user6");
+
+      await createDefaultPoliciesForUser(user.id);
+
+      const userPolicies = await db
+        .select()
+        .from(schema.policies)
+        .where(eq(schema.policies.userId, user.id));
+
+      expect(userPolicies.length).toBe(defaultPolicies.length);
+
+      for (const policy of userPolicies) {
+        const payload = JSON.parse(policy.policyContent);
+        expect(payload.schema_version).toBe("canonical_policy_v1");
+        expect(payload.evaluator).toBe(policy.evaluator);
+        expect(payload.effect).toBe("deny");
+
+        const canonical = dbPolicyToCanonical(policy);
+        expect(canonical.evaluator).toBe(policy.evaluator);
+        expect(canonical.policy_content).toBeDefined();
+      }
     });
 
     it("should return 0 and not throw on duplicate creation", async () => {

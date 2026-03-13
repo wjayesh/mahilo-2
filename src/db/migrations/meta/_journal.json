@@ -50,6 +50,41 @@
       "when": 1769941519390,
       "tag": "0006_slimy_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1772973570000,
+      "tag": "0007_breezy_hammer",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1772973922000,
+      "tag": "0008_heavy_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1772999400000,
+      "tag": "0009_tiny_quicksilver",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1773225600000,
+      "tag": "0010_invite_only_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1773580800000,
+      "tag": "0011_waitlist_emails",
+      "breakpoints": true
     }
   ]
 }

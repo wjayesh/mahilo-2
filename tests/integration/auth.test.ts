@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { createApp } from "../../src/server";
+import { config } from "../../src/config";
 import {
   cleanupTestDatabase,
+  createTestInviteToken,
   createTestUser,
   setupTestDatabase,
 } from "../helpers/setup";
@@ -20,10 +22,11 @@ describe("Auth Routes Integration", () => {
 
   describe("POST /api/v1/auth/register", () => {
     it("should reject registration with missing username", async () => {
+      const { inviteToken } = await createTestInviteToken();
       const res = await app.request("/api/v1/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ invite_token: inviteToken }),
       });
 
       expect(res.status).toBe(400);
@@ -31,53 +34,152 @@ describe("Auth Routes Integration", () => {
       expect(data.error).toBeDefined();
     });
 
-    it("should reject registration with invalid username format", async () => {
-      const res = await app.request("/api/v1/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "ab" }), // Too short
-      });
-
-      expect(res.status).toBe(400);
-    });
-
-    it("should reject registration with username containing special characters", async () => {
-      const res = await app.request("/api/v1/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "user@name" }),
-      });
-
-      expect(res.status).toBe(400);
-    });
-
-    it("should register a valid user", async () => {
+    it("should reject registration with missing invite token", async () => {
       const res = await app.request("/api/v1/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: "alice" }),
       });
 
+      expect(res.status).toBe(400);
+    });
+
+    it("should reject registration with invalid username format", async () => {
+      const { inviteToken } = await createTestInviteToken();
+      const res = await app.request("/api/v1/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "ab", invite_token: inviteToken }), // Too short
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("should reject registration with username containing special characters", async () => {
+      const { inviteToken } = await createTestInviteToken();
+      const res = await app.request("/api/v1/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: "user@name",
+          invite_token: inviteToken,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("should reject registration with an invalid invite token", async () => {
+      const res = await app.request("/api/v1/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: "alice",
+          invite_token: "mhinv_invalid_token_secret",
+        }),
+      });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should register a valid user", async () => {
+      const { inviteToken } = await createTestInviteToken();
+      const res = await app.request("/api/v1/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "alice", invite_token: inviteToken }),
+      });
+
       expect(res.status).toBe(201);
       const data = await res.json();
       expect(data.api_key).toBeDefined();
       expect(data.username).toBe("alice");
+      expect(data.verified).toBe(true);
     });
 
     it("should reject duplicate usernames", async () => {
+      const firstInvite = await createTestInviteToken();
       await app.request("/api/v1/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "bob" }),
+        body: JSON.stringify({
+          username: "bob",
+          invite_token: firstInvite.inviteToken,
+        }),
       });
 
+      const secondInvite = await createTestInviteToken();
       const res = await app.request("/api/v1/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "bob" }),
+        body: JSON.stringify({
+          username: "bob",
+          invite_token: secondInvite.inviteToken,
+        }),
       });
 
       expect(res.status).toBe(409);
+    });
+
+    it("should reject reusing an invite token", async () => {
+      const { inviteToken } = await createTestInviteToken();
+      const first = await app.request("/api/v1/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "bob", invite_token: inviteToken }),
+      });
+      expect(first.status).toBe(201);
+
+      const second = await app.request("/api/v1/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "alice", invite_token: inviteToken }),
+      });
+      expect(second.status).toBe(403);
+    });
+
+    it("should rate limit repeated registration attempts from the same forwarded IP", async () => {
+      const originalLimit = config.authRegisterRateLimitPerMinute;
+      (config as any).authRegisterRateLimitPerMinute = 2;
+
+      try {
+        const headers = {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": "203.0.113.10",
+        };
+
+        const first = await app.request("/api/v1/auth/register", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            username: "alice1",
+            invite_token: "mhinv_invalid_token_secret",
+          }),
+        });
+        expect(first.status).toBe(403);
+
+        const second = await app.request("/api/v1/auth/register", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            username: "alice2",
+            invite_token: "mhinv_invalid_token_secret",
+          }),
+        });
+        expect(second.status).toBe(403);
+
+        const third = await app.request("/api/v1/auth/register", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            username: "alice3",
+            invite_token: "mhinv_invalid_token_secret",
+          }),
+        });
+        expect(third.status).toBe(429);
+      } finally {
+        (config as any).authRegisterRateLimitPerMinute = originalLimit;
+      }
     });
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "mahilo-registry",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "Trusted inter-agent communication protocol registry",
   "type": "module",
   "scripts": {
@@ -23,7 +23,16 @@
     "orchestrate:dry-run": "bun run scripts/orchestrator.ts --once --dry-run",
     "orchestrate:plugin": "bun run scripts/orchestrator.ts --workflow WORKFLOW.plugin.md",
     "orchestrate:plugin:once": "bun run scripts/orchestrator.ts --workflow WORKFLOW.plugin.md --once",
-    "orchestrate:plugin:dry-run": "bun run scripts/orchestrator.ts --workflow WORKFLOW.plugin.md --once --dry-run"
+    "orchestrate:plugin:dry-run": "bun run scripts/orchestrator.ts --workflow WORKFLOW.plugin.md --once --dry-run",
+    "orchestrate:supervisor": "bun run scripts/orchestrator-supervisor.ts run",
+    "orchestrate:supervisor:start": "bun run scripts/orchestrator-supervisor.ts start",
+    "orchestrate:supervisor:status": "bun run scripts/orchestrator-supervisor.ts status",
+    "orchestrate:supervisor:stop": "bun run scripts/orchestrator-supervisor.ts stop",
+    "orchestrate:supervisor:plugin": "bun run scripts/orchestrator-supervisor.ts run --workflow WORKFLOW.plugin.md --name plugin",
+    "orchestrate:supervisor:start:plugin": "bun run scripts/orchestrator-supervisor.ts start --workflow WORKFLOW.plugin.md --name plugin",
+    "orchestrate:supervisor:status:plugin": "bun run scripts/orchestrator-supervisor.ts status --workflow WORKFLOW.plugin.md --name plugin",
+    "orchestrate:supervisor:stop:plugin": "bun run scripts/orchestrator-supervisor.ts stop --workflow WORKFLOW.plugin.md --name plugin",
+    "orchestrate:launchd:install:plugin": "bun run scripts/install-launchd.ts --workflow WORKFLOW.plugin.md --name plugin"
   },
   "dependencies": {
     "hono": "^4.7.0",
