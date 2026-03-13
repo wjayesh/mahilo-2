@@ -24,6 +24,7 @@
       "default": "./dist/index.js"
     },
     "./openclaw.plugin.json": "./openclaw.plugin.json",
+    "./clawdbot.plugin.json": "./clawdbot.plugin.json",
     "./package.json": "./package.json"
   },
   "files": [
@@ -32,6 +33,7 @@
     "index.d.ts",
     "LICENSE",
     "openclaw.plugin.json",
+    "clawdbot.plugin.json",
     "PUBLISH-CHECKLIST.md",
     "README.md",
     "RELEASING.md"

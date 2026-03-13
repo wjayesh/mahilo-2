@@ -1,19 +1,28 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
-const manifestPath = new URL("../openclaw.plugin.json", import.meta.url);
+const manifestPaths = [
+  new URL("../openclaw.plugin.json", import.meta.url),
+  new URL("../clawdbot.plugin.json", import.meta.url),
+];
 const packageJsonPath = new URL("../package.json", import.meta.url);
 
 const packageJson = readJsonFile(packageJsonPath);
-const manifest = readJsonFile(manifestPath);
 const packageVersion = readRequiredString(packageJson.version, "package.json version");
-const manifestVersion = readOptionalString(manifest.version);
 
-if (manifestVersion === packageVersion) {
-  process.exit(0);
+let updated = false;
+for (const manifestPath of manifestPaths) {
+  if (!existsSync(manifestPath)) continue;
+  const manifest = readJsonFile(manifestPath);
+  const manifestVersion = readOptionalString(manifest.version);
+  if (manifestVersion === packageVersion) continue;
+  manifest.version = packageVersion;
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  updated = true;
 }
 
-manifest.version = packageVersion;
-writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+if (!updated) {
+  process.exit(0);
+}
 
 function readJsonFile(url: URL): Record<string, unknown> {
   const raw = readFileSync(url, "utf8");

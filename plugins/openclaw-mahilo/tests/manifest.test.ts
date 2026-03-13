@@ -55,6 +55,7 @@ describe("openclaw.plugin.json", () => {
       "index.d.ts",
       "LICENSE",
       "openclaw.plugin.json",
+      "clawdbot.plugin.json",
       "PUBLISH-CHECKLIST.md",
       "README.md",
       "RELEASING.md"
