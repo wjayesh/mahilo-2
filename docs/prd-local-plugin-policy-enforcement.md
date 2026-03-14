@@ -268,7 +268,7 @@ This project is done when all of the following are true:
   - 2026-03-14T13:02:27.758Z: LPE-004 completed via orchestrator integration.
 ### 0.5 Refactor Server Policy Adapters to Use the Shared Core
 - **ID**: `LPE-005`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-002`, `LPE-003`, `LPE-004`
 - **Description**:
@@ -287,6 +287,8 @@ This project is done when all of the following are true:
 
 ---
 
+- **Notes**:
+  - 2026-03-14T13:10:26.735Z: LPE-005 completed via orchestrator integration.
 ## Phase 1: Server Contracts for Local Plugin Enforcement
 
 ### 1.1 Add a Direct-Send Policy Bundle Endpoint
