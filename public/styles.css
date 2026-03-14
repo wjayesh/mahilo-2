@@ -1921,10 +1921,25 @@ body {
   background: var(--color-card);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
+  border: 2px solid transparent;
   box-shadow: var(--shadow-md);
   transition: all var(--transition-normal);
   cursor: pointer;
   position: relative;
+}
+
+.agent-card.default {
+  border-color: rgba(255, 158, 107, 0.35);
+  box-shadow: 0 12px 32px rgba(255, 158, 107, 0.22);
+}
+
+.agent-card.standby {
+  border-color: rgba(135, 206, 235, 0.2);
+}
+
+.agent-card.inactive {
+  border-color: rgba(160, 144, 128, 0.25);
+  opacity: 0.92;
 }
 
 .agent-card:hover {
@@ -1953,6 +1968,13 @@ body {
   justify-content: center;
   font-size: 1.75rem;
   box-shadow: var(--shadow-sm);
+}
+
+.agent-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-xs);
 }
 
 .agent-info {
@@ -1999,6 +2021,80 @@ body {
 
 .agent-card-body {
   margin-bottom: var(--space-md);
+}
+
+.agent-routing-callout {
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+}
+
+.agent-routing-callout.default {
+  background: rgba(255, 158, 107, 0.12);
+}
+
+.agent-routing-callout.standby {
+  background: rgba(135, 206, 235, 0.14);
+}
+
+.agent-routing-callout.inactive {
+  background: rgba(160, 144, 128, 0.12);
+}
+
+.agent-routing-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  margin-bottom: var(--space-xs);
+}
+
+.agent-routing-callout p {
+  color: var(--color-text-light);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.agent-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.agent-meta-item {
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  min-height: 118px;
+}
+
+.agent-meta-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.agent-meta-value {
+  display: block;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+.agent-meta-note {
+  display: block;
+  color: var(--color-text-light);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .agent-description {
@@ -4288,6 +4384,10 @@ body {
   margin-bottom: var(--space-sm);
 }
 
+.detail-row-stack {
+  align-items: flex-start;
+}
+
 .detail-label {
   width: 120px;
   color: var(--color-text-light);
@@ -4310,6 +4410,18 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs);
+}
+
+.detail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.detail-copy {
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
 /* ========================================
@@ -4451,6 +4563,10 @@ body {
   font-size: 0.9rem;
 }
 
+.agent-status-item.default {
+  border: 1px solid rgba(255, 158, 107, 0.28);
+}
+
 .status-indicator {
   width: 10px;
   height: 10px;
@@ -4479,6 +4595,12 @@ body {
   background: var(--color-card);
   padding: 2px 8px;
   border-radius: var(--radius-full);
+}
+
+.agent-status-default {
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-primary-dark);
 }
 
 /* Friend Preview List */
@@ -4828,6 +4950,27 @@ body {
 }
 
 @media (max-width: 768px) {
+  .agent-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-meta-item {
+    min-height: 0;
+  }
+
+  .agent-card-badges {
+    justify-content: flex-start;
+  }
+
+  .detail-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .detail-label {
+    width: auto;
+  }
+
   .settings-grid {
     grid-template-columns: 1fr;
   }
@@ -5371,6 +5514,41 @@ body {
 .status-badge.inactive {
   background: rgba(160, 144, 128, 0.2);
   color: var(--color-text-muted);
+}
+
+.status-badge.healthy {
+  background: rgba(107, 203, 119, 0.18);
+  color: var(--color-success);
+}
+
+.status-badge.warning {
+  background: rgba(255, 217, 61, 0.24);
+  color: #b58900;
+}
+
+.status-badge.unknown {
+  background: rgba(160, 144, 128, 0.14);
+  color: var(--color-text-light);
+}
+
+.status-badge.observed {
+  background: rgba(135, 206, 235, 0.18);
+  color: var(--color-secondary-dark);
+}
+
+.status-badge.default {
+  background: rgba(255, 158, 107, 0.18);
+  color: var(--color-primary-dark);
+}
+
+.status-badge.webhook {
+  background: rgba(255, 184, 140, 0.24);
+  color: var(--color-primary-dark);
+}
+
+.status-badge.polling {
+  background: rgba(135, 206, 235, 0.2);
+  color: var(--color-secondary-dark);
 }
 
 /* Scrollbar Styling */

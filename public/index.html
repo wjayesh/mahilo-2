@@ -2020,6 +2020,16 @@
                   <span class="detail-value" id="detail-agent-label">...</span>
                 </div>
                 <div class="detail-row">
+                  <span class="detail-label">Mode:</span>
+                  <span class="detail-value" id="detail-agent-mode">Webhook</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Last seen:</span>
+                  <span class="detail-value" id="detail-agent-last-seen"
+                    >Unknown</span
+                  >
+                </div>
+                <div class="detail-row">
                   <span class="detail-label">Callback URL:</span>
                   <span class="detail-value" id="detail-agent-callback"
                     >...</span
@@ -2042,6 +2052,17 @@
                     >Ed25519</span
                   >
                 </div>
+                <div class="detail-row detail-row-stack">
+                  <span class="detail-label">Callback health:</span>
+                  <div class="detail-value detail-stack">
+                    <span class="status-badge unknown" id="detail-agent-health-badge"
+                      >Not checked</span
+                    >
+                    <p class="detail-copy" id="detail-agent-health-copy">
+                      Run ping to verify this connection.
+                    </p>
+                  </div>
+                </div>
               </div>
               <div class="detail-section">
                 <h4>Routing</h4>
@@ -2052,6 +2073,18 @@
                 <div class="detail-row">
                   <span class="detail-label">Priority:</span>
                   <span class="detail-value" id="detail-agent-priority">0</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Default sender:</span>
+                  <span class="detail-value" id="detail-agent-default"
+                    >Standby route</span
+                  >
+                </div>
+                <div class="detail-row detail-row-stack">
+                  <span class="detail-label">Routing note:</span>
+                  <p class="detail-value detail-copy" id="detail-agent-route-note">
+                    Mahilo will explain how this connection is selected.
+                  </p>
                 </div>
               </div>
             </div>

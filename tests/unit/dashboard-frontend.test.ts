@@ -71,6 +71,7 @@ type DashboardInternals = {
     handleInviteToGroup: (groupId?: string) => Promise<void>;
     handleJoinGroup: (groupId: string) => Promise<void>;
     handleLeaveGroup: (groupId: string) => Promise<void>;
+    handlePingAgent: (id: string) => Promise<void>;
     handleRegister: () => Promise<void>;
     handleRejectFriend: (id: string) => Promise<void>;
     handleRemoveFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
@@ -90,8 +91,10 @@ type DashboardInternals = {
     handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
     handleUnfriend: (id: string) => Promise<void>;
+    getSenderConnectionWorkspaceItems: () => Array<Record<string, any>>;
     renderPolicies: (scope?: string) => void;
     selectChat: (username: string) => void;
+    showAgentDetails: (agentId: string) => void;
     switchView: (view: string) => void;
   };
 };
@@ -785,6 +788,189 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
     expect(harness.getElement("logs-list").innerHTML.length).toBeGreaterThan(0);
     expect(harness.getElement("overview-message-list").innerHTML.length).toBeGreaterThan(
       0,
+    );
+  });
+});
+
+describe("Dashboard sender connections workspace (DASH-030)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("renders routing order, mode, status, last seen, and the default sender candidate from live connection data", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_sender_viewer",
+      "Sender Viewer",
+    );
+
+    const olderWebhook = await createAgentConnection(viewer.id, {
+      framework: "openclaw",
+      label: "work",
+    });
+    const newerPolling = await createAgentConnection(viewer.id, {
+      framework: "openclaw",
+      label: "personal",
+    });
+    const inactiveRoute = await createAgentConnection(viewer.id, {
+      framework: "langchain",
+      label: "ops",
+    });
+
+    await db
+      .update(schema.agentConnections)
+      .set({
+        callbackUrl: "https://work.example/callback",
+        createdAt: new Date("2026-03-11T09:00:00.000Z"),
+        lastSeen: new Date("2026-03-14T05:15:00.000Z"),
+        routingPriority: 8,
+      })
+      .where(eq(schema.agentConnections.id, olderWebhook.id));
+
+    await db
+      .update(schema.agentConnections)
+      .set({
+        callbackSecret: null,
+        callbackUrl: "polling://inbox",
+        createdAt: new Date("2026-03-12T10:00:00.000Z"),
+        lastSeen: new Date("2026-03-14T06:30:00.000Z"),
+        routingPriority: 8,
+      })
+      .where(eq(schema.agentConnections.id, newerPolling.id));
+
+    await db
+      .update(schema.agentConnections)
+      .set({
+        callbackUrl: "https://ops.example/callback",
+        createdAt: new Date("2026-03-13T08:00:00.000Z"),
+        routingPriority: 12,
+        status: "inactive",
+      })
+      .where(eq(schema.agentConnections.id, inactiveRoute.id));
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    const workspaceItems =
+      harness.dashboard.UI.getSenderConnectionWorkspaceItems();
+
+    expect(workspaceItems.map((item) => item.label)).toEqual([
+      "personal",
+      "work",
+      "ops",
+    ]);
+    expect(workspaceItems[0]).toEqual(
+      expect.objectContaining({
+        isDefaultSenderCandidate: true,
+        label: "personal",
+        mode: "polling",
+        modeLabel: "Polling",
+        status: "active",
+      }),
+    );
+    expect(workspaceItems[1]).toEqual(
+      expect.objectContaining({
+        isDefaultSenderCandidate: false,
+        label: "work",
+        mode: "webhook",
+        modeLabel: "Webhook",
+      }),
+    );
+    expect(workspaceItems[2]).toEqual(
+      expect.objectContaining({
+        isDefaultSenderCandidate: false,
+        label: "ops",
+        status: "inactive",
+      }),
+    );
+
+    const gridHtml = harness.getElement("agents-grid").innerHTML;
+    expect(gridHtml).toContain("Routing priority");
+    expect(gridHtml).toContain("Last seen");
+    expect(gridHtml).toContain("Connection mode");
+    expect(gridHtml).toContain("Callback health");
+    expect(gridHtml).toContain("Default sender");
+    expect(gridHtml).toContain("Polling");
+    expect(gridHtml).toContain("Webhook");
+    expect(gridHtml).toContain("Inactive");
+
+    harness.dashboard.UI.showAgentDetails(newerPolling.id);
+    expect(harness.getElement("detail-agent-mode").textContent).toBe("Polling");
+    expect(harness.getElement("detail-agent-default").textContent).toBe(
+      "Current default sender",
+    );
+    expect(harness.getElement("detail-agent-health-badge").textContent).toBe(
+      "Polling inbox",
+    );
+    expect(harness.getElement("detail-agent-route-note").textContent).toContain(
+      "highest active routing priority",
+    );
+    expect(harness.getElement("overview-agent-list").innerHTML).toContain(
+      "Default",
+    );
+  });
+
+  it("keeps ping meaningful for polling connections by surfacing inbox health instead of a callback failure", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_sender_ping_viewer",
+      "Sender Ping Viewer",
+    );
+    const pollingConnection = await createAgentConnection(viewer.id, {
+      framework: "openclaw",
+      label: "polling-default",
+    });
+
+    await db
+      .update(schema.agentConnections)
+      .set({
+        callbackSecret: null,
+        callbackUrl: "polling://inbox",
+        routingPriority: 5,
+      })
+      .where(eq(schema.agentConnections.id, pollingConnection.id));
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+    await harness.dashboard.UI.handlePingAgent(pollingConnection.id);
+    await flushDashboardWork();
+
+    expect(
+      harness.dashboard.State.agentHealthById.get(pollingConnection.id),
+    ).toEqual(
+      expect.objectContaining({
+        mode: "polling",
+        success: true,
+      }),
+    );
+    expect(harness.getElement("agents-grid").innerHTML).toContain(
+      "Polling inbox",
     );
   });
 });

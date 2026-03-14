@@ -82,6 +82,7 @@ const State = {
   ws: null,
   agents: [],
   agentsById: new Map(),
+  agentHealthById: new Map(),
   friends: [],
   friendsById: new Map(),
   groups: [],
@@ -105,6 +106,7 @@ const State = {
   conversations: new Map(),
   currentView: "overview",
   selectedChat: null,
+  selectedAgentId: null,
   selectedNetworkFriendId: null,
   selectedGroupId: null,
   wsConnected: false,
@@ -168,6 +170,7 @@ const State = {
     this.apiKey = null;
     this.agents = [];
     this.agentsById = new Map();
+    this.agentHealthById = new Map();
     this.friends = [];
     this.friendsById = new Map();
     this.groups = [];
@@ -191,6 +194,7 @@ const State = {
     this.conversations = new Map();
     this.currentView = "overview";
     this.selectedChat = null;
+    this.selectedAgentId = null;
     this.selectedNetworkFriendId = null;
     this.selectedGroupId = null;
     this.wsConnected = false;
@@ -596,6 +600,32 @@ const Helpers = {
     }
 
     return fallback;
+  },
+
+  connectionMode(value) {
+    const callbackUrl = this.nullableString(value);
+
+    if (!callbackUrl) {
+      return null;
+    }
+
+    return callbackUrl.startsWith("polling://") ? "polling" : "webhook";
+  },
+
+  connectionModeLabel(value, fallback = "Unknown") {
+    const mode = this.nullableString(value);
+    if (!mode) {
+      return fallback;
+    }
+
+    switch (mode) {
+      case "polling":
+        return "Polling";
+      case "webhook":
+        return "Webhook";
+      default:
+        return this.titleizeToken(mode, fallback);
+    }
   },
 
   stringList(value) {
@@ -2688,6 +2718,14 @@ const Normalizers = {
       return null;
     }
 
+    const callbackUrl = Helpers.nullableString(
+      record.callback_url ?? record.callbackUrl,
+    );
+    const status = Helpers.string(record.status, "unknown");
+    const mode =
+      Helpers.nullableString(record.mode) ||
+      Helpers.connectionMode(callbackUrl);
+
     return {
       id,
       label: Helpers.string(record.label, id),
@@ -2698,14 +2736,14 @@ const Normalizers = {
         record.routing_priority ?? record.routingPriority,
         0,
       ),
-      callbackUrl: Helpers.nullableString(
-        record.callback_url ?? record.callbackUrl,
-      ),
+      callbackUrl,
       publicKey: Helpers.nullableString(record.public_key ?? record.publicKey),
       publicKeyAlg: Helpers.nullableString(
         record.public_key_alg ?? record.publicKeyAlg,
       ),
-      status: Helpers.string(record.status, "unknown"),
+      status,
+      isActive: status === "active",
+      mode,
       lastSeen: Helpers.iso(record.last_seen ?? record.lastSeen),
       createdAt: Helpers.iso(record.created_at ?? record.createdAt),
       raw: value,
@@ -3655,7 +3693,20 @@ const DataLoader = {
   async loadAgents() {
     try {
       const agentsModel = Normalizers.agentsModel(await API.agents.list());
+      const healthById = new Map();
+
+      agentsModel.items.forEach((agent) => {
+        const existingHealth = State.agentHealthById.get(agent.id);
+        if (existingHealth) {
+          healthById.set(agent.id, existingHealth);
+        }
+      });
+
+      State.agentHealthById = healthById;
       Helpers.applyCollectionState("agents", "agentsById", agentsModel);
+      if (State.selectedAgentId && !State.agentsById.has(State.selectedAgentId)) {
+        State.selectedAgentId = null;
+      }
       UI.updateAgentCount(State.agents.length);
       UI.renderAgents();
       UI.renderOverviewAgents();
@@ -5665,29 +5716,63 @@ const UI = {
 
   // Show agent details
   showAgentDetails(agent) {
+    const agentId =
+      typeof agent === "string"
+        ? agent
+        : Helpers.nullableString(agent?.id);
+    const connection = agentId
+      ? this.getSenderConnectionWorkspaceItem(agentId)
+      : null;
+
+    if (!connection) {
+      this.showToast("Sender connection details are unavailable", "error");
+      return;
+    }
+
+    State.selectedAgentId = connection.id;
+
     document.getElementById("detail-agent-icon").textContent = "🤖";
     document.getElementById("detail-agent-name").textContent =
-      `${agent.label} (${agent.framework})`;
+      `${connection.label} (${Helpers.titleizeToken(connection.framework, "Unknown framework")})`;
     document.getElementById("detail-agent-framework").textContent =
-      agent.framework;
-    document.getElementById("detail-agent-status").textContent = agent.status;
+      `${Helpers.titleizeToken(connection.framework, "Unknown framework")} • ${connection.modeLabel}`;
+    document.getElementById("detail-agent-status").textContent =
+      Helpers.titleizeToken(connection.status, "Unknown");
     document.getElementById("detail-agent-status").className =
-      `status-badge ${agent.status}`;
-    document.getElementById("detail-agent-id").textContent = agent.id;
-    document.getElementById("detail-agent-label").textContent = agent.label;
+      `status-badge ${connection.status}`;
+    document.getElementById("detail-agent-id").textContent = connection.id;
+    document.getElementById("detail-agent-label").textContent = connection.label;
     document.getElementById("detail-agent-callback").textContent =
-      agent.callbackUrl || "None";
+      connection.callbackUrl || "None";
     document.getElementById("detail-agent-public-key").textContent =
-      agent.publicKey ? `${agent.publicKey.substring(0, 50)}...` : "None";
+      connection.publicKey
+        ? `${connection.publicKey.substring(0, 50)}...`
+        : "None";
     document.getElementById("detail-agent-alg").textContent =
-      agent.publicKeyAlg || "None";
+      connection.publicKeyAlg || "None";
     document.getElementById("detail-agent-priority").textContent =
-      agent.routingPriority || 0;
+      String(Helpers.number(connection.routingPriority, 0));
+    document.getElementById("detail-agent-mode").textContent =
+      connection.modeLabel;
+    document.getElementById("detail-agent-last-seen").textContent =
+      connection.lastSeenLabel;
+    document.getElementById("detail-agent-default").textContent =
+      connection.isDefaultSenderCandidate
+        ? "Current default sender"
+        : connection.routing.badge;
+    document.getElementById("detail-agent-route-note").textContent =
+      connection.routing.detail;
+
+    const healthBadge = document.getElementById("detail-agent-health-badge");
+    healthBadge.textContent = connection.health.label;
+    healthBadge.className = `status-badge ${connection.health.tone}`;
+    document.getElementById("detail-agent-health-copy").textContent =
+      connection.health.detail;
 
     const capsContainer = document.getElementById("detail-agent-capabilities");
     capsContainer.innerHTML = "";
-    if (agent.capabilities?.length) {
-      agent.capabilities.forEach((cap) => {
+    if (connection.capabilities?.length) {
+      connection.capabilities.forEach((cap) => {
         const tag = document.createElement("span");
         tag.className = "capability-tag";
         tag.textContent = cap;
@@ -5699,7 +5784,7 @@ const UI = {
 
     // Bind delete button
     const deleteBtn = document.getElementById("delete-agent-btn");
-    deleteBtn.onclick = () => this.handleDeleteAgent(agent.id);
+    deleteBtn.onclick = () => this.handleDeleteAgent(connection.id);
 
     this.showModal("agent-details-modal");
   },
@@ -5863,6 +5948,7 @@ const UI = {
     document
       .querySelectorAll(".modal")
       .forEach((m) => m.classList.add("hidden"));
+    State.selectedAgentId = null;
   },
 
   // Update counts
@@ -7618,10 +7704,302 @@ const UI = {
   },
 
   // Render functions
+  compareSenderConnections(left, right) {
+    const leftActive = Helpers.string(left?.status).toLowerCase() === "active";
+    const rightActive =
+      Helpers.string(right?.status).toLowerCase() === "active";
+
+    if (leftActive !== rightActive) {
+      return Number(rightActive) - Number(leftActive);
+    }
+
+    const priorityDiff =
+      Helpers.number(right?.routingPriority, 0) -
+      Helpers.number(left?.routingPriority, 0);
+    if (priorityDiff) {
+      return priorityDiff;
+    }
+
+    const createdDiff =
+      Helpers.timestampValue(right?.createdAt) -
+      Helpers.timestampValue(left?.createdAt);
+    if (createdDiff) {
+      return createdDiff;
+    }
+
+    return Helpers.string(left?.label).localeCompare(
+      Helpers.string(right?.label),
+    );
+  },
+
+  getSortedSenderConnections(connections = State.agents) {
+    return (Array.isArray(connections) ? [...connections] : []).sort((left, right) =>
+      this.compareSenderConnections(left, right),
+    );
+  },
+
+  getDefaultSenderCandidate(connections = State.agents) {
+    return (
+      this.getSortedSenderConnections(connections).find(
+        (connection) =>
+          Helpers.string(connection?.status).toLowerCase() === "active",
+      ) || null
+    );
+  },
+
+  describeSenderConnectionHealth(agent) {
+    const pingState = State.agentHealthById.get(agent.id) || null;
+    const mode = agent.mode || Helpers.connectionMode(agent.callbackUrl);
+    const isActive = Helpers.string(agent?.status).toLowerCase() === "active";
+
+    if (!isActive) {
+      return {
+        tone: "inactive",
+        label: "Inactive",
+        detail:
+          "Inactive connections stay visible here, but Mahilo skips them when it auto-selects a sender.",
+      };
+    }
+
+    if (pingState) {
+      if (pingState.success) {
+        if (mode === "polling") {
+          return {
+            tone: "healthy",
+            label: "Polling inbox",
+            detail:
+              pingState.message ||
+              "Polling connections deliver through Mahilo's inbox route instead of an HTTP callback.",
+          };
+        }
+
+        const pingSummary = [
+          `Last ping ${Helpers.formatDateTime(pingState.checkedAt)}`,
+          pingState.statusCode ? `HTTP ${pingState.statusCode}` : null,
+          Number.isFinite(pingState.latencyMs)
+            ? `${pingState.latencyMs}ms`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+
+        return {
+          tone: "healthy",
+          label: "Healthy",
+          detail: pingSummary || "Webhook callback responded to the latest ping.",
+        };
+      }
+
+      return {
+        tone: "warning",
+        label: "Ping failed",
+        detail: [
+          `Last check ${Helpers.formatDateTime(pingState.checkedAt)}`,
+          pingState.error || "Mahilo could not reach this connection.",
+        ]
+          .filter(Boolean)
+          .join(" • "),
+      };
+    }
+
+    if (mode === "polling") {
+      return {
+        tone: "healthy",
+        label: "Polling inbox",
+        detail:
+          "Polling connections do not expose a callback URL. Mahilo delivers to their inbox route when selected.",
+      };
+    }
+
+    if (agent.lastSeen) {
+      return {
+        tone: "observed",
+        label: "Seen on callback",
+        detail: `Last callback activity ${Helpers.formatDateTime(agent.lastSeen)}.`,
+      };
+    }
+
+    return {
+      tone: "unknown",
+      label: "Not checked",
+      detail: "Run ping to verify webhook reachability from the dashboard.",
+    };
+  },
+
+  describeSenderRouting(agent, defaultCandidate) {
+    const isActive = Helpers.string(agent?.status).toLowerCase() === "active";
+
+    if (!isActive) {
+      return {
+        tone: "inactive",
+        badge: "Inactive route",
+        detail:
+          "Mahilo ignores inactive connections when it picks a sender automatically.",
+      };
+    }
+
+    if (!defaultCandidate) {
+      return {
+        tone: "standby",
+        badge: "Awaiting sender",
+        detail:
+          "Mahilo needs an active connection before it can auto-select a sender.",
+      };
+    }
+
+    if (agent.id === defaultCandidate.id) {
+      return {
+        tone: "default",
+        badge: "Default sender",
+        detail:
+          "Mahilo will auto-select this connection first because it has the highest active routing priority. Newer registrations win ties.",
+      };
+    }
+
+    if (
+      Helpers.number(agent.routingPriority, 0) <
+      Helpers.number(defaultCandidate.routingPriority, 0)
+    ) {
+      return {
+        tone: "standby",
+        badge: "Standby route",
+        detail: `${defaultCandidate.label} wins automatic sender selection with a higher routing priority.`,
+      };
+    }
+
+    return {
+      tone: "standby",
+      badge: "Standby route",
+      detail: `${defaultCandidate.label} wins the tie because it was registered more recently.`,
+    };
+  },
+
+  getSenderConnectionWorkspaceItems(connections = State.agents) {
+    const sortedConnections = this.getSortedSenderConnections(connections);
+    const defaultCandidate = this.getDefaultSenderCandidate(sortedConnections);
+
+    return sortedConnections.map((agent) => {
+      const mode = agent.mode || Helpers.connectionMode(agent.callbackUrl);
+      const health = this.describeSenderConnectionHealth(agent);
+      const routing = this.describeSenderRouting(agent, defaultCandidate);
+
+      return {
+        ...agent,
+        health,
+        isDefaultSenderCandidate: defaultCandidate?.id === agent.id,
+        lastSeenLabel: Helpers.formatDateTime(
+          agent.lastSeen,
+          "No callback activity yet",
+        ),
+        modeLabel: Helpers.connectionModeLabel(mode),
+        routing,
+      };
+    });
+  },
+
+  getSenderConnectionWorkspaceItem(agentId) {
+    return this.getSenderConnectionWorkspaceItems().find(
+      (connection) => connection.id === agentId,
+    );
+  },
+
+  renderSenderConnectionCard(agent) {
+    const description = Helpers.nullableString(agent.description);
+    const capabilities = Array.isArray(agent.capabilities)
+      ? agent.capabilities
+      : [];
+
+    return `
+      <article class="agent-card ${Helpers.escapeHtml(agent.routing.tone)}" onclick="UI.showAgentDetails('${Helpers.escapeHtml(agent.id)}')">
+        <div class="agent-card-header">
+          <div class="agent-avatar">🤖</div>
+          <div class="agent-info">
+            <div class="agent-name">${Helpers.escapeHtml(agent.label)}</div>
+            <div class="agent-framework">${Helpers.escapeHtml(Helpers.titleizeToken(agent.framework, "Unknown framework"))}</div>
+          </div>
+          <div class="agent-card-badges">
+            <span class="agent-status ${Helpers.escapeHtml(agent.status)}">
+              <span class="status-dot"></span>
+              ${Helpers.escapeHtml(Helpers.titleizeToken(agent.status, "Unknown"))}
+            </span>
+            ${
+              agent.mode
+                ? `
+                  <span class="status-badge ${Helpers.escapeHtml(agent.mode)}">
+                    ${Helpers.escapeHtml(agent.modeLabel)}
+                  </span>
+                `
+                : ""
+            }
+          </div>
+        </div>
+        <div class="agent-card-body">
+          <div class="agent-routing-callout ${Helpers.escapeHtml(agent.routing.tone)}">
+            <span class="agent-routing-badge">${Helpers.escapeHtml(agent.routing.badge)}</span>
+            <p>${Helpers.escapeHtml(agent.routing.detail)}</p>
+          </div>
+          <div class="agent-meta-grid">
+            <div class="agent-meta-item">
+              <span class="agent-meta-label">Routing priority</span>
+              <strong class="agent-meta-value">${Helpers.escapeHtml(String(Helpers.number(agent.routingPriority, 0)))}</strong>
+              <span class="agent-meta-note">Used for auto-selection</span>
+            </div>
+            <div class="agent-meta-item">
+              <span class="agent-meta-label">Last seen</span>
+              <strong class="agent-meta-value">${Helpers.escapeHtml(agent.lastSeenLabel)}</strong>
+              <span class="agent-meta-note">Last callback or registration activity</span>
+            </div>
+            <div class="agent-meta-item">
+              <span class="agent-meta-label">Connection mode</span>
+              <strong class="agent-meta-value">${Helpers.escapeHtml(agent.modeLabel)}</strong>
+              <span class="agent-meta-note">${
+                agent.mode === "polling"
+                  ? "Inbox delivery route"
+                  : "HTTP callback route"
+              }</span>
+            </div>
+            <div class="agent-meta-item">
+              <span class="agent-meta-label">Callback health</span>
+              <strong class="agent-meta-value">${Helpers.escapeHtml(agent.health.label)}</strong>
+              <span class="agent-meta-note">${Helpers.escapeHtml(agent.health.detail)}</span>
+            </div>
+          </div>
+          ${
+            description
+              ? `<div class="agent-description">${Helpers.escapeHtml(description)}</div>`
+              : ""
+          }
+          <div class="agent-capabilities">
+            ${
+              capabilities.length
+                ? capabilities
+                    .map(
+                      (capability) => `
+                        <span class="capability-tag">${Helpers.escapeHtml(capability)}</span>
+                      `,
+                    )
+                    .join("")
+                : '<span class="capability-tag">No capabilities declared</span>'
+            }
+          </div>
+        </div>
+        <div class="agent-card-footer">
+          <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.showAgentDetails('${Helpers.escapeHtml(agent.id)}')">
+            Details
+          </button>
+          <button class="squishy-btn btn-primary btn-small" onclick="event.stopPropagation(); UI.handlePingAgent('${Helpers.escapeHtml(agent.id)}')">
+            Check Health
+          </button>
+        </div>
+      </article>
+    `;
+  },
+
   renderAgents() {
     const grid = document.getElementById("agents-grid");
+    const connections = this.getSenderConnectionWorkspaceItems();
 
-    if (!State.agents.length) {
+    if (!connections.length) {
       grid.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">🤖</div>
@@ -7640,51 +8018,60 @@ const UI = {
       return;
     }
 
-    grid.innerHTML = State.agents
-      .map(
-        (agent) => `
-      <div class="agent-card" onclick="UI.showAgentDetails(${JSON.stringify(agent).replace(/"/g, "&quot;")})">
-        <div class="agent-card-header">
-          <div class="agent-avatar">🤖</div>
-          <div class="agent-info">
-            <div class="agent-name">${agent.label}</div>
-            <div class="agent-framework">${agent.framework}</div>
-          </div>
-          <span class="agent-status ${agent.status}">
-            <span class="status-dot"></span>
-            ${agent.status}
-          </span>
-        </div>
-        <div class="agent-card-body">
-          <div class="agent-description">${agent.description || "No description"}</div>
-          <div class="agent-capabilities">
-            ${agent.capabilities.map((c) => `<span class="capability-tag">${c}</span>`).join("") || '<span class="capability-tag">No capabilities</span>'}
-          </div>
-        </div>
-        <div class="agent-card-footer">
-          <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.showAgentDetails(${JSON.stringify(agent).replace(/"/g, "&quot;")})">
-            Details
-          </button>
-          <button class="squishy-btn btn-primary btn-small" onclick="event.stopPropagation(); UI.handlePingAgent('${agent.id}')">
-            Ping
-          </button>
-        </div>
-      </div>
-    `,
-      )
+    grid.innerHTML = connections
+      .map((agent) => this.renderSenderConnectionCard(agent))
       .join("");
   },
 
   async handlePingAgent(id) {
     try {
+      const agent = State.agentsById.get(id);
       const result = await API.agents.ping(id);
+      const checkedAt = new Date().toISOString();
+
+      State.agentHealthById.set(id, {
+        checkedAt,
+        error: Helpers.nullableString(result.error),
+        latencyMs: Helpers.number(result.latency_ms, 0),
+        message: Helpers.nullableString(result.message),
+        mode:
+          Helpers.nullableString(result.mode) ||
+          agent?.mode ||
+          Helpers.connectionMode(agent?.callbackUrl),
+        statusCode:
+          typeof result.status_code === "number" ? result.status_code : null,
+        success: Boolean(result.success),
+      });
+
+      if (agent && result.last_seen) {
+        agent.lastSeen = Helpers.iso(result.last_seen);
+      }
+
+      this.renderAgents();
+      this.renderOverviewAgents();
+
+      if (State.selectedAgentId === id) {
+        this.showAgentDetails(id);
+      }
+
       if (result.success) {
-        this.showToast(
-          `Connection responded in ${result.latency_ms}ms`,
-          "success",
-        );
+        if (result.mode === "polling") {
+          this.showToast(
+            result.message ||
+              "Polling route confirmed. Mahilo will deliver through the inbox route.",
+            "success",
+          );
+        } else {
+          this.showToast(
+            `Connection responded in ${result.latency_ms}ms`,
+            "success",
+          );
+        }
       } else {
-        this.showToast(`Connection ping failed: ${result.error}`, "error");
+        this.showToast(
+          `Connection ping failed: ${result.error || "Health check failed"}`,
+          "error",
+        );
       }
     } catch (error) {
       this.showToast("Failed to ping sender connection", "error");
@@ -9628,8 +10015,9 @@ const UI = {
 
   renderOverviewAgents() {
     const list = document.getElementById("overview-agent-list");
+    const connections = this.getSenderConnectionWorkspaceItems();
 
-    if (!State.agents.length) {
+    if (!connections.length) {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 30px 20px;">
           <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">🤖</div>
@@ -9639,14 +10027,19 @@ const UI = {
       return;
     }
 
-    list.innerHTML = State.agents
+    list.innerHTML = connections
       .slice(0, 3)
       .map(
         (agent) => `
-      <div class="agent-status-item">
-        <span class="status-indicator ${agent.status}"></span>
-        <span class="agent-status-name">${agent.label}</span>
-        <span class="agent-status-framework">${agent.framework}</span>
+      <div class="agent-status-item ${agent.isDefaultSenderCandidate ? "default" : ""}">
+        <span class="status-indicator ${Helpers.escapeHtml(agent.status)}"></span>
+        <span class="agent-status-name">${Helpers.escapeHtml(agent.label)}</span>
+        <span class="agent-status-framework">${Helpers.escapeHtml(agent.modeLabel)}</span>
+        ${
+          agent.isDefaultSenderCandidate
+            ? '<span class="agent-status-default">Default</span>'
+            : ""
+        }
       </div>
     `,
       )

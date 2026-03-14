@@ -223,6 +223,27 @@ agentRoutes.post("/:id/ping", async (c) => {
     throw new AppError("Agent connection not found", 404, "NOT_FOUND");
   }
 
+  const isPollingMode = connection.callbackUrl.startsWith("polling://");
+
+  if (connection.status !== "active") {
+    return c.json({
+      success: false,
+      latency_ms: 0,
+      mode: isPollingMode ? "polling" : "webhook",
+      error: "Connection is inactive and will not be selected for sender routing",
+    });
+  }
+
+  if (isPollingMode) {
+    return c.json({
+      success: true,
+      latency_ms: 0,
+      mode: "polling",
+      message:
+        "Polling connections deliver through the inbox route and do not expose a webhook callback URL",
+    });
+  }
+
   // Test callback URL
   const startTime = Date.now();
   try {
@@ -243,11 +264,14 @@ agentRoutes.post("/:id/ping", async (c) => {
       success: response.ok,
       latency_ms: latencyMs,
       status_code: response.status,
+      mode: "webhook",
+      last_seen: new Date().toISOString(),
     });
   } catch (error) {
     return c.json({
       success: false,
       latency_ms: Date.now() - startTime,
+      mode: "webhook",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }
