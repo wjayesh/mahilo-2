@@ -133,6 +133,13 @@ export interface PolicyResolutionContext {
   final_effect: PolicyEffect;
 }
 
+export interface MatchedPolicyResolution {
+  base_resolution: (ScopeResolution & { scope: SpecificityScope }) | null;
+  group_resolution: ScopeResolution | null;
+  final_effect: PolicyEffect;
+  winning_match: PolicyMatch | null;
+}
+
 export interface PolicyResult {
   allowed: boolean;
   effect: PolicyEffect;

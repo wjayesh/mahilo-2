@@ -8,11 +8,8 @@ import {
   isInboundSelectorDirection,
   normalizeSelectorContext,
   normalizeSelectorDirection,
-  resolveScopeMatches,
-  SPECIFICITY_ORDER,
   SELECTOR_DIRECTIONS,
 } from "@mahilo/policy-core";
-import type { PolicyMatch } from "@mahilo/policy-core";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireActive, requireAuth } from "../middleware/auth";
@@ -27,6 +24,7 @@ import {
   evaluateInboundPolicies,
   evaluatePolicies,
   loadApplicablePolicies,
+  resolveContextPolicyGuidance,
   validatePolicyContent,
   type AuthenticatedSenderIdentity,
   type PolicyResult,
@@ -1030,9 +1028,7 @@ function parseObjectValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function parseSelectorContext(
-  value: unknown,
-): {
+function parseSelectorContext(value: unknown): {
   direction: string | null;
   resource: string | null;
   action: string | null;
@@ -1080,9 +1076,7 @@ function parseSelectorVerification(value: unknown): {
   };
 }
 
-function parseAuthenticatedIdentity(
-  value: unknown,
-): {
+function parseAuthenticatedIdentity(value: unknown): {
   sender_user_id: string | null;
   sender_connection_id: string | null;
 } | null {
@@ -1097,9 +1091,7 @@ function parseAuthenticatedIdentity(
   };
 }
 
-function parseLearningProvenance(
-  value: unknown,
-): {
+function parseLearningProvenance(value: unknown): {
   source_interaction_id: string | null;
   promoted_from_policy_ids: string[];
 } | null {
@@ -1212,58 +1204,6 @@ async function loadUsernames(userIds: string[]): Promise<Map<string, string>> {
     .where(inArray(schema.users.id, uniqueUserIds));
 
   return new Map(users.map((entry) => [entry.id, entry.username]));
-}
-
-function toContextPolicyMatch(policy: CanonicalPolicy): PolicyMatch {
-  return {
-    policy_id: policy.id,
-    scope: policy.scope,
-    evaluator: policy.evaluator,
-    effect: policy.effect,
-    reason: "Policy is applicable for the current selector context",
-    priority: policy.priority,
-    phase: policy.evaluator === "llm" ? "contextual_llm" : "deterministic",
-    created_by_user_id: "",
-    source: policy.source,
-    derived_from_message_id: policy.derived_from_message_id,
-    learning_provenance: policy.learning_provenance || null,
-    effective_from: policy.effective_from,
-    expires_at: policy.expires_at,
-    max_uses: policy.max_uses,
-    remaining_uses: policy.remaining_uses,
-    created_at: policy.created_at,
-  };
-}
-
-function resolveDefaultDecision(policies: CanonicalPolicy[]): {
-  decision: ContextDecision;
-  reasonCode: string;
-  winningPolicy: CanonicalPolicy | null;
-} {
-  const policyById = new Map(policies.map((policy) => [policy.id, policy]));
-  const matches = policies.map((policy) => toContextPolicyMatch(policy));
-
-  for (const scope of SPECIFICITY_ORDER) {
-    const resolution = resolveScopeMatches(
-      matches.filter((match) => match.scope === scope),
-    );
-    if (!resolution) {
-      continue;
-    }
-
-    const winningPolicy = policyById.get(resolution.winner.policy_id) || null;
-    return {
-      decision: resolution.effect,
-      reasonCode: `context.${resolution.effect}.${resolution.winner.scope}.${resolution.winner.evaluator}`,
-      winningPolicy,
-    };
-  }
-
-  return {
-    decision: "allow",
-    reasonCode: "context.allow.no_applicable",
-    winningPolicy: null,
-  };
 }
 
 async function loadContextPolicies(
@@ -1630,7 +1570,7 @@ pluginRoutes.post(
       selectors,
     );
     const summary = await generatePolicySummary(applicablePolicies, roles);
-    const defaultDecision = resolveDefaultDecision(applicablePolicies);
+    const defaultDecision = resolveContextPolicyGuidance(applicablePolicies);
 
     const interactions = data.include_recent_interactions
       ? await db

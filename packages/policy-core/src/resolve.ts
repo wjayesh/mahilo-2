@@ -3,6 +3,7 @@ import {
   PHASE_PRECEDENCE,
   SPECIFICITY_ORDER,
   type EvaluatedPolicy,
+  type MatchedPolicyResolution,
   type LLMEvaluationFallbackMode,
   type PolicyEffect,
   type PolicyEvaluationResult,
@@ -30,13 +31,16 @@ function formatPolicyIds(policies: EvaluatedPolicy[]): string {
 }
 
 export function reasonCodeToken(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 export function buildPolicyReasonCode(
   effect: PolicyEffect,
   winner?: Pick<PolicyMatch, "scope" | "evaluator" | "reason_code">,
-  fallback?: "no_applicable" | "no_match"
+  fallback?: "no_applicable" | "no_match",
 ): string {
   if (winner?.reason_code) {
     return winner.reason_code;
@@ -68,7 +72,9 @@ export function comparePolicyMatches(a: PolicyMatch, b: PolicyMatch): number {
   return a.policy_id.localeCompare(b.policy_id);
 }
 
-export function resolveScopeMatches(matches: PolicyMatch[]): ScopeResolution | null {
+export function resolveScopeMatches(
+  matches: PolicyMatch[],
+): ScopeResolution | null {
   if (matches.length === 0) {
     return null;
   }
@@ -84,7 +90,50 @@ export function stricterEffect(a: PolicyEffect, b: PolicyEffect): PolicyEffect {
   return EFFECT_PRECEDENCE[a] >= EFFECT_PRECEDENCE[b] ? a : b;
 }
 
-export function buildResolutionExplanation(context: PolicyResolutionContext): string {
+export function resolveMatchedPolicySet(
+  matches: ReadonlyArray<PolicyMatch>,
+): MatchedPolicyResolution {
+  const baseMatchesByScope: Record<SpecificityScope, PolicyMatch[]> = {
+    user: matches.filter((match) => match.scope === "user"),
+    role: matches.filter((match) => match.scope === "role"),
+    global: matches.filter((match) => match.scope === "global"),
+  };
+  const groupMatches = matches.filter((match) => match.scope === "group");
+
+  let baseResolution: (ScopeResolution & { scope: SpecificityScope }) | null =
+    null;
+  for (const scope of SPECIFICITY_ORDER) {
+    const resolved = resolveScopeMatches(baseMatchesByScope[scope]);
+    if (resolved) {
+      baseResolution = { ...resolved, scope };
+      break;
+    }
+  }
+
+  const groupResolution = resolveScopeMatches(groupMatches);
+
+  let finalEffect: PolicyEffect = baseResolution?.effect ?? "allow";
+  let winner = baseResolution?.winner;
+
+  if (groupResolution) {
+    const constrained = stricterEffect(finalEffect, groupResolution.effect);
+    if (constrained !== finalEffect || !winner) {
+      winner = groupResolution.winner;
+    }
+    finalEffect = constrained;
+  }
+
+  return {
+    base_resolution: baseResolution,
+    group_resolution: groupResolution,
+    final_effect: finalEffect,
+    winning_match: winner,
+  };
+}
+
+export function buildResolutionExplanation(
+  context: PolicyResolutionContext,
+): string {
   const explanation: string[] = [];
   const {
     base_resolution: base,
@@ -94,20 +143,22 @@ export function buildResolutionExplanation(context: PolicyResolutionContext): st
     llm_evaluated: llmEvaluated,
   } = context;
 
-  const deterministicMatched = deterministicEvaluated.filter((policy) => policy.matched);
+  const deterministicMatched = deterministicEvaluated.filter(
+    (policy) => policy.matched,
+  );
   explanation.push(
-    `Deterministic phase evaluated ${deterministicEvaluated.length} policy/policies (matched: ${formatPolicyIds(deterministicMatched)}).`
+    `Deterministic phase evaluated ${deterministicEvaluated.length} policy/policies (matched: ${formatPolicyIds(deterministicMatched)}).`,
   );
 
   const llmMatched = llmEvaluated.filter((policy) => policy.matched);
   const llmSkipped = llmEvaluated.filter((policy) => policy.skipped);
   explanation.push(
-    `Contextual LLM phase evaluated ${llmEvaluated.length} policy/policies (matched: ${formatPolicyIds(llmMatched)}; skipped: ${formatPolicyIds(llmSkipped)}).`
+    `Contextual LLM phase evaluated ${llmEvaluated.length} policy/policies (matched: ${formatPolicyIds(llmMatched)}; skipped: ${formatPolicyIds(llmSkipped)}).`,
   );
 
   if (base) {
     explanation.push(
-      `Base specificity resolved from '${base.scope}' scope with effect '${base.effect}' via policy ${base.winner.policy_id}.`
+      `Base specificity resolved from '${base.scope}' scope with effect '${base.effect}' via policy ${base.winner.policy_id}.`,
     );
   } else {
     explanation.push("No matching base policy in user/role/global scopes.");
@@ -115,20 +166,22 @@ export function buildResolutionExplanation(context: PolicyResolutionContext): st
 
   if (group) {
     explanation.push(
-      `Group overlay resolved to '${group.effect}' via policy ${group.winner.policy_id} and applied as additional constraint.`
+      `Group overlay resolved to '${group.effect}' via policy ${group.winner.policy_id} and applied as additional constraint.`,
     );
   } else {
     explanation.push("No matching group overlay policy.");
   }
 
-  explanation.push("Same-level conflicts use deterministic precedence deny > ask > allow.");
+  explanation.push(
+    "Same-level conflicts use deterministic precedence deny > ask > allow.",
+  );
   explanation.push(`Final effect: '${finalEffect}'.`);
   explanation.push(
     `Matched policies: ${
       context.all_matches.length > 0
         ? context.all_matches.map((match) => match.policy_id).join(", ")
         : "none"
-    }.`
+    }.`,
   );
 
   return explanation.join(" ");
@@ -147,7 +200,7 @@ export function toResult(
     guardrail_id?: string;
     matched_policy_ids?: string[];
     evaluated_policies?: EvaluatedPolicy[];
-  }
+  },
 ): PolicyResult {
   return {
     allowed: effect === "allow",
@@ -196,7 +249,7 @@ function buildLLMFallbackResult(
   policy: ResolvePolicySetOptions["policies"][number],
   mode: LLMEvaluationFallbackMode,
   kind: "error" | "unavailable",
-  errorMessage?: string
+  errorMessage?: string,
 ): PolicyEvaluationResult {
   const detail = errorMessage ? `: ${errorMessage}` : "";
   const fallbackReason =
@@ -206,24 +259,40 @@ function buildLLMFallbackResult(
 
   if (mode === "skip") {
     return {
-      evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
-        matched: false,
-        skipped: true,
-        skip_reason: fallbackReason,
-      }),
+      evaluated_policy: buildEvaluatedPolicy(
+        policy,
+        ownerUserId,
+        "contextual_llm",
+        {
+          matched: false,
+          skipped: true,
+          skip_reason: fallbackReason,
+        },
+      ),
       match: null,
     };
   }
 
   return {
-    evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
-      matched: true,
-      reason: fallbackReason,
-    }),
-    match: toPolicyMatch(policy, ownerUserId, fallbackReason, "contextual_llm", {
-      effect: mode,
-      reason_code: `policy.${mode}.llm.${kind}`,
-    }),
+    evaluated_policy: buildEvaluatedPolicy(
+      policy,
+      ownerUserId,
+      "contextual_llm",
+      {
+        matched: true,
+        reason: fallbackReason,
+      },
+    ),
+    match: toPolicyMatch(
+      policy,
+      ownerUserId,
+      fallbackReason,
+      "contextual_llm",
+      {
+        effect: mode,
+        reason_code: `policy.${mode}.llm.${kind}`,
+      },
+    ),
   };
 }
 
@@ -235,14 +304,14 @@ async function evaluateContextualPolicyMatch(
   context: string | undefined,
   llmEvaluator: ResolvePolicySetOptions["llmEvaluator"],
   llmUnavailableMode: LLMEvaluationFallbackMode,
-  llmErrorMode: LLMEvaluationFallbackMode
+  llmErrorMode: LLMEvaluationFallbackMode,
 ): Promise<PolicyEvaluationResult> {
   if (!llmEvaluator) {
     return buildLLMFallbackResult(
       ownerUserId,
       policy,
       llmUnavailableMode,
-      "unavailable"
+      "unavailable",
     );
   }
 
@@ -256,32 +325,54 @@ async function evaluateContextualPolicyMatch(
 
     if (llmResult.status === "pass") {
       return {
-        evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
-          matched: false,
-          reason: llmResult.reasoning || "LLM policy passed",
-        }),
+        evaluated_policy: buildEvaluatedPolicy(
+          policy,
+          ownerUserId,
+          "contextual_llm",
+          {
+            matched: false,
+            reason: llmResult.reasoning || "LLM policy passed",
+          },
+        ),
         match: null,
       };
     }
 
     if (llmResult.status === "match") {
-      const matchReason = llmResult.reasoning || "Message blocked by LLM policy";
+      const matchReason =
+        llmResult.reasoning || "Message blocked by LLM policy";
       return {
-        evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
-          matched: true,
-          reason: matchReason,
-        }),
-        match: toPolicyMatch(policy, ownerUserId, matchReason, "contextual_llm"),
+        evaluated_policy: buildEvaluatedPolicy(
+          policy,
+          ownerUserId,
+          "contextual_llm",
+          {
+            matched: true,
+            reason: matchReason,
+          },
+        ),
+        match: toPolicyMatch(
+          policy,
+          ownerUserId,
+          matchReason,
+          "contextual_llm",
+        ),
       };
     }
 
     if (llmResult.status === "skip") {
       return {
-        evaluated_policy: buildEvaluatedPolicy(policy, ownerUserId, "contextual_llm", {
-          matched: false,
-          skipped: true,
-          skip_reason: llmResult.skip_reason || "Contextual LLM evaluation skipped",
-        }),
+        evaluated_policy: buildEvaluatedPolicy(
+          policy,
+          ownerUserId,
+          "contextual_llm",
+          {
+            matched: false,
+            skipped: true,
+            skip_reason:
+              llmResult.skip_reason || "Contextual LLM evaluation skipped",
+          },
+        ),
         match: null,
       };
     }
@@ -291,7 +382,7 @@ async function evaluateContextualPolicyMatch(
       policy,
       llmErrorMode,
       "error",
-      llmResult.error || llmResult.reasoning
+      llmResult.error || llmResult.reasoning,
     );
   } catch (error) {
     return buildLLMFallbackResult(
@@ -299,13 +390,13 @@ async function evaluateContextualPolicyMatch(
       policy,
       llmErrorMode,
       "error",
-      error instanceof Error ? error.message : undefined
+      error instanceof Error ? error.message : undefined,
     );
   }
 }
 
 export async function resolvePolicySet(
-  options: ResolvePolicySetOptions
+  options: ResolvePolicySetOptions,
 ): Promise<PolicyResult> {
   if (options.policies.length === 0) {
     return toResult("allow", {
@@ -322,7 +413,8 @@ export async function resolvePolicySet(
   const llmEvaluated: EvaluatedPolicy[] = [];
 
   const deterministicPolicies = options.policies.filter(
-    (policy) => policy.evaluator === "heuristic" || policy.evaluator === "structured"
+    (policy) =>
+      policy.evaluator === "heuristic" || policy.evaluator === "structured",
   );
   for (const policy of deterministicPolicies) {
     const result = await evaluateDeterministicPolicyMatch(
@@ -330,7 +422,7 @@ export async function resolvePolicySet(
       policy,
       options.message,
       options.context,
-      options.recipientUsername
+      options.recipientUsername,
     );
     deterministicEvaluated.push(result.evaluated_policy);
     evaluatedPolicies.push(result.evaluated_policy);
@@ -339,7 +431,9 @@ export async function resolvePolicySet(
     }
   }
 
-  const llmPolicies = options.policies.filter((policy) => policy.evaluator === "llm");
+  const llmPolicies = options.policies.filter(
+    (policy) => policy.evaluator === "llm",
+  );
   for (const policy of llmPolicies) {
     const result = await evaluateContextualPolicyMatch(
       options.ownerUserId,
@@ -349,7 +443,7 @@ export async function resolvePolicySet(
       options.context,
       options.llmEvaluator,
       options.llmUnavailableMode ?? "skip",
-      options.llmErrorMode ?? "skip"
+      options.llmErrorMode ?? "skip",
     );
     llmEvaluated.push(result.evaluated_policy);
     evaluatedPolicies.push(result.evaluated_policy);
@@ -370,41 +464,16 @@ export async function resolvePolicySet(
     });
   }
 
-  const baseMatchesByScope: Record<SpecificityScope, PolicyMatch[]> = {
-    user: allMatches.filter((match) => match.scope === "user"),
-    role: allMatches.filter((match) => match.scope === "role"),
-    global: allMatches.filter((match) => match.scope === "global"),
-  };
-  const groupMatches = allMatches.filter((match) => match.scope === "group");
-
-  let baseResolution: (ScopeResolution & { scope: SpecificityScope }) | null = null;
-  for (const scope of SPECIFICITY_ORDER) {
-    const resolved = resolveScopeMatches(baseMatchesByScope[scope]);
-    if (resolved) {
-      baseResolution = { ...resolved, scope };
-      break;
-    }
-  }
-
-  const groupResolution = resolveScopeMatches(groupMatches);
-
-  let finalEffect: PolicyEffect = baseResolution?.effect ?? "allow";
-  let winner = baseResolution?.winner;
-
-  if (groupResolution) {
-    const constrained = stricterEffect(finalEffect, groupResolution.effect);
-    if (constrained !== finalEffect || !winner) {
-      winner = groupResolution.winner;
-    }
-    finalEffect = constrained;
-  }
+  const matchedResolution = resolveMatchedPolicySet(allMatches);
+  const finalEffect = matchedResolution.final_effect;
+  const winner = matchedResolution.winning_match;
 
   const explanation = buildResolutionExplanation({
     all_matches: allMatches,
     deterministic_evaluated: deterministicEvaluated,
     llm_evaluated: llmEvaluated,
-    base_resolution: baseResolution,
-    group_resolution: groupResolution,
+    base_resolution: matchedResolution.base_resolution,
+    group_resolution: matchedResolution.group_resolution,
     final_effect: finalEffect,
   });
 

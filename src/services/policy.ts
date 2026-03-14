@@ -1,11 +1,14 @@
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
+  buildPolicyReasonCode,
   POLICY_RESOLVER_ORDER,
   filterPolicyCandidatesBySelectors,
   normalizeSelectorToken,
   reasonCodeToken,
   resolveDirectionCandidates,
+  resolveMatchedPolicySet,
   resolvePolicySet,
+  toPolicyMatch,
   toResult,
   validatePolicyContent,
   type AuthenticatedSenderIdentity,
@@ -36,8 +39,26 @@ export type {
   WinningPolicy,
 };
 
+interface ServerPolicyPrecheckResult {
+  identityContext: AuthenticatedSenderIdentity;
+  earlyResult: PolicyResult | null;
+}
+
+interface ResolvedServerPolicyInputs {
+  policyOwnerUserId: string;
+  message: string;
+  authenticatedIdentity: AuthenticatedSenderIdentity;
+  recipientUserId?: string;
+  recipientUsername?: string;
+  recipientRoles: string[];
+  groupId?: string;
+  selectors?: PolicySelectorContext;
+  llmSubject: string;
+  context?: string;
+}
+
 export async function loadApplicablePolicies(
-  senderUserId: string,
+  policyOwnerUserId: string,
   recipientUserId?: string,
   recipientRoles: string[] = [],
   groupId?: string,
@@ -103,7 +124,7 @@ export async function loadApplicablePolicies(
     .from(schema.policies)
     .where(
       and(
-        eq(schema.policies.userId, senderUserId),
+        eq(schema.policies.userId, policyOwnerUserId),
         eq(schema.policies.enabled, true),
         or(
           isNull(schema.policies.effectiveFrom),
@@ -142,39 +163,93 @@ function createServerLLMPolicyEvaluator(): LLMPolicyEvaluator | undefined {
   });
 }
 
-async function resolveUserPolicyLayer(
-  senderUserId: string,
-  message: string,
-  options: {
-    authenticatedIdentity: AuthenticatedSenderIdentity;
-    recipientUserId?: string;
-    recipientUsername?: string;
-    recipientRoles?: string[];
-    groupId?: string;
-    selectors?: PolicySelectorContext;
-    llmSubject: string;
-    context?: string;
-  },
+function toApplicablePolicyMatch(policy: CanonicalPolicy) {
+  return toPolicyMatch(
+    policy,
+    "",
+    "Policy is applicable for the current selector context",
+    policy.evaluator === "llm" ? "contextual_llm" : "deterministic",
+  );
+}
+
+function toContextReasonCode(reasonCode: string): string {
+  return reasonCode.replace(/^policy\./, "context.");
+}
+
+export function resolveContextPolicyGuidance(policies: CanonicalPolicy[]): {
+  decision: CanonicalPolicy["effect"];
+  reasonCode: string;
+} {
+  const matchedResolution = resolveMatchedPolicySet(
+    policies.map((policy) => toApplicablePolicyMatch(policy)),
+  );
+  const winningMatch = matchedResolution.winning_match;
+
+  if (!winningMatch) {
+    return {
+      decision: "allow",
+      reasonCode: toContextReasonCode(
+        buildPolicyReasonCode("allow", undefined, "no_applicable"),
+      ),
+    };
+  }
+
+  return {
+    decision: matchedResolution.final_effect,
+    reasonCode: toContextReasonCode(
+      buildPolicyReasonCode(matchedResolution.final_effect, winningMatch),
+    ),
+  };
+}
+
+async function evaluateResolvedServerPolicies(
+  inputs: ResolvedServerPolicyInputs,
 ): Promise<PolicyResult> {
   const applicablePolicies = await loadApplicablePolicies(
-    senderUserId,
-    options.recipientUserId,
-    options.recipientRoles || [],
-    options.groupId,
-    options.selectors,
+    inputs.policyOwnerUserId,
+    inputs.recipientUserId,
+    inputs.recipientRoles,
+    inputs.groupId,
+    inputs.selectors,
   );
 
   return resolvePolicySet({
     policies: applicablePolicies,
-    ownerUserId: senderUserId,
-    message,
-    context: options.context,
-    recipientUsername: options.recipientUsername,
-    llmSubject: options.llmSubject,
-    authenticatedIdentity: options.authenticatedIdentity,
+    ownerUserId: inputs.policyOwnerUserId,
+    message: inputs.message,
+    context: inputs.context,
+    recipientUsername: inputs.recipientUsername,
+    llmSubject: inputs.llmSubject,
+    authenticatedIdentity: inputs.authenticatedIdentity,
     resolverLayer: "user_policies",
     llmEvaluator: createServerLLMPolicyEvaluator(),
   });
+}
+
+async function loadCounterpartyPolicyContext(
+  policyOwnerUserId: string,
+  counterpartyUserId: string,
+): Promise<{
+  recipientRoles: string[];
+  recipientUsername?: string;
+  llmSubject: string;
+}> {
+  const db = getDb();
+  const recipientRoles = await getRolesForFriend(
+    policyOwnerUserId,
+    counterpartyUserId,
+  );
+  const [counterparty] = await db
+    .select({ username: schema.users.username })
+    .from(schema.users)
+    .where(eq(schema.users.id, counterpartyUserId))
+    .limit(1);
+
+  return {
+    recipientRoles,
+    recipientUsername: counterparty?.username,
+    llmSubject: counterparty?.username || "unknown",
+  };
 }
 
 function buildIdentityContext(
@@ -243,6 +318,34 @@ async function validateAuthenticatedIdentity(
   return null;
 }
 
+async function runServerPolicyPrechecks(
+  expectedSenderUserId: string,
+  message: string,
+  authenticatedIdentity?: AuthenticatedSenderIdentity,
+): Promise<ServerPolicyPrecheckResult> {
+  const identityContext = buildIdentityContext(
+    expectedSenderUserId,
+    authenticatedIdentity,
+  );
+
+  const identityValidationResult = await validateAuthenticatedIdentity(
+    expectedSenderUserId,
+    authenticatedIdentity,
+    identityContext,
+  );
+  if (identityValidationResult) {
+    return {
+      identityContext,
+      earlyResult: identityValidationResult,
+    };
+  }
+
+  return {
+    identityContext,
+    earlyResult: evaluatePolicyGuardrails(message, identityContext),
+  };
+}
+
 function evaluatePolicyGuardrails(
   message: string,
   identityContext: AuthenticatedSenderIdentity,
@@ -274,51 +377,40 @@ export async function evaluatePolicies(
   selectorContext?: PolicySelectorContext,
   groupId?: string,
 ): Promise<PolicyResult> {
-  const identityContext = buildIdentityContext(
+  const { identityContext, earlyResult } = await runServerPolicyPrechecks(
     senderUserId,
+    message,
     authenticatedIdentity,
   );
-  const db = getDb();
+  if (earlyResult) {
+    return earlyResult;
+  }
 
-  const identityValidationResult = await validateAuthenticatedIdentity(
+  const recipientContext = await loadCounterpartyPolicyContext(
     senderUserId,
-    authenticatedIdentity,
-    identityContext,
+    recipientUserId,
   );
-  if (identityValidationResult) {
-    return identityValidationResult;
-  }
 
-  const guardrailResult = evaluatePolicyGuardrails(message, identityContext);
-  if (guardrailResult) {
-    return guardrailResult;
-  }
-
-  const recipientRoles = await getRolesForFriend(senderUserId, recipientUserId);
-  const [recipient] = await db
-    .select({ username: schema.users.username })
-    .from(schema.users)
-    .where(eq(schema.users.id, recipientUserId))
-    .limit(1);
-
-  return resolveUserPolicyLayer(senderUserId, message, {
+  return evaluateResolvedServerPolicies({
+    policyOwnerUserId: senderUserId,
+    message,
     authenticatedIdentity: identityContext,
     recipientUserId,
-    recipientUsername: recipient?.username,
-    recipientRoles,
+    recipientUsername: recipientContext.recipientUsername,
+    recipientRoles: recipientContext.recipientRoles,
     groupId,
     selectors: selectorContext,
-    llmSubject: recipient?.username || "unknown",
+    llmSubject: recipientContext.llmSubject,
     context,
   });
 }
 
 export async function loadBilateralPolicies(
-  userId: string,
+  policyOwnerUserId: string,
   recipientUserId: string,
   roles: string[] = [],
 ): Promise<CanonicalPolicy[]> {
-  return loadApplicablePolicies(userId, recipientUserId, roles);
+  return loadApplicablePolicies(policyOwnerUserId, recipientUserId, roles);
 }
 
 export async function evaluateInboundPolicies(
@@ -329,43 +421,29 @@ export async function evaluateInboundPolicies(
   authenticatedRequesterIdentity?: AuthenticatedSenderIdentity,
   selectorContext?: PolicySelectorContext,
 ): Promise<PolicyResult> {
-  const identityContext = buildIdentityContext(
+  const { identityContext, earlyResult } = await runServerPolicyPrechecks(
     requesterUserId,
+    message,
     authenticatedRequesterIdentity,
   );
-  const db = getDb();
-
-  const identityValidationResult = await validateAuthenticatedIdentity(
-    requesterUserId,
-    authenticatedRequesterIdentity,
-    identityContext,
-  );
-  if (identityValidationResult) {
-    return identityValidationResult;
+  if (earlyResult) {
+    return earlyResult;
   }
 
-  const guardrailResult = evaluatePolicyGuardrails(message, identityContext);
-  if (guardrailResult) {
-    return guardrailResult;
-  }
-
-  const requesterRoles = await getRolesForFriend(
+  const requesterContext = await loadCounterpartyPolicyContext(
     recipientUserId,
     requesterUserId,
   );
-  const [requester] = await db
-    .select({ username: schema.users.username })
-    .from(schema.users)
-    .where(eq(schema.users.id, requesterUserId))
-    .limit(1);
 
-  return resolveUserPolicyLayer(recipientUserId, message, {
+  return evaluateResolvedServerPolicies({
+    policyOwnerUserId: recipientUserId,
+    message,
     authenticatedIdentity: identityContext,
     recipientUserId: requesterUserId,
-    recipientUsername: requester?.username,
-    recipientRoles: requesterRoles,
+    recipientUsername: requesterContext.recipientUsername,
+    recipientRoles: requesterContext.recipientRoles,
     selectors: selectorContext,
-    llmSubject: requester?.username || "unknown",
+    llmSubject: requesterContext.llmSubject,
     context,
   });
 }
@@ -378,27 +456,20 @@ export async function evaluateGroupPolicies(
   authenticatedIdentity?: AuthenticatedSenderIdentity,
   selectorContext?: PolicySelectorContext,
 ): Promise<PolicyResult> {
-  const identityContext = buildIdentityContext(
+  const { identityContext, earlyResult } = await runServerPolicyPrechecks(
     senderUserId,
+    message,
     authenticatedIdentity,
   );
-
-  const identityValidationResult = await validateAuthenticatedIdentity(
-    senderUserId,
-    authenticatedIdentity,
-    identityContext,
-  );
-  if (identityValidationResult) {
-    return identityValidationResult;
+  if (earlyResult) {
+    return earlyResult;
   }
 
-  const guardrailResult = evaluatePolicyGuardrails(message, identityContext);
-  if (guardrailResult) {
-    return guardrailResult;
-  }
-
-  return resolveUserPolicyLayer(senderUserId, message, {
+  return evaluateResolvedServerPolicies({
+    policyOwnerUserId: senderUserId,
+    message,
     authenticatedIdentity: identityContext,
+    recipientRoles: [],
     groupId,
     selectors: selectorContext,
     llmSubject: `group:${groupId}`,

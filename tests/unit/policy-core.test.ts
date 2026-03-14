@@ -4,8 +4,10 @@ import {
   filterPolicyCandidatesBySelectors,
   normalizePartialSelectorContext,
   normalizeSelectorContext,
+  resolveMatchedPolicySet,
   resolvePolicySet,
   selectorDirectionsEquivalent,
+  toPolicyMatch,
   type CorePolicy,
   type LLMPolicyEvaluator,
 } from "@mahilo/policy-core";
@@ -117,6 +119,47 @@ describe("policy core resolver", () => {
     expect(result.reason_code).toBe("policy.deny.user.structured");
     expect(result.winning_policy_id).toBe("pol_user_deny");
     expect(result.resolution_explanation).toContain("deny > ask > allow");
+  });
+
+  it("resolves pre-matched policies with specificity and group overlays", () => {
+    const result = resolveMatchedPolicySet([
+      toPolicyMatch(
+        createPolicy({
+          id: "pol_global",
+          scope: "global",
+          effect: "allow",
+        }),
+        "usr_owner",
+        "Applicable in current context",
+        "deterministic",
+      ),
+      toPolicyMatch(
+        createPolicy({
+          id: "pol_user",
+          scope: "user",
+          effect: "ask",
+        }),
+        "usr_owner",
+        "Applicable in current context",
+        "deterministic",
+      ),
+      toPolicyMatch(
+        createPolicy({
+          id: "pol_group",
+          scope: "group",
+          effect: "deny",
+        }),
+        "usr_owner",
+        "Applicable in current context",
+        "deterministic",
+      ),
+    ]);
+
+    expect(result.base_resolution?.scope).toBe("user");
+    expect(result.base_resolution?.effect).toBe("ask");
+    expect(result.group_resolution?.effect).toBe("deny");
+    expect(result.final_effect).toBe("deny");
+    expect(result.winning_match?.policy_id).toBe("pol_group");
   });
 
   it("applies group overlay as an additional constraint", async () => {
