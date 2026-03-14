@@ -94,6 +94,7 @@ const State = {
   auditLogById: new Map(),
   policies: [],
   policiesById: new Map(),
+  policyProvenanceById: new Map(),
   reviews: [],
   reviewsById: new Map(),
   reviewQueue: null,
@@ -179,6 +180,7 @@ const State = {
     this.auditLogById = new Map();
     this.policies = [];
     this.policiesById = new Map();
+    this.policyProvenanceById = new Map();
     this.reviews = [];
     this.reviewsById = new Map();
     this.reviewQueue = null;
@@ -431,6 +433,10 @@ const API = {
 
     async delete(id) {
       return API.request(`/policies/${id}`, { method: "DELETE" });
+    },
+
+    async provenance(id) {
+      return API.request(`/policies/audit/provenance/${id}`);
     },
   },
 
@@ -714,6 +720,22 @@ const Helpers = {
       month: "short",
       day: "numeric",
       year: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(timestamp));
+  },
+
+  formatDateTime(value, fallback = "Unknown time") {
+    const timestamp = this.timestampValue(value);
+    if (!timestamp) {
+      return fallback;
+    }
+
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
       timeZone: "UTC",
     }).format(new Date(timestamp));
   },
@@ -2196,11 +2218,39 @@ function buildBoundaryLifecycle(policy) {
       ? policy.maxUses
       : null;
   const now = Date.now();
+  const detailItems = [];
+
+  if (policy.effectiveFrom) {
+    detailItems.push({
+      label: "Effective from",
+      value: Helpers.formatDateTime(policy.effectiveFrom),
+    });
+  }
+
+  if (policy.expiresAt) {
+    detailItems.push({
+      label: "Expires at",
+      value: Helpers.formatDateTime(policy.expiresAt),
+    });
+  }
+
+  if (remainingUses !== null) {
+    detailItems.push({
+      label: "Remaining uses",
+      value:
+        maxUses !== null
+          ? `${remainingUses} of ${maxUses}`
+          : String(remainingUses),
+    });
+  }
 
   if (!policy.enabled) {
     return {
       badgeLabel: "Disabled",
+      detailItems,
       isActive: false,
+      maxUses,
+      remainingUses,
       state: "disabled",
       summary: "Disabled manually and not currently enforced.",
       tone: "disabled",
@@ -2210,7 +2260,11 @@ function buildBoundaryLifecycle(policy) {
   if (effectiveFromTimestamp && effectiveFromTimestamp > now) {
     return {
       badgeLabel: "Scheduled",
+      detailItems,
+      effectiveFromLabel: Helpers.formatDateTime(policy.effectiveFrom),
       isActive: false,
+      maxUses,
+      remainingUses,
       state: "scheduled",
       summary: `Starts ${Helpers.formatShortDate(policy.effectiveFrom)}.`,
       tone: "scheduled",
@@ -2220,7 +2274,11 @@ function buildBoundaryLifecycle(policy) {
   if (expiresAtTimestamp && expiresAtTimestamp <= now) {
     return {
       badgeLabel: "Expired",
+      detailItems,
+      expiresAtLabel: Helpers.formatDateTime(policy.expiresAt),
       isActive: false,
+      maxUses,
+      remainingUses,
       state: "expired",
       summary: `Ended ${Helpers.formatShortDate(policy.expiresAt)}.`,
       tone: "expired",
@@ -2230,7 +2288,10 @@ function buildBoundaryLifecycle(policy) {
   if (remainingUses !== null && remainingUses <= 0) {
     return {
       badgeLabel: "Used up",
+      detailItems,
       isActive: false,
+      maxUses,
+      remainingUses,
       state: "spent",
       summary: "This temporary boundary has no uses remaining.",
       tone: "spent",
@@ -2256,10 +2317,171 @@ function buildBoundaryLifecycle(policy) {
 
   return {
     badgeLabel: "Active now",
+    detailItems,
+    effectiveFromLabel: policy.effectiveFrom
+      ? Helpers.formatDateTime(policy.effectiveFrom)
+      : null,
+    expiresAtLabel: policy.expiresAt
+      ? Helpers.formatDateTime(policy.expiresAt)
+      : null,
     isActive: true,
+    maxUses,
+    remainingUses,
     state: "active",
     summary: notes.join(" ") || "Currently active and enforced.",
     tone: "active",
+  };
+}
+
+function normalizeBoundaryOverrideKind(value) {
+  const kind = Helpers.string(value).toLowerCase();
+
+  if (
+    kind === "one_time" ||
+    kind === "temporary" ||
+    kind === "persistent"
+  ) {
+    return kind;
+  }
+
+  return null;
+}
+
+function boundaryOverrideKindLabel(kind) {
+  switch (normalizeBoundaryOverrideKind(kind)) {
+    case "one_time":
+      return "One-time override";
+    case "temporary":
+      return "Temporary override";
+    case "persistent":
+      return "Persistent override";
+    default:
+      return null;
+  }
+}
+
+function inferBoundaryOverrideKind(policy) {
+  const explicitKind = normalizeBoundaryOverrideKind(policy.override?.kind);
+  if (explicitKind) {
+    return explicitKind;
+  }
+
+  if (Helpers.string(policy.source).toLowerCase() !== "override") {
+    return null;
+  }
+
+  if (
+    typeof policy.maxUses === "number" &&
+    Number.isFinite(policy.maxUses) &&
+    policy.maxUses <= 1
+  ) {
+    return "one_time";
+  }
+
+  if (policy.expiresAt) {
+    return "temporary";
+  }
+
+  return "persistent";
+}
+
+function buildBoundaryProvenance(policy) {
+  const source = Helpers.string(policy.source).toLowerCase();
+  const sourceLabel = Helpers.policySourceLabel(policy.source);
+  const overrideKind = inferBoundaryOverrideKind(policy);
+  const overrideKindLabel = boundaryOverrideKindLabel(overrideKind);
+  const learningProvenance = Helpers.record(policy.learningProvenance);
+  const promotedFromPolicyIds = Helpers.stringList(
+    learningProvenance.promotedFromPolicyIds,
+  );
+  const sourceInteractionId = Helpers.nullableString(
+    learningProvenance.sourceInteractionId,
+  );
+  const detailItems = [
+    {
+      label: "Source",
+      value: sourceLabel,
+    },
+  ];
+
+  if (overrideKindLabel) {
+    detailItems.push({
+      label: "Override type",
+      value: overrideKindLabel,
+    });
+  }
+
+  if (policy.derivedFromMessageId) {
+    detailItems.push({
+      label: "Derived from message",
+      value: policy.derivedFromMessageId,
+    });
+  }
+
+  if (sourceInteractionId) {
+    detailItems.push({
+      label: "Source interaction",
+      value: sourceInteractionId,
+    });
+  }
+
+  if (promotedFromPolicyIds.length) {
+    detailItems.push({
+      label: "Promoted from",
+      value: Helpers.pluralize(
+        promotedFromPolicyIds.length,
+        "prior boundary",
+        "prior boundaries",
+      ),
+    });
+  }
+
+  let summary = "Mahilo keeps this boundary's origin available for audit.";
+  switch (source) {
+    case "override":
+      summary = overrideKindLabel
+        ? `${overrideKindLabel} created for a situational sharing decision.`
+        : "Situational override created from a review or approval decision.";
+      break;
+    case "learned":
+      summary =
+        "Learned from repeated interaction patterns and kept visible for review.";
+      break;
+    case "user_confirmed":
+      summary = promotedFromPolicyIds.length
+        ? "User confirmed this durable boundary after earlier override behavior."
+        : "User confirmed this boundary after Mahilo surfaced a learned preference.";
+      break;
+    case "user_created":
+      summary = "Created directly by the user as an explicit boundary.";
+      break;
+    case "default":
+      summary = "Default Mahilo posture applied before a user-specific boundary replaced it.";
+      break;
+    case "legacy_migrated":
+      summary = "Migrated forward from an older policy model.";
+      break;
+    default:
+      break;
+  }
+
+  return {
+    badgeLabel: overrideKindLabel || sourceLabel,
+    detailItems,
+    overrideKind,
+    overrideKindLabel,
+    source,
+    sourceLabel,
+    summary,
+    tone:
+      {
+        default: "default",
+        learned: "learned",
+        legacy_migrated: "imported",
+        override: "override",
+        user_confirmed: "confirmed",
+        user_created: "user-created",
+      }[source] || "default",
   };
 }
 
@@ -2395,6 +2617,7 @@ function buildBoundaryPresentation(policy) {
   );
   const audience = buildBoundaryAudience(policy.scope, policy.targetId);
   const lifecycle = buildBoundaryLifecycle(policy);
+  const provenance = buildBoundaryProvenance(policy);
   const advancedSummary =
     categoryMeta.managementPath === "advanced"
       ? `Custom selector combination (${selector.summary}). Keep it visible here and use the advanced path for selector-specific edits.`
@@ -2416,6 +2639,7 @@ function buildBoundaryPresentation(policy) {
     icon: categoryMeta.icon,
     lifecycle,
     managementPath: categoryMeta.managementPath,
+    provenance,
     selector,
   };
 }
@@ -2786,6 +3010,167 @@ const Normalizers = {
     };
   },
 
+  policyLearningProvenance(value) {
+    const record = Helpers.record(value);
+    const promotedFromPolicyIds = Helpers.stringList(
+      record.promoted_from_policy_ids ?? record.promotedFromPolicyIds,
+    );
+    const sourceInteractionId = Helpers.nullableString(
+      record.source_interaction_id ?? record.sourceInteractionId,
+    );
+
+    if (!sourceInteractionId && !promotedFromPolicyIds.length) {
+      return null;
+    }
+
+    return {
+      promotedFromPolicyIds,
+      sourceInteractionId,
+    };
+  },
+
+  policyOverride(value) {
+    const content = Helpers.record(value);
+    const override = Helpers.record(content._mahilo_override);
+    const kind = normalizeBoundaryOverrideKind(override.kind);
+
+    if (!kind && !Helpers.nullableString(override.reason)) {
+      return null;
+    }
+
+    return {
+      createdAt: Helpers.iso(override.created_at ?? override.createdAt),
+      createdVia: Helpers.nullableString(
+        override.created_via ?? override.createdVia,
+      ),
+      kind,
+      reason: Helpers.nullableString(override.reason),
+      senderConnectionId: Helpers.nullableString(
+        override.sender_connection_id ?? override.senderConnectionId,
+      ),
+      sourceResolutionId: Helpers.nullableString(
+        override.source_resolution_id ?? override.sourceResolutionId,
+      ),
+    };
+  },
+
+  policyAuditRecord(value) {
+    const record = Helpers.record(value);
+    const policyId = Helpers.nullableString(record.policy_id ?? record.id);
+
+    if (!policyId) {
+      return null;
+    }
+
+    return {
+      policyId,
+      scope: Helpers.string(record.scope, "global"),
+      targetId: Helpers.nullableString(record.target_id),
+      selectors: {
+        action: Helpers.nullableString(
+          record.selectors?.action ?? record.action,
+        ),
+        direction: Helpers.string(
+          record.selectors?.direction ?? record.direction,
+          "outbound",
+        ),
+        resource: Helpers.string(
+          record.selectors?.resource ?? record.resource,
+          "message.general",
+        ),
+      },
+      effect: Helpers.string(record.effect, "deny"),
+      evaluator: Helpers.string(record.evaluator, "structured"),
+      source: Helpers.nullableString(record.source),
+      derivedFromMessageId: Helpers.nullableString(
+        record.derived_from_message_id ?? record.derivedFromMessageId,
+      ),
+      sourceInteractionId: Helpers.nullableString(
+        record.source_interaction_id ?? record.sourceInteractionId,
+      ),
+      promotedFromPolicyIds: Helpers.stringList(
+        record.promoted_from_policy_ids ?? record.promotedFromPolicyIds,
+      ),
+      createdAt: Helpers.iso(record.created_at ?? record.createdAt),
+      raw: value,
+    };
+  },
+
+  policyProvenanceAudit(value) {
+    const record = Helpers.record(value);
+    const policy = this.policyAuditRecord(record.policy);
+
+    if (!policy) {
+      return null;
+    }
+
+    const sourceMessageRecord = Helpers.record(record.source_message);
+    const sourceMessageId = Helpers.nullableString(sourceMessageRecord.id);
+
+    return {
+      lineage: Helpers.collection(record.lineage)
+        .map((entry) => this.policyAuditRecord(entry))
+        .filter(Boolean),
+      overrideToPromotedHistory: Helpers.collection(
+        record.override_to_promoted_history,
+      ).map((entry) => {
+        const history = Helpers.record(entry);
+        return {
+          fromDerivedFromMessageId: Helpers.nullableString(
+            history.from_derived_from_message_id,
+          ),
+          fromPolicyId: Helpers.nullableString(history.from_policy_id),
+          fromSource: Helpers.nullableString(history.from_source),
+          sourceInteractionId: Helpers.nullableString(
+            history.source_interaction_id,
+          ),
+          toDerivedFromMessageId: Helpers.nullableString(
+            history.to_derived_from_message_id,
+          ),
+          toPolicyId: Helpers.nullableString(history.to_policy_id),
+          toSource: Helpers.nullableString(history.to_source),
+        };
+      }),
+      policy,
+      sourceMessage: sourceMessageId
+        ? {
+            createdAt: Helpers.iso(
+              sourceMessageRecord.created_at ?? sourceMessageRecord.createdAt,
+            ),
+            id: sourceMessageId,
+            recipientId: Helpers.nullableString(
+              sourceMessageRecord.recipient_id ?? sourceMessageRecord.recipientId,
+            ),
+            recipientType: Helpers.nullableString(
+              sourceMessageRecord.recipient_type ??
+                sourceMessageRecord.recipientType,
+            ),
+            selectors: {
+              action: Helpers.nullableString(
+                sourceMessageRecord.selectors?.action ??
+                  sourceMessageRecord.action,
+              ),
+              direction: Helpers.string(
+                sourceMessageRecord.selectors?.direction ??
+                  sourceMessageRecord.direction,
+                "outbound",
+              ),
+              resource: Helpers.string(
+                sourceMessageRecord.selectors?.resource ??
+                  sourceMessageRecord.resource,
+                "message.general",
+              ),
+            },
+            senderUserId: Helpers.nullableString(
+              sourceMessageRecord.sender_user_id ??
+                sourceMessageRecord.senderUserId,
+            ),
+          }
+        : null,
+      raw: value,
+    };
+  },
+
   policies(value) {
     return Helpers.collection(value, ["policies", "items", "results", "data"])
       .map((entry) => this.policy(entry))
@@ -2831,6 +3216,10 @@ const Normalizers = {
       derivedFromMessageId: Helpers.nullableString(
         record.derived_from_message_id ?? record.derivedFromMessageId,
       ),
+      learningProvenance: this.policyLearningProvenance(
+        record.learning_provenance ?? record.learningProvenance,
+      ),
+      override: this.policyOverride(record.policy_content),
       createdAt: Helpers.iso(record.created_at ?? record.createdAt),
       updatedAt: Helpers.iso(record.updated_at ?? record.updatedAt),
       raw: value,
@@ -3422,6 +3811,11 @@ const DataLoader = {
         await API.policies.list(),
       );
       Helpers.applyCollectionState("policies", "policiesById", policiesModel);
+      State.policyProvenanceById.forEach((_value, policyId) => {
+        if (!State.policiesById.has(policyId)) {
+          State.policyProvenanceById.delete(policyId);
+        }
+      });
       UI.renderPolicies(State.boundaryScopeFilter);
     } catch (error) {
       console.error("Failed to load policies:", error);
@@ -4648,6 +5042,372 @@ const UI = {
     }
 
     this.openBoundaryEditor(policy);
+  },
+
+  renderPolicyProvenanceModal(policy, auditState = {}) {
+    const title = document.getElementById("policy-provenance-title");
+    const copy = document.getElementById("policy-provenance-copy");
+    const content = document.getElementById("policy-provenance-content");
+
+    if (!title || !copy || !content || !policy) {
+      return;
+    }
+
+    const boundary = policy.boundary || buildBoundaryPresentation(policy);
+    const effect = boundary.effect || {};
+    const selector = boundary.selector || {};
+    const lifecycle = boundary.lifecycle || buildBoundaryLifecycle(policy);
+    const provenance = boundary.provenance || buildBoundaryProvenance(policy);
+    const audienceLabel = Helpers.policyAudienceDisplay(policy);
+    const status = Helpers.string(auditState.status, "loading");
+
+    const renderDetailRows = (items = []) => {
+      return items
+        .filter((item) => Helpers.nullableString(item?.value))
+        .map(
+          (item) => `
+            <div class="detail-row">
+              <span class="detail-label">${Helpers.escapeHtml(item.label)}</span>
+              <span class="detail-value">${Helpers.escapeHtml(item.value)}</span>
+            </div>
+          `,
+        )
+        .join("");
+    };
+
+    const renderAuditRecord = (record) => {
+      const selectors = Helpers.selectorSummary(record?.selectors);
+      const sourceLabel = Helpers.policySourceLabel(record?.source);
+      const scopeLabel = Helpers.titleizeToken(record?.scope, record?.scope);
+      const provenanceTone =
+        {
+          default: "default",
+          learned: "learned",
+          legacy_migrated: "imported",
+          override: "override",
+          user_confirmed: "confirmed",
+          user_created: "user-created",
+        }[Helpers.string(record?.source).toLowerCase()] || "default";
+      const detailRows = [
+        {
+          label: "Source",
+          value: sourceLabel,
+        },
+        {
+          label: "Effect",
+          value: Helpers.titleizeToken(record?.effect, record?.effect),
+        },
+        {
+          label: "Scope",
+          value: record?.targetId
+            ? `${scopeLabel} · ${record.targetId}`
+            : scopeLabel,
+        },
+        {
+          label: "Selectors",
+          value: selectors,
+        },
+        record?.derivedFromMessageId
+          ? {
+              label: "Derived from message",
+              value: record.derivedFromMessageId,
+            }
+          : null,
+        record?.sourceInteractionId
+          ? {
+              label: "Source interaction",
+              value: record.sourceInteractionId,
+            }
+          : null,
+        record?.createdAt
+          ? {
+              label: "Created at",
+              value: Helpers.formatDateTime(record.createdAt),
+            }
+          : null,
+      ];
+
+      return `
+        <article class="boundary-provenance-record">
+          <div class="boundary-provenance-record-header">
+            <div>
+              <h5>${Helpers.escapeHtml(record?.policyId || "Unknown boundary")}</h5>
+              <p>${Helpers.escapeHtml(`${sourceLabel} · ${selectors || "message.general / share"}`)}</p>
+            </div>
+            <span class="policy-badge provenance-${Helpers.escapeHtml(
+              provenanceTone,
+            )}">${Helpers.escapeHtml(sourceLabel)}</span>
+          </div>
+          ${renderDetailRows(detailRows)}
+        </article>
+      `;
+    };
+
+    title.textContent = selector.label || "Boundary provenance";
+    copy.textContent = `${provenance.sourceLabel} · ${audienceLabel}`;
+
+    const overviewDetails = [
+      {
+        label: "Audience",
+        value: audienceLabel,
+      },
+      {
+        label: "Effect",
+        value: effect.badgeLabel || Helpers.titleizeToken(policy.effect, policy.effect),
+      },
+      {
+        label: "Selector",
+        value:
+          selector.summary ||
+          `${policy.resource}${policy.action ? ` / ${policy.action}` : ""}`,
+      },
+      {
+        label: "Direction",
+        value:
+          selector.directionLabel ||
+          Helpers.titleizeToken(policy.direction, policy.direction),
+      },
+      ...provenance.detailItems,
+      ...lifecycle.detailItems,
+    ];
+
+    let auditHtml = `
+      <div class="boundary-provenance-callout loading">
+        <p>Loading lineage and source-message audit for this boundary.</p>
+      </div>
+    `;
+
+    if (status === "error") {
+      auditHtml = `
+        <div class="boundary-provenance-callout error">
+          <p>${Helpers.escapeHtml(
+            auditState.error || "Failed to load boundary provenance.",
+          )}</p>
+        </div>
+      `;
+    } else if (status === "loaded") {
+      const audit = auditState.data;
+      const sourceMessage = Helpers.record(audit?.sourceMessage);
+      const lineage = Array.isArray(audit?.lineage) ? audit.lineage : [];
+      const promotionHistory = Array.isArray(audit?.overrideToPromotedHistory)
+        ? audit.overrideToPromotedHistory
+        : [];
+      const sourceMessageHtml = sourceMessage.id
+        ? `
+            <div class="detail-section">
+              <h4>Source message</h4>
+              ${renderDetailRows([
+                {
+                  label: "Message",
+                  value: sourceMessage.id,
+                },
+                {
+                  label: "Selectors",
+                  value: Helpers.selectorSummary(sourceMessage.selectors),
+                },
+                sourceMessage.senderUserId
+                  ? {
+                      label: "Sender user",
+                      value: sourceMessage.senderUserId,
+                    }
+                  : null,
+                sourceMessage.recipientId
+                  ? {
+                      label: "Recipient",
+                      value: sourceMessage.recipientId,
+                    }
+                  : null,
+                sourceMessage.recipientType
+                  ? {
+                      label: "Recipient type",
+                      value: Helpers.titleizeToken(
+                        sourceMessage.recipientType,
+                        sourceMessage.recipientType,
+                      ),
+                    }
+                  : null,
+                sourceMessage.createdAt
+                  ? {
+                      label: "Created at",
+                      value: Helpers.formatDateTime(sourceMessage.createdAt),
+                    }
+                  : null,
+              ])}
+            </div>
+          `
+        : `
+            <div class="detail-section">
+              <h4>Source message</h4>
+              <p class="boundary-provenance-empty">
+                No linked source message is available for this boundary.
+              </p>
+            </div>
+          `;
+
+      const lineageHtml = lineage.length
+        ? lineage.map((entry) => renderAuditRecord(entry)).join("")
+        : `
+            <p class="boundary-provenance-empty">
+              No earlier promoted boundaries are linked to this rule.
+            </p>
+          `;
+
+      const promotionHistoryHtml = promotionHistory.length
+        ? promotionHistory
+            .map((entry) => {
+              return `
+                <article class="boundary-provenance-history-item">
+                  <h5>${Helpers.escapeHtml(
+                    `${Helpers.policySourceLabel(entry.fromSource)} → ${Helpers.policySourceLabel(entry.toSource)}`,
+                  )}</h5>
+                  <p>${Helpers.escapeHtml(
+                    `${entry.fromPolicyId || "Unknown boundary"} promoted into ${entry.toPolicyId || "Unknown boundary"}.`,
+                  )}</p>
+                  <div class="boundary-meta-list compact">
+                    ${
+                      entry.sourceInteractionId
+                        ? `
+                          <span class="boundary-meta-chip">
+                            <span class="boundary-meta-label">Interaction</span>
+                            ${Helpers.escapeHtml(entry.sourceInteractionId)}
+                          </span>
+                        `
+                        : ""
+                    }
+                    ${
+                      entry.fromDerivedFromMessageId
+                        ? `
+                          <span class="boundary-meta-chip">
+                            <span class="boundary-meta-label">From message</span>
+                            ${Helpers.escapeHtml(entry.fromDerivedFromMessageId)}
+                          </span>
+                        `
+                        : ""
+                    }
+                    ${
+                      entry.toDerivedFromMessageId
+                        ? `
+                          <span class="boundary-meta-chip">
+                            <span class="boundary-meta-label">To message</span>
+                            ${Helpers.escapeHtml(entry.toDerivedFromMessageId)}
+                          </span>
+                        `
+                        : ""
+                    }
+                  </div>
+                </article>
+              `;
+            })
+            .join("")
+        : `
+            <p class="boundary-provenance-empty">
+              No override-to-promotion history is attached to this boundary.
+            </p>
+          `;
+
+      auditHtml = `
+        <div class="boundary-provenance-sections">
+          ${sourceMessageHtml}
+          <div class="detail-section">
+            <h4>Lineage</h4>
+            <div class="boundary-provenance-record-list">
+              ${lineageHtml}
+            </div>
+          </div>
+          <div class="detail-section">
+            <h4>Override promotion history</h4>
+            <div class="boundary-provenance-history-list">
+              ${promotionHistoryHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    content.innerHTML = `
+      <div class="boundary-provenance-overview">
+        <div class="boundary-provenance-hero">
+          <div>
+            <span class="boundary-summary-label">Summary</span>
+            <h4>${Helpers.escapeHtml(selector.label || "Boundary provenance")}</h4>
+          </div>
+          <div class="boundary-row-badges">
+            <span class="policy-badge effect-${Helpers.escapeHtml(
+              effect.tone || policy.effect,
+            )}">${Helpers.escapeHtml(
+              effect.badgeLabel ||
+                Helpers.titleizeToken(policy.effect, policy.effect),
+            )}</span>
+            <span class="boundary-activity-badge ${Helpers.escapeHtml(
+              lifecycle.tone || "disabled",
+            )}">${Helpers.escapeHtml(
+              lifecycle.badgeLabel || "Inactive",
+            )}</span>
+            <span class="policy-badge provenance-${Helpers.escapeHtml(
+              provenance.tone || "default",
+            )}">${Helpers.escapeHtml(provenance.badgeLabel)}</span>
+          </div>
+        </div>
+        <p class="boundary-row-summary">${Helpers.escapeHtml(
+          buildBoundaryNarrative(policy, audienceLabel),
+        )}</p>
+        <p class="boundary-provenance-note">${Helpers.escapeHtml(
+          provenance.summary,
+        )}</p>
+        <p class="boundary-row-footnote">${Helpers.escapeHtml(
+          lifecycle.summary || "Currently active and enforced.",
+        )}</p>
+        <div class="agent-detail-sections compact">
+          <div class="detail-section">
+            <h4>Boundary details</h4>
+            ${renderDetailRows(overviewDetails)}
+          </div>
+        </div>
+      </div>
+      ${auditHtml}
+    `;
+  },
+
+  async handleInspectPolicy(id) {
+    const policy = State.policiesById.get(id) || null;
+
+    if (!policy) {
+      this.showToast("Boundary not found", "error");
+      return;
+    }
+
+    this.renderPolicyProvenanceModal(policy, { status: "loading" });
+    this.showModal("policy-provenance-modal");
+
+    if (State.policyProvenanceById.has(id)) {
+      this.renderPolicyProvenanceModal(policy, {
+        data: State.policyProvenanceById.get(id),
+        status: "loaded",
+      });
+      return;
+    }
+
+    try {
+      const audit = Normalizers.policyProvenanceAudit(
+        await API.policies.provenance(id),
+      );
+      if (!audit) {
+        throw new Error("Boundary provenance payload was empty.");
+      }
+
+      State.policyProvenanceById.set(id, audit);
+      this.renderPolicyProvenanceModal(policy, {
+        data: audit,
+        status: "loaded",
+      });
+    } catch (error) {
+      this.renderPolicyProvenanceModal(policy, {
+        error:
+          error.message ||
+          "Failed to load boundary provenance and audit details.",
+        status: "error",
+      });
+    }
   },
 
   openAddFriendModal() {
@@ -8054,8 +8814,34 @@ const UI = {
                 const effect = boundary.effect || {};
                 const selector = boundary.selector || {};
                 const lifecycle = boundary.lifecycle || {};
+                const provenance = boundary.provenance || {};
                 const sourceLabel = Helpers.policySourceLabel(policy.source);
                 const canEdit = canUseGuidedBoundaryEditor(policy);
+                const lifecycleMetaChips = Array.isArray(lifecycle.detailItems)
+                  ? lifecycle.detailItems
+                      .map(
+                        (item) => `
+                          <span class="boundary-meta-chip">
+                            <span class="boundary-meta-label">${Helpers.escapeHtml(item.label)}</span>
+                            ${Helpers.escapeHtml(item.value)}
+                          </span>
+                        `,
+                      )
+                      .join("")
+                  : "";
+                const provenanceMetaChips = Array.isArray(provenance.detailItems)
+                  ? provenance.detailItems
+                      .filter((item) => item.label !== "Source")
+                      .map(
+                        (item) => `
+                          <span class="boundary-meta-chip">
+                            <span class="boundary-meta-label">${Helpers.escapeHtml(item.label)}</span>
+                            ${Helpers.escapeHtml(item.value)}
+                          </span>
+                        `,
+                      )
+                      .join("")
+                  : "";
                 const advancedNote =
                   boundary.managementPath === "advanced"
                     ? `
@@ -8079,6 +8865,7 @@ const UI = {
                         <div class="boundary-row-badges">
                           <span class="policy-badge effect-${Helpers.escapeHtml(effect.tone || policy.effect)}">${Helpers.escapeHtml(effect.badgeLabel || policy.effect)}</span>
                           <span class="boundary-activity-badge ${Helpers.escapeHtml(lifecycle.tone || "disabled")}">${Helpers.escapeHtml(lifecycle.badgeLabel || "Inactive")}</span>
+                          <span class="policy-badge provenance-${Helpers.escapeHtml(provenance.tone || "default")}">${Helpers.escapeHtml(provenance.badgeLabel || sourceLabel)}</span>
                         </div>
                       </div>
                       <div class="boundary-meta-list">
@@ -8098,11 +8885,19 @@ const UI = {
                           <span class="boundary-meta-label">Direction</span>
                           ${Helpers.escapeHtml(selector.directionLabel || Helpers.titleizeToken(policy.direction, policy.direction))}
                         </span>
+                        ${provenanceMetaChips}
+                        ${lifecycleMetaChips}
                       </div>
-                      <p class="boundary-row-footnote">${Helpers.escapeHtml(lifecycle.summary || "Currently active and enforced.")}</p>
+                      <div class="boundary-row-notes">
+                        <p class="boundary-row-footnote">${Helpers.escapeHtml(lifecycle.summary || "Currently active and enforced.")}</p>
+                        <p class="boundary-provenance-note">${Helpers.escapeHtml(provenance.summary || "Mahilo keeps this boundary's origin available for audit.")}</p>
+                      </div>
                       ${advancedNote}
                     </div>
                     <div class="boundary-row-actions">
+                      <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleInspectPolicy('${policy.id}')">
+                        Provenance
+                      </button>
                       ${
                         canEdit
                           ? `

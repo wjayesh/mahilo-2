@@ -67,6 +67,7 @@ type DashboardInternals = {
     handleBlockFriend: (id: string) => Promise<void>;
     handleCreatePolicy: () => Promise<void>;
     handleEditPolicy: (id: string) => void;
+    handleInspectPolicy: (id: string) => Promise<void>;
     handleInviteToGroup: (groupId?: string) => Promise<void>;
     handleJoinGroup: (groupId: string) => Promise<void>;
     handleLeaveGroup: (groupId: string) => Promise<void>;
@@ -1215,6 +1216,109 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     expect(html).not.toContain("handleEditPolicy('pol_custom')");
   });
 
+  it("surfaces override lifecycle and provenance details directly in the Boundaries browser", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing boundary lifecycle rendering: ${url}`);
+      },
+    });
+
+    await harness.boot();
+
+    const { Helpers, Normalizers, State, UI } = harness.dashboard;
+
+    State.friends = [
+      {
+        displayName: "Alice",
+        friendshipId: "fr_alice",
+        status: "accepted",
+        userId: "usr_alice",
+        username: "alice",
+      },
+    ];
+
+    const policiesModel = Normalizers.policiesModel([
+      {
+        id: "pol_override_once",
+        scope: "user",
+        target_id: "usr_alice",
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {
+          _mahilo_override: {
+            kind: "one_time",
+            reason: "Approved once for a current-location share.",
+            source_resolution_id: "res_override_once",
+          },
+        },
+        effective_from: "2026-03-14T10:00:00.000Z",
+        max_uses: 1,
+        remaining_uses: 1,
+        source: "override",
+        derived_from_message_id: "msg_override_source",
+        learning_provenance: {
+          source_interaction_id: "res_override_once",
+          promoted_from_policy_ids: [],
+        },
+        enabled: true,
+      },
+      {
+        id: "pol_override_temp",
+        scope: "global",
+        direction: "outbound",
+        resource: "calendar.availability",
+        action: "share",
+        effect: "ask",
+        evaluator: "structured",
+        policy_content: {
+          _mahilo_override: {
+            kind: "temporary",
+            reason: "Keep this conversation on manual review for now.",
+          },
+        },
+        expires_at: "2026-03-15T15:00:00.000Z",
+        source: "override",
+        enabled: true,
+      },
+      {
+        id: "pol_learned",
+        scope: "global",
+        direction: "outbound",
+        resource: "health.summary",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: { note: "Learned caution around health sharing." },
+        source: "learned",
+        learning_provenance: {
+          source_interaction_id: "res_learned_boundary",
+          promoted_from_policy_ids: [],
+        },
+        enabled: true,
+      },
+    ]);
+
+    Helpers.applyCollectionState("policies", "policiesById", policiesModel);
+    UI.renderPolicies("all");
+
+    const html = harness.getElement("policies-list").innerHTML;
+
+    expect(html).toContain("One-time override");
+    expect(html).toContain("Temporary override");
+    expect(html).toContain("Remaining uses");
+    expect(html).toContain("1 of 1");
+    expect(html).toContain("Effective from");
+    expect(html).toContain("Expires at");
+    expect(html).toContain("Derived from message");
+    expect(html).toContain("msg_override_source");
+    expect(html).toContain(">Learned<");
+    expect(html).toContain("handleInspectPolicy('pol_override_once')");
+    expect(html).toContain("handleInspectPolicy('pol_override_temp')");
+  });
+
   it("creates guided common boundaries for global, contact, role, and group scopes against the live policies API", async () => {
     await seedTestSystemRoles();
 
@@ -1504,6 +1608,169 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
         schema_version: "canonical_policy_v1",
       }),
     );
+  });
+
+  it("loads policy provenance drill-down inside the dashboard without leaving the Boundaries view", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "boundary_provenance_viewer",
+    );
+    const { user: recipient } = await createTestUser(
+      "boundary_provenance_recipient",
+    );
+
+    const sourceMessageId = "msg_boundary_provenance_source";
+    await db.insert(schema.messages).values({
+      action: "share",
+      createdAt: new Date("2026-03-14T12:00:00.000Z"),
+      direction: "outbound",
+      id: sourceMessageId,
+      payload: "Source interaction that produced a boundary.",
+      payloadType: "text/plain",
+      recipientId: recipient.id,
+      recipientType: "user",
+      resource: "location.current",
+      senderAgent: "dashboard",
+      senderConnectionId: null,
+      senderUserId: viewer.id,
+      status: "delivered",
+    });
+
+    const overrideStorage = canonicalToStorage({
+      scope: "user",
+      target_id: recipient.id,
+      direction: "outbound",
+      resource: "location.current",
+      action: "share",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: {
+        _mahilo_override: {
+          created_via: "plugin.overrides",
+          kind: "one_time",
+          reason: "Approved one time before promotion.",
+          sender_connection_id: "conn_override_seed",
+          source_resolution_id: "res_boundary_override",
+        },
+      },
+      effective_from: null,
+      expires_at: null,
+      max_uses: 1,
+      remaining_uses: 1,
+      source: "override",
+      derived_from_message_id: sourceMessageId,
+      learning_provenance: {
+        source_interaction_id: "res_boundary_override",
+        promoted_from_policy_ids: [],
+      },
+      priority: 90,
+      enabled: true,
+    });
+    const promotedStorage = canonicalToStorage({
+      scope: "user",
+      target_id: recipient.id,
+      direction: "outbound",
+      resource: "location.current",
+      action: "share",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: {
+        note: "Promoted durable boundary after repeated overrides.",
+      },
+      effective_from: null,
+      expires_at: null,
+      max_uses: null,
+      remaining_uses: null,
+      source: "user_confirmed",
+      derived_from_message_id: sourceMessageId,
+      learning_provenance: {
+        source_interaction_id: "res_boundary_promoted",
+        promoted_from_policy_ids: ["pol_boundary_override"],
+      },
+      priority: 95,
+      enabled: true,
+    });
+
+    await db.insert(schema.policies).values([
+      {
+        action: overrideStorage.action,
+        createdAt: new Date("2026-03-14T12:10:00.000Z"),
+        derivedFromMessageId: overrideStorage.derivedFromMessageId,
+        direction: overrideStorage.direction,
+        effect: overrideStorage.effect,
+        effectiveFrom: overrideStorage.effectiveFrom,
+        enabled: true,
+        evaluator: overrideStorage.evaluator,
+        expiresAt: overrideStorage.expiresAt,
+        id: "pol_boundary_override",
+        maxUses: overrideStorage.maxUses,
+        policyContent: overrideStorage.policyContent,
+        policyType: overrideStorage.policyType,
+        priority: 90,
+        remainingUses: overrideStorage.remainingUses,
+        resource: overrideStorage.resource,
+        scope: "user",
+        source: overrideStorage.source,
+        targetId: recipient.id,
+        userId: viewer.id,
+      },
+      {
+        action: promotedStorage.action,
+        createdAt: new Date("2026-03-14T12:20:00.000Z"),
+        derivedFromMessageId: promotedStorage.derivedFromMessageId,
+        direction: promotedStorage.direction,
+        effect: promotedStorage.effect,
+        effectiveFrom: promotedStorage.effectiveFrom,
+        enabled: true,
+        evaluator: promotedStorage.evaluator,
+        expiresAt: promotedStorage.expiresAt,
+        id: "pol_boundary_promoted",
+        maxUses: promotedStorage.maxUses,
+        policyContent: promotedStorage.policyContent,
+        policyType: promotedStorage.policyType,
+        priority: 95,
+        remainingUses: promotedStorage.remainingUses,
+        resource: promotedStorage.resource,
+        scope: "user",
+        source: promotedStorage.source,
+        targetId: recipient.id,
+        userId: viewer.id,
+      },
+    ]);
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+    await harness.dashboard.UI.handleInspectPolicy("pol_boundary_promoted");
+    await flushDashboardWork();
+
+    expect(harness.fetchCalls).toContain(
+      "/api/v1/policies/audit/provenance/pol_boundary_promoted",
+    );
+    expect(
+      harness
+        .getElement("policy-provenance-modal")
+        .classList.contains("hidden"),
+    ).toBe(false);
+
+    const html = harness.getElement("policy-provenance-content").innerHTML;
+
+    expect(html).toContain("Source message");
+    expect(html).toContain(sourceMessageId);
+    expect(html).toContain("Lineage");
+    expect(html).toContain("pol_boundary_override");
+    expect(html).toContain("Override promotion history");
+    expect(html).toContain("res_boundary_promoted");
   });
 
   it("enriches delivery logs with review, blocked, and ask-around audit cues", async () => {

@@ -1968,6 +1968,29 @@
           </div>
         </div>
 
+        <!-- Boundary Provenance Modal -->
+        <div class="modal hidden" id="policy-provenance-modal">
+          <div class="modal-header">
+            <div class="modal-title-stack">
+              <h3 id="policy-provenance-title">Boundary provenance</h3>
+              <p id="policy-provenance-copy">
+                Source, lifecycle, and audit details for this boundary.
+              </p>
+            </div>
+            <button class="modal-close">✕</button>
+          </div>
+          <div class="modal-body">
+            <div id="policy-provenance-content">
+              <div class="boundary-provenance-callout loading">
+                <p>Loading boundary provenance.</p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="squishy-btn btn-secondary" data-close>Close</button>
+          </div>
+        </div>
+
         <!-- Connection Details Modal -->
         <div class="modal hidden" id="agent-details-modal">
           <div class="modal-header">
