@@ -558,7 +558,7 @@ This project is done when all of the following are true:
   - 2026-03-14T17:02:50.088Z: LPE-033 completed via orchestrator integration.
 ### 3.5 Keep Preview and Advisory Context Explicitly Non-Authoritative
 - **ID**: `LPE-034`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: `LPE-030`
 - **Description**:
@@ -572,6 +572,8 @@ This project is done when all of the following are true:
 
 ---
 
+- **Notes**:
+  - 2026-03-14T17:45:00.451Z: LPE-034 completed via orchestrator integration.
 ## Phase 4: Audit, Reviews, and Lifecycle Safety
 
 ### 4.1 Persist Local Review-Held and Blocked Attempts
