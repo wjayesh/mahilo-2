@@ -374,7 +374,7 @@ This project is done when all of the following are true:
   - 2026-03-14T16:29:51.055Z: LPE-013 completed via orchestrator integration.
 ### 1.5 Update Contract Documentation for Local Enforcement
 - **ID**: `LPE-014`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: `LPE-010`, `LPE-011`, `LPE-012`, `LPE-013`
 - **Description**:
@@ -392,6 +392,8 @@ This project is done when all of the following are true:
 
 ---
 
+- **Notes**:
+  - 2026-03-14T16:46:02.608Z: LPE-014 completed via orchestrator integration.
 ## Phase 2: Plugin Local Evaluation Runtime
 
 ### 2.1 Add a Plugin Local Policy Runtime Module
