@@ -100,6 +100,10 @@ const State = {
   networkFilter: 'all',
   networkSearch: '',
   contactConnectionsByUsername: new Map(),
+  availableRoles: [],
+  availableRolesByName: new Map(),
+  availableRolesStatus: 'idle',
+  availableRolesError: null,
 
   // Initialize state from localStorage
   init() {
@@ -167,6 +171,10 @@ const State = {
     this.networkFilter = 'all';
     this.networkSearch = '';
     this.contactConnectionsByUsername = new Map();
+    this.availableRoles = [];
+    this.availableRolesByName = new Map();
+    this.availableRolesStatus = 'idle';
+    this.availableRolesError = null;
     localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
 };
@@ -283,6 +291,31 @@ const API = {
 
     async unfriend(id) {
       return API.request(`/friends/${id}`, { method: 'DELETE' });
+    },
+
+    async addRole(id, role) {
+      return API.request(`/friends/${id}/roles`, {
+        method: 'POST',
+        body: JSON.stringify({ role }),
+      });
+    },
+
+    async removeRole(id, roleName) {
+      return API.request(`/friends/${id}/roles/${encodeURIComponent(roleName)}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+
+  roles: {
+    async list(type) {
+      const params = new URLSearchParams();
+      if (type) {
+        params.append('type', type);
+      }
+
+      const query = params.toString();
+      return API.request(`/roles${query ? `?${query}` : ''}`);
     },
   },
 
@@ -899,6 +932,33 @@ const Normalizers = {
     };
   },
 
+  roles(value) {
+    return Helpers.collection(value, ['roles', 'items', 'results', 'data'])
+      .map((entry) => this.role(entry))
+      .filter(Boolean);
+  },
+
+  rolesModel(value) {
+    return Helpers.collectionModel(this.roles(value), (role) => role.name);
+  },
+
+  role(value) {
+    const record = Helpers.record(value);
+    const name = Helpers.nullableString(record.name);
+
+    if (!name) {
+      return null;
+    }
+
+    return {
+      id: name,
+      name,
+      description: Helpers.nullableString(record.description),
+      isSystem: Boolean(record.is_system ?? record.isSystem),
+      raw: value,
+    };
+  },
+
   groups(value) {
     return Helpers.collection(value, ['groups', 'items', 'results', 'data'])
       .map((entry) => this.group(entry))
@@ -1398,6 +1458,7 @@ const DataLoader = {
     await Promise.all([
       this.loadAgents(),
       this.loadFriends(),
+      this.loadRoles(),
       this.loadGroups(),
       this.loadLogFeed(),
       this.loadPolicies(),
@@ -1474,6 +1535,30 @@ const DataLoader = {
       }
     } catch (error) {
       console.error('Failed to load friends:', error);
+    }
+  },
+
+  async loadRoles() {
+    State.availableRolesStatus = 'loading';
+    State.availableRolesError = null;
+
+    try {
+      const rolesModel = Normalizers.rolesModel(await API.roles.list());
+      Helpers.applyCollectionState('availableRoles', 'availableRolesByName', rolesModel);
+      State.availableRolesStatus = 'loaded';
+      State.availableRolesError = null;
+    } catch (error) {
+      State.availableRoles = [];
+      State.availableRolesByName = new Map();
+      State.availableRolesStatus = 'error';
+      State.availableRolesError = error.message || 'Failed to load available roles.';
+      console.error('Failed to load roles:', error);
+    }
+
+    if (State.selectedNetworkFriendId) {
+      UI.renderNetworkConnectionSpace(
+        State.friendsById.get(State.selectedNetworkFriendId) || null
+      );
     }
   },
 
@@ -2211,6 +2296,69 @@ const UI = {
     }
   },
 
+  async refreshAvailableRoles() {
+    try {
+      await DataLoader.loadRoles();
+      if (State.availableRolesStatus === 'loaded') {
+        this.showToast('Available roles refreshed', 'success');
+      }
+    } catch (error) {
+      this.showToast(error.message || 'Failed to refresh roles', 'error');
+    }
+  },
+
+  async handleAddFriendRole(friendshipId, roleName) {
+    const friend = State.friendsById.get(friendshipId);
+    const normalizedRole = Helpers.string(roleName).trim();
+
+    if (!friend || !normalizedRole) {
+      this.showToast('Select a valid contact role to assign.', 'error');
+      return;
+    }
+
+    if (this.networkBucket(friend) !== 'accepted') {
+      this.showToast('Accept this relationship before assigning roles.', 'error');
+      return;
+    }
+
+    try {
+      await API.friends.addRole(friendshipId, normalizedRole);
+      await DataLoader.loadFriends();
+      this.showToast(
+        `${Helpers.titleizeToken(normalizedRole, 'Role')} added to ${friend.displayName || friend.username}`,
+        'success'
+      );
+    } catch (error) {
+      this.showToast(error.message || 'Failed to add role', 'error');
+    }
+  },
+
+  async handleRemoveFriendRole(friendshipId, roleName) {
+    const friend = State.friendsById.get(friendshipId);
+    const normalizedRole = Helpers.string(roleName).trim();
+
+    if (!friend || !normalizedRole) {
+      this.showToast('Select a valid contact role to remove.', 'error');
+      return;
+    }
+
+    if (this.networkBucket(friend) !== 'accepted') {
+      this.showToast('Accept this relationship before removing roles.', 'error');
+      return;
+    }
+
+    try {
+      await API.friends.removeRole(friendshipId, normalizedRole);
+      await DataLoader.loadFriends();
+      this.showToast(
+        `${Helpers.titleizeToken(normalizedRole, 'Role')} removed from ${friend.displayName || friend.username}`,
+        'success'
+      );
+    } catch (error) {
+      this.showToast(error.message || 'Failed to remove role', 'error');
+    }
+  },
+
   // Handle send message (user-facing chat)
   async handleSendMessage() {
     const input = document.getElementById('chat-input');
@@ -2636,6 +2784,18 @@ const UI = {
     return friend.roles.map((role) => Helpers.titleizeToken(role, '')).join(', ');
   },
 
+  networkRoleDescription(role) {
+    const description = Helpers.nullableString(role?.description);
+
+    if (description) {
+      return description;
+    }
+
+    return role?.isSystem
+      ? 'System role available across every Mahilo account.'
+      : 'Custom role available only in your account.';
+  },
+
   networkAgeLabel(friend) {
     const labelByBucket = {
       accepted: 'Connected',
@@ -2857,32 +3017,176 @@ const UI = {
     `;
   },
 
-  renderNetworkActions(friend) {
+  renderNetworkActions(friend, options = {}) {
     const friendshipId = Helpers.string(friend?.friendshipId);
     const bucket = this.networkBucket(friend);
+    const actionPrefix = options.stopPropagation ? 'event.stopPropagation(); ' : '';
 
     if (bucket === 'incoming') {
       return `
-        <button class="squishy-btn btn-primary btn-small" onclick="event.stopPropagation(); UI.handleAcceptFriend('${friendshipId}')">Accept</button>
-        <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleRejectFriend('${friendshipId}')">Reject</button>
+        <button class="squishy-btn btn-primary btn-small" onclick="${actionPrefix}UI.handleAcceptFriend('${friendshipId}')">Accept</button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="${actionPrefix}UI.handleRejectFriend('${friendshipId}')">Reject</button>
       `;
     }
 
     if (bucket === 'accepted') {
       return `
-        <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleBlockFriend('${friendshipId}')">Block</button>
-        <button class="squishy-btn btn-danger btn-small" onclick="event.stopPropagation(); UI.handleUnfriend('${friendshipId}')">Unfriend</button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="${actionPrefix}UI.handleBlockFriend('${friendshipId}')">Block</button>
+        <button class="squishy-btn btn-danger btn-small" onclick="${actionPrefix}UI.handleUnfriend('${friendshipId}')">Unfriend</button>
       `;
     }
 
     if (bucket === 'blocked') {
       return `
-        <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleUnfriend('${friendshipId}')">Remove</button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="${actionPrefix}UI.handleUnfriend('${friendshipId}')">Remove</button>
       `;
     }
 
     return `
-      <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleUnfriend('${friendshipId}')">Cancel Request</button>
+      <button class="squishy-btn btn-secondary btn-small" onclick="${actionPrefix}UI.handleUnfriend('${friendshipId}')">Cancel Request</button>
+    `;
+  },
+
+  renderNetworkRoleAssignments(friend, editable) {
+    const roles = Array.isArray(friend?.roles) ? friend.roles : [];
+
+    if (!roles.length) {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">🏷️</div>
+          <p>No trust roles assigned to this contact yet.</p>
+          <p class="hint">
+            ${editable
+              ? 'Add a role from the catalog below to make role-scoped boundaries usable.'
+              : 'Accept this relationship before you start assigning trust roles.'}
+          </p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="network-role-chip-list">
+        ${roles
+          .map(
+            (roleName) => `
+              <div class="network-role-chip">
+                <div class="network-role-chip-copy">
+                  <strong>${Helpers.escapeHtml(Helpers.titleizeToken(roleName, roleName))}</strong>
+                  <span class="network-role-token">${Helpers.escapeHtml(roleName)}</span>
+                </div>
+                ${
+                  editable
+                    ? `
+                      <button
+                        type="button"
+                        class="network-role-chip-action"
+                        onclick="UI.handleRemoveFriendRole('${Helpers.string(friend?.friendshipId)}', '${roleName}')"
+                      >
+                        Remove
+                      </button>
+                    `
+                    : ''
+                }
+              </div>
+            `
+          )
+          .join('')}
+      </div>
+    `;
+  },
+
+  renderNetworkRoleCatalog(friend, editable) {
+    if (!editable) {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">🪢</div>
+          <p>Roles become editable once this relationship is accepted.</p>
+        </div>
+      `;
+    }
+
+    if (State.availableRolesStatus === 'error') {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">⚠️</div>
+          <p>${Helpers.escapeHtml(State.availableRolesError || 'Failed to load available roles.')}</p>
+          <button class="squishy-btn btn-secondary btn-small network-inline-action" onclick="UI.refreshAvailableRoles()">
+            Retry
+          </button>
+        </div>
+      `;
+    }
+
+    if (State.availableRolesStatus !== 'loaded') {
+      return `
+        <div class="network-loading-row">
+          <span class="network-loading-dot"></span>
+          <p>Loading the available role catalog for this account...</p>
+        </div>
+      `;
+    }
+
+    if (!State.availableRoles.length) {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">📚</div>
+          <p>No roles are available for this account yet.</p>
+        </div>
+      `;
+    }
+
+    const assignedRoles = new Set(Array.isArray(friend?.roles) ? friend.roles : []);
+
+    return `
+      <div class="network-role-library">
+        ${State.availableRoles
+          .map((role) => {
+            const roleName = Helpers.string(role?.name);
+            const isAssigned = assignedRoles.has(roleName);
+            return `
+              <article class="network-role-option ${isAssigned ? 'assigned' : ''}">
+                <div class="network-role-option-copy">
+                  <div class="network-role-option-title-row">
+                    <h5>${Helpers.escapeHtml(Helpers.titleizeToken(roleName, roleName))}</h5>
+                    <span class="network-role-type">${role?.isSystem ? 'System' : 'Custom'}</span>
+                  </div>
+                  <p>${Helpers.escapeHtml(this.networkRoleDescription(role))}</p>
+                  <span class="network-role-token">${Helpers.escapeHtml(roleName)}</span>
+                </div>
+                ${
+                  isAssigned
+                    ? '<span class="network-role-assigned-badge">Assigned</span>'
+                    : `
+                      <button
+                        class="squishy-btn btn-secondary btn-small"
+                        onclick="UI.handleAddFriendRole('${Helpers.string(friend?.friendshipId)}', '${roleName}')"
+                      >
+                        Add
+                      </button>
+                    `
+                }
+              </article>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  },
+
+  renderNetworkRoleSection(friend) {
+    const editable = this.networkBucket(friend) === 'accepted';
+
+    return `
+      <div class="network-role-stack">
+        <div>
+          <span class="network-role-subheading">Current roles</span>
+          ${this.renderNetworkRoleAssignments(friend, editable)}
+        </div>
+        <div>
+          <span class="network-role-subheading">Available roles</span>
+          ${this.renderNetworkRoleCatalog(friend, editable)}
+        </div>
+      </div>
     `;
   },
 
@@ -2934,7 +3238,7 @@ const UI = {
           </div>
         </div>
         <div class="friend-actions">
-          ${this.renderNetworkActions(friend)}
+          ${this.renderNetworkActions(friend, { stopPropagation: true })}
         </div>
       </div>
     `;
@@ -3422,6 +3726,20 @@ const UI = {
         <div class="network-detail-section">
           <div class="network-detail-section-header">
             <div>
+              <h4>Relationship actions</h4>
+              <p class="network-detail-section-copy">
+                Use the current Mahilo friendship flow to accept, reject, block, or remove this relationship without leaving the dashboard.
+              </p>
+            </div>
+          </div>
+          <div class="network-detail-actions">
+            ${this.renderNetworkActions(friend)}
+          </div>
+        </div>
+
+        <div class="network-detail-section">
+          <div class="network-detail-section-header">
+            <div>
               <h4>Active contact connections</h4>
               <p class="network-detail-section-copy">
                 Framework, label, capabilities, and live status from the current contacts API.
@@ -3438,6 +3756,18 @@ const UI = {
             }
           </div>
           ${this.renderNetworkConnectionSection(friend, connectionState)}
+        </div>
+
+        <div class="network-detail-section">
+          <div class="network-detail-section-header">
+            <div>
+              <h4>Trust roles</h4>
+              <p class="network-detail-section-copy">
+                Role-scoped boundaries use these trust tags to decide what Mahilo can share with this contact.
+              </p>
+            </div>
+          </div>
+          ${this.renderNetworkRoleSection(friend)}
         </div>
 
         <div class="network-detail-section">

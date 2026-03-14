@@ -2599,6 +2599,141 @@ body {
   gap: var(--space-xs);
 }
 
+.network-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.network-role-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.network-role-subheading {
+  display: inline-flex;
+  margin-bottom: var(--space-sm);
+  font-size: 0.78rem;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.network-role-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.network-role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 158, 107, 0.08);
+  border: 1px solid rgba(255, 158, 107, 0.14);
+}
+
+.network-role-chip-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.network-role-chip-copy strong {
+  color: var(--color-text);
+  font-size: 0.88rem;
+}
+
+.network-role-token {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+}
+
+.network-role-chip-action {
+  border: none;
+  background: transparent;
+  color: var(--color-primary-dark);
+  font-size: 0.8rem;
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  padding: 0;
+}
+
+.network-role-chip-action:hover {
+  color: var(--color-primary);
+}
+
+.network-role-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.network-role-option {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 158, 107, 0.14);
+  background: var(--color-card);
+}
+
+.network-role-option.assigned {
+  background: rgba(255, 248, 240, 0.88);
+}
+
+.network-role-option-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.network-role-option-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.network-role-option-title-row h5 {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.network-role-option-copy p {
+  color: var(--color-text-light);
+  line-height: 1.5;
+  font-size: 0.88rem;
+}
+
+.network-role-type,
+.network-role-assigned-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+.network-role-type {
+  background: rgba(135, 206, 235, 0.18);
+  color: var(--color-secondary-dark);
+}
+
+.network-role-assigned-badge {
+  background: rgba(107, 203, 119, 0.18);
+  color: #2f8e45;
+}
+
 /* ========================================
    GROUPS GRID
    ======================================== */
@@ -4303,7 +4438,8 @@ body {
   .friend-primary,
   .friend-header,
   .network-detail-header,
-  .network-detail-section-header {
+  .network-detail-section-header,
+  .network-role-option {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -4319,6 +4455,11 @@ body {
 
   .network-detail-panel {
     padding: var(--space-md);
+  }
+
+  .network-role-chip {
+    width: 100%;
+    justify-content: space-between;
   }
   
   .search-box {

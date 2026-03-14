@@ -59,12 +59,18 @@ type DashboardInternals = {
   };
   State: Record<string, any>;
   UI: {
+    handleAcceptFriend: (id: string) => Promise<void>;
     handleAddFriendRequest: () => Promise<void>;
+    handleAddFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
+    handleBlockFriend: (id: string) => Promise<void>;
     handleRegister: () => Promise<void>;
+    handleRejectFriend: (id: string) => Promise<void>;
+    handleRemoveFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
     renderLogs: (direction?: string) => void;
     renderFriends: (filter?: string) => void;
     handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
+    handleUnfriend: (id: string) => Promise<void>;
     selectChat: (username: string) => void;
     switchView: (view: string) => void;
   };
@@ -686,6 +692,7 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
         "/api/v1/plugin/events/blocked?limit=25",
         "/api/v1/plugin/reviews?limit=25",
         "/api/v1/policies",
+        "/api/v1/roles",
       ].sort(),
     );
 
@@ -1427,5 +1434,237 @@ describe("Dashboard contact detail and connection space (DASH-021)", () => {
       "Without an active connection, this contact cannot participate in ask-around results.",
     );
     expect(detailHtml).toContain("Not ready");
+  });
+});
+
+describe("Dashboard relationship actions and role management (DASH-022)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("loads available roles from /roles and renders editable role controls for a contact", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_role_viewer",
+      "Viewer",
+    );
+    const { user: peer } = await createTestUser("dashboard_role_peer", "Peer");
+    const friendship = await createFriendship(viewer.id, peer.id, "accepted");
+
+    await addRoleToFriendship(friendship.id, "close_friends");
+    await db.insert(schema.userRoles).values({
+      description: "Travel recommendations and itinerary checks",
+      id: `role_${nanoid(10)}`,
+      isSystem: false,
+      name: "travel_buddies",
+      userId: viewer.id,
+    });
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    expect(harness.fetchCalls).toContain("/api/v1/roles");
+    expect(harness.dashboard.State.availableRoles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          description: "Travel recommendations and itinerary checks",
+          isSystem: false,
+          name: "travel_buddies",
+        }),
+      ]),
+    );
+
+    const detailHtml = harness.getElement("network-detail-panel").innerHTML;
+    expect(detailHtml).toContain("Trust roles");
+    expect(detailHtml).toContain("Current roles");
+    expect(detailHtml).toContain("Available roles");
+    expect(detailHtml).toContain("Close Friends");
+    expect(detailHtml).toContain("travel_buddies");
+    expect(detailHtml).toContain("Travel recommendations and itinerary checks");
+    expect(detailHtml).toContain(
+      `handleRemoveFriendRole('${friendship.id}', 'close_friends')`,
+    );
+    expect(detailHtml).toContain(
+      `handleAddFriendRole('${friendship.id}', 'travel_buddies')`,
+    );
+  });
+
+  it("uses real friendship ids for accept, reject, block, and unfriend actions", async () => {
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_action_viewer",
+      "Viewer",
+    );
+    const { user: acceptedPeer } = await createTestUser(
+      "dashboard_action_accepted",
+      "Accepted Peer",
+    );
+    const { user: incomingPeer } = await createTestUser(
+      "dashboard_action_incoming",
+      "Incoming Peer",
+    );
+    const { user: rejectPeer } = await createTestUser(
+      "dashboard_action_reject",
+      "Reject Peer",
+    );
+    const { user: outgoingPeer } = await createTestUser(
+      "dashboard_action_outgoing",
+      "Outgoing Peer",
+    );
+
+    const accepted = await createFriendship(viewer.id, acceptedPeer.id, "accepted");
+    const incoming = await createFriendship(incomingPeer.id, viewer.id, "pending");
+    const rejectable = await createFriendship(rejectPeer.id, viewer.id, "pending");
+    const outgoing = await createFriendship(viewer.id, outgoingPeer.id, "pending");
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    let initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleAcceptFriend(incoming.id);
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/friends/${incoming.id}/accept`,
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+      ]),
+    );
+    expect(harness.dashboard.State.friendsById.get(incoming.id)).toEqual(
+      expect.objectContaining({
+        friendshipId: incoming.id,
+        status: "accepted",
+      }),
+    );
+
+    initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleRejectFriend(rejectable.id);
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/friends/${rejectable.id}/reject`,
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+      ]),
+    );
+    expect(harness.dashboard.State.friendsById.has(rejectable.id)).toBe(false);
+
+    initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleBlockFriend(accepted.id);
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/friends/${accepted.id}/block`,
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+      ]),
+    );
+    expect(harness.dashboard.State.friendsById.get(accepted.id)).toEqual(
+      expect.objectContaining({
+        friendshipId: accepted.id,
+        status: "blocked",
+      }),
+    );
+
+    initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleUnfriend(outgoing.id);
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/friends/${outgoing.id}`,
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+      ]),
+    );
+    expect(harness.dashboard.State.friendsById.has(outgoing.id)).toBe(false);
+  });
+
+  it("adds and removes contact roles through the friendship role endpoints", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_role_action_viewer",
+      "Viewer",
+    );
+    const { user: peer } = await createTestUser(
+      "dashboard_role_action_peer",
+      "Role Peer",
+    );
+    const friendship = await createFriendship(viewer.id, peer.id, "accepted");
+
+    await addRoleToFriendship(friendship.id, "close_friends");
+    await db.insert(schema.userRoles).values({
+      description: "Trusted answers for private recommendations",
+      id: `role_${nanoid()}`,
+      isSystem: false,
+      name: "trusted_circle",
+      userId: viewer.id,
+    });
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    let initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleAddFriendRole(friendship.id, "trusted_circle");
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/friends/${friendship.id}/roles`,
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+      ]),
+    );
+    expect(
+      harness.dashboard.State.friendsById.get(friendship.id)?.roles || [],
+    ).toEqual(expect.arrayContaining(["close_friends", "trusted_circle"]));
+
+    initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleRemoveFriendRole(friendship.id, "close_friends");
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/friends/${friendship.id}/roles/close_friends`,
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+      ]),
+    );
+    expect(
+      harness.dashboard.State.friendsById.get(friendship.id)?.roles || [],
+    ).not.toContain("close_friends");
   });
 });
