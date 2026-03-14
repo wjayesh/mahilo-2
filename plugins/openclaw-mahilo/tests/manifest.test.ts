@@ -280,6 +280,30 @@ describe("openclaw.plugin.json", () => {
     expect(localPolicyLLMTimeout.type).toBe("integer");
     expect(localPolicyLLMTimeout.minimum).toBe(1);
     expect(localPolicyLLMTimeout.default).toBe(5000);
+    expect(
+      Object.entries(properties)
+        .filter(([, schema]) => isRecord(schema) && schema["x-sensitive"] === true)
+        .map(([key]) => key)
+        .sort()
+    ).toEqual(["apiKey"]);
+    expect(
+      Object.entries(properties)
+        .filter(([, schema]) => isRecord(schema) && schema.writeOnly === true)
+        .map(([key]) => key)
+        .sort()
+    ).toEqual(["apiKey"]);
+    expect(
+      Object.entries(localPolicyLLMProperties)
+        .filter(([, schema]) => isRecord(schema) && schema["x-sensitive"] === true)
+        .map(([key]) => key)
+        .sort()
+    ).toEqual(["apiKey"]);
+    expect(
+      Object.entries(localPolicyLLMProperties)
+        .filter(([, schema]) => isRecord(schema) && schema.writeOnly === true)
+        .map(([key]) => key)
+        .sort()
+    ).toEqual(["apiKey"]);
   });
 
   it("keeps the clawdbot manifest config schema aligned with the OpenClaw manifest", async () => {

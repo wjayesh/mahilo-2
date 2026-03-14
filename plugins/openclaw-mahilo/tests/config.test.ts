@@ -414,6 +414,69 @@ describe("resolveMahiloLocalPolicyLLMConfig", () => {
     });
   });
 
+  it("prefers plugin-local model and timeout over bundle defaults", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      localPolicyLLM: {
+        provider: "openai",
+        model: "gpt-4.1-mini",
+        timeout: 9000,
+        apiKeyEnvVar: "MAHILO_OPENAI_POLICY_KEY"
+      }
+    });
+
+    expect(
+      resolveMahiloLocalPolicyLLMConfig(config, {
+        defaultTimeout: 1500,
+        env: {
+          MAHILO_OPENAI_POLICY_KEY: "custom-env-key",
+          OPENAI_API_KEY: "provider-default-key"
+        },
+        providerDefaults: {
+          provider: "openai",
+          model: "gpt-4o-mini"
+        }
+      })
+    ).toEqual({
+      apiKey: "custom-env-key",
+      apiKeyEnvVar: "MAHILO_OPENAI_POLICY_KEY",
+      authProfile: undefined,
+      credentialSource: "env",
+      model: "gpt-4.1-mini",
+      provider: "openai",
+      timeout: 9000
+    });
+  });
+
+  it("uses the caller-supplied default timeout when no plugin-local override exists", () => {
+    const config = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example"
+    });
+
+    expect(
+      resolveMahiloLocalPolicyLLMConfig(config, {
+        defaultTimeout: 1500,
+        env: {
+          OPENAI_API_KEY: "provider-default-key"
+        },
+        providerDefaults: {
+          provider: "openai",
+          model: "gpt-4o-mini"
+        }
+      })
+    ).toEqual({
+      apiKey: "provider-default-key",
+      apiKeyEnvVar: "OPENAI_API_KEY",
+      authProfile: undefined,
+      credentialSource: "env",
+      model: "gpt-4o-mini",
+      provider: "openai",
+      timeout: 1500
+    });
+  });
+
   it("preserves authProfile hints without claiming a credential source when no key resolves", () => {
     const config = parseMahiloPluginConfig({
       apiKey: "mahilo-key",
