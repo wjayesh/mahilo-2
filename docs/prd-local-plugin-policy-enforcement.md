@@ -336,7 +336,7 @@ This project is done when all of the following are true:
   - 2026-03-14T13:34:59.049Z: LPE-011 completed via orchestrator integration.
 ### 1.3 Add a Local-Decision Commit Contract
 - **ID**: `LPE-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-010`, `LPE-011`
 - **Description**:
@@ -353,6 +353,8 @@ This project is done when all of the following are true:
   - [ ] Local `allow` decisions can be tied to the later transport/send path with idempotency
   - [ ] Integration tests cover retries, duplicate commits, and send-after-allow flows
 
+- **Notes**:
+  - 2026-03-14T14:13:22.485Z: LPE-012 completed via orchestrator integration.
 ### 1.4 Surface Provider and Model Defaults for Local LLM Evaluation
 - **ID**: `LPE-013`
 - **Status**: `pending`
