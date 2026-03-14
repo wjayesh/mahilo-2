@@ -155,26 +155,40 @@ function readJsonFile<T>(path: string): T | null {
   }
 }
 
+function pickUpdatedValue<T>(
+  updateValue: T | undefined,
+  existingValue: T | undefined,
+  fallback: T,
+): T {
+  if (updateValue !== undefined) {
+    return updateValue;
+  }
+  if (existingValue !== undefined) {
+    return existingValue;
+  }
+  return fallback;
+}
+
 function writeSupervisorState(repoRoot: string, name: string, update: Partial<SupervisorState>) {
   const statePath = getSupervisorStatePath(repoRoot, name);
   const existing = readJsonFile<SupervisorState>(statePath);
   const now = new Date().toISOString();
   const nextState: SupervisorState = {
     name,
-    workflowFile: update.workflowFile ?? existing?.workflowFile ?? "WORKFLOW.md",
-    workflowName: update.workflowName ?? existing?.workflowName ?? name,
+    workflowFile: pickUpdatedValue(update.workflowFile, existing?.workflowFile, "WORKFLOW.md"),
+    workflowName: pickUpdatedValue(update.workflowName, existing?.workflowName, name),
     pid: process.pid,
-    childPid: update.childPid ?? existing?.childPid ?? null,
-    phase: update.phase ?? existing?.phase ?? "starting",
+    childPid: pickUpdatedValue(update.childPid, existing?.childPid, null),
+    phase: pickUpdatedValue(update.phase, existing?.phase, "starting"),
     startedAt: existing?.startedAt ?? now,
     updatedAt: now,
-    restartCount: update.restartCount ?? existing?.restartCount ?? 0,
-    lastExitCode: update.lastExitCode ?? existing?.lastExitCode ?? null,
-    lastExitSignal: update.lastExitSignal ?? existing?.lastExitSignal ?? null,
-    lastRuntimePhase: update.lastRuntimePhase ?? existing?.lastRuntimePhase ?? null,
-    lastHeartbeatAt: update.lastHeartbeatAt ?? existing?.lastHeartbeatAt ?? null,
-    lastNote: update.lastNote ?? existing?.lastNote ?? null,
-    lastError: update.lastError ?? existing?.lastError ?? null,
+    restartCount: pickUpdatedValue(update.restartCount, existing?.restartCount, 0),
+    lastExitCode: pickUpdatedValue(update.lastExitCode, existing?.lastExitCode, null),
+    lastExitSignal: pickUpdatedValue(update.lastExitSignal, existing?.lastExitSignal, null),
+    lastRuntimePhase: pickUpdatedValue(update.lastRuntimePhase, existing?.lastRuntimePhase, null),
+    lastHeartbeatAt: pickUpdatedValue(update.lastHeartbeatAt, existing?.lastHeartbeatAt, null),
+    lastNote: pickUpdatedValue(update.lastNote, existing?.lastNote, null),
+    lastError: pickUpdatedValue(update.lastError, existing?.lastError, null),
   };
   writeFileSync(statePath, JSON.stringify(nextState, null, 2) + "\n");
   return nextState;
