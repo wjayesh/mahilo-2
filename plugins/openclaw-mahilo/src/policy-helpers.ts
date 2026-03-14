@@ -1,9 +1,14 @@
 import {
   isInboundSelectorDirection,
   normalizeSelectorContext,
+  resolvePolicySet,
   stricterEffect,
+  type AuthenticatedSenderIdentity,
+  type CorePolicy,
   type PolicyDirection,
   type PolicyEffect,
+  type PolicyResolverLayer,
+  type PolicyResult,
   type ResolvedPolicySelectorContext,
 } from "@mahilo/policy-core";
 import type { ReviewMode } from "./config";
@@ -23,14 +28,36 @@ export interface LocalPolicyGuardResult {
   reason?: string;
 }
 
+export interface SharedLocalPolicyResolverInput {
+  policies: ReadonlyArray<CorePolicy>;
+  ownerUserId: string;
+  message: string;
+  context?: string;
+  recipientUsername?: string;
+  llmSubject?: string;
+  authenticatedIdentity?: AuthenticatedSenderIdentity;
+  resolverLayer?: PolicyResolverLayer;
+}
+
 const DECISIONS: PolicyDecision[] = ["allow", "ask", "deny"];
 
-const SENSITIVE_RESOURCES = ["calendar.", "contact.", "financial.", "health.", "location."];
-const SENSITIVE_MESSAGE_PATTERNS = [/\b\d{3}-\d{2}-\d{4}\b/u, /\baccount number\b/iu, /\bpassword\b/iu, /\bpin\b/iu];
+const SENSITIVE_RESOURCES = [
+  "calendar.",
+  "contact.",
+  "financial.",
+  "health.",
+  "location.",
+];
+const SENSITIVE_MESSAGE_PATTERNS = [
+  /\b\d{3}-\d{2}-\d{4}\b/u,
+  /\baccount number\b/iu,
+  /\bpassword\b/iu,
+  /\bpin\b/iu,
+];
 
 export function normalizeDeclaredSelectors(
   selectors: Partial<DeclaredSelectors> | undefined,
-  fallbackDirection: SelectorDirection = "outbound"
+  fallbackDirection: SelectorDirection = "outbound",
 ): DeclaredSelectors {
   return normalizeSelectorContext(selectors, {
     fallbackDirection,
@@ -41,12 +68,21 @@ export function normalizeDeclaredSelectors(
   });
 }
 
-export function extractDecision(value: unknown, fallback: PolicyDecision = "allow"): PolicyDecision {
+export function extractDecision(
+  value: unknown,
+  fallback: PolicyDecision = "allow",
+): PolicyDecision {
   const candidates = [
     readDecision((value as Record<string, unknown> | undefined)?.decision),
-    readDecision((value as Record<string, unknown> | undefined)?.policy as unknown),
-    readDecision((value as Record<string, unknown> | undefined)?.resolution as unknown),
-    readDecision((value as Record<string, unknown> | undefined)?.result as unknown)
+    readDecision(
+      (value as Record<string, unknown> | undefined)?.policy as unknown,
+    ),
+    readDecision(
+      (value as Record<string, unknown> | undefined)?.resolution as unknown,
+    ),
+    readDecision(
+      (value as Record<string, unknown> | undefined)?.result as unknown,
+    ),
   ];
 
   for (const candidate of candidates) {
@@ -64,7 +100,8 @@ export function extractResolutionId(value: unknown): string | undefined {
     return undefined;
   }
 
-  const rootId = readString(root.resolution_id) ?? readString(root.resolutionId);
+  const rootId =
+    readString(root.resolution_id) ?? readString(root.resolutionId);
   if (rootId) {
     return rootId;
   }
@@ -82,7 +119,9 @@ export function extractResolutionId(value: unknown): string | undefined {
   return undefined;
 }
 
-export function mergePolicyDecisions(...decisions: PolicyDecision[]): PolicyDecision {
+export function mergePolicyDecisions(
+  ...decisions: PolicyDecision[]
+): PolicyDecision {
   let merged: PolicyDecision = "allow";
 
   for (const decision of decisions) {
@@ -100,7 +139,10 @@ export function decisionBlocksSend(decision: PolicyDecision): boolean {
   return decision === "deny";
 }
 
-export function shouldSendForDecision(decision: PolicyDecision, reviewMode: ReviewMode = "ask"): boolean {
+export function shouldSendForDecision(
+  decision: PolicyDecision,
+  reviewMode: ReviewMode = "ask",
+): boolean {
   if (decision === "deny") {
     return false;
   }
@@ -112,7 +154,10 @@ export function shouldSendForDecision(decision: PolicyDecision, reviewMode: Revi
   return true;
 }
 
-export function toToolStatus(decision: PolicyDecision, reviewMode: ReviewMode = "ask"): "denied" | "review_required" | "sent" {
+export function toToolStatus(
+  decision: PolicyDecision,
+  reviewMode: ReviewMode = "ask",
+): "denied" | "review_required" | "sent" {
   if (decision === "deny") {
     return "denied";
   }
@@ -124,27 +169,48 @@ export function toToolStatus(decision: PolicyDecision, reviewMode: ReviewMode = 
   return "sent";
 }
 
-export function applyLocalPolicyGuard(input: LocalPolicyGuardInput): LocalPolicyGuardResult {
+export async function resolveLocalPolicySet(
+  input: SharedLocalPolicyResolverInput,
+): Promise<PolicyResult> {
+  return resolvePolicySet({
+    policies: input.policies,
+    ownerUserId: input.ownerUserId,
+    message: input.message,
+    context: input.context,
+    recipientUsername: input.recipientUsername,
+    llmSubject: input.llmSubject ?? input.recipientUsername ?? "unknown",
+    authenticatedIdentity: input.authenticatedIdentity,
+    resolverLayer: input.resolverLayer ?? "user_policies",
+  });
+}
+
+export function applyLocalPolicyGuard(
+  input: LocalPolicyGuardInput,
+): LocalPolicyGuardResult {
   const normalizedMessage = input.message.trim();
   if (normalizedMessage.length === 0) {
     return {
       decision: "ask",
-      reason: "message body is empty"
+      reason: "message body is empty",
     };
   }
 
-  const isSensitiveResource = SENSITIVE_RESOURCES.some((prefix) => input.selectors.resource.startsWith(prefix));
-  const hasSensitivePattern = SENSITIVE_MESSAGE_PATTERNS.some((pattern) => pattern.test(normalizedMessage));
+  const isSensitiveResource = SENSITIVE_RESOURCES.some((prefix) =>
+    input.selectors.resource.startsWith(prefix),
+  );
+  const hasSensitivePattern = SENSITIVE_MESSAGE_PATTERNS.some((pattern) =>
+    pattern.test(normalizedMessage),
+  );
 
   if (isSensitiveResource && hasSensitivePattern) {
     return {
       decision: "ask",
-      reason: "sensitive resource with risky payload pattern"
+      reason: "sensitive resource with risky payload pattern",
     };
   }
 
   return {
-    decision: "allow"
+    decision: "allow",
   };
 }
 

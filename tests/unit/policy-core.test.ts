@@ -10,7 +10,9 @@ import {
   type LLMPolicyEvaluator,
 } from "@mahilo/policy-core";
 
-function createPolicy(overrides: Partial<CorePolicy> & Pick<CorePolicy, "id">): CorePolicy {
+function createPolicy(
+  overrides: Partial<CorePolicy> & Pick<CorePolicy, "id">,
+): CorePolicy {
   return {
     id: overrides.id,
     scope: overrides.scope ?? "global",
@@ -43,6 +45,27 @@ describe("policy core resolver", () => {
     expect(result.evaluated_policies).toHaveLength(0);
   });
 
+  it("returns allow with no-match when applicable deterministic policies do not match", async () => {
+    const result = await resolvePolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_max_length",
+          effect: "deny",
+          policy_content: {
+            maxLength: 100,
+          },
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "hello",
+      llmSubject: "alice",
+    });
+
+    expect(result.effect).toBe("allow");
+    expect(result.reason_code).toBe("policy.allow.no_match");
+    expect(result.evaluated_policies[0]?.matched).toBe(false);
+  });
+
   it("prefers user scope over global scope", async () => {
     const result = await resolvePolicySet({
       policies: [
@@ -67,6 +90,33 @@ describe("policy core resolver", () => {
     expect(result.effect).toBe("ask");
     expect(result.reason_code).toBe("policy.ask.user.structured");
     expect(result.winning_policy_id).toBe("pol_user");
+  });
+
+  it("prefers deny over allow within the same scope regardless of priority", async () => {
+    const result = await resolvePolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_user_allow",
+          scope: "user",
+          effect: "allow",
+          priority: 999,
+        }),
+        createPolicy({
+          id: "pol_user_deny",
+          scope: "user",
+          effect: "deny",
+          priority: 1,
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "hello",
+      llmSubject: "alice",
+    });
+
+    expect(result.effect).toBe("deny");
+    expect(result.reason_code).toBe("policy.deny.user.structured");
+    expect(result.winning_policy_id).toBe("pol_user_deny");
+    expect(result.resolution_explanation).toContain("deny > ask > allow");
   });
 
   it("applies group overlay as an additional constraint", async () => {
@@ -157,8 +207,8 @@ describe("policy core resolver", () => {
           fallbackDirection: "outbound",
           fallbackResource: "message.general",
           normalizeSeparators: true,
-        }
-      )
+        },
+      ),
     ).toEqual({
       action: "request",
       direction: "request",
@@ -175,8 +225,8 @@ describe("policy core resolver", () => {
         },
         {
           normalizeSeparators: true,
-        }
-      )
+        },
+      ),
     ).toEqual({
       direction: "inbound",
       resource: "location.current",
@@ -233,7 +283,7 @@ describe("policy core resolver", () => {
         action: " Request ",
         direction: "request",
         resource: " Message.General ",
-      }
+      },
     ).map((policy) => policy.id);
 
     expect(matchingIds).toEqual([
