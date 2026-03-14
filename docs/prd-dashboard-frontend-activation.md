@@ -487,7 +487,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T17:09:34.594Z: DASH-073 completed via orchestrator integration.
 ### 6.5 Login Security, Rate Limits, and Diagnostics
 - **ID**: `DASH-074`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P2`
 - **Depends on**: `DASH-071`, `DASH-073`
 - **Description**:
@@ -501,6 +501,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ---
 
+- **Notes**:
+  - 2026-03-14T18:01:33.126Z: DASH-074 completed via orchestrator integration.
 ## Phase 7: Finish Activation
 
 ### 7.1 Copy, Empty States, and Responsive Polish
