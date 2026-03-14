@@ -315,7 +315,7 @@ This project is done when all of the following are true:
   - 2026-03-14T13:20:57.793Z: LPE-010 completed via orchestrator integration.
 ### 1.2 Add a Group Fanout Policy Bundle Endpoint
 - **ID**: `LPE-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-010`
 - **Description**:
@@ -332,6 +332,8 @@ This project is done when all of the following are true:
   - [ ] Plugin can produce recipient-level and aggregate results consistent with trusted mode
   - [ ] Integration tests cover mixed allow/ask/deny outcomes across group members
 
+- **Notes**:
+  - 2026-03-14T13:34:59.049Z: LPE-011 completed via orchestrator integration.
 ### 1.3 Add a Local-Decision Commit Contract
 - **ID**: `LPE-012`
 - **Status**: `pending`
