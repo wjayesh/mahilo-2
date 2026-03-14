@@ -437,7 +437,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T16:35:37.302Z: DASH-070 completed via orchestrator integration.
 ### 6.2 Agent-Approved Browser Login Contract
 - **ID**: `DASH-071`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-070`
 - **Description**:
@@ -449,6 +449,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Browser can poll or subscribe to status and redeem an approved attempt exactly once
   - [ ] Redeem sets a production-safe browser session cookie (`HttpOnly`, `Secure`, `SameSite`) and replayed or expired attempts fail cleanly
 
+- **Notes**:
+  - 2026-03-14T16:46:18.424Z: DASH-071 completed via orchestrator integration.
 ### 6.3 Sign In With Agent UX
 - **ID**: `DASH-072`
 - **Status**: `pending`
