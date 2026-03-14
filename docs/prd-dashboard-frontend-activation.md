@@ -507,7 +507,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 7.1 Copy, Empty States, and Responsive Polish
 - **ID**: `DASH-060`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P2`
 - **Depends on**: `DASH-011`, `DASH-023`, `DASH-031`, `DASH-043`, `DASH-051`
 - **Description**:
@@ -519,6 +519,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Dashboard remains usable on both desktop and mobile widths
   - [ ] Visual hierarchy clearly emphasizes boundaries, network readiness, and review activity
 
+- **Notes**:
+  - 2026-03-14T18:14:58.421Z: DASH-060 completed via orchestrator integration.
 ### 7.2 Frontend Smoke Coverage and Regression Harness
 - **ID**: `DASH-061`
 - **Status**: `done`
