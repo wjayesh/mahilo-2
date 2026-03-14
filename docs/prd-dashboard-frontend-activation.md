@@ -355,7 +355,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T15:50:43.731Z: DASH-044 completed via orchestrator integration.
 ### 4.6 Promotion Suggestions from Repeated Overrides
 - **ID**: `DASH-045`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P2`
 - **Depends on**: `DASH-043`
 - **Description**:
@@ -367,6 +367,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ---
 
+- **Notes**:
+  - 2026-03-14T17:37:27.900Z: DASH-045 completed via orchestrator integration.
 ## Phase 5: Delivery Logs, Reviews, and Ask-Around Signals
 
 ### 5.1 Delivery-Log and Activity Data Layer
