@@ -903,6 +903,14 @@ function buildSyntheticLocalGroupResponse(
       delivery_status: result.deliveryStatus,
       error: result.transportError,
       message_id: result.transported ? result.messageId : undefined,
+      reason:
+        result.localResult.local_decision.reason ??
+        result.localResult.local_decision.summary,
+      reason_code: result.localResult.local_decision.reason_code,
+      recipient_type: result.localResult.recipient_type,
+      resolution_id: result.localResult.resolution_id,
+      roles:
+        result.localResult.roles.length > 0 ? result.localResult.roles : undefined,
     })
   );
   const counts = countLocalGroupDeliveryStatuses(recipientResults);

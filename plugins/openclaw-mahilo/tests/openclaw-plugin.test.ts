@@ -2341,9 +2341,11 @@ describe("createMahiloOpenClawPlugin", () => {
   });
 
   it("routes group ask-around replies back into the originating OpenClaw thread with attribution", async () => {
+    const pluginState = new InMemoryPluginState();
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
+      pluginState,
       webhookRoute: {
         callbackSecret: CALLBACK_SECRET,
       },
@@ -2366,11 +2368,42 @@ describe("createMahiloOpenClawPlugin", () => {
       "tool_call_group_route_1",
       outboundInput,
     );
+    const toolResultForHook = structuredClone(toolResult);
+    const correlationId = String(
+      (toolResultForHook.details as { correlationId?: string }).correlationId,
+    );
 
     expect(state.groupCalls).toBe(1);
+    expect(state.groupFanoutBundleCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      correlation_id: expect.any(String),
+      recipient: "alice",
+      recipient_type: "user",
+      resolution_id: "res_group_default_usr_alice",
+      sender_connection_id: "conn_sender",
+    });
     expect(toolResult).toMatchObject({
       details: {
         action: "ask_around",
+        correlationId: expect.any(String),
+        deliveries: [
+          expect.objectContaining({
+            messageId: "msg_123",
+            recipient: "alice",
+            recipientType: "user",
+            status: "awaiting_reply",
+          }),
+        ],
+        replyRecipients: [
+          expect.objectContaining({
+            messageId: "msg_123",
+            recipient: "alice",
+            recipientType: "user",
+          }),
+        ],
+        senderConnectionId: "conn_sender",
         target: {
           groupId: "grp_hiking",
           groupName: "Hiking Crew",
@@ -2384,7 +2417,7 @@ describe("createMahiloOpenClawPlugin", () => {
     await afterToolCall.execute(
       {
         params: outboundInput,
-        result: toolResult,
+        result: toolResultForHook,
         toolName: "ask_network",
       },
       {
@@ -2395,6 +2428,39 @@ describe("createMahiloOpenClawPlugin", () => {
         toolName: "ask_network",
       },
     );
+    expect(
+      pluginState.getAskAroundSession(
+        correlationId,
+      ),
+    ).toMatchObject({
+      correlationId,
+      expectedParticipants: [
+        {
+          label: "alice",
+          recipient: "alice",
+        },
+      ],
+      target: {
+        groupId: "grp_hiking",
+        groupName: "Hiking Crew",
+        kind: "group",
+      },
+    });
+    expect(
+      pluginState.resolveInboundRoute({
+        groupId: "grp_hiking",
+        localConnectionId: "conn_sender",
+      }),
+    ).toMatchObject({
+      sessionKey: "session_group_route_1",
+    });
+    expect(
+      pluginState.resolveInboundRoute({
+        inResponseToMessageId: "msg_123",
+      }),
+    ).toMatchObject({
+      sessionKey: "session_group_route_1",
+    });
 
     systemEvents.length = 0;
     heartbeatRequests.length = 0;
@@ -2456,6 +2522,169 @@ describe("createMahiloOpenClawPlugin", () => {
         sessionKey: "session_group_route_1",
       },
     ]);
+  });
+
+  it("does not register group ask-around reply routes when local policy only holds or blocks the fanout", async () => {
+    const pluginState = new InMemoryPluginState();
+    const { client, state } = createMockContractClient({
+      groupFanoutBundleResponse: {
+        ...buildDefaultGroupFanoutBundle({
+          recipient: "grp_hiking",
+          sender_connection_id: "conn_sender",
+        }),
+        group: {
+          id: "grp_hiking",
+          member_count: 2,
+          name: "Hiking Crew",
+          type: "group",
+        },
+        members: [
+          {
+            llm: {
+              provider_defaults: null,
+              subject: "alice",
+            },
+            member_applicable_policies: [
+              createPolicy({
+                effect: "ask",
+                evaluator: "structured",
+                id: "pol_group_hold_alice",
+                policy_content: { intent: "manual_review" },
+                priority: 100,
+                scope: "user",
+              }),
+            ],
+            recipient: {
+              id: "usr_alice",
+              type: "user",
+              username: "alice",
+            },
+            resolution_id: "res_group_hold_alice",
+            roles: [],
+          },
+          {
+            llm: {
+              provider_defaults: null,
+              subject: "bob",
+            },
+            member_applicable_policies: [
+              createPolicy({
+                effect: "deny",
+                evaluator: "structured",
+                id: "pol_group_block_bob",
+                policy_content: {},
+                priority: 100,
+                scope: "user",
+              }),
+            ],
+            recipient: {
+              id: "usr_bob",
+              type: "user",
+              username: "bob",
+            },
+            resolution_id: "res_group_block_bob",
+            roles: [],
+          },
+        ],
+      },
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      pluginState,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET,
+      },
+    });
+    const { api, hooks, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "ask_network");
+    const outboundInput = {
+      correlationId: "corr_group_local_no_send_1",
+      group: "Hiking Crew",
+      question: "Has anyone done Half Dome recently?",
+      senderConnectionId: "conn_sender",
+    };
+    const toolResult = await tool.execute(
+      "tool_call_group_local_no_send_1",
+      outboundInput,
+    );
+    const toolResultForHook = structuredClone(toolResult);
+
+    expect(toolResult).toMatchObject({
+      details: {
+        counts: {
+          awaitingReplies: 0,
+          blocked: 1,
+          reviewRequired: 1,
+          sendFailed: 0,
+          skipped: 0,
+        },
+        deliveries: [
+          expect.objectContaining({
+            decision: "ask",
+            recipient: "alice",
+            status: "review_required",
+          }),
+          expect.objectContaining({
+            decision: "deny",
+            recipient: "bob",
+            status: "blocked",
+          }),
+        ],
+        target: {
+          groupId: "grp_hiking",
+          groupName: "Hiking Crew",
+          kind: "group",
+        },
+      },
+    });
+    expect(state.groupFanoutBundleCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls).toHaveLength(0);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResultForHook,
+        toolName: "ask_network",
+      },
+      {
+        agentId: "mahilo-group-agent",
+        runId: "run_group_local_no_send_1",
+        sessionKey: "session_group_local_no_send_1",
+        toolCallId: "tool_call_group_local_no_send_1",
+        toolName: "ask_network",
+      },
+    );
+
+    expect(
+      pluginState.getAskAroundSession("corr_group_local_no_send_1"),
+    ).toMatchObject({
+      correlationId: "corr_group_local_no_send_1",
+      expectedParticipants: undefined,
+      target: {
+        groupId: "grp_hiking",
+        groupName: "Hiking Crew",
+        kind: "group",
+      },
+    });
+    expect(
+      pluginState.resolveInboundRoute({
+        groupId: "grp_hiking",
+        localConnectionId: "conn_sender",
+      }),
+    ).toBeUndefined();
+    expect(
+      pluginState.resolveInboundRoute({
+        inResponseToMessageId: "msg_123",
+      }),
+    ).toBeUndefined();
   });
 
   it("keeps synthesized ask-around updates separate from direct attributed replies", async () => {

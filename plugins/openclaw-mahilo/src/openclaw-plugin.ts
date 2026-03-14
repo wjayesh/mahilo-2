@@ -1576,6 +1576,16 @@ function rememberMahiloAskAroundInboundRoutes(
         senderConnectionId,
         target,
       });
+
+      if (target?.kind === "group" && target.groupId) {
+        pluginState.rememberInboundRoute({
+          agentId: context.agentId,
+          correlationId,
+          groupId: target.groupId,
+          localConnectionId: senderConnectionId,
+          sessionKey: context.sessionKey,
+        });
+      }
     }
   }
 
@@ -1923,7 +1933,10 @@ function readMahiloAskAroundReplyRecipients(
   }
 
   const replyRecipients = value
-    .map((rawRecipient) => {
+    .map(
+      (
+        rawRecipient,
+      ): MahiloTrackedAskAroundReplyRecipient | undefined => {
       const recipient = readOptionalObject(rawRecipient);
       if (!recipient) {
         return undefined;
@@ -1946,7 +1959,7 @@ function readMahiloAskAroundReplyRecipients(
           readRecipientType(recipient.recipientType) ??
           readRecipientType(recipient.recipient_type) ??
           (target?.kind === "group" ? "group" : "user"),
-      } satisfies MahiloTrackedAskAroundReplyRecipient;
+      };
     })
     .filter(
       (recipient): recipient is MahiloTrackedAskAroundReplyRecipient =>

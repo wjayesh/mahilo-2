@@ -4,6 +4,7 @@ import {
   executeMahiloNetworkAction,
   MahiloRequestError,
   type LocalDirectPolicyRuntimeResult,
+  type LocalGroupPolicyRuntimeResult,
 } from "../src";
 
 interface MockClientState {
@@ -317,6 +318,137 @@ function createLocalDirectResult(
       sender_connection_id: senderConnectionId
     }
   };
+}
+
+function createLocalGroupResult(options: {
+  recipientDecisions: LocalDecision[];
+  resolutionId?: string;
+  senderConnectionId?: string;
+}): LocalGroupPolicyRuntimeResult {
+  const senderConnectionId = options.senderConnectionId ?? "conn_sender";
+  const resolutionId = options.resolutionId ?? "res_local_group_1";
+  const recipientResults = options.recipientDecisions.map((decision, index) => {
+    const recipient =
+      index === 0 ? "alice" : index === 1 ? "bob" : index === 2 ? "carol" : `friend_${index + 1}`;
+    const summary =
+      decision === "allow"
+        ? "Message allowed by policy."
+        : decision === "ask"
+          ? "Message requires review before delivery."
+          : "Message blocked by policy.";
+
+    return {
+      llm: {
+        provider_defaults: null,
+        subject: recipient,
+      },
+      local_decision: {
+        decision,
+        delivery_mode:
+          decision === "allow"
+            ? "full_send"
+            : decision === "ask"
+              ? "review_required"
+              : "blocked",
+        evaluated_policies: [],
+        matched_policy_ids: [],
+        reason_code:
+          decision === "allow"
+            ? "policy.allow.resolved"
+            : decision === "ask"
+              ? "policy.ask.user.structured"
+              : "policy.deny.user.structured",
+        resolution_explanation: summary,
+        summary,
+      },
+      recipient,
+      recipient_id: `usr_${recipient}`,
+      recipient_type: "user" as const,
+      resolution_id: `${resolutionId}_${recipient}`,
+      roles: [],
+      should_send: decision === "allow",
+      transport_action:
+        decision === "allow"
+          ? "send"
+          : decision === "ask"
+            ? "hold"
+            : "block",
+    };
+  });
+  const partialDelivery = new Set(options.recipientDecisions).size > 1;
+
+  return {
+    aggregate: {
+      counts: {
+        delivered: recipientResults.filter((result) => result.should_send).length,
+        denied: recipientResults.filter(
+          (result) => result.local_decision.decision === "deny"
+        ).length,
+        failed: 0,
+        pending: 0,
+        review_required: recipientResults.filter(
+          (result) => result.local_decision.decision === "ask"
+        ).length,
+      },
+      decision: partialDelivery ? "allow" : options.recipientDecisions[0] ?? "allow",
+      has_sendable_recipients: recipientResults.some((result) => result.should_send),
+      partial_delivery: partialDelivery,
+      reason_code: partialDelivery
+        ? "policy.partial.group_fanout"
+        : recipientResults[0]?.local_decision.reason_code ?? "policy.allow.resolved",
+      summary: partialDelivery
+        ? "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed."
+        : recipientResults[0]?.local_decision.summary ?? "No active recipients in group.",
+    },
+    aggregate_metadata: {
+      empty_group_summary: "No active recipients in group.",
+      fanout_mode: "per_recipient",
+      mixed_decision_priority: ["allow", "ask", "deny"],
+      partial_reason_code: "policy.partial.group_fanout",
+      partial_summary_template:
+        "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.",
+      policy_evaluation_mode: "group_outbound_fanout",
+    },
+    authenticated_identity: {
+      sender_connection_id: senderConnectionId,
+      sender_user_id: "usr_sender",
+    },
+    bundle_metadata: {
+      bundle_id: "bundle_local_group_1",
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: resolutionId,
+    },
+    bundle_type: "group_fanout",
+    contract_version: "1.0.0",
+    group: {
+      id: "grp_hiking",
+      member_count: recipientResults.length,
+      name: "Hiking Crew",
+      type: "group",
+    },
+    recipient_results: recipientResults,
+    selector_context: {
+      action: "share",
+      direction: "outbound",
+      resource: "message.general",
+    },
+    transport_payload: {
+      correlation_id: "corr_group_local_1",
+      declared_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general",
+      },
+      idempotency_key: "idem_group_local_1",
+      message: "Has anyone done Half Dome recently?",
+      payload_type: "text/plain",
+      recipient: "grp_hiking",
+      recipient_type: "group",
+      resolution_id: resolutionId,
+      sender_connection_id: senderConnectionId,
+    },
+  } as LocalGroupPolicyRuntimeResult;
 }
 
 describe("executeMahiloNetworkAction", () => {
@@ -739,6 +871,304 @@ describe("executeMahiloNetworkAction", () => {
     expect(String(result.replyExpectation)).toContain(
       "Build your circle from this same tool: use action=send_request"
     );
+  });
+
+  it("applies local group fanout policy and preserves full-send ask-around results", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["allow", "allow"],
+          resolutionId: "res_local_group_allow",
+        }),
+    };
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        correlationId: "corr_group_local_allow_1",
+        group: "Hiking Crew",
+        idempotencyKey: "idem_group_local_allow_1",
+        question: "Has anyone done Half Dome recently?",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never,
+        },
+      }
+    );
+
+    expect(result).toMatchObject({
+      counts: {
+        awaitingReplies: 2,
+        blocked: 0,
+        reviewRequired: 0,
+        sendFailed: 0,
+        skipped: 0,
+      },
+      replyRecipients: [
+        expect.objectContaining({
+          messageId: "msg_alice",
+          recipient: "alice",
+          recipientType: "user",
+        }),
+        expect.objectContaining({
+          messageId: "msg_bob",
+          recipient: "bob",
+          recipientType: "user",
+        }),
+      ],
+      status: "success",
+      summary: 'Mahilo ask-around: asked group "Hiking Crew".',
+      target: {
+        groupId: "grp_hiking",
+        kind: "group",
+      },
+    });
+    expect(result.deliveries).toEqual([
+      expect.objectContaining({
+        decision: "allow",
+        messageId: "msg_alice",
+        recipient: "alice",
+        resolutionId: "res_local_group_allow_alice",
+        status: "awaiting_reply",
+      }),
+      expect.objectContaining({
+        decision: "allow",
+        messageId: "msg_bob",
+        recipient: "bob",
+        resolutionId: "res_local_group_allow_bob",
+        status: "awaiting_reply",
+      }),
+    ]);
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls.map((call) => call.payload.recipient)).toEqual([
+      "alice",
+      "bob",
+    ]);
+  });
+
+  it("keeps group ask-around on review when every local member decision is hold", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["ask", "ask"],
+          resolutionId: "res_local_group_hold",
+        }),
+    };
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        correlationId: "corr_group_local_hold_1",
+        group: "Hiking Crew",
+        idempotencyKey: "idem_group_local_hold_1",
+        question: "Has anyone done Half Dome recently?",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never,
+        },
+      }
+    );
+
+    expect(result).toMatchObject({
+      counts: {
+        awaitingReplies: 0,
+        blocked: 0,
+        reviewRequired: 2,
+        sendFailed: 0,
+        skipped: 0,
+      },
+      replyExpectation:
+        "Mahilo is waiting on review before the group ask can go out.",
+      replyRecipients: undefined,
+      status: "success",
+      summary:
+        'Mahilo ask-around: group "Hiking Crew" needs review before the question can go out.',
+    });
+    expect(result.deliveries).toEqual([
+      expect.objectContaining({
+        decision: "ask",
+        recipient: "alice",
+        status: "review_required",
+      }),
+      expect.objectContaining({
+        decision: "ask",
+        recipient: "bob",
+        status: "review_required",
+      }),
+    ]);
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("blocks group ask-around locally when every group member is denied", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["deny", "deny"],
+          resolutionId: "res_local_group_block",
+        }),
+    };
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        correlationId: "corr_group_local_block_1",
+        group: "Hiking Crew",
+        idempotencyKey: "idem_group_local_block_1",
+        question: "Has anyone done Half Dome recently?",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never,
+        },
+      }
+    );
+
+    expect(result).toMatchObject({
+      counts: {
+        awaitingReplies: 0,
+        blocked: 2,
+        reviewRequired: 0,
+        sendFailed: 0,
+        skipped: 0,
+      },
+      gaps: [
+        expect.objectContaining({
+          kind: "blocked",
+          recipientLabels: ["alice", "bob"],
+        }),
+      ],
+      replyRecipients: undefined,
+      status: "success",
+      summary:
+        'Mahilo ask-around: boundaries blocked asking group "Hiking Crew".',
+    });
+    expect(result.deliveries).toEqual([
+      expect.objectContaining({
+        decision: "deny",
+        recipient: "alice",
+        status: "blocked",
+      }),
+      expect.objectContaining({
+        decision: "deny",
+        recipient: "bob",
+        status: "blocked",
+      }),
+    ]);
+    expect(String(result.replyExpectation)).toContain(
+      "Nothing is waiting on a reply.",
+    );
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("preserves mixed member outcomes for local group ask-around partial fanout", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["allow", "ask", "deny"],
+          resolutionId: "res_local_group_partial",
+        }),
+    };
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        correlationId: "corr_group_local_partial_1",
+        group: "Hiking Crew",
+        idempotencyKey: "idem_group_local_partial_1",
+        question: "Has anyone done Half Dome recently?",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never,
+        },
+      }
+    );
+
+    expect(result).toMatchObject({
+      counts: {
+        awaitingReplies: 1,
+        blocked: 1,
+        reviewRequired: 1,
+        sendFailed: 0,
+        skipped: 0,
+      },
+      replyRecipients: [
+        expect.objectContaining({
+          messageId: "msg_alice",
+          recipient: "alice",
+          recipientType: "user",
+        }),
+      ],
+      status: "success",
+      target: {
+        groupId: "grp_hiking",
+        groupName: "Hiking Crew",
+        kind: "group",
+        memberCount: 4,
+      },
+    });
+    expect(String(result.summary)).toContain(
+      'asked 1 of 4 members in group "Hiking Crew"',
+    );
+    expect(String(result.summary)).toContain("1 waiting on review");
+    expect(String(result.summary)).toContain("carol was blocked by Mahilo boundaries");
+    expect(result.deliveries).toEqual([
+      expect.objectContaining({
+        decision: "allow",
+        messageId: "msg_alice",
+        recipient: "alice",
+        reasonCode: "policy.allow.resolved",
+        status: "awaiting_reply",
+      }),
+      expect.objectContaining({
+        decision: "ask",
+        recipient: "bob",
+        reasonCode: "policy.ask.user.structured",
+        status: "review_required",
+      }),
+      expect.objectContaining({
+        decision: "deny",
+        recipient: "carol",
+        reasonCode: "policy.deny.user.structured",
+        status: "blocked",
+      }),
+    ]);
+    expect(state.localDecisionCommitCalls.map((call) => call.idempotencyKey)).toEqual([
+      "idem_group_local_partial_1:grp_hiking:alice",
+      "idem_group_local_partial_1:grp_hiking:bob",
+      "idem_group_local_partial_1:grp_hiking:carol",
+    ]);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      correlation_id: "corr_group_local_partial_1",
+      recipient: "alice",
+      resolution_id: "res_local_group_partial_alice",
+      sender_connection_id: "conn_sender",
+    });
   });
 
   it("matches conversational group references for ask-around", async () => {
