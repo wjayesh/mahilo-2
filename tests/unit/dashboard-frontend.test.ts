@@ -63,7 +63,10 @@ type DashboardInternals = {
   UI: {
     handleAcceptFriend: (id: string) => Promise<void>;
     handleAddFriendRequest: () => Promise<void>;
-    handleAddFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
+    handleAddFriendRole: (
+      friendshipId: string,
+      roleName: string,
+    ) => Promise<void>;
     handleBlockFriend: (id: string) => Promise<void>;
     handleCreatePolicy: () => Promise<void>;
     handleEditPolicy: (id: string) => void;
@@ -74,7 +77,10 @@ type DashboardInternals = {
     handlePingAgent: (id: string) => Promise<void>;
     handleRegister: () => Promise<void>;
     handleRejectFriend: (id: string) => Promise<void>;
-    handleRemoveFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
+    handleRemoveFriendRole: (
+      friendshipId: string,
+      roleName: string,
+    ) => Promise<void>;
     openBoundaryEditor: (policy?: Record<string, unknown> | null) => void;
     populateBoundaryPresetOptions: (
       category: string,
@@ -92,6 +98,7 @@ type DashboardInternals = {
     handleSendMessage: () => Promise<void>;
     handleUnfriend: (id: string) => Promise<void>;
     getSenderConnectionWorkspaceItems: () => Array<Record<string, any>>;
+    openAgentEditor: (agent?: string | Record<string, unknown> | null) => void;
     renderPolicies: (scope?: string) => void;
     selectChat: (username: string) => void;
     showAgentDetails: (agentId: string) => void;
@@ -109,7 +116,10 @@ type DashboardHarness = {
 type HarnessOptions = {
   app?: ReturnType<typeof createApp>;
   apiKey?: string;
-  fetchImpl?: (url: string, options?: RequestInit) => Promise<{
+  fetchImpl?: (
+    url: string,
+    options?: RequestInit,
+  ) => Promise<{
     json: () => Promise<unknown>;
     ok: boolean;
     status: number;
@@ -239,9 +249,11 @@ class IntersectionObserverStub {
 function extractHtmlIds() {
   return Array.from(
     new Set(
-      [...readFileSync("public/index.html", "utf8").matchAll(/id=\"([^\"]+)\"/g)].map(
-        (match) => match[1],
-      ),
+      [
+        ...readFileSync("public/index.html", "utf8").matchAll(
+          /id=\"([^\"]+)\"/g,
+        ),
+      ].map((match) => match[1]),
     ),
   );
 }
@@ -301,7 +313,9 @@ async function flushDashboardWork() {
   }
 }
 
-function createDashboardHarness(options: HarnessOptions = {}): DashboardHarness {
+function createDashboardHarness(
+  options: HarnessOptions = {},
+): DashboardHarness {
   const { documentStub, getElement } = createDocumentStub(extractHtmlIds());
   const sessionStore = new Map<string, string>();
 
@@ -494,7 +508,9 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
   it("disables user-facing sends for group threads that lack a stable group identifier", async () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url) => {
-        throw new Error(`Unexpected fetch while testing group-thread guard: ${url}`);
+        throw new Error(
+          `Unexpected fetch while testing group-thread guard: ${url}`,
+        );
       },
     });
 
@@ -532,7 +548,9 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
     await UI.handleSendMessage();
 
     expect(input.value).toBe("Can anyone see this?");
-    expect(harness.getElement("chat-recipient-status").textContent).toBe("Group thread");
+    expect(harness.getElement("chat-recipient-status").textContent).toBe(
+      "Group thread",
+    );
   });
 
   it("boots after auth and completes all top-level loaders against current server routes", async () => {
@@ -780,15 +798,17 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
         }),
       ]),
     );
-    expect(harness.getElement("dashboard-screen").classList.contains("hidden")).toBe(
-      false,
-    );
+    expect(
+      harness.getElement("dashboard-screen").classList.contains("hidden"),
+    ).toBe(false);
     expect(harness.getElement("pref-urgent").value).toBe("preferred_only");
-    expect(harness.getElement("groups-grid").innerHTML.length).toBeGreaterThan(0);
-    expect(harness.getElement("logs-list").innerHTML.length).toBeGreaterThan(0);
-    expect(harness.getElement("overview-message-list").innerHTML.length).toBeGreaterThan(
+    expect(harness.getElement("groups-grid").innerHTML.length).toBeGreaterThan(
       0,
     );
+    expect(harness.getElement("logs-list").innerHTML.length).toBeGreaterThan(0);
+    expect(
+      harness.getElement("overview-message-list").innerHTML.length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -975,6 +995,269 @@ describe("Dashboard sender connections workspace (DASH-030)", () => {
   });
 });
 
+describe("Dashboard agent add/edit UX aligned to the current API (DASH-031)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("registers webhook connections from the dashboard without fabricating unsupported fields", async () => {
+    let registerPayload: Record<string, unknown> | null = null;
+
+    const harness = createDashboardHarness({
+      fetchImpl: async (url, requestOptions) => {
+        const requestUrl = new URL(url);
+        const path = `${requestUrl.pathname}${requestUrl.search}`;
+
+        if (path === "/api/v1/agents" && requestOptions?.method === "POST") {
+          registerPayload = JSON.parse(String(requestOptions.body));
+          return {
+            ok: true,
+            status: 201,
+            async json() {
+              return {
+                callback_secret: "secret_dashboard_generated",
+                connection_id: "conn_dashboard_test",
+                mode: "webhook",
+              };
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        if (path === "/api/v1/agents") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return [];
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch while saving webhook agent: ${path}`);
+      },
+    });
+
+    await harness.boot();
+
+    harness.dashboard.UI.openAgentEditor();
+    harness.getElement("agent-framework").value = "openclaw";
+    harness.getElement("agent-label").value = "default";
+    harness.getElement("agent-description").value = "Primary sender";
+    harness.getElement("agent-mode").value = "webhook";
+    harness.getElement("agent-callback").value =
+      "https://agent.example/callback";
+    harness.getElement("agent-public-key").value = "";
+    harness.getElement("agent-capabilities").value = "calendar, ask-around";
+
+    await harness.dashboard.UI.handleSaveAgent();
+
+    expect(registerPayload).toEqual(
+      expect.objectContaining({
+        callback_url: "https://agent.example/callback",
+        capabilities: ["calendar", "ask-around"],
+        framework: "openclaw",
+        label: "default",
+        mode: "webhook",
+        routing_priority: 0,
+      }),
+    );
+    expect(registerPayload?.public_key).toBeUndefined();
+    expect(registerPayload?.public_key_alg).toBeUndefined();
+    expect(harness.getElement("new-callback-secret").textContent).toBe(
+      "secret_dashboard_generated",
+    );
+    expect(
+      harness.getElement("callback-secret-modal").classList.contains("hidden"),
+    ).toBe(false);
+    expect(
+      harness.getElement("toast-container").children[0]?.innerHTML,
+    ).toContain("Connection created successfully");
+  });
+
+  it("registers polling connections from the dashboard without forcing a callback URL", async () => {
+    let registerPayload: Record<string, unknown> | null = null;
+
+    const harness = createDashboardHarness({
+      fetchImpl: async (url, requestOptions) => {
+        const requestUrl = new URL(url);
+        const path = `${requestUrl.pathname}${requestUrl.search}`;
+
+        if (path === "/api/v1/agents" && requestOptions?.method === "POST") {
+          registerPayload = JSON.parse(String(requestOptions.body));
+          return {
+            ok: true,
+            status: 201,
+            async json() {
+              return {
+                connection_id: "conn_dashboard_polling",
+                mode: "polling",
+              };
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        if (path === "/api/v1/agents") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return [];
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch while saving polling agent: ${path}`);
+      },
+    });
+
+    await harness.boot();
+
+    harness.dashboard.UI.openAgentEditor();
+    harness.getElement("agent-framework").value = "openclaw";
+    harness.getElement("agent-label").value = "polling-default";
+    harness.getElement("agent-mode").value = "polling";
+    harness.getElement("agent-routing-priority").value = "7";
+    harness.getElement("agent-capabilities").value = "ask-around";
+
+    await harness.dashboard.UI.handleSaveAgent();
+
+    expect(registerPayload).toEqual(
+      expect.objectContaining({
+        capabilities: ["ask-around"],
+        framework: "openclaw",
+        label: "polling-default",
+        mode: "polling",
+        routing_priority: 7,
+      }),
+    );
+    expect(registerPayload?.callback_url).toBeUndefined();
+    expect(registerPayload?.callback_secret).toBeUndefined();
+    expect(
+      harness.getElement("toast-container").children[0]?.innerHTML,
+    ).toContain("Connection created successfully");
+  });
+
+  it("opens a real edit mode and reflects update state when the connection is updated in place", async () => {
+    let registerPayload: Record<string, unknown> | null = null;
+
+    const harness = createDashboardHarness({
+      fetchImpl: async (url, requestOptions) => {
+        const requestUrl = new URL(url);
+        const path = `${requestUrl.pathname}${requestUrl.search}`;
+
+        if (path === "/api/v1/agents" && requestOptions?.method === "POST") {
+          registerPayload = JSON.parse(String(requestOptions.body));
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                connection_id: "conn_existing",
+                mode: "polling",
+                updated: true,
+              };
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        if (path === "/api/v1/agents") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return [];
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch while updating agent: ${path}`);
+      },
+    });
+
+    await harness.boot();
+
+    const model = harness.dashboard.Normalizers.agentsModel([
+      {
+        callback_url: "https://agent.example/callback",
+        capabilities: ["calendar"],
+        created_at: "2026-03-14T12:00:00.000Z",
+        framework: "openclaw",
+        id: "conn_existing",
+        label: "default",
+        mode: "webhook",
+        routing_priority: 3,
+        status: "active",
+      },
+    ]);
+
+    harness.dashboard.Helpers.applyCollectionState(
+      "agents",
+      "agentsById",
+      model,
+    );
+
+    harness.dashboard.UI.openAgentEditor("conn_existing");
+
+    expect(harness.getElement("agent-modal-title").textContent).toBe(
+      "✏️ Edit Sender Connection",
+    );
+    expect(harness.getElement("save-agent-label").textContent).toBe(
+      "Update Connection",
+    );
+    expect(harness.getElement("agent-framework").disabled).toBe(true);
+    expect(harness.getElement("agent-label").disabled).toBe(true);
+    expect(harness.getElement("agent-framework").value).toBe("openclaw");
+    expect(harness.getElement("agent-label").value).toBe("default");
+
+    harness.getElement("agent-mode").value = "polling";
+    harness.getElement("agent-routing-priority").value = "9";
+
+    await harness.dashboard.UI.handleSaveAgent();
+
+    expect(registerPayload).toEqual(
+      expect.objectContaining({
+        framework: "openclaw",
+        label: "default",
+        mode: "polling",
+        routing_priority: 9,
+      }),
+    );
+    expect(registerPayload?.callback_url).toBeUndefined();
+    expect(
+      harness.getElement("toast-container").children[0]?.innerHTML,
+    ).toContain("Connection updated successfully");
+  });
+
+  it("removes the stale rotate-secret config hint and replaces it with a supported dashboard action", () => {
+    const html = readFileSync("public/index.html", "utf8");
+
+    expect(html).not.toContain("rotate_callback_secret: true");
+    expect(html).toContain("Generate a fresh callback secret on save");
+  });
+});
+
 describe("Dashboard dead-end action cleanup (DASH-002)", () => {
   beforeEach(async () => {
     await setupTestDatabase();
@@ -1033,7 +1316,9 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
   it("gates the stale browser register path instead of calling the invite-only register API", async () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url) => {
-        throw new Error(`Unexpected fetch from gated browser register path: ${url}`);
+        throw new Error(
+          `Unexpected fetch from gated browser register path: ${url}`,
+        );
       },
     });
 
@@ -1058,7 +1343,10 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
       "Viewer",
     );
     const { user: peer } = await createTestUser("dashboard_cta_peer", "Peer");
-    const { user: owner } = await createTestUser("dashboard_group_owner", "Owner");
+    const { user: owner } = await createTestUser(
+      "dashboard_group_owner",
+      "Owner",
+    );
 
     await createFriendship(viewer.id, peer.id, "accepted");
 
@@ -1153,7 +1441,9 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
     expect(harness.getElement("groups-grid").innerHTML).not.toContain(
       "Leave Group",
     );
-    expect(harness.getElement("groups-grid").innerHTML).not.toContain("Tap to join");
+    expect(harness.getElement("groups-grid").innerHTML).not.toContain(
+      "Tap to join",
+    );
     expect(harness.fetchCalls).toContain(`/api/v1/groups/${activeGroupId}`);
     expect(harness.fetchCalls).toContain(
       `/api/v1/groups/${activeGroupId}/members`,
@@ -1208,7 +1498,8 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
     harness.getElement("agent-framework").value = "openclaw";
     harness.getElement("agent-label").value = "default";
     harness.getElement("agent-description").value = "Primary sender";
-    harness.getElement("agent-callback").value = "https://agent.example/callback";
+    harness.getElement("agent-callback").value =
+      "https://agent.example/callback";
     harness.getElement("agent-public-key").value = "";
     harness.getElement("agent-capabilities").value = "calendar, ask-around";
 
@@ -1275,13 +1566,17 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
 
     harness.dashboard.UI.switchView("developer");
     expect(harness.getElement("page-title").textContent).toBe("Developer");
-    expect(harness.getElement("page-subtitle").textContent).toContain("Advanced");
+    expect(harness.getElement("page-subtitle").textContent).toContain(
+      "Advanced",
+    );
   });
 
   it("renders boundary taxonomy cards with user-facing audience labels and an explicit advanced fallback", async () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url) => {
-        throw new Error(`Unexpected fetch while testing boundary taxonomy rendering: ${url}`);
+        throw new Error(
+          `Unexpected fetch while testing boundary taxonomy rendering: ${url}`,
+        );
       },
     });
 
@@ -1405,7 +1700,9 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
   it("surfaces override lifecycle and provenance details directly in the Boundaries browser", async () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url) => {
-        throw new Error(`Unexpected fetch while testing boundary lifecycle rendering: ${url}`);
+        throw new Error(
+          `Unexpected fetch while testing boundary lifecycle rendering: ${url}`,
+        );
       },
     });
 
@@ -1677,7 +1974,9 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     await seedTestSystemRoles();
 
     const db = getTestDb();
-    const { user: viewer, apiKey } = await createTestUser("edit_boundary_viewer");
+    const { user: viewer, apiKey } = await createTestUser(
+      "edit_boundary_viewer",
+    );
     const storage = canonicalToStorage({
       scope: "role",
       target_id: "close_friends",
@@ -1962,7 +2261,9 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
   it("enriches delivery logs with review, blocked, and ask-around audit cues", async () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url) => {
-        throw new Error(`Unexpected fetch while testing log audit cues: ${url}`);
+        throw new Error(
+          `Unexpected fetch while testing log audit cues: ${url}`,
+        );
       },
     });
 
@@ -2040,8 +2341,12 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     UI.renderLogs();
     UI.renderOverviewMessages();
 
-    expect(harness.getElement("logs-summary").innerHTML).toContain("Review Queue");
-    expect(harness.getElement("logs-summary").innerHTML).toContain("Blocked Events");
+    expect(harness.getElement("logs-summary").innerHTML).toContain(
+      "Review Queue",
+    );
+    expect(harness.getElement("logs-summary").innerHTML).toContain(
+      "Blocked Events",
+    );
     expect(harness.getElement("logs-summary").innerHTML).toContain(
       "Ask-around Threads",
     );
@@ -2359,10 +2664,26 @@ describe("Dashboard network list (DASH-020)", () => {
       label: "default",
     });
 
-    const accepted = await createFriendship(viewer.id, acceptedPeer.id, "accepted");
-    const incoming = await createFriendship(incomingPeer.id, viewer.id, "pending");
-    const outgoing = await createFriendship(viewer.id, outgoingPeer.id, "pending");
-    const blocked = await createFriendship(viewer.id, blockedPeer.id, "blocked");
+    const accepted = await createFriendship(
+      viewer.id,
+      acceptedPeer.id,
+      "accepted",
+    );
+    const incoming = await createFriendship(
+      incomingPeer.id,
+      viewer.id,
+      "pending",
+    );
+    const outgoing = await createFriendship(
+      viewer.id,
+      outgoingPeer.id,
+      "pending",
+    );
+    const blocked = await createFriendship(
+      viewer.id,
+      blockedPeer.id,
+      "blocked",
+    );
 
     await addRoleToFriendship(accepted.id, "close_friends");
 
@@ -2492,7 +2813,9 @@ describe("Dashboard network list (DASH-020)", () => {
   it("uses network-specific empty states instead of generic friend-list copy", async () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url) => {
-        throw new Error(`Unexpected fetch while testing network empty states: ${url}`);
+        throw new Error(
+          `Unexpected fetch while testing network empty states: ${url}`,
+        );
       },
     });
 
@@ -2572,7 +2895,9 @@ describe("Dashboard contact detail and connection space (DASH-021)", () => {
     const detailHtml = harness.getElement("network-detail-panel").innerHTML;
     expect(detailHtml).toContain("Connection space");
     expect(detailHtml).toContain("Ready for direct send and ask-around");
-    expect(detailHtml).toContain("Framework, label, capabilities, and live status");
+    expect(detailHtml).toContain(
+      "Framework, label, capabilities, and live status",
+    );
     expect(detailHtml).toContain("travel_helper");
     expect(detailHtml).toContain("Openclaw");
     expect(detailHtml).toContain("ask-around");
@@ -2708,10 +3033,26 @@ describe("Dashboard relationship actions and role management (DASH-022)", () => 
       "Outgoing Peer",
     );
 
-    const accepted = await createFriendship(viewer.id, acceptedPeer.id, "accepted");
-    const incoming = await createFriendship(incomingPeer.id, viewer.id, "pending");
-    const rejectable = await createFriendship(rejectPeer.id, viewer.id, "pending");
-    const outgoing = await createFriendship(viewer.id, outgoingPeer.id, "pending");
+    const accepted = await createFriendship(
+      viewer.id,
+      acceptedPeer.id,
+      "accepted",
+    );
+    const incoming = await createFriendship(
+      incomingPeer.id,
+      viewer.id,
+      "pending",
+    );
+    const rejectable = await createFriendship(
+      rejectPeer.id,
+      viewer.id,
+      "pending",
+    );
+    const outgoing = await createFriendship(
+      viewer.id,
+      outgoingPeer.id,
+      "pending",
+    );
 
     const harness = createDashboardHarness({
       app: createApp(),
@@ -2822,7 +3163,10 @@ describe("Dashboard relationship actions and role management (DASH-022)", () => 
     await harness.boot();
 
     let initialCallCount = harness.fetchCalls.length;
-    await harness.dashboard.UI.handleAddFriendRole(friendship.id, "trusted_circle");
+    await harness.dashboard.UI.handleAddFriendRole(
+      friendship.id,
+      "trusted_circle",
+    );
     expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
       expect.arrayContaining([
         `/api/v1/friends/${friendship.id}/roles`,
@@ -2836,7 +3180,10 @@ describe("Dashboard relationship actions and role management (DASH-022)", () => 
     ).toEqual(expect.arrayContaining(["close_friends", "trusted_circle"]));
 
     initialCallCount = harness.fetchCalls.length;
-    await harness.dashboard.UI.handleRemoveFriendRole(friendship.id, "close_friends");
+    await harness.dashboard.UI.handleRemoveFriendRole(
+      friendship.id,
+      "close_friends",
+    );
     expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
       expect.arrayContaining([
         `/api/v1/friends/${friendship.id}/roles/close_friends`,
@@ -3026,7 +3373,9 @@ describe("Dashboard group detail, members, and readiness (DASH-023)", () => {
       .from(schema.groupMemberships)
       .where(eq(schema.groupMemberships.groupId, groupId));
     expect(
-      membershipsAfterInvite.find((membership) => membership.userId === invitee.id),
+      membershipsAfterInvite.find(
+        (membership) => membership.userId === invitee.id,
+      ),
     ).toEqual(
       expect.objectContaining({
         status: "invited",
@@ -3052,7 +3401,9 @@ describe("Dashboard group detail, members, and readiness (DASH-023)", () => {
       .from(schema.groupMemberships)
       .where(eq(schema.groupMemberships.groupId, groupId));
     expect(
-      membershipsAfterLeave.find((membership) => membership.userId === viewer.id),
+      membershipsAfterLeave.find(
+        (membership) => membership.userId === viewer.id,
+      ),
     ).toBeUndefined();
     expect(harness.dashboard.State.groupsById.has(groupId)).toBe(false);
   });

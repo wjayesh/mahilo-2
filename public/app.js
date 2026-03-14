@@ -1157,7 +1157,9 @@ const Helpers = {
       message?.transportDirection ||
       "sent";
     const recipientType =
-      blockedEvent?.recipientType || review?.recipientType || message?.recipientType;
+      blockedEvent?.recipientType ||
+      review?.recipientType ||
+      message?.recipientType;
     const sourceKinds = [
       message ? "message" : null,
       review ? "review" : null,
@@ -1303,7 +1305,9 @@ const Helpers = {
         this.contentText(review?.messagePreview) ||
         this.contentText(message?.previewText),
       contextPreview: this.contentText(review?.contextPreview),
-      storedPayloadExcerpt: this.contentText(blockedEvent?.storedPayloadExcerpt),
+      storedPayloadExcerpt: this.contentText(
+        blockedEvent?.storedPayloadExcerpt,
+      ),
       payloadHash: this.nullableString(blockedEvent?.payloadHash),
       payloadType:
         this.nullableString(review?.payloadType) ||
@@ -1351,10 +1355,7 @@ const Helpers = {
         this.nullableString(review?.messageId) || `review:${reviewId}`;
       const existing = reviewsByMessageId.get(key);
 
-      if (
-        !existing ||
-        this.compareByTimestampDesc(review, existing) < 0
-      ) {
+      if (!existing || this.compareByTimestampDesc(review, existing) < 0) {
         reviewsByMessageId.set(key, review);
       }
     });
@@ -1380,7 +1381,9 @@ const Helpers = {
 
     messages.forEach((message) => {
       const messageId = this.nullableString(message?.messageId ?? message?.id);
-      const review = messageId ? reviewsByMessageId.get(messageId) || null : null;
+      const review = messageId
+        ? reviewsByMessageId.get(messageId) || null
+        : null;
       const blockedEvent = messageId
         ? blockedByMessageId.get(messageId) || null
         : null;
@@ -1470,7 +1473,9 @@ const Helpers = {
 
   filterAuditLog(items, filters = {}) {
     const record =
-      typeof filters === "string" ? { direction: filters } : this.record(filters);
+      typeof filters === "string"
+        ? { direction: filters }
+        : this.record(filters);
     const direction = this.normalizeLogDirectionFilter(record.direction);
     const state = this.normalizeLogStateFilter(record.state);
 
@@ -1511,7 +1516,9 @@ const Helpers = {
 
     items.forEach((item) => {
       if (item.recipientType === "group") {
-        threadIds.add(item.correlationId || `group:${item.messageId || item.id}`);
+        threadIds.add(
+          item.correlationId || `group:${item.messageId || item.id}`,
+        );
         return;
       }
 
@@ -1570,10 +1577,7 @@ const Helpers = {
       return "Ask-around group";
     }
 
-    if (
-      item.correlationId &&
-      threadSummary.threadIds.has(item.correlationId)
-    ) {
+    if (item.correlationId && threadSummary.threadIds.has(item.correlationId)) {
       const threadSize =
         threadSummary.correlationCounts.get(item.correlationId) || 0;
       return threadSize > 1
@@ -1866,10 +1870,7 @@ function resolveBoundaryPresetFromSelectors(category, resource, action) {
       normalizedResource === "calendar.event" ||
       normalizedAction === "read_details"
     ) {
-      return findBoundaryPreset(
-        "availability",
-        "availability_event_details",
-      );
+      return findBoundaryPreset("availability", "availability_event_details");
     }
 
     if (
@@ -1976,7 +1977,7 @@ function resolveBoundaryPresetFromPolicy(policy) {
 function canUseGuidedBoundaryEditor(policy) {
   return Boolean(
     policy?.boundary?.managementPath === "guided" &&
-      resolveBoundaryPresetFromPolicy(policy),
+    resolveBoundaryPresetFromPolicy(policy),
   );
 }
 
@@ -2366,11 +2367,7 @@ function buildBoundaryLifecycle(policy) {
 function normalizeBoundaryOverrideKind(value) {
   const kind = Helpers.string(value).toLowerCase();
 
-  if (
-    kind === "one_time" ||
-    kind === "temporary" ||
-    kind === "persistent"
-  ) {
+  if (kind === "one_time" || kind === "temporary" || kind === "persistent") {
     return kind;
   }
 
@@ -2486,7 +2483,8 @@ function buildBoundaryProvenance(policy) {
       summary = "Created directly by the user as an explicit boundary.";
       break;
     case "default":
-      summary = "Default Mahilo posture applied before a user-specific boundary replaced it.";
+      summary =
+        "Default Mahilo posture applied before a user-specific boundary replaced it.";
       break;
     case "legacy_migrated":
       summary = "Migrated forward from an older policy model.";
@@ -3000,8 +2998,7 @@ const Normalizers = {
         record.payload_type ?? record.payloadType,
       ),
       outcome: Helpers.nullableString(record.outcome),
-      outcomeDetails:
-        record.outcome_details ?? record.outcomeDetails ?? null,
+      outcomeDetails: record.outcome_details ?? record.outcomeDetails ?? null,
       senderAgent: Helpers.nullableString(
         record.sender_agent ?? record.sender?.agent ?? record.sender?.label,
       ),
@@ -3177,7 +3174,8 @@ const Normalizers = {
             ),
             id: sourceMessageId,
             recipientId: Helpers.nullableString(
-              sourceMessageRecord.recipient_id ?? sourceMessageRecord.recipientId,
+              sourceMessageRecord.recipient_id ??
+                sourceMessageRecord.recipientId,
             ),
             recipientType: Helpers.nullableString(
               sourceMessageRecord.recipient_type ??
@@ -3704,7 +3702,10 @@ const DataLoader = {
 
       State.agentHealthById = healthById;
       Helpers.applyCollectionState("agents", "agentsById", agentsModel);
-      if (State.selectedAgentId && !State.agentsById.has(State.selectedAgentId)) {
+      if (
+        State.selectedAgentId &&
+        !State.agentsById.has(State.selectedAgentId)
+      ) {
         State.selectedAgentId = null;
       }
       UI.updateAgentCount(State.agents.length);
@@ -3806,7 +3807,10 @@ const DataLoader = {
     try {
       const groupsModel = Normalizers.groupsModel(await API.groups.list());
       Helpers.applyCollectionState("groups", "groupsById", groupsModel);
-      if (State.selectedGroupId && !State.groupsById.has(State.selectedGroupId)) {
+      if (
+        State.selectedGroupId &&
+        !State.groupsById.has(State.selectedGroupId)
+      ) {
         State.selectedGroupId = null;
       }
 
@@ -4006,25 +4010,53 @@ const UI = {
 
     // Add agent buttons
     document.getElementById("add-agent-btn")?.addEventListener("click", () => {
-      this.showModal("add-agent-modal");
+      this.openAgentEditor();
     });
 
     document
       .getElementById("add-agent-quick")
       ?.addEventListener("click", () => {
-        this.showModal("add-agent-modal");
+        this.openAgentEditor();
       });
 
     document
       .getElementById("add-first-agent")
       ?.addEventListener("click", () => {
-        this.showModal("add-agent-modal");
+        this.openAgentEditor();
       });
 
     // Save agent
     document.getElementById("save-agent-btn")?.addEventListener("click", () => {
       this.handleSaveAgent();
     });
+
+    document.getElementById("agent-mode")?.addEventListener("change", () => {
+      this.updateAgentModeFields();
+    });
+
+    document
+      .getElementById("agent-advanced-toggle")
+      ?.addEventListener("click", () => {
+        this.toggleAgentAdvancedFields();
+      });
+
+    document
+      .getElementById("agent-rotate-secret")
+      ?.addEventListener("change", () => {
+        this.syncAgentSecretControls();
+      });
+
+    document
+      .getElementById("agent-public-key")
+      ?.addEventListener("input", () => {
+        this.syncAgentPublicKeyFields();
+      });
+
+    document
+      .getElementById("agent-callback-secret")
+      ?.addEventListener("input", () => {
+        this.syncAgentSecretControls();
+      });
 
     // Find friends
     document.getElementById("find-users-btn")?.addEventListener("click", () => {
@@ -4098,18 +4130,14 @@ const UI = {
         this.renderBoundaryEditorPreview();
       });
 
-    document
-      .getElementById("policy-effect")
-      ?.addEventListener("change", () => {
-        this.renderBoundaryEditorPreview();
-      });
+    document.getElementById("policy-effect")?.addEventListener("change", () => {
+      this.renderBoundaryEditorPreview();
+    });
 
-    document
-      .getElementById("policy-preset")
-      ?.addEventListener("change", () => {
-        this.updateBoundaryPresetHint();
-        this.renderBoundaryEditorPreview();
-      });
+    document.getElementById("policy-preset")?.addEventListener("change", () => {
+      this.updateBoundaryPresetHint();
+      this.renderBoundaryEditorPreview();
+    });
 
     document
       .getElementById("policy-target-id")
@@ -4183,18 +4211,20 @@ const UI = {
       });
 
     // Logs filters
-    document.querySelectorAll(".logs-filters [data-direction]").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        document
-          .querySelectorAll(".logs-filters [data-direction]")
-          .forEach((b) => b.classList.remove("active"));
-        e.target.classList.add("active");
-        State.logDirectionFilter = Helpers.normalizeLogDirectionFilter(
-          e.target.dataset.direction,
-        );
-        this.renderLogs();
+    document
+      .querySelectorAll(".logs-filters [data-direction]")
+      .forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          document
+            .querySelectorAll(".logs-filters [data-direction]")
+            .forEach((b) => b.classList.remove("active"));
+          e.target.classList.add("active");
+          State.logDirectionFilter = Helpers.normalizeLogDirectionFilter(
+            e.target.dataset.direction,
+          );
+          this.renderLogs();
+        });
       });
-    });
     document
       .querySelectorAll(".logs-state-filters [data-state]")
       .forEach((btn) => {
@@ -4476,61 +4506,452 @@ const UI = {
     }
   },
 
+  setAgentAdvancedFieldsVisible(visible) {
+    const advancedPanel = document.getElementById("agent-advanced-panel");
+    const advancedToggle = document.getElementById("agent-advanced-toggle");
+
+    if (advancedPanel) {
+      advancedPanel.classList.toggle("hidden", !visible);
+    }
+
+    if (advancedToggle) {
+      advancedToggle.textContent = visible
+        ? "Hide Advanced Fields"
+        : "Advanced Fields";
+    }
+  },
+
+  updateAgentSaveLabel(overrideLabel = null) {
+    const form = document.getElementById("add-agent-form");
+    const saveLabel = document.getElementById("save-agent-label");
+    const saveButton = document.getElementById("save-agent-btn");
+    const isEdit = form?.dataset.mode === "edit";
+    const defaultLabel = isEdit ? "Update Connection" : "Create Connection";
+
+    if (saveLabel) {
+      saveLabel.textContent = overrideLabel || defaultLabel;
+    }
+
+    if (saveButton) {
+      saveButton.dataset.defaultLabel = defaultLabel;
+    }
+  },
+
+  setAgentFormPending(pending) {
+    const saveButton = document.getElementById("save-agent-btn");
+
+    if (saveButton) {
+      saveButton.disabled = pending;
+    }
+
+    this.updateAgentSaveLabel(
+      pending
+        ? document.getElementById("add-agent-form")?.dataset.mode === "edit"
+          ? "Updating..."
+          : "Creating..."
+        : null,
+    );
+  },
+
+  resetAgentEditor() {
+    const form = document.getElementById("add-agent-form");
+    const framework = document.getElementById("agent-framework");
+    const label = document.getElementById("agent-label");
+    const description = document.getElementById("agent-description");
+    const mode = document.getElementById("agent-mode");
+    const callback = document.getElementById("agent-callback");
+    const routingPriority = document.getElementById("agent-routing-priority");
+    const capabilities = document.getElementById("agent-capabilities");
+    const callbackSecret = document.getElementById("agent-callback-secret");
+    const rotateSecret = document.getElementById("agent-rotate-secret");
+    const publicKey = document.getElementById("agent-public-key");
+    const publicKeyAlg = document.getElementById("agent-public-key-alg");
+    const title = document.getElementById("agent-modal-title");
+    const copy = document.getElementById("agent-modal-copy");
+
+    form?.reset?.();
+
+    if (form) {
+      form.dataset.mode = "create";
+      form.dataset.connectionId = "";
+    }
+
+    if (framework) {
+      framework.disabled = false;
+      framework.value = "";
+    }
+
+    if (label) {
+      label.disabled = false;
+      label.value = "";
+    }
+
+    if (description) {
+      description.value = "";
+    }
+
+    if (mode) {
+      mode.value = "webhook";
+    }
+
+    if (callback) {
+      callback.value = "";
+    }
+
+    if (routingPriority) {
+      routingPriority.value = "0";
+    }
+
+    if (capabilities) {
+      capabilities.value = "";
+    }
+
+    if (callbackSecret) {
+      callbackSecret.value = "";
+    }
+
+    if (rotateSecret) {
+      rotateSecret.checked = false;
+    }
+
+    if (publicKey) {
+      publicKey.value = "";
+    }
+
+    if (publicKeyAlg) {
+      publicKeyAlg.value = "ed25519";
+    }
+
+    if (title) {
+      title.textContent = "🤖 Add Sender Connection";
+    }
+
+    if (copy) {
+      copy.textContent =
+        "Register a sender route that Mahilo can use on your behalf.";
+    }
+
+    this.setAgentAdvancedFieldsVisible(false);
+    this.updateAgentModeFields();
+    this.syncAgentPublicKeyFields();
+    this.syncAgentSecretControls();
+    this.setAgentFormPending(false);
+  },
+
+  openAgentEditor(agent = null) {
+    const form = document.getElementById("add-agent-form");
+    const framework = document.getElementById("agent-framework");
+    const label = document.getElementById("agent-label");
+    const description = document.getElementById("agent-description");
+    const mode = document.getElementById("agent-mode");
+    const callback = document.getElementById("agent-callback");
+    const routingPriority = document.getElementById("agent-routing-priority");
+    const capabilities = document.getElementById("agent-capabilities");
+    const callbackSecret = document.getElementById("agent-callback-secret");
+    const rotateSecret = document.getElementById("agent-rotate-secret");
+    const publicKey = document.getElementById("agent-public-key");
+    const publicKeyAlg = document.getElementById("agent-public-key-alg");
+    const title = document.getElementById("agent-modal-title");
+    const copy = document.getElementById("agent-modal-copy");
+
+    if (
+      !form ||
+      !framework ||
+      !label ||
+      !description ||
+      !mode ||
+      !callback ||
+      !routingPriority ||
+      !capabilities ||
+      !callbackSecret ||
+      !rotateSecret ||
+      !publicKey ||
+      !publicKeyAlg
+    ) {
+      this.showToast("Sender connection editor is unavailable.", "error");
+      return;
+    }
+
+    if (!agent) {
+      this.resetAgentEditor();
+      this.hideModals();
+      this.showModal("add-agent-modal");
+      return;
+    }
+
+    const connection =
+      typeof agent === "string"
+        ? this.getSenderConnectionWorkspaceItem(agent)
+        : this.getSenderConnectionWorkspaceItem(agent.id);
+
+    if (!connection) {
+      this.showToast("Sender connection details are unavailable", "error");
+      return;
+    }
+
+    form.dataset.mode = "edit";
+    form.dataset.connectionId = connection.id;
+    framework.disabled = true;
+    framework.value = connection.framework;
+    label.disabled = true;
+    label.value = connection.label;
+    description.value = connection.description || "";
+    mode.value =
+      connection.mode ||
+      Helpers.connectionMode(connection.callbackUrl) ||
+      "webhook";
+    callback.value =
+      mode.value === "polling" ? "" : Helpers.string(connection.callbackUrl);
+    routingPriority.value = String(
+      Helpers.number(connection.routingPriority, 0),
+    );
+    capabilities.value = Array.isArray(connection.capabilities)
+      ? connection.capabilities.join(", ")
+      : "";
+    callbackSecret.value = "";
+    rotateSecret.checked = false;
+    publicKey.value = connection.publicKey || "";
+    publicKeyAlg.value = connection.publicKeyAlg || "ed25519";
+
+    if (title) {
+      title.textContent = "✏️ Edit Sender Connection";
+    }
+
+    if (copy) {
+      copy.textContent =
+        "Framework and label identify the current connection. Use Add Connection if you need a new sender route.";
+    }
+
+    this.setAgentAdvancedFieldsVisible(
+      Boolean(
+        Helpers.number(connection.routingPriority, 0) ||
+        (Array.isArray(connection.capabilities) &&
+          connection.capabilities.length) ||
+        connection.publicKey,
+      ),
+    );
+    this.updateAgentModeFields();
+    this.syncAgentPublicKeyFields();
+    this.syncAgentSecretControls();
+    this.setAgentFormPending(false);
+    this.hideModals();
+    this.showModal("add-agent-modal");
+  },
+
+  toggleAgentAdvancedFields() {
+    const advancedPanel = document.getElementById("agent-advanced-panel");
+    this.setAgentAdvancedFieldsVisible(
+      Boolean(advancedPanel?.classList.contains("hidden")),
+    );
+  },
+
+  updateAgentModeFields() {
+    const mode = Helpers.string(
+      document.getElementById("agent-mode")?.value,
+      "webhook",
+    );
+    const callbackGroup = document.getElementById("agent-callback-group");
+    const pollingNote = document.getElementById("agent-polling-note");
+    const callbackInput = document.getElementById("agent-callback");
+    const callbackSecretGroup = document.getElementById(
+      "agent-callback-secret-group",
+    );
+    const rotateSecretGroup = document.getElementById(
+      "agent-rotate-secret-group",
+    );
+    const rotateSecret = document.getElementById("agent-rotate-secret");
+
+    const isPolling = mode === "polling";
+
+    if (callbackGroup) {
+      callbackGroup.classList.toggle("hidden", isPolling);
+    }
+
+    if (pollingNote) {
+      pollingNote.classList.toggle("hidden", !isPolling);
+    }
+
+    if (callbackSecretGroup) {
+      callbackSecretGroup.classList.toggle("hidden", isPolling);
+    }
+
+    if (rotateSecretGroup) {
+      rotateSecretGroup.classList.toggle("hidden", isPolling);
+    }
+
+    if (callbackInput) {
+      callbackInput.disabled = isPolling;
+      callbackInput.required = !isPolling;
+    }
+
+    if (rotateSecret && isPolling) {
+      rotateSecret.checked = false;
+    }
+
+    this.syncAgentSecretControls();
+  },
+
+  syncAgentPublicKeyFields() {
+    const publicKey = document.getElementById("agent-public-key");
+    const publicKeyAlg = document.getElementById("agent-public-key-alg");
+
+    if (!publicKeyAlg) {
+      return;
+    }
+
+    const hasPublicKey = Boolean(publicKey?.value?.trim());
+    publicKeyAlg.disabled = !hasPublicKey;
+
+    if (!hasPublicKey) {
+      publicKeyAlg.value = "ed25519";
+    }
+  },
+
+  syncAgentSecretControls() {
+    const mode = Helpers.string(
+      document.getElementById("agent-mode")?.value,
+      "webhook",
+    );
+    const isPolling = mode === "polling";
+    const callbackSecret = document.getElementById("agent-callback-secret");
+    const callbackSecretHint = document.getElementById(
+      "agent-callback-secret-hint",
+    );
+    const rotateSecret = document.getElementById("agent-rotate-secret");
+    const hasManualSecret = Boolean(callbackSecret?.value?.trim());
+
+    if (rotateSecret?.checked && hasManualSecret) {
+      rotateSecret.checked = false;
+    }
+
+    if (callbackSecret) {
+      callbackSecret.disabled = isPolling || Boolean(rotateSecret?.checked);
+      if (rotateSecret?.checked) {
+        callbackSecret.value = "";
+      }
+    }
+
+    if (callbackSecretHint) {
+      callbackSecretHint.textContent = isPolling
+        ? "Polling connections do not use callback secrets."
+        : rotateSecret?.checked
+          ? "Mahilo will issue a fresh callback secret when you save this webhook connection."
+          : "Leave blank to keep the current secret or let Mahilo generate one when needed.";
+    }
+  },
+
   // Handle save agent
   async handleSaveAgent() {
-    const framework = document.getElementById("agent-framework").value;
-    const label = document.getElementById("agent-label").value.trim();
+    const form = document.getElementById("add-agent-form");
+    const mode = Helpers.string(
+      document.getElementById("agent-mode")?.value,
+      "webhook",
+    );
+    const framework = Helpers.string(
+      document.getElementById("agent-framework")?.value,
+    );
+    const label = Helpers.string(document.getElementById("agent-label")?.value);
     const description = document
       .getElementById("agent-description")
-      .value.trim();
-    const callbackUrl = document.getElementById("agent-callback").value.trim();
-    const publicKey = document.getElementById("agent-public-key").value.trim();
+      ?.value.trim();
+    const callbackUrl = document.getElementById("agent-callback")?.value.trim();
+    const routingPriorityRaw = document
+      .getElementById("agent-routing-priority")
+      ?.value.trim();
+    const publicKey = document.getElementById("agent-public-key")?.value.trim();
+    const publicKeyAlg = Helpers.string(
+      document.getElementById("agent-public-key-alg")?.value,
+      "ed25519",
+    );
+    const callbackSecret = document
+      .getElementById("agent-callback-secret")
+      ?.value.trim();
+    const rotateSecret = Boolean(
+      document.getElementById("agent-rotate-secret")?.checked,
+    );
     const capabilitiesStr = document
       .getElementById("agent-capabilities")
-      .value.trim();
+      ?.value.trim();
 
-    if (!framework || !label || !callbackUrl) {
-      this.showToast("Please fill in all required fields", "error");
+    if (!framework || !label) {
+      this.showToast("Framework and label are required", "error");
+      return;
+    }
+
+    if (mode === "webhook" && !callbackUrl) {
+      this.showToast(
+        "Callback URL is required for webhook connections",
+        "error",
+      );
+      return;
+    }
+
+    const routingPriority = Number(routingPriorityRaw || "0");
+    if (
+      !Number.isInteger(routingPriority) ||
+      routingPriority < 0 ||
+      routingPriority > 100
+    ) {
+      this.showToast(
+        "Routing priority must be an integer between 0 and 100",
+        "error",
+      );
+      return;
+    }
+
+    if (
+      callbackSecret &&
+      (callbackSecret.length < 16 || callbackSecret.length > 64)
+    ) {
+      this.showToast(
+        "Callback secret must be between 16 and 64 characters",
+        "error",
+      );
       return;
     }
 
     const capabilities = capabilitiesStr
       ? capabilitiesStr
           .split(",")
-          .map((c) => c.trim())
+          .map((capability) => capability.trim())
           .filter(Boolean)
       : [];
+
+    this.setAgentFormPending(true);
 
     try {
       const result = await API.agents.register({
         framework,
         label,
-        description,
-        callback_url: callbackUrl,
+        description: description || undefined,
+        mode,
+        callback_url: mode === "webhook" ? callbackUrl : undefined,
+        callback_secret:
+          mode === "webhook" && callbackSecret && !rotateSecret
+            ? callbackSecret
+            : undefined,
         public_key: publicKey || undefined,
-        public_key_alg: publicKey ? "ed25519" : undefined,
+        public_key_alg: publicKey ? publicKeyAlg : undefined,
         capabilities,
+        rotate_secret: mode === "webhook" ? rotateSecret : undefined,
+        routing_priority: routingPriority,
       });
 
       this.hideModals();
 
-      // Show callback secret if new
       if (result.callback_secret) {
         document.getElementById("new-callback-secret").textContent =
           result.callback_secret;
         this.showModal("callback-secret-modal");
       }
 
-      // Reset form
-      document.getElementById("add-agent-form").reset();
-
-      // Reload agents
+      this.resetAgentEditor();
       await DataLoader.loadAgents();
 
       this.showToast(
         result.updated
           ? "Connection updated successfully"
-          : "Sender connection added successfully",
+          : "Connection created successfully",
         "success",
       );
     } catch (error) {
@@ -4538,6 +4959,10 @@ const UI = {
         error.message || "Failed to save sender connection",
         "error",
       );
+    } finally {
+      if (form?.dataset.mode === "edit" || form?.dataset.mode === "create") {
+        this.setAgentFormPending(false);
+      }
     }
   },
 
@@ -4570,7 +4995,10 @@ const UI = {
       }
 
       await DataLoader.loadGroups();
-      if (State.selectedGroupId && State.groupsById.has(State.selectedGroupId)) {
+      if (
+        State.selectedGroupId &&
+        State.groupsById.has(State.selectedGroupId)
+      ) {
         await this.ensureGroupWorkspaceData(
           State.groupsById.get(State.selectedGroupId),
           { force: true },
@@ -4597,7 +5025,10 @@ const UI = {
       State.boundaryCategoryFilter,
       DEFAULT_BOUNDARY_CATEGORY,
     ).toLowerCase();
-    return Object.prototype.hasOwnProperty.call(COMMON_BOUNDARY_PRESETS, category)
+    return Object.prototype.hasOwnProperty.call(
+      COMMON_BOUNDARY_PRESETS,
+      category,
+    )
       ? category
       : DEFAULT_BOUNDARY_CATEGORY;
   },
@@ -4665,7 +5096,9 @@ const UI = {
         .slice()
         .sort((left, right) => {
           const leftLabel = Helpers.string(left.displayName || left.username);
-          const rightLabel = Helpers.string(right.displayName || right.username);
+          const rightLabel = Helpers.string(
+            right.displayName || right.username,
+          );
           return leftLabel.localeCompare(rightLabel);
         })
         .map((friend) => ({
@@ -4691,9 +5124,7 @@ const UI = {
         .filter((group) => {
           const role = Helpers.string(group.role).toLowerCase();
           const status = Helpers.string(group.status, "active").toLowerCase();
-          return (
-            status === "active" && (role === "owner" || role === "admin")
-          );
+          return status === "active" && (role === "owner" || role === "admin");
         })
         .slice()
         .sort((left, right) =>
@@ -4723,7 +5154,10 @@ const UI = {
       BOUNDARY_CATEGORY_META[normalizedCategory] ||
       BOUNDARY_CATEGORY_META[DEFAULT_BOUNDARY_CATEGORY];
     const presets = listBoundaryPresetOptions(normalizedCategory);
-    const selectedPreset = findBoundaryPreset(normalizedCategory, selectedPresetId);
+    const selectedPreset = findBoundaryPreset(
+      normalizedCategory,
+      selectedPresetId,
+    );
 
     select.innerHTML = presets
       .map((option) => {
@@ -5204,7 +5638,9 @@ const UI = {
       },
       {
         label: "Effect",
-        value: effect.badgeLabel || Helpers.titleizeToken(policy.effect, policy.effect),
+        value:
+          effect.badgeLabel ||
+          Helpers.titleizeToken(policy.effect, policy.effect),
       },
       {
         label: "Selector",
@@ -5391,9 +5827,7 @@ const UI = {
             )}</span>
             <span class="boundary-activity-badge ${Helpers.escapeHtml(
               lifecycle.tone || "disabled",
-            )}">${Helpers.escapeHtml(
-              lifecycle.badgeLabel || "Inactive",
-            )}</span>
+            )}">${Helpers.escapeHtml(lifecycle.badgeLabel || "Inactive")}</span>
             <span class="policy-badge provenance-${Helpers.escapeHtml(
               provenance.tone || "default",
             )}">${Helpers.escapeHtml(provenance.badgeLabel)}</span>
@@ -5717,9 +6151,7 @@ const UI = {
   // Show agent details
   showAgentDetails(agent) {
     const agentId =
-      typeof agent === "string"
-        ? agent
-        : Helpers.nullableString(agent?.id);
+      typeof agent === "string" ? agent : Helpers.nullableString(agent?.id);
     const connection = agentId
       ? this.getSenderConnectionWorkspaceItem(agentId)
       : null;
@@ -5741,7 +6173,8 @@ const UI = {
     document.getElementById("detail-agent-status").className =
       `status-badge ${connection.status}`;
     document.getElementById("detail-agent-id").textContent = connection.id;
-    document.getElementById("detail-agent-label").textContent = connection.label;
+    document.getElementById("detail-agent-label").textContent =
+      connection.label;
     document.getElementById("detail-agent-callback").textContent =
       connection.callbackUrl || "None";
     document.getElementById("detail-agent-public-key").textContent =
@@ -5750,8 +6183,9 @@ const UI = {
         : "None";
     document.getElementById("detail-agent-alg").textContent =
       connection.publicKeyAlg || "None";
-    document.getElementById("detail-agent-priority").textContent =
-      String(Helpers.number(connection.routingPriority, 0));
+    document.getElementById("detail-agent-priority").textContent = String(
+      Helpers.number(connection.routingPriority, 0),
+    );
     document.getElementById("detail-agent-mode").textContent =
       connection.modeLabel;
     document.getElementById("detail-agent-last-seen").textContent =
@@ -5783,6 +6217,9 @@ const UI = {
     }
 
     // Bind delete button
+    const editBtn = document.getElementById("edit-agent-btn");
+    editBtn.onclick = () => this.openAgentEditor(connection.id);
+
     const deleteBtn = document.getElementById("delete-agent-btn");
     deleteBtn.onclick = () => this.handleDeleteAgent(connection.id);
 
@@ -6084,13 +6521,15 @@ const UI = {
       .slice()
       .sort((left, right) => {
         const statusDelta =
-          (statusOrder[left?.status] ?? 99) - (statusOrder[right?.status] ?? 99);
+          (statusOrder[left?.status] ?? 99) -
+          (statusOrder[right?.status] ?? 99);
 
         if (statusDelta !== 0) {
           return statusDelta;
         }
 
-        const memberDelta = (right?.memberCount || 0) - (left?.memberCount || 0);
+        const memberDelta =
+          (right?.memberCount || 0) - (left?.memberCount || 0);
 
         if (memberDelta !== 0) {
           return memberDelta;
@@ -6104,7 +6543,9 @@ const UI = {
           return createdDelta;
         }
 
-        return Helpers.string(left?.name).localeCompare(Helpers.string(right?.name));
+        return Helpers.string(left?.name).localeCompare(
+          Helpers.string(right?.name),
+        );
       });
   },
 
@@ -6156,7 +6597,9 @@ const UI = {
 
   renderGroupHeader(visibleGroups, counts = this.getGroupCounts()) {
     const summaryTitle = document.getElementById("group-list-title");
-    const summaryDescription = document.getElementById("group-list-description");
+    const summaryDescription = document.getElementById(
+      "group-list-description",
+    );
     const totalChip = document.getElementById("group-list-total");
     const summaryStrip = document.getElementById("groups-summary-strip");
     const meta = this.groupListMeta(visibleGroups.length);
@@ -6237,7 +6680,9 @@ const UI = {
   },
 
   preferredGroup(groups = []) {
-    return groups.find((group) => group?.status === "active") || groups[0] || null;
+    return (
+      groups.find((group) => group?.status === "active") || groups[0] || null
+    );
   },
 
   syncSelectedGroup(visibleGroups = this.getVisibleGroups()) {
@@ -6339,7 +6784,8 @@ const UI = {
     }
 
     const joinedDelta =
-      Helpers.timestampValue(left?.joinedAt) - Helpers.timestampValue(right?.joinedAt);
+      Helpers.timestampValue(left?.joinedAt) -
+      Helpers.timestampValue(right?.joinedAt);
 
     if (joinedDelta !== 0) {
       return joinedDelta;
@@ -7733,8 +8179,8 @@ const UI = {
   },
 
   getSortedSenderConnections(connections = State.agents) {
-    return (Array.isArray(connections) ? [...connections] : []).sort((left, right) =>
-      this.compareSenderConnections(left, right),
+    return (Array.isArray(connections) ? [...connections] : []).sort(
+      (left, right) => this.compareSenderConnections(left, right),
     );
   },
 
@@ -7786,7 +8232,8 @@ const UI = {
         return {
           tone: "healthy",
           label: "Healthy",
-          detail: pingSummary || "Webhook callback responded to the latest ping.",
+          detail:
+            pingSummary || "Webhook callback responded to the latest ping.",
         };
       }
 
@@ -8013,7 +8460,7 @@ const UI = {
       document
         .getElementById("add-first-agent")
         ?.addEventListener("click", () => {
-          this.showModal("add-agent-modal");
+          this.openAgentEditor();
         });
       return;
     }
@@ -8320,11 +8767,7 @@ const UI = {
           <div class="group-member-name-row">
             <strong>${displayName}</strong>
             <span class="group-member-username">@${username}</span>
-            ${
-              isSelf
-                ? '<span class="group-member-self-badge">You</span>'
-                : ""
-            }
+            ${isSelf ? '<span class="group-member-self-badge">You</span>' : ""}
           </div>
           <div class="group-member-meta">
             <span class="friend-meta-chip">${Helpers.escapeHtml(
@@ -8553,7 +8996,11 @@ const UI = {
     const detailState = this.getGroupDetailState(group);
     const membersState = this.getGroupMembersState(group);
     const detail = detailState.item || group;
-    const readiness = this.groupReadinessState(group, detailState, membersState);
+    const readiness = this.groupReadinessState(
+      group,
+      detailState,
+      membersState,
+    );
     const isRefreshing =
       detailState.status === "loading" || membersState.status === "loading";
     const memberBuckets =
@@ -8698,7 +9145,9 @@ const UI = {
       return;
     }
 
-    list.innerHTML = groups.map((group) => this.renderGroupCard(group)).join("");
+    list.innerHTML = groups
+      .map((group) => this.renderGroupCard(group))
+      .join("");
     this.renderGroupDetailPanel(selectedGroup);
     void this.ensureGroupWorkspaceData(selectedGroup);
   },
@@ -8721,10 +9170,15 @@ const UI = {
       return;
     }
 
-    const username = Helpers.string(usernameInput.value).trim().replace(/^@+/, "");
+    const username = Helpers.string(usernameInput.value)
+      .trim()
+      .replace(/^@+/, "");
 
     if (!username || username.length < 3) {
-      this.showToast("Enter the exact Mahilo username you want to invite.", "error");
+      this.showToast(
+        "Enter the exact Mahilo username you want to invite.",
+        "error",
+      );
       return;
     }
 
@@ -9145,100 +9599,104 @@ const UI = {
 
     setListHtml(
       Array.from(groupedPolicies.values())
-      .sort((left, right) => {
-        const leftIndex = BOUNDARY_CATEGORY_ORDER.indexOf(left.key);
-        const rightIndex = BOUNDARY_CATEGORY_ORDER.indexOf(right.key);
-        return (
-          (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
-          (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
-        );
-      })
-      .map((categoryGroup) => {
-        const categoryKey = categoryGroup.key;
-        const categoryPresentation =
-          BOUNDARY_CATEGORY_META[categoryKey] ||
-          BOUNDARY_CATEGORY_META.advanced;
-        const activeCount = categoryGroup.policies.filter(
-          (policy) => policy.boundary?.lifecycle?.isActive,
-        ).length;
-        const askCount = categoryGroup.policies.filter(
-          (policy) =>
-            policy.effect === "ask" && policy.boundary?.lifecycle?.isActive,
-        ).length;
-        const denyCount = categoryGroup.policies.filter(
-          (policy) =>
-            policy.effect === "deny" && policy.boundary?.lifecycle?.isActive,
-        ).length;
+        .sort((left, right) => {
+          const leftIndex = BOUNDARY_CATEGORY_ORDER.indexOf(left.key);
+          const rightIndex = BOUNDARY_CATEGORY_ORDER.indexOf(right.key);
+          return (
+            (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+            (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
+          );
+        })
+        .map((categoryGroup) => {
+          const categoryKey = categoryGroup.key;
+          const categoryPresentation =
+            BOUNDARY_CATEGORY_META[categoryKey] ||
+            BOUNDARY_CATEGORY_META.advanced;
+          const activeCount = categoryGroup.policies.filter(
+            (policy) => policy.boundary?.lifecycle?.isActive,
+          ).length;
+          const askCount = categoryGroup.policies.filter(
+            (policy) =>
+              policy.effect === "ask" && policy.boundary?.lifecycle?.isActive,
+          ).length;
+          const denyCount = categoryGroup.policies.filter(
+            (policy) =>
+              policy.effect === "deny" && policy.boundary?.lifecycle?.isActive,
+          ).length;
 
-        const audienceCards = Array.from(categoryGroup.audiences.values())
-          .sort((left, right) => {
-            const scopeDelta =
-              (BOUNDARY_SCOPE_ORDER.indexOf(left.scope) === -1
-                ? Number.MAX_SAFE_INTEGER
-                : BOUNDARY_SCOPE_ORDER.indexOf(left.scope)) -
-              (BOUNDARY_SCOPE_ORDER.indexOf(right.scope) === -1
-                ? Number.MAX_SAFE_INTEGER
-                : BOUNDARY_SCOPE_ORDER.indexOf(right.scope));
-            if (scopeDelta !== 0) {
-              return scopeDelta;
-            }
+          const audienceCards = Array.from(categoryGroup.audiences.values())
+            .sort((left, right) => {
+              const scopeDelta =
+                (BOUNDARY_SCOPE_ORDER.indexOf(left.scope) === -1
+                  ? Number.MAX_SAFE_INTEGER
+                  : BOUNDARY_SCOPE_ORDER.indexOf(left.scope)) -
+                (BOUNDARY_SCOPE_ORDER.indexOf(right.scope) === -1
+                  ? Number.MAX_SAFE_INTEGER
+                  : BOUNDARY_SCOPE_ORDER.indexOf(right.scope));
+              if (scopeDelta !== 0) {
+                return scopeDelta;
+              }
 
-            return Helpers.string(left.label).localeCompare(
-              Helpers.string(right.label),
-            );
-          })
-          .map((audienceGroup) => {
-            const scopeLabel =
-              BOUNDARY_SCOPE_META[audienceGroup.scope]?.scopeLabel ||
-              Helpers.titleizeToken(audienceGroup.scope, audienceGroup.scope);
+              return Helpers.string(left.label).localeCompare(
+                Helpers.string(right.label),
+              );
+            })
+            .map((audienceGroup) => {
+              const scopeLabel =
+                BOUNDARY_SCOPE_META[audienceGroup.scope]?.scopeLabel ||
+                Helpers.titleizeToken(audienceGroup.scope, audienceGroup.scope);
 
-            const rows = audienceGroup.policies
-              .slice()
-              .sort(compareBoundaryPolicies)
-              .map((policy) => {
-                const boundary = policy.boundary || {};
-                const audienceLabel = Helpers.policyAudienceDisplay(policy);
-                const effect = boundary.effect || {};
-                const selector = boundary.selector || {};
-                const lifecycle = boundary.lifecycle || {};
-                const provenance = boundary.provenance || {};
-                const sourceLabel = Helpers.policySourceLabel(policy.source);
-                const canEdit = canUseGuidedBoundaryEditor(policy);
-                const lifecycleMetaChips = Array.isArray(lifecycle.detailItems)
-                  ? lifecycle.detailItems
-                      .map(
-                        (item) => `
+              const rows = audienceGroup.policies
+                .slice()
+                .sort(compareBoundaryPolicies)
+                .map((policy) => {
+                  const boundary = policy.boundary || {};
+                  const audienceLabel = Helpers.policyAudienceDisplay(policy);
+                  const effect = boundary.effect || {};
+                  const selector = boundary.selector || {};
+                  const lifecycle = boundary.lifecycle || {};
+                  const provenance = boundary.provenance || {};
+                  const sourceLabel = Helpers.policySourceLabel(policy.source);
+                  const canEdit = canUseGuidedBoundaryEditor(policy);
+                  const lifecycleMetaChips = Array.isArray(
+                    lifecycle.detailItems,
+                  )
+                    ? lifecycle.detailItems
+                        .map(
+                          (item) => `
                           <span class="boundary-meta-chip">
                             <span class="boundary-meta-label">${Helpers.escapeHtml(item.label)}</span>
                             ${Helpers.escapeHtml(item.value)}
                           </span>
                         `,
-                      )
-                      .join("")
-                  : "";
-                const provenanceMetaChips = Array.isArray(provenance.detailItems)
-                  ? provenance.detailItems
-                      .filter((item) => item.label !== "Source")
-                      .map(
-                        (item) => `
+                        )
+                        .join("")
+                    : "";
+                  const provenanceMetaChips = Array.isArray(
+                    provenance.detailItems,
+                  )
+                    ? provenance.detailItems
+                        .filter((item) => item.label !== "Source")
+                        .map(
+                          (item) => `
                           <span class="boundary-meta-chip">
                             <span class="boundary-meta-label">${Helpers.escapeHtml(item.label)}</span>
                             ${Helpers.escapeHtml(item.value)}
                           </span>
                         `,
-                      )
-                      .join("")
-                  : "";
-                const advancedNote =
-                  boundary.managementPath === "advanced"
-                    ? `
+                        )
+                        .join("")
+                    : "";
+                  const advancedNote =
+                    boundary.managementPath === "advanced"
+                      ? `
                       <div class="policy-advanced-note">
                         ${Helpers.escapeHtml(boundary.advancedSummary || "This boundary uses a custom selector and stays on the advanced path.")}
                       </div>
                     `
-                    : "";
+                      : "";
 
-                return `
+                  return `
                   <article class="boundary-row ${Helpers.escapeHtml(effect.tone || policy.effect)} ${lifecycle.isActive ? "is-active" : "is-inactive"}">
                     <div class="boundary-row-main">
                       <div class="boundary-row-top">
@@ -9303,10 +9761,10 @@ const UI = {
                     </div>
                   </article>
                 `;
-              })
-              .join("");
+                })
+                .join("");
 
-            return `
+              return `
               <article class="boundary-audience-card">
                 <div class="boundary-audience-header">
                   <div class="boundary-audience-copy">
@@ -9323,10 +9781,10 @@ const UI = {
                 </div>
               </article>
             `;
-          })
-          .join("");
+            })
+            .join("");
 
-        return `
+          return `
           <section class="boundary-category-section">
             <div class="boundary-category-header">
               <div class="boundary-category-copy">
@@ -9345,8 +9803,8 @@ const UI = {
             </div>
           </section>
         `;
-      })
-      .join(""),
+        })
+        .join(""),
     );
   },
 

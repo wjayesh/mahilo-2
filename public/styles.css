@@ -3912,6 +3912,48 @@ body {
   max-width: 44ch;
 }
 
+.agent-form-grid {
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.agent-mode-note,
+.agent-advanced-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 248, 240, 0.92) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+  border: 1px solid rgba(255, 158, 107, 0.16);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-light);
+}
+
+.agent-mode-note {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  padding: var(--space-md);
+}
+
+.agent-advanced-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+}
+
+.agent-advanced-panel.hidden {
+  display: none;
+}
+
 .boundary-editor-preview {
   background: linear-gradient(
     180deg,
@@ -4099,6 +4141,10 @@ body {
   animation: modalPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+.modal.modal-wide {
+  max-width: 680px;
+}
+
 .modal.hidden {
   display: none;
 }
@@ -4263,6 +4309,12 @@ body {
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.85rem;
+}
+
+@media (max-width: 720px) {
+  .agent-form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Profile Section */

@@ -875,7 +875,10 @@
                       Open Logs
                     </button>
                   </div>
-                  <div class="overview-audit-cues" id="overview-audit-cues"></div>
+                  <div
+                    class="overview-audit-cues"
+                    id="overview-audit-cues"
+                  ></div>
                   <div class="message-preview-list" id="overview-message-list">
                     <div class="empty-state small">
                       <div class="empty-icon">💌</div>
@@ -1595,85 +1598,187 @@
       <!-- Modals -->
       <div class="modal-overlay hidden" id="modal-overlay">
         <!-- Add Agent Modal -->
-        <div class="modal hidden" id="add-agent-modal">
+        <div class="modal modal-wide hidden" id="add-agent-modal">
           <div class="modal-header">
-            <h3>🤖 Add Sender Connection</h3>
+            <div class="modal-title-stack">
+              <h3 id="agent-modal-title">🤖 Add Sender Connection</h3>
+              <p id="agent-modal-copy">
+                Register a sender route that Mahilo can use on your behalf.
+              </p>
+            </div>
             <button class="modal-close">✕</button>
           </div>
           <div class="modal-body">
             <form id="add-agent-form">
-              <div class="input-group">
-                <label class="input-label">Framework</label>
-                <select
-                  class="squishy-input squishy-select"
-                  id="agent-framework"
-                  required
-                >
-                  <option value="">Select framework...</option>
-                  <option value="clawdbot">Clawdbot</option>
-                  <option value="langchain">LangChain</option>
-                  <option value="autogen">AutoGen</option>
-                  <option value="crewai">CrewAI</option>
-                  <option value="custom">Custom</option>
-                </select>
+              <div class="agent-form-grid">
+                <div class="input-group">
+                  <label class="input-label">Framework</label>
+                  <select
+                    class="squishy-input squishy-select"
+                    id="agent-framework"
+                    required
+                  >
+                    <option value="">Select framework...</option>
+                    <option value="openclaw">OpenClaw</option>
+                    <option value="clawdbot">Clawdbot</option>
+                    <option value="langchain">LangChain</option>
+                    <option value="autogen">AutoGen</option>
+                    <option value="crewai">CrewAI</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  <span class="input-hint"
+                    >Framework and label together identify this connection in
+                    Mahilo.</span
+                  >
+                </div>
+                <div class="input-group">
+                  <label class="input-label">Label</label>
+                  <input
+                    type="text"
+                    class="squishy-input"
+                    id="agent-label"
+                    placeholder="default, work, personal..."
+                    required
+                  />
+                </div>
               </div>
-              <div class="input-group">
-                <label class="input-label">Label</label>
-                <input
-                  type="text"
-                  class="squishy-input"
-                  id="agent-label"
-                  placeholder="work, personal, sports..."
-                  required
-                />
-              </div>
+
               <div class="input-group">
                 <label class="input-label">Description</label>
                 <input
                   type="text"
                   class="squishy-input"
                   id="agent-description"
-                  placeholder="What does this agent do?"
+                  placeholder="What does this sender connection do?"
                 />
               </div>
-              <div class="input-group">
+
+              <div class="agent-mode-panel">
+                <div class="input-group">
+                  <label class="input-label">Connection Mode</label>
+                  <select class="squishy-input squishy-select" id="agent-mode">
+                    <option value="webhook">Webhook</option>
+                    <option value="polling">Polling</option>
+                  </select>
+                  <span class="input-hint" id="agent-mode-hint"
+                    >Webhook connections expose an HTTP callback. Polling
+                    connections use Mahilo's inbox route.</span
+                  >
+                </div>
+                <div class="agent-mode-note hidden" id="agent-polling-note">
+                  Polling mode does not need a callback URL or callback secret.
+                  Mahilo delivers through the inbox route instead.
+                </div>
+              </div>
+
+              <div class="input-group" id="agent-callback-group">
                 <label class="input-label">Callback URL</label>
                 <input
                   type="url"
                   class="squishy-input"
                   id="agent-callback"
                   placeholder="https://your-agent.com/callback"
-                  required
                 />
-              </div>
-              <div class="input-group">
-                <label class="input-label"
-                  >Public Key (for E2E encryption)</label
+                <span class="input-hint" id="agent-callback-hint"
+                  >Mahilo uses this webhook for direct delivery and health
+                  checks.</span
                 >
-                <textarea
-                  class="squishy-input squishy-textarea"
-                  id="agent-public-key"
-                  placeholder="Your agent's public key (Ed25519 or X25519)..."
-                  rows="3"
-                ></textarea>
               </div>
-              <div class="input-group">
-                <label class="input-label"
-                  >Capabilities (comma-separated)</label
-                >
-                <input
-                  type="text"
-                  class="squishy-input"
-                  id="agent-capabilities"
-                  placeholder="sports, calendar, research..."
-                />
+
+              <button
+                class="squishy-btn btn-secondary btn-small btn-full"
+                id="agent-advanced-toggle"
+                type="button"
+              >
+                Advanced Fields
+              </button>
+
+              <div
+                class="agent-advanced-panel hidden"
+                id="agent-advanced-panel"
+              >
+                <div class="agent-form-grid">
+                  <div class="input-group">
+                    <label class="input-label">Routing Priority</label>
+                    <input
+                      type="number"
+                      class="squishy-input"
+                      id="agent-routing-priority"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value="0"
+                    />
+                    <span class="input-hint"
+                      >Higher numbers win automatic sender selection. Newer
+                      connections break ties.</span
+                    >
+                  </div>
+                  <div class="input-group">
+                    <label class="input-label"
+                      >Capabilities (comma-separated)</label
+                    >
+                    <input
+                      type="text"
+                      class="squishy-input"
+                      id="agent-capabilities"
+                      placeholder="calendar, ask-around"
+                    />
+                  </div>
+                </div>
+
+                <div class="input-group" id="agent-callback-secret-group">
+                  <label class="input-label">Callback Secret</label>
+                  <input
+                    type="text"
+                    class="squishy-input"
+                    id="agent-callback-secret"
+                    placeholder="Optional manual webhook secret"
+                  />
+                  <span class="input-hint" id="agent-callback-secret-hint"
+                    >Leave blank to let Mahilo keep the current secret or
+                    generate one when needed.</span
+                  >
+                </div>
+
+                <div class="input-group" id="agent-rotate-secret-group">
+                  <label class="input-checkbox">
+                    <input type="checkbox" id="agent-rotate-secret" />
+                    <span class="checkbox-blob"></span>
+                    <span>Generate a fresh callback secret on save</span>
+                  </label>
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label"
+                    >Public Key (for E2E encryption)</label
+                  >
+                  <textarea
+                    class="squishy-input squishy-textarea"
+                    id="agent-public-key"
+                    placeholder="Your agent's public key (Ed25519 or X25519)..."
+                    rows="3"
+                  ></textarea>
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label">Public Key Algorithm</label>
+                  <select
+                    class="squishy-input squishy-select"
+                    id="agent-public-key-alg"
+                  >
+                    <option value="ed25519">Ed25519</option>
+                    <option value="x25519">X25519</option>
+                  </select>
+                </div>
               </div>
             </form>
           </div>
           <div class="modal-footer">
             <button class="squishy-btn btn-secondary" data-close>Cancel</button>
             <button class="squishy-btn btn-primary" id="save-agent-btn">
-              <span>💾</span> Save Connection
+              <span>💾</span>
+              <span id="save-agent-label">Create Connection</span>
             </button>
           </div>
         </div>
@@ -1718,9 +1823,9 @@
               </p>
               <div class="info-box">
                 <p>
-                  💡 <strong>Tip:</strong> The Clawdbot Mahilo plugin
-                  auto-rotates this secret when you set
-                  <code>rotate_callback_secret: true</code> in your config.
+                  Mahilo only shows callback secrets when it issues or
+                  regenerates one. Store it in your agent runtime before you
+                  close this dialog.
                 </p>
               </div>
             </div>
@@ -1907,7 +2012,9 @@
                   required
                 >
                   <option value="opinions">Opinions and recommendations</option>
-                  <option value="availability">Availability and schedule</option>
+                  <option value="availability">
+                    Availability and schedule
+                  </option>
                   <option value="location">Location</option>
                   <option value="health">Health details</option>
                   <option value="financial">Financial details</option>
@@ -1928,7 +2035,8 @@
                   <option value="generic_message">Generic messages</option>
                 </select>
                 <span class="input-hint" id="policy-preset-hint"
-                  >Choose the specific selector this boundary should cover.</span
+                  >Choose the specific selector this boundary should
+                  cover.</span
                 >
               </div>
               <div class="input-group">
@@ -2021,7 +2129,9 @@
                 </div>
                 <div class="detail-row">
                   <span class="detail-label">Mode:</span>
-                  <span class="detail-value" id="detail-agent-mode">Webhook</span>
+                  <span class="detail-value" id="detail-agent-mode"
+                    >Webhook</span
+                  >
                 </div>
                 <div class="detail-row">
                   <span class="detail-label">Last seen:</span>
@@ -2055,7 +2165,9 @@
                 <div class="detail-row detail-row-stack">
                   <span class="detail-label">Callback health:</span>
                   <div class="detail-value detail-stack">
-                    <span class="status-badge unknown" id="detail-agent-health-badge"
+                    <span
+                      class="status-badge unknown"
+                      id="detail-agent-health-badge"
                       >Not checked</span
                     >
                     <p class="detail-copy" id="detail-agent-health-copy">
@@ -2082,7 +2194,10 @@
                 </div>
                 <div class="detail-row detail-row-stack">
                   <span class="detail-label">Routing note:</span>
-                  <p class="detail-value detail-copy" id="detail-agent-route-note">
+                  <p
+                    class="detail-value detail-copy"
+                    id="detail-agent-route-note"
+                  >
                     Mahilo will explain how this connection is selected.
                   </p>
                 </div>
@@ -2091,6 +2206,9 @@
           </div>
           <div class="modal-footer">
             <button class="squishy-btn btn-secondary" data-close>Close</button>
+            <button class="squishy-btn btn-secondary" id="edit-agent-btn">
+              <span>✏️</span> Edit
+            </button>
             <button class="squishy-btn btn-danger" id="delete-agent-btn">
               <span>🗑️</span> Delete
             </button>
