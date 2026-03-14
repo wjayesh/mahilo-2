@@ -205,7 +205,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T13:41:07.787Z: DASH-022 completed via orchestrator integration.
 ### 2.4 Group Detail, Members, and Readiness
 - **ID**: `DASH-023`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-021`, `DASH-022`
 - **Description**:
@@ -219,6 +219,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ---
 
+- **Notes**:
+  - 2026-03-14T14:44:21.610Z: DASH-023 completed via orchestrator integration.
 ## Phase 3: Sender Connections
 
 ### 3.1 Sender Connections Workspace
