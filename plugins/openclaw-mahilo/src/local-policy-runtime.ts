@@ -11,6 +11,7 @@ import {
   type LLMPolicyEvaluator,
   type LLMProviderAdapter,
   type PolicyResolverLayer,
+  type WinningPolicy,
 } from "@mahilo/policy-core";
 import type { MahiloContractClient } from "./client";
 import {
@@ -562,7 +563,10 @@ export async function evaluateGroupFanoutBundleLocally(
         localDecision,
       ),
     );
-    consumeSharedPolicyUse(sharedPolicyState, policyResult.winning_policy_id);
+    consumeSharedPolicyUse(
+      sharedPolicyState,
+      resolveCommittedWinningPolicyId(policyResult),
+    );
   }
   const aggregate = buildGroupAggregateResult(
     recipientResults,
@@ -787,6 +791,8 @@ function createLocalPolicyDecisionDiagnosticsTracker(
             }
           : undefined;
 
+      const winningPolicy = resolveCommittedWinningPolicy(policyResult);
+
       return {
         applicable_policy_count: state.applicablePolicyCount,
         bundle_id: state.bundleMetadata.bundle_id,
@@ -824,10 +830,10 @@ function createLocalPolicyDecisionDiagnosticsTracker(
           ),
         },
         winning_policy: {
-          effect: policyResult.winning_policy?.effect ?? null,
-          evaluator: policyResult.winning_policy?.evaluator ?? null,
-          policy_id: policyResult.winning_policy_id ?? null,
-          scope: policyResult.winning_policy?.scope ?? null,
+          effect: winningPolicy?.effect ?? null,
+          evaluator: winningPolicy?.evaluator ?? null,
+          policy_id: winningPolicy?.policy_id ?? null,
+          scope: winningPolicy?.scope ?? null,
         },
       };
     },
@@ -888,6 +894,7 @@ function toLocalDecision(
   diagnostics?: LocalPolicyDecisionDiagnostics,
 ): LocalPolicyDecisionDetails {
   const deliveryMode = resolveDeliveryMode(policyResult.effect, direction);
+  const winningPolicyId = resolveCommittedWinningPolicyId(policyResult);
 
   return {
     decision: policyResult.effect,
@@ -904,10 +911,26 @@ function toLocalDecision(
     resolution_explanation: policyResult.resolution_explanation,
     resolver_layer: policyResult.resolver_layer,
     guardrail_id: policyResult.guardrail_id,
-    winning_policy_id: policyResult.winning_policy_id,
+    winning_policy_id: winningPolicyId,
     matched_policy_ids: policyResult.matched_policy_ids,
     evaluated_policies: policyResult.evaluated_policies,
   };
+}
+
+function resolveCommittedWinningPolicyId(
+  policyResult: ResolvedLocalPolicyResult,
+): string | undefined {
+  return isDegradedLLMReasonCode(policyResult.reason_code)
+    ? undefined
+    : policyResult.winning_policy_id;
+}
+
+function resolveCommittedWinningPolicy(
+  policyResult: ResolvedLocalPolicyResult,
+): WinningPolicy | undefined {
+  return resolveCommittedWinningPolicyId(policyResult)
+    ? policyResult.winning_policy
+    : undefined;
 }
 
 function resolveDeliveryMode(

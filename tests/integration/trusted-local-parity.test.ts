@@ -391,6 +391,104 @@ describe("Trusted vs local policy parity (LPE-055)", () => {
     }
   });
 
+  it("commits degraded local llm reviews without claiming an incompatible winning policy", async () => {
+    const db = getTestDb();
+    const participants = await setupDirectParticipants("llm_degraded_commit");
+    await insertCanonicalPolicy({
+      action: "share",
+      direction: "outbound",
+      effect: "deny",
+      evaluator: "llm",
+      policy_content: "Never share a person's exact location without consent.",
+      priority: 100,
+      resource: "location.current",
+      scope: "user",
+      target_id: participants.recipient.id,
+      user_id: participants.sender.id,
+    });
+
+    await db.insert(schema.userPreferences).values({
+      createdAt: new Date(),
+      defaultLlmModel: "gpt-4o-mini",
+      defaultLlmProvider: "openai",
+      quietHoursEnabled: false,
+      updatedAt: new Date(),
+      urgentBehavior: "preferred_only",
+      userId: participants.sender.id,
+    });
+
+    setTrustedMode(false);
+    const selectors = {
+      action: "share",
+      direction: "outbound" as const,
+      resource: "location.current",
+    };
+    const localBundleResponse = await app.request(
+      "/api/v1/plugin/bundles/direct-send",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${participants.senderKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          recipient: participants.recipient.username,
+          recipient_type: "user",
+          sender_connection_id: participants.senderConnection.id,
+          declared_selectors: selectors,
+        }),
+      },
+    );
+
+    expect(localBundleResponse.status).toBe(200);
+    const localBundle =
+      (await localBundleResponse.json()) as DirectSendPolicyBundle;
+    const localResult = await evaluateDirectSendBundleLocally(
+      localBundle,
+      {
+        message: "Alice is at home right now.",
+        context: "Checking whether an exact location can be shared.",
+        recipient: participants.recipient.username,
+        senderConnectionId: participants.senderConnection.id,
+        declaredSelectors: selectors,
+      },
+      {
+        llmErrorMode: "ask",
+        llmUnavailableMode: "ask",
+      },
+    );
+
+    expect(localResult.local_decision).toMatchObject({
+      decision: "ask",
+      delivery_mode: "review_required",
+      reason_code: "policy.ask.llm.unavailable",
+    });
+    expect(localResult.local_decision.winning_policy_id).toBeUndefined();
+    expect(localResult.commit_payload.local_decision.winning_policy_id).toBeUndefined();
+
+    const commitResponse = await app.request(
+      "/api/v1/plugin/local-decisions/commit",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${participants.senderKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(localResult.commit_payload),
+      },
+    );
+
+    expect(commitResponse.status).toBe(200);
+    const commitBody = await commitResponse.json();
+    expect(commitBody).toMatchObject({
+      status: "review_required",
+      resolution: {
+        decision: "ask",
+        reason_code: "policy.ask.llm.unavailable",
+      },
+    });
+  });
+
   it("keeps lifecycle-limited direct decisions aligned once local parity is compared at commit time", async () => {
     const trusted = await setupDirectParticipants("trusted_lifecycle_parity");
     const local = await setupDirectParticipants("local_lifecycle_parity");

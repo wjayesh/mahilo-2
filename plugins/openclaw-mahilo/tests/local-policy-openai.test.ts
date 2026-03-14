@@ -343,6 +343,7 @@ describe("local policy OpenAI adapter", () => {
       delivery_mode: "review_required",
       reason_code: "policy.ask.llm.unavailable",
     });
+    expect(result.local_decision.winning_policy_id).toBeUndefined();
     expect(result.local_decision.summary).toContain(
       "policy.ask.llm.unavailable",
     );
@@ -353,6 +354,7 @@ describe("local policy OpenAI adapter", () => {
     expect(result.commit_payload.local_decision.reason_code).toBe(
       "policy.ask.llm.unavailable",
     );
+    expect(result.commit_payload.local_decision.winning_policy_id).toBeUndefined();
     expect(result.local_decision.diagnostics).toEqual(
       expect.objectContaining({
         bundle_id: "bundle_direct_openai_1",
@@ -373,6 +375,12 @@ describe("local policy OpenAI adapter", () => {
           provider: "openai",
           provider_invocation_count: 0,
         }),
+        winning_policy: {
+          effect: null,
+          evaluator: null,
+          policy_id: null,
+          scope: null,
+        },
       }),
     );
   });
