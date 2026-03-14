@@ -3810,6 +3810,106 @@ body {
   margin-bottom: var(--space-lg);
 }
 
+.boundary-suggestions-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(232, 244, 252, 0.98) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+  border: 1px dashed rgba(63, 129, 181, 0.34);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-lg);
+}
+
+.boundary-suggestions-panel.hidden {
+  display: none;
+}
+
+.boundary-suggestions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+
+.boundary-suggestions-copy {
+  max-width: 60ch;
+}
+
+.boundary-suggestions-copy h3 {
+  color: var(--color-text);
+  font-size: 1.2rem;
+  margin-bottom: var(--space-xs);
+}
+
+.boundary-suggestion-list {
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.boundary-suggestion-card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(63, 129, 181, 0.18);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.boundary-suggestion-card.allow {
+  border-color: rgba(107, 203, 119, 0.24);
+}
+
+.boundary-suggestion-card.ask {
+  border-color: rgba(255, 217, 61, 0.28);
+}
+
+.boundary-suggestion-card.deny {
+  border-color: rgba(255, 107, 107, 0.24);
+}
+
+.boundary-suggestion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.boundary-suggestion-copy {
+  min-width: 0;
+}
+
+.boundary-suggestion-title {
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: var(--font-weight-bold);
+}
+
+.boundary-suggestion-copy .boundary-row-summary {
+  margin-top: 8px;
+}
+
+.boundary-suggestion-copy .boundary-row-footnote {
+  margin-top: 0;
+}
+
+.boundary-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.policy-badge.suggestion-pending {
+  background: rgba(63, 129, 181, 0.14);
+  color: var(--color-secondary-dark);
+}
+
 .boundary-summary-card {
   background: var(--color-card);
   border: 1px solid rgba(255, 158, 107, 0.14);
@@ -6695,6 +6795,8 @@ body {
   }
 
   .boundaries-hero,
+  .boundary-suggestions-header,
+  .boundary-suggestion-header,
   .boundaries-browser-header,
   .boundary-category-header,
   .boundary-audience-header,

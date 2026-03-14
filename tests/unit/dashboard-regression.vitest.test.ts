@@ -613,6 +613,18 @@ function createAuthFlowFetchHandler() {
       });
     }
 
+    if (path === "/api/v1/plugin/suggestions/promotions?limit=20") {
+      return createJsonResponse({
+        learning: {
+          evaluated_override_count: 0,
+          lookback_days: 30,
+          min_repetitions: 3,
+          total_pattern_count: 0,
+        },
+        promotion_suggestions: [],
+      });
+    }
+
     if (path === "/api/v1/policies") {
       return createJsonResponse([
         {
@@ -1104,6 +1116,7 @@ describe("Dashboard frontend regression harness", () => {
         "/api/v1/messages?limit=50",
         "/api/v1/plugin/reviews?limit=25",
         "/api/v1/plugin/events/blocked?limit=25&include_payload_excerpt=true",
+        "/api/v1/plugin/suggestions/promotions?limit=20",
         "/api/v1/policies",
       ]),
     );

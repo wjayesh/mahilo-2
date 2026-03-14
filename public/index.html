@@ -1676,6 +1676,36 @@
                 class="boundaries-summary-grid"
                 id="boundaries-summary-grid"
               ></div>
+              <section
+                class="boundary-suggestions-panel hidden"
+                id="boundary-suggestions-panel"
+              >
+                <div class="boundary-suggestions-header">
+                  <div class="boundary-suggestions-copy">
+                    <p class="friends-eyebrow">Learning suggestions</p>
+                    <h3 id="boundary-suggestions-title">
+                      Promote repeated overrides into durable boundaries
+                    </h3>
+                    <p
+                      class="friends-content-copy"
+                      id="boundary-suggestions-description"
+                    >
+                      Mahilo can surface repeated temporary decisions here
+                      before you turn them into enforced boundaries.
+                    </p>
+                  </div>
+                  <div
+                    class="friends-total-chip"
+                    id="boundary-suggestions-total"
+                  >
+                    0 suggestions
+                  </div>
+                </div>
+                <div
+                  class="boundary-suggestion-list"
+                  id="boundary-suggestions-list"
+                ></div>
+              </section>
               <div class="boundaries-filter-panel">
                 <div class="boundaries-filter-group">
                   <div class="boundaries-filter-copy">
@@ -2347,6 +2377,9 @@
                   <option value="financial">Financial details</option>
                   <option value="contact">Contact details</option>
                   <option value="generic">Generic messages</option>
+                  <option value="advanced" hidden>
+                    Advanced/custom boundary
+                  </option>
                 </select>
                 <span class="input-hint" id="policy-category-hint"
                   >Pick the category this common boundary should manage.</span

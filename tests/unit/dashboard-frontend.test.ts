@@ -836,6 +836,7 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
         "/api/v1/preferences",
         "/api/v1/plugin/events/blocked?limit=25&include_payload_excerpt=true",
         "/api/v1/plugin/reviews?limit=25",
+        "/api/v1/plugin/suggestions/promotions?limit=20",
         "/api/v1/policies",
         "/api/v1/roles",
       ].sort(),
@@ -2423,6 +2424,290 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     expect(html).toContain(">Learned<");
     expect(html).toContain("handleInspectPolicy('pol_override_once')");
     expect(html).toContain("handleInspectPolicy('pol_override_temp')");
+  });
+
+  it("renders promotion suggestions in a separate learning section with a promotion CTA", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(
+          `Unexpected fetch while testing promotion suggestion rendering: ${url}`,
+        );
+      },
+    });
+
+    await harness.boot();
+
+    const { Helpers, Normalizers, State, UI } = harness.dashboard;
+
+    State.friends = [
+      {
+        displayName: "Alice",
+        friendshipId: "fr_alice",
+        status: "accepted",
+        userId: "usr_alice",
+        username: "alice",
+      },
+    ];
+
+    Helpers.applyCollectionState(
+      "policies",
+      "policiesById",
+      Normalizers.policiesModel([
+        {
+          id: "pol_generic_guardrail",
+          scope: "global",
+          direction: "outbound",
+          resource: "message.general",
+          action: "share",
+          effect: "ask",
+          evaluator: "structured",
+          policy_content: "Pause generic sharing for review.",
+          enabled: true,
+          source: "user_created",
+        },
+      ]),
+    );
+
+    const suggestionPayload = {
+      learning: {
+        lookback_days: 30,
+        min_repetitions: 3,
+      },
+      promotion_suggestions: [
+        {
+          suggestion_id: "sugg_location_alice",
+          repeated_override_pattern: {
+            count: 3,
+            first_seen_at: "2026-03-10T10:00:00.000Z",
+            kinds: ["one_time"],
+            last_seen_at: "2026-03-14T12:00:00.000Z",
+            override_policy_ids: [
+              "pol_override_1",
+              "pol_override_2",
+              "pol_override_3",
+            ],
+            sample_reasons: ["Approved current location for pickup."],
+            source_resolution_ids: ["res_override_1"],
+          },
+          selectors: {
+            action: "share",
+            direction: "outbound",
+            resource: "location.current",
+          },
+          suggested_policy: {
+            scope: "user",
+            target_id: "usr_alice",
+            direction: "outbound",
+            resource: "location.current",
+            action: "share",
+            effect: "allow",
+            evaluator: "structured",
+            source: "user_confirmed",
+            learning_provenance: {
+              source_interaction_id: null,
+              promoted_from_policy_ids: [
+                "pol_override_1",
+                "pol_override_2",
+                "pol_override_3",
+              ],
+            },
+          },
+        },
+      ],
+    };
+
+    State.promotionSuggestionLearning =
+      Normalizers.promotionSuggestionLearning(suggestionPayload);
+    State.promotionSuggestionsStatus = "loaded";
+    Helpers.applyCollectionState(
+      "promotionSuggestions",
+      "promotionSuggestionsById",
+      Normalizers.promotionSuggestionsModel(suggestionPayload),
+    );
+
+    UI.renderPolicies("all");
+
+    const suggestionHtml = harness.getElement(
+      "boundary-suggestions-list",
+    ).innerHTML;
+    const boundaryHtml = harness.getElement("policies-list").innerHTML;
+
+    expect(
+      harness.getElement("boundary-suggestions-panel").classList.contains(
+        "hidden",
+      ),
+    ).toBe(false);
+    expect(suggestionHtml).toContain("Current location");
+    expect(suggestionHtml).toContain("Contact: Alice");
+    expect(suggestionHtml).toContain("Not enforced yet");
+    expect(suggestionHtml).toContain("Promote to boundary");
+    expect(suggestionHtml).toContain(
+      "handlePromoteSuggestion('sugg_location_alice')",
+    );
+    expect(boundaryHtml).toContain("handleEditPolicy('pol_generic_guardrail')");
+    expect(boundaryHtml).not.toContain(
+      "handlePromoteSuggestion('sugg_location_alice')",
+    );
+  });
+
+  it("prefills the boundary editor from a promotion suggestion and hides it once a durable boundary exists", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "promotion_boundary_viewer",
+    );
+    const { user: recipient } = await createTestUser(
+      "promotion_boundary_recipient",
+    );
+    await createFriendship(viewer.id, recipient.id, "accepted");
+
+    const makeOverrideStorage = (
+      sourceResolutionId: string,
+      reason: string,
+    ) =>
+      canonicalToStorage({
+        scope: "user",
+        target_id: recipient.id,
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {
+          _mahilo_override: {
+            kind: "one_time",
+            reason,
+            sender_connection_id: "conn_promotion_seed",
+            source_resolution_id: sourceResolutionId,
+          },
+        },
+        effective_from: null,
+        expires_at: null,
+        max_uses: 1,
+        remaining_uses: 1,
+        source: "override",
+        derived_from_message_id: null,
+        learning_provenance: {
+          source_interaction_id: sourceResolutionId,
+          promoted_from_policy_ids: [],
+        },
+        priority: 90,
+        enabled: true,
+      });
+
+    const overrideSeeds = [
+      {
+        createdAt: new Date("2026-03-10T10:00:00.000Z"),
+        id: "pol_override_seed_1",
+        storage: makeOverrideStorage(
+          "res_override_seed_1",
+          "Approved current location for pickup.",
+        ),
+      },
+      {
+        createdAt: new Date("2026-03-12T11:00:00.000Z"),
+        id: "pol_override_seed_2",
+        storage: makeOverrideStorage(
+          "res_override_seed_2",
+          "Approved current location for arrival coordination.",
+        ),
+      },
+      {
+        createdAt: new Date("2026-03-14T09:00:00.000Z"),
+        id: "pol_override_seed_3",
+        storage: makeOverrideStorage(
+          "res_override_seed_3",
+          "Approved current location for meeting up.",
+        ),
+      },
+    ];
+
+    await db.insert(schema.policies).values(
+      overrideSeeds.map(({ createdAt, id, storage }) => ({
+        action: storage.action,
+        createdAt,
+        derivedFromMessageId: storage.derivedFromMessageId,
+        direction: storage.direction,
+        effect: storage.effect,
+        effectiveFrom: storage.effectiveFrom,
+        enabled: true,
+        evaluator: storage.evaluator,
+        expiresAt: storage.expiresAt,
+        id,
+        maxUses: storage.maxUses,
+        policyContent: storage.policyContent,
+        policyType: storage.policyType,
+        priority: 90,
+        remainingUses: storage.remainingUses,
+        resource: storage.resource,
+        scope: "user",
+        source: storage.source,
+        targetId: recipient.id,
+        userId: viewer.id,
+      })),
+    );
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+    harness.dashboard.UI.renderPolicies("all");
+
+    expect(harness.dashboard.State.promotionSuggestions).toHaveLength(1);
+    const suggestion = harness.dashboard.State.promotionSuggestions[0];
+
+    expect(harness.getElement("boundary-suggestions-list").innerHTML).toContain(
+      `handlePromoteSuggestion('${suggestion.id}')`,
+    );
+
+    harness.dashboard.UI.handlePromoteSuggestion(suggestion.id);
+
+    expect(harness.getElement("policy-modal-title").textContent).toBe(
+      "🛡️ Promote Boundary Suggestion",
+    );
+    expect(harness.getElement("policy-scope").value).toBe("user");
+    expect(harness.getElement("policy-target-id").value).toBe(recipient.id);
+    expect(harness.getElement("policy-category").value).toBe("location");
+    expect(harness.getElement("policy-preset").value).toBe("location_current");
+    expect(harness.getElement("policy-effect").value).toBe("allow");
+    expect(harness.getElement("policy-direction-note").textContent).toContain(
+      "outbound sharing",
+    );
+
+    await harness.dashboard.UI.handleCreatePolicy();
+    await flushDashboardWork();
+
+    const policies = await db
+      .select()
+      .from(schema.policies)
+      .where(eq(schema.policies.userId, viewer.id));
+    const durablePolicies = policies.filter((policy) => policy.source !== "override");
+
+    expect(durablePolicies).toHaveLength(1);
+    expect(durablePolicies[0]).toEqual(
+      expect.objectContaining({
+        action: "share",
+        direction: "outbound",
+        effect: "allow",
+        evaluator: "structured",
+        resource: "location.current",
+        scope: "user",
+        targetId: recipient.id,
+      }),
+    );
+    expect(
+      harness.getElement("boundary-suggestions-panel").classList.contains(
+        "hidden",
+      ),
+    ).toBe(true);
   });
 
   it("creates guided common boundaries for global, contact, role, and group scopes against the live policies API", async () => {

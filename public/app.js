@@ -121,6 +121,11 @@ const State = {
   blockedEvents: [],
   blockedEventsById: new Map(),
   blockedEventRetention: null,
+  promotionSuggestions: [],
+  promotionSuggestionsById: new Map(),
+  promotionSuggestionLearning: null,
+  promotionSuggestionsStatus: "idle",
+  promotionSuggestionsError: null,
   preferences: null,
   conversations: new Map(),
   currentView: "overview",
@@ -220,6 +225,11 @@ const State = {
     this.blockedEvents = [];
     this.blockedEventsById = new Map();
     this.blockedEventRetention = null;
+    this.promotionSuggestions = [];
+    this.promotionSuggestionsById = new Map();
+    this.promotionSuggestionLearning = null;
+    this.promotionSuggestionsStatus = "idle";
+    this.promotionSuggestionsError = null;
     this.preferences = null;
     this.conversations = new Map();
     this.currentView = "overview";
@@ -553,6 +563,23 @@ const API = {
       }
       const query = params.toString();
       return API.request(`/plugin/events/blocked${query ? `?${query}` : ""}`);
+    },
+
+    async promotionSuggestions(options = {}) {
+      const params = new URLSearchParams();
+      if (options.minRepetitions) {
+        params.append("min_repetitions", options.minRepetitions);
+      }
+      if (options.lookbackDays) {
+        params.append("lookback_days", options.lookbackDays);
+      }
+      if (options.limit) {
+        params.append("limit", options.limit);
+      }
+      const query = params.toString();
+      return API.request(
+        `/plugin/suggestions/promotions${query ? `?${query}` : ""}`,
+      );
     },
   },
 };
@@ -2743,6 +2770,7 @@ const COMMON_BOUNDARY_PRESETS = {
 
 const DEFAULT_BOUNDARY_CATEGORY = "generic";
 const DEFAULT_BOUNDARY_EFFECT = "ask";
+const PROMOTION_SUGGESTION_PRESET_ID = "__promotion_suggestion_selector__";
 
 function listBoundaryPresetOptions(category) {
   const normalizedCategory = Helpers.string(
@@ -2765,6 +2793,27 @@ function findBoundaryPreset(category, presetId) {
     options[0] ||
     null
   );
+}
+
+function buildPromotionSuggestionPreset(draft = {}) {
+  const resource = Helpers.string(draft.resource, "message.general");
+  const action = Helpers.nullableString(draft.action) || "share";
+  const selectorLabel =
+    Helpers.nullableString(draft.selectorLabel) ||
+    Helpers.selectorSummary({
+      direction: Helpers.string(draft.direction, "outbound"),
+      resource,
+      action,
+    }) ||
+    `${resource} / ${action}`;
+
+  return {
+    id: PROMOTION_SUGGESTION_PRESET_ID,
+    label: selectorLabel,
+    description: `Promote exactly ${resource}${action ? ` / ${action}` : ""} as a durable boundary.`,
+    resource,
+    action,
+  };
 }
 
 function resolveBoundaryPresetFromSelectors(category, resource, action) {
@@ -3503,6 +3552,101 @@ function buildBoundaryAudienceSummary(policy, audienceLabel) {
     policy.boundary?.audience?.summary,
     "Applies across every conversation unless a narrower boundary wins.",
   );
+}
+
+function doesPolicyMatchPromotionSuggestion(policy, suggestion) {
+  if (!policy || !suggestion) {
+    return false;
+  }
+
+  const lifecycle = policy.boundary?.lifecycle || buildBoundaryLifecycle(policy);
+  if (!lifecycle.isActive) {
+    return false;
+  }
+
+  if (Helpers.string(policy.source).toLowerCase() === "override") {
+    return false;
+  }
+
+  return (
+    Helpers.string(policy.scope, "global") ===
+      Helpers.string(suggestion.scope, "global") &&
+    (Helpers.nullableString(policy.targetId) || null) ===
+      (Helpers.nullableString(suggestion.targetId) || null) &&
+    Helpers.string(policy.direction, "outbound") ===
+      Helpers.string(suggestion.direction, "outbound") &&
+    Helpers.string(policy.resource, "message.general") ===
+      Helpers.string(suggestion.resource, "message.general") &&
+    (Helpers.nullableString(policy.action) || "share") ===
+      (Helpers.nullableString(suggestion.action) || "share") &&
+    Helpers.string(policy.effect, DEFAULT_BOUNDARY_EFFECT) ===
+      Helpers.string(suggestion.effect, DEFAULT_BOUNDARY_EFFECT)
+  );
+}
+
+function isPromotionSuggestionAlreadyEnforced(
+  suggestion,
+  policies = State.policies,
+) {
+  return (Array.isArray(policies) ? policies : []).some((policy) =>
+    doesPolicyMatchPromotionSuggestion(policy, suggestion),
+  );
+}
+
+function buildPromotionSuggestionSummary(suggestion) {
+  const policy = suggestion?.suggestedPolicy || {};
+  const selectorLabel =
+    Helpers.string(
+      suggestion?.boundary?.selector?.label,
+      Helpers.selectorSummary(suggestion?.selectors) || "matching content",
+    ) || "matching content";
+  const audienceLabel = Helpers.string(
+    suggestion?.audienceLabel,
+    Helpers.policyAudienceDisplay(policy),
+  );
+  const effect = Helpers.string(suggestion?.effect, DEFAULT_BOUNDARY_EFFECT);
+  const outcomeCopy =
+    {
+      allow: "are shared automatically",
+      ask: "pause for review before sending",
+      deny: "stay blocked",
+    }[effect] || "follow the same outcome";
+
+  return `Mahilo noticed ${Helpers.pluralize(
+    suggestion?.repeatedOverridePattern?.count || 0,
+    "temporary override",
+  )} for ${boundarySelectorPhrase(selectorLabel)} ${buildBoundaryAudienceNarrative(
+    policy,
+    audienceLabel,
+  )}. Save a durable boundary so future matches ${outcomeCopy}.`;
+}
+
+function buildPromotionSuggestionEvidence(suggestion) {
+  const pattern = Helpers.record(suggestion?.repeatedOverridePattern);
+  const firstSeenAt = Helpers.nullableString(pattern.firstSeenAt);
+  const lastSeenAt = Helpers.nullableString(pattern.lastSeenAt);
+  const reasons = Helpers.stringList(pattern.sampleReasons).slice(0, 2);
+  const parts = [];
+
+  if (firstSeenAt && lastSeenAt) {
+    if (firstSeenAt === lastSeenAt) {
+      parts.push(`Seen ${Helpers.formatShortDate(lastSeenAt)}.`);
+    } else {
+      parts.push(
+        `Seen from ${Helpers.formatShortDate(firstSeenAt)} to ${Helpers.formatShortDate(lastSeenAt)}.`,
+      );
+    }
+  } else if (lastSeenAt) {
+    parts.push(`Last seen ${Helpers.formatShortDate(lastSeenAt)}.`);
+  } else if (firstSeenAt) {
+    parts.push(`First seen ${Helpers.formatShortDate(firstSeenAt)}.`);
+  }
+
+  if (reasons.length) {
+    parts.push(`Recent reasons: ${reasons.join(" • ")}.`);
+  }
+
+  return parts.join(" ");
 }
 
 function compareBoundaryPolicies(left, right) {
@@ -4400,6 +4544,152 @@ const Normalizers = {
     };
   },
 
+  promotionSuggestionLearning(value) {
+    const record = Helpers.record(Helpers.record(value).learning);
+
+    return {
+      minRepetitions: Helpers.number(
+        record.min_repetitions ?? record.minRepetitions,
+        0,
+      ),
+      lookbackDays: Helpers.number(
+        record.lookback_days ?? record.lookbackDays,
+        0,
+      ),
+      evaluatedOverrideCount: Helpers.number(
+        record.evaluated_override_count ?? record.evaluatedOverrideCount,
+        0,
+      ),
+      totalPatternCount: Helpers.number(
+        record.total_pattern_count ?? record.totalPatternCount,
+        0,
+      ),
+      raw: record,
+    };
+  },
+
+  promotionSuggestions(value) {
+    return Helpers.collection(value, [
+      "promotion_suggestions",
+      "items",
+      "results",
+      "data",
+    ])
+      .map((entry) => this.promotionSuggestion(entry))
+      .filter(Boolean);
+  },
+
+  promotionSuggestionsModel(value) {
+    return Helpers.collectionModel(
+      this.promotionSuggestions(value),
+      (suggestion) => suggestion.id,
+    );
+  },
+
+  promotionSuggestion(value) {
+    const record = Helpers.record(value);
+    const id = Helpers.nullableString(record.suggestion_id ?? record.id);
+
+    if (!id) {
+      return null;
+    }
+
+    const suggestedPolicyRecord = Helpers.record(record.suggested_policy);
+    const scope = Helpers.string(suggestedPolicyRecord.scope, "global");
+    const targetId = Helpers.nullableString(
+      suggestedPolicyRecord.target_id ?? suggestedPolicyRecord.targetId,
+    );
+    const direction = Helpers.string(suggestedPolicyRecord.direction, "outbound");
+    const resource = Helpers.string(
+      suggestedPolicyRecord.resource,
+      Helpers.string(record.selectors?.resource, "message.general"),
+    );
+    const action =
+      Helpers.nullableString(suggestedPolicyRecord.action) ||
+      Helpers.nullableString(record.selectors?.action) ||
+      "share";
+    const effect = Helpers.string(
+      suggestedPolicyRecord.effect,
+      DEFAULT_BOUNDARY_EFFECT,
+    );
+    const learningProvenance = Helpers.record(
+      suggestedPolicyRecord.learning_provenance,
+    );
+    const suggestedPolicy = this.policy({
+      action,
+      direction,
+      effect,
+      evaluator: Helpers.string(suggestedPolicyRecord.evaluator, "structured"),
+      id,
+      learning_provenance: learningProvenance,
+      policy_content: {},
+      resource,
+      scope,
+      source: "learned",
+      target_id: targetId,
+    });
+    const boundary = suggestedPolicy?.boundary || null;
+    const preset = suggestedPolicy
+      ? resolveBoundaryPresetFromPolicy(suggestedPolicy)
+      : null;
+    const repeatedOverridePattern = Helpers.record(
+      record.repeated_override_pattern,
+    );
+
+    return {
+      kind: "promotion_suggestion",
+      id,
+      suggestionId: id,
+      scope,
+      targetId,
+      direction,
+      resource,
+      action,
+      effect,
+      selectors: Helpers.mergeSelectors(record.selectors, {
+        action,
+        direction,
+        resource,
+      }),
+      suggestedPolicy,
+      boundary,
+      category: boundary?.category || inferBoundaryCategory(resource, action, ""),
+      audienceLabel: suggestedPolicy
+        ? Helpers.policyAudienceDisplay(suggestedPolicy)
+        : buildBoundaryAudience(scope, targetId).displayLabel,
+      canUseGuidedEditor: Boolean(
+        preset &&
+          suggestedPolicy?.boundary?.managementPath === "guided",
+      ),
+      presetId: preset?.id || null,
+      repeatedOverridePattern: {
+        count: Helpers.number(repeatedOverridePattern.count, 0),
+        firstSeenAt: Helpers.iso(
+          repeatedOverridePattern.first_seen_at ??
+            repeatedOverridePattern.firstSeenAt,
+        ),
+        lastSeenAt: Helpers.iso(
+          repeatedOverridePattern.last_seen_at ??
+            repeatedOverridePattern.lastSeenAt,
+        ),
+        overridePolicyIds: Helpers.stringList(
+          repeatedOverridePattern.override_policy_ids ??
+            repeatedOverridePattern.overridePolicyIds,
+        ),
+        kinds: Helpers.stringList(repeatedOverridePattern.kinds),
+        sampleReasons: Helpers.stringList(
+          repeatedOverridePattern.sample_reasons ??
+            repeatedOverridePattern.sampleReasons,
+        ),
+        sourceResolutionIds: Helpers.stringList(
+          repeatedOverridePattern.source_resolution_ids ??
+            repeatedOverridePattern.sourceResolutionIds,
+        ),
+      },
+      raw: value,
+    };
+  },
+
   reviewQueue(value) {
     const record = Helpers.record(Helpers.record(value).review_queue);
 
@@ -4606,6 +4896,7 @@ const DataLoader = {
       this.loadGroups(),
       this.loadLogFeed(),
       this.loadPolicies(),
+      this.loadPromotionSuggestions(),
       this.loadPreferences(),
     ]);
   },
@@ -4833,6 +5124,36 @@ const DataLoader = {
       UI.renderPolicies(State.boundaryScopeFilter);
     } catch (error) {
       console.error("Failed to load policies:", error);
+    }
+  },
+
+  async loadPromotionSuggestions() {
+    State.promotionSuggestionsStatus = "loading";
+    State.promotionSuggestionsError = null;
+    UI.renderPolicies(State.boundaryScopeFilter);
+
+    try {
+      const payload = await API.plugin.promotionSuggestions({ limit: 20 });
+      State.promotionSuggestionLearning =
+        Normalizers.promotionSuggestionLearning(payload);
+      const suggestionsModel = Normalizers.promotionSuggestionsModel(payload);
+      Helpers.applyCollectionState(
+        "promotionSuggestions",
+        "promotionSuggestionsById",
+        suggestionsModel,
+      );
+      State.promotionSuggestionsStatus = "loaded";
+      State.promotionSuggestionsError = null;
+      UI.renderPolicies(State.boundaryScopeFilter);
+    } catch (error) {
+      State.promotionSuggestionLearning = null;
+      State.promotionSuggestions = [];
+      State.promotionSuggestionsById = new Map();
+      State.promotionSuggestionsStatus = "error";
+      State.promotionSuggestionsError =
+        error.message || "Failed to load promotion suggestions.";
+      UI.renderPolicies(State.boundaryScopeFilter);
+      console.error("Failed to load promotion suggestions:", error);
     }
   },
 
@@ -6531,6 +6852,75 @@ const UI = {
     return policyId ? State.policiesById.get(policyId) || null : null;
   },
 
+  getBoundaryEditorDraft() {
+    const form = document.getElementById("create-policy-form");
+
+    if (!form || Helpers.string(form.dataset.draftKind) !== "promotion") {
+      return null;
+    }
+
+    return {
+      action: Helpers.nullableString(form.dataset.draftAction) || "share",
+      category: Helpers.string(
+        form.dataset.draftCategory,
+        DEFAULT_BOUNDARY_CATEGORY,
+      ),
+      categoryLabel: Helpers.nullableString(form.dataset.draftCategoryLabel),
+      count: Helpers.number(form.dataset.draftCount, 0),
+      direction: Helpers.string(form.dataset.draftDirection, "outbound"),
+      effect: Helpers.string(form.dataset.draftEffect, DEFAULT_BOUNDARY_EFFECT),
+      lookbackDays: Helpers.number(form.dataset.draftLookbackDays, 0),
+      resource: Helpers.string(form.dataset.draftResource, "message.general"),
+      scope: Helpers.string(form.dataset.draftScope, "global"),
+      selectorLabel: Helpers.nullableString(form.dataset.draftSelectorLabel),
+      selectorLocked: form.dataset.draftSelectorLocked === "true",
+      suggestionId: Helpers.nullableString(form.dataset.draftSuggestionId),
+      targetId: Helpers.nullableString(form.dataset.draftTargetId),
+    };
+  },
+
+  setBoundaryEditorDraft(draft = null) {
+    const form = document.getElementById("create-policy-form");
+    const categoryInput = document.getElementById("policy-category");
+    const presetInput = document.getElementById("policy-preset");
+
+    if (!form) {
+      return;
+    }
+
+    form.dataset.draftKind = draft ? "promotion" : "";
+    form.dataset.draftSuggestionId = draft?.suggestionId || "";
+    form.dataset.draftScope = draft?.scope || "";
+    form.dataset.draftTargetId = draft?.targetId || "";
+    form.dataset.draftDirection = draft?.direction || "";
+    form.dataset.draftResource = draft?.resource || "";
+    form.dataset.draftAction = draft?.action || "";
+    form.dataset.draftEffect = draft?.effect || "";
+    form.dataset.draftCount = String(
+      typeof draft?.count === "number" && Number.isFinite(draft.count)
+        ? draft.count
+        : 0,
+    );
+    form.dataset.draftLookbackDays = String(
+      typeof draft?.lookbackDays === "number" &&
+        Number.isFinite(draft.lookbackDays)
+        ? draft.lookbackDays
+        : 0,
+    );
+    form.dataset.draftCategory = draft?.category || "";
+    form.dataset.draftCategoryLabel = draft?.categoryLabel || "";
+    form.dataset.draftSelectorLabel = draft?.selectorLabel || "";
+    form.dataset.draftSelectorLocked = draft?.selectorLocked ? "true" : "";
+
+    if (categoryInput) {
+      categoryInput.disabled = false;
+    }
+
+    if (presetInput) {
+      presetInput.disabled = false;
+    }
+  },
+
   boundaryAudienceEntityLabel(scope) {
     switch (Helpers.string(scope, "global")) {
       case "user":
@@ -6641,6 +7031,41 @@ const UI = {
       category,
       DEFAULT_BOUNDARY_CATEGORY,
     ).toLowerCase();
+    const draft = this.getBoundaryEditorDraft();
+
+    if (normalizedCategory === "advanced") {
+      const customPreset = draft?.selectorLocked
+        ? buildPromotionSuggestionPreset(draft)
+        : null;
+
+      if (customPreset) {
+        select.innerHTML = `<option value="${Helpers.escapeHtml(customPreset.id)}">${Helpers.escapeHtml(customPreset.label)}</option>`;
+        select.value = customPreset.id;
+        select.disabled = true;
+
+        if (categoryHint) {
+          categoryHint.textContent =
+            "This suggestion uses a selector that stays on the advanced/custom path.";
+        }
+
+        this.updateBoundaryPresetHint();
+        return;
+      }
+
+      select.innerHTML =
+        '<option value="">No guided selector available</option>';
+      select.value = "";
+      select.disabled = true;
+
+      if (categoryHint) {
+        categoryHint.textContent =
+          "Advanced/custom selectors stay visible here, but only suggestion-driven promotion can prefill them.";
+      }
+
+      this.updateBoundaryPresetHint();
+      return;
+    }
+
     const categoryMeta =
       BOUNDARY_CATEGORY_META[normalizedCategory] ||
       BOUNDARY_CATEGORY_META[DEFAULT_BOUNDARY_CATEGORY];
@@ -6664,6 +7089,7 @@ const UI = {
       );
     }
 
+    select.disabled = false;
     this.updateBoundaryPresetHint();
   },
 
@@ -6675,6 +7101,20 @@ const UI = {
 
     const category = document.getElementById("policy-category")?.value;
     const presetId = document.getElementById("policy-preset")?.value;
+    const draft = this.getBoundaryEditorDraft();
+
+    if (Helpers.string(category).toLowerCase() === "advanced") {
+      const customPreset = draft?.selectorLocked
+        ? buildPromotionSuggestionPreset(draft)
+        : null;
+
+      hint.textContent = Helpers.string(
+        customPreset?.description,
+        "Guided preset editing is unavailable for this selector.",
+      );
+      return;
+    }
+
     const preset = findBoundaryPreset(category, presetId);
 
     hint.textContent = Helpers.string(
@@ -6689,7 +7129,18 @@ const UI = {
       return;
     }
 
+    const draft = this.getBoundaryEditorDraft();
+
     if (!policy) {
+      if (draft) {
+        const directionLabel = boundaryDirectionLabel(draft.direction);
+        note.textContent =
+          Helpers.string(draft.direction, "outbound") === "outbound"
+            ? "This promotion keeps the boundary on outbound sharing."
+            : `This promotion keeps the boundary on ${directionLabel.toLowerCase()} traffic.`;
+        return;
+      }
+
       note.textContent =
         "New common boundaries apply to outbound sharing by default.";
       return;
@@ -6702,7 +7153,9 @@ const UI = {
         : `This edit keeps the boundary on ${directionLabel.toLowerCase()} traffic.`;
   },
 
-  openBoundaryEditor(policy = null) {
+  openBoundaryEditor(policy = null, options = {}) {
+    const draft = !policy ? options?.draft || null : null;
+
     if (policy && !canUseGuidedBoundaryEditor(policy)) {
       this.showToast(
         "This boundary uses the advanced/custom path and cannot be edited here.",
@@ -6725,38 +7178,75 @@ const UI = {
     }
 
     form.reset?.();
+    this.setBoundaryEditorDraft(null);
     form.dataset.mode = policy ? "edit" : "create";
     form.dataset.policyId = policy?.id || "";
+    this.setBoundaryEditorDraft(draft);
 
-    const scope = policy?.scope || this.defaultBoundaryEditorScope();
-    const category =
-      policy?.boundary?.category &&
-      Object.prototype.hasOwnProperty.call(
-        COMMON_BOUNDARY_PRESETS,
-        policy.boundary.category,
-      )
-        ? policy.boundary.category
-        : this.defaultBoundaryEditorCategory();
-    const preset = policy ? resolveBoundaryPresetFromPolicy(policy) : null;
+    const scope =
+      policy?.scope || draft?.scope || this.defaultBoundaryEditorScope();
+    const category = policy
+      ? policy?.boundary?.category &&
+        Object.prototype.hasOwnProperty.call(
+          COMMON_BOUNDARY_PRESETS,
+          policy.boundary.category,
+        )
+          ? policy.boundary.category
+          : this.defaultBoundaryEditorCategory()
+      : draft?.selectorLocked
+        ? "advanced"
+        : Object.prototype.hasOwnProperty.call(
+              COMMON_BOUNDARY_PRESETS,
+              Helpers.string(draft?.category).toLowerCase(),
+            )
+          ? Helpers.string(draft?.category).toLowerCase()
+          : this.defaultBoundaryEditorCategory();
+    const preset = policy
+      ? resolveBoundaryPresetFromPolicy(policy)
+      : draft?.selectorLocked
+        ? buildPromotionSuggestionPreset(draft)
+        : draft?.category && draft?.resource
+          ? findBoundaryPreset(category, draft.presetId)
+          : null;
 
     if (title) {
-      title.textContent = policy ? "✏️ Edit Boundary" : "🛡️ Create Boundary";
+      title.textContent = policy
+        ? "✏️ Edit Boundary"
+        : draft
+          ? "🛡️ Promote Boundary Suggestion"
+          : "🛡️ Create Boundary";
     }
     if (copy) {
       copy.textContent = policy
         ? "Update the common category and effect without editing raw policy JSON."
-        : "Set a common boundary by audience and category without editing raw policy JSON.";
+        : draft
+          ? `Mahilo spotted ${Helpers.pluralize(
+              draft.count,
+              "temporary override",
+            )} for ${Helpers.string(
+              draft.selectorLabel,
+              `${draft.resource}${draft.action ? ` / ${draft.action}` : ""}`,
+            )}. Review the prefilled boundary and save it to enforce future matches.`
+          : "Set a common boundary by audience and category without editing raw policy JSON.";
     }
     if (saveLabel) {
-      saveLabel.textContent = policy ? "Save Changes" : "Save Boundary";
+      saveLabel.textContent = policy
+        ? "Save Changes"
+        : draft
+          ? "Promote Boundary"
+          : "Save Boundary";
     }
 
     scopeInput.value = scope;
     scopeInput.disabled = Boolean(policy);
-    effectInput.value = Helpers.string(policy?.effect, DEFAULT_BOUNDARY_EFFECT);
+    effectInput.value = Helpers.string(
+      policy?.effect,
+      draft?.effect || DEFAULT_BOUNDARY_EFFECT,
+    );
     categoryInput.value = category;
+    categoryInput.disabled = Boolean(policy) || Boolean(draft?.selectorLocked);
 
-    this.populatePolicyTargets(scope, policy?.targetId || null, {
+    this.populatePolicyTargets(scope, policy?.targetId || draft?.targetId || null, {
       locked: Boolean(policy),
     });
     this.populateBoundaryPresetOptions(category, preset?.id || null);
@@ -6838,6 +7328,7 @@ const UI = {
 
   renderBoundaryEditorPreview() {
     const preview = document.getElementById("policy-preview-card");
+    const draft = this.getBoundaryEditorDraft();
     const scope = Helpers.string(
       document.getElementById("policy-scope")?.value,
       this.defaultBoundaryEditorScope(),
@@ -6853,10 +7344,13 @@ const UI = {
       document.getElementById("policy-effect")?.value,
       DEFAULT_BOUNDARY_EFFECT,
     );
-    const preset = findBoundaryPreset(
-      category,
-      document.getElementById("policy-preset")?.value,
-    );
+    const preset =
+      draft?.selectorLocked && category === "advanced"
+        ? buildPromotionSuggestionPreset(draft)
+        : findBoundaryPreset(
+            category,
+            document.getElementById("policy-preset")?.value,
+          );
 
     if (!preview) {
       return;
@@ -6870,7 +7364,7 @@ const UI = {
       return;
     }
 
-    if (!preset) {
+    if (!preset && !draft?.selectorLocked) {
       preview.classList.add("empty");
       preview.innerHTML =
         "<p>Choose a boundary category to preview the selector and outcome.</p>";
@@ -6882,9 +7376,18 @@ const UI = {
       id: currentPolicy?.id || "draft_boundary",
       scope,
       targetId: scope === "global" ? null : targetId,
-      direction: Helpers.string(currentPolicy?.direction, "outbound"),
-      resource: preset.resource,
-      action: preset.action,
+      direction: Helpers.string(
+        currentPolicy?.direction,
+        draft?.direction || "outbound",
+      ),
+      resource: Helpers.string(
+        preset?.resource,
+        draft?.resource || "message.general",
+      ),
+      action:
+        Helpers.nullableString(preset?.action) ||
+        Helpers.nullableString(draft?.action) ||
+        "share",
       effect,
       evaluator: "structured",
       content: {},
@@ -6924,7 +7427,17 @@ const UI = {
         </span>
         <span class="boundary-meta-chip">
           <span class="boundary-meta-label">Selector</span>
-          ${Helpers.escapeHtml(selector.summary || `${preset.resource} / ${preset.action}`)}
+          ${Helpers.escapeHtml(
+            selector.summary ||
+              `${Helpers.string(
+                preset?.resource,
+                draft?.resource || "message.general",
+              )} / ${
+                Helpers.nullableString(preset?.action) ||
+                Helpers.nullableString(draft?.action) ||
+                "share"
+              }`,
+          )}
         </span>
         <span class="boundary-meta-chip">
           <span class="boundary-meta-label">Direction</span>
@@ -6937,6 +7450,7 @@ const UI = {
 
   // Handle create/update boundary
   async handleCreatePolicy() {
+    const draft = this.getBoundaryEditorDraft();
     const scope = Helpers.string(
       document.getElementById("policy-scope")?.value,
       "global",
@@ -6952,10 +7466,13 @@ const UI = {
       document.getElementById("policy-effect")?.value,
       DEFAULT_BOUNDARY_EFFECT,
     );
-    const preset = findBoundaryPreset(
-      category,
-      document.getElementById("policy-preset")?.value,
-    );
+    const preset =
+      draft?.selectorLocked && category === "advanced"
+        ? buildPromotionSuggestionPreset(draft)
+        : findBoundaryPreset(
+            category,
+            document.getElementById("policy-preset")?.value,
+          );
     const currentPolicy = this.getBoundaryEditorPolicy();
 
     if (scope !== "global" && !targetId) {
@@ -6973,9 +7490,18 @@ const UI = {
 
     try {
       const payload = {
-        direction: Helpers.string(currentPolicy?.direction, "outbound"),
-        resource: preset.resource,
-        action: preset.action,
+        direction: Helpers.string(
+          currentPolicy?.direction,
+          draft?.direction || "outbound",
+        ),
+        resource: Helpers.string(
+          preset?.resource,
+          draft?.resource || "message.general",
+        ),
+        action:
+          Helpers.nullableString(preset?.action) ||
+          Helpers.nullableString(draft?.action) ||
+          "share",
         effect,
         evaluator: "structured",
         policy_type: "structured",
@@ -7018,6 +7544,51 @@ const UI = {
     }
 
     this.openBoundaryEditor(policy);
+  },
+
+  buildPromotionSuggestionDraft(suggestion) {
+    if (!suggestion) {
+      return null;
+    }
+
+    return {
+      action: Helpers.nullableString(suggestion.action) || "share",
+      category: Helpers.string(
+        suggestion.category,
+        DEFAULT_BOUNDARY_CATEGORY,
+      ).toLowerCase(),
+      categoryLabel: Helpers.nullableString(suggestion.boundary?.categoryLabel),
+      count: Helpers.number(suggestion.repeatedOverridePattern?.count, 0),
+      direction: Helpers.string(suggestion.direction, "outbound"),
+      effect: Helpers.string(suggestion.effect, DEFAULT_BOUNDARY_EFFECT),
+      lookbackDays: Helpers.number(
+        State.promotionSuggestionLearning?.lookbackDays,
+        0,
+      ),
+      presetId: Helpers.nullableString(suggestion.presetId),
+      resource: Helpers.string(suggestion.resource, "message.general"),
+      scope: Helpers.string(suggestion.scope, "global"),
+      selectorLabel: Helpers.string(
+        suggestion.boundary?.selector?.label,
+        Helpers.selectorSummary(suggestion.selectors) || "Suggested selector",
+      ),
+      selectorLocked: !suggestion.canUseGuidedEditor,
+      suggestionId: suggestion.id,
+      targetId: Helpers.nullableString(suggestion.targetId),
+    };
+  },
+
+  handlePromoteSuggestion(id) {
+    const suggestion = State.promotionSuggestionsById.get(id) || null;
+
+    if (!suggestion) {
+      this.showToast("Promotion suggestion not found.", "error");
+      return;
+    }
+
+    this.openBoundaryEditor(null, {
+      draft: this.buildPromotionSuggestionDraft(suggestion),
+    });
   },
 
   renderPolicyProvenanceModal(policy, auditState = {}) {
@@ -11055,6 +11626,212 @@ const UI = {
       .join("");
   },
 
+  renderBoundarySuggestions(filters = {}) {
+    const panel = document.getElementById("boundary-suggestions-panel");
+    const title = document.getElementById("boundary-suggestions-title");
+    const description = document.getElementById(
+      "boundary-suggestions-description",
+    );
+    const total = document.getElementById("boundary-suggestions-total");
+    const list = document.getElementById("boundary-suggestions-list");
+
+    if (!panel || !description || !total || !list) {
+      return;
+    }
+
+    const activeScope = Helpers.string(
+      filters.scope,
+      State.boundaryScopeFilter || "all",
+    );
+    const activeCategory = Helpers.string(
+      filters.category,
+      State.boundaryCategoryFilter || "all",
+    );
+    const status = Helpers.string(
+      State.promotionSuggestionsStatus,
+      State.promotionSuggestions.length ? "loaded" : "idle",
+    );
+    const pendingSuggestions = State.promotionSuggestions.filter(
+      (suggestion) => !isPromotionSuggestionAlreadyEnforced(suggestion),
+    );
+    let visibleSuggestions = pendingSuggestions;
+
+    if (activeScope !== "all") {
+      visibleSuggestions = visibleSuggestions.filter(
+        (suggestion) => suggestion.scope === activeScope,
+      );
+    }
+
+    if (activeCategory !== "all") {
+      visibleSuggestions = visibleSuggestions.filter(
+        (suggestion) => suggestion.category === activeCategory,
+      );
+    }
+
+    const learning = State.promotionSuggestionLearning;
+    const thresholdCopy =
+      learning?.minRepetitions && learning?.lookbackDays
+        ? `Based on ${learning.minRepetitions}+ repeated overrides in the last ${learning.lookbackDays} days.`
+        : "Based on repeated temporary overrides.";
+
+    if (title) {
+      title.textContent =
+        "Promote repeated overrides into durable boundaries";
+    }
+
+    if (status === "loading") {
+      panel.classList.remove("hidden");
+      total.textContent = "Checking patterns";
+      description.textContent =
+        "Mahilo is checking temporary overrides for repeated boundary patterns.";
+      list.innerHTML = `
+        <div class="network-loading-row">
+          <span class="network-loading-dot"></span>
+          <p>Loading promotion suggestions from repeated temporary decisions...</p>
+        </div>
+      `;
+      return;
+    }
+
+    if (status === "error") {
+      panel.classList.remove("hidden");
+      total.textContent = "Unavailable";
+      description.textContent =
+        "Boundary-learning suggestions are temporarily unavailable.";
+      list.innerHTML = `
+        <div class="empty-state small">
+          <div class="empty-icon">⚠️</div>
+          <p>${Helpers.escapeHtml(
+            State.promotionSuggestionsError ||
+              "Failed to load promotion suggestions.",
+          )}</p>
+        </div>
+      `;
+      return;
+    }
+
+    if (!pendingSuggestions.length) {
+      panel.classList.add("hidden");
+      total.textContent = "0 suggestions";
+      list.innerHTML = "";
+      return;
+    }
+
+    panel.classList.remove("hidden");
+    total.textContent =
+      visibleSuggestions.length === pendingSuggestions.length
+        ? Helpers.pluralize(visibleSuggestions.length, "suggestion")
+        : `${Helpers.pluralize(visibleSuggestions.length, "suggestion")} of ${pendingSuggestions.length}`;
+    description.textContent = visibleSuggestions.length
+      ? `These patterns are suggestions only until you save a boundary. ${thresholdCopy}`
+      : `No learning suggestions match the current audience/category filters. ${thresholdCopy}`;
+
+    if (!visibleSuggestions.length) {
+      list.innerHTML = `
+        <div class="empty-state small">
+          <div class="empty-icon">🧭</div>
+          <p>No learning suggestions match this view right now.</p>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = visibleSuggestions
+      .slice()
+      .sort((left, right) => {
+        const countDelta =
+          (right.repeatedOverridePattern?.count || 0) -
+          (left.repeatedOverridePattern?.count || 0);
+        if (countDelta !== 0) {
+          return countDelta;
+        }
+
+        return (
+          Helpers.timestampValue(right.repeatedOverridePattern?.lastSeenAt) -
+          Helpers.timestampValue(left.repeatedOverridePattern?.lastSeenAt)
+        );
+      })
+      .map((suggestion) => {
+        const boundary = suggestion.boundary || {};
+        const effect = boundary.effect || {};
+        const selector = boundary.selector || {};
+        const audienceLabel = Helpers.string(
+          suggestion.audienceLabel,
+          Helpers.policyAudienceDisplay(suggestion.suggestedPolicy),
+        );
+        const pattern = suggestion.repeatedOverridePattern || {};
+        const evidence = buildPromotionSuggestionEvidence(suggestion);
+        const overrideKinds = Helpers.stringList(pattern.kinds)
+          .map(
+            (kind) =>
+              boundaryOverrideKindLabel(kind) ||
+              Helpers.titleizeToken(kind, kind),
+          )
+          .join(", ");
+
+        return `
+          <article class="boundary-suggestion-card ${Helpers.escapeHtml(effect.tone || suggestion.effect)}">
+            <div class="boundary-suggestion-header">
+              <div class="boundary-suggestion-copy">
+                <span class="boundary-summary-label">Suggestion only</span>
+                <h4 class="boundary-suggestion-title">${Helpers.escapeHtml(selector.label || "Boundary suggestion")}</h4>
+                <p class="boundary-row-summary">${Helpers.escapeHtml(buildPromotionSuggestionSummary(suggestion))}</p>
+              </div>
+              <div class="boundary-row-badges">
+                <span class="policy-badge effect-${Helpers.escapeHtml(effect.tone || suggestion.effect)}">${Helpers.escapeHtml(effect.badgeLabel || Helpers.titleizeToken(suggestion.effect, suggestion.effect))}</span>
+                ${
+                  suggestion.canUseGuidedEditor
+                    ? ""
+                    : '<span class="policy-badge advanced">Advanced path</span>'
+                }
+                <span class="policy-badge suggestion-pending">Not enforced yet</span>
+              </div>
+            </div>
+            <div class="boundary-meta-list">
+              <span class="boundary-meta-chip">
+                <span class="boundary-meta-label">Audience</span>
+                ${Helpers.escapeHtml(audienceLabel)}
+              </span>
+              <span class="boundary-meta-chip">
+                <span class="boundary-meta-label">Selector</span>
+                ${Helpers.escapeHtml(
+                  selector.summary ||
+                    `${suggestion.resource}${suggestion.action ? ` / ${suggestion.action}` : ""}`,
+                )}
+              </span>
+              <span class="boundary-meta-chip">
+                <span class="boundary-meta-label">Pattern</span>
+                ${Helpers.escapeHtml(
+                  Helpers.pluralize(pattern.count || 0, "override"),
+                )}
+              </span>
+              ${
+                overrideKinds
+                  ? `
+                    <span class="boundary-meta-chip">
+                      <span class="boundary-meta-label">Override types</span>
+                      ${Helpers.escapeHtml(overrideKinds)}
+                    </span>
+                  `
+                  : ""
+              }
+            </div>
+            ${
+              evidence
+                ? `<p class="boundary-row-footnote">${Helpers.escapeHtml(evidence)}</p>`
+                : ""
+            }
+            <div class="boundary-suggestion-actions">
+              <button class="squishy-btn btn-primary btn-small" onclick="UI.handlePromoteSuggestion('${suggestion.id}')">
+                Promote to boundary
+              </button>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  },
+
   renderPolicies(scope = State.boundaryScopeFilter || "all") {
     const list =
       document.getElementById("boundaries-groups") ||
@@ -11107,6 +11884,10 @@ const UI = {
     }
 
     this.renderBoundarySummary(policies, State.policies);
+    this.renderBoundarySuggestions({
+      category: activeCategory,
+      scope: activeScope,
+    });
 
     const scopeMeta =
       activeScope === "all" ? null : BOUNDARY_SCOPE_META[activeScope] || null;
