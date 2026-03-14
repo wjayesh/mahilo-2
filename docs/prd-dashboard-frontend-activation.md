@@ -302,7 +302,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T14:05:34.540Z: DASH-041 completed via orchestrator integration.
 ### 4.3 Common Boundary Create/Edit Flows
 - **ID**: `DASH-042`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-022`, `DASH-023`, `DASH-041`
 - **Description**:
@@ -314,6 +314,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] UI writes the canonical policy fields needed by the current backend contract
   - [ ] Raw JSON is not required for common boundary changes
 
+- **Notes**:
+  - 2026-03-14T14:58:36.583Z: DASH-042 completed via orchestrator integration.
 ### 4.4 Temporary Overrides, Lifecycle, and Provenance
 - **ID**: `DASH-043`
 - **Status**: `pending`
