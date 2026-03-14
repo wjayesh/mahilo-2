@@ -12,9 +12,9 @@ Use this skill for operating the Mahilo autonomous development loops in this rep
 ## Preconditions
 
 - Run from the Mahilo repo root.
-- Confirm the current branch is `autonomous/server-integration` before starting any loop.
+- Confirm the current branch is the branch you want the loop to reconcile into before starting any loop.
 - Treat `WORKFLOW.md` as the server workflow and `WORKFLOW.plugin.md` as the plugin workflow.
-- Use the integration branch, not `main`, for autonomous work.
+- Use a dedicated integration or feature branch, not `main`, for autonomous work.
 
 ## Preferred Commands
 

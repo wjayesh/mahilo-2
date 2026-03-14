@@ -400,7 +400,19 @@ export function areAllTasksComplete(tasks: Task[]): boolean {
 export function loadWorkflow(repoRoot: string, workflowFile = "WORKFLOW.md"): WorkflowConfig {
   const workflowPath = resolvePath(repoRoot, workflowFile);
   const content = readFileSync(workflowPath, "utf8");
-  return parseWorkflowFile(content, relative(repoRoot, workflowPath) || workflowFile);
+  const workflow = parseWorkflowFile(content, relative(repoRoot, workflowPath) || workflowFile);
+
+  if (workflow.requiredBranch?.trim().toLowerCase() === "current") {
+    const currentBranch = getCurrentBranch(repoRoot);
+    if (!currentBranch) {
+      throw new Error(
+        `Workflow ${workflow.workflowPath} uses required_branch: current, but the repo is not on a named branch.`,
+      );
+    }
+    workflow.requiredBranch = currentBranch;
+  }
+
+  return workflow;
 }
 
 export function ensureDirectory(path: string) {

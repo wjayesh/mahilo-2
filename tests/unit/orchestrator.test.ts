@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { mergeTaskUniverses, parseTaskFile, parseWorkflowFile, selectNextTask } from "../../src/orchestrator";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mergeTaskUniverses, parseTaskFile, parseWorkflowFile, loadWorkflow, runGit, selectNextTask } from "../../src/orchestrator";
 
 describe("parseWorkflowFile", () => {
   it("parses front matter arrays and scalars", () => {
@@ -35,6 +38,31 @@ runtime_stall_timeout_seconds: 1200
     expect(workflow.taskFailureBackoffSeconds).toBe(45);
     expect(workflow.runtimeStallTimeoutSeconds).toBe(1200);
     expect(workflow.workflowBody).toContain("Body here");
+  });
+
+  it("pins required_branch: current to the branch active at workflow load time", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mahilo-orchestrator-"));
+
+    try {
+      writeFileSync(
+        join(repoRoot, "WORKFLOW.md"),
+        `---
+name: sample
+required_branch: current
+---
+# Workflow
+Body here.
+`,
+      );
+
+      expect(runGit(["init"], repoRoot).status).toBe(0);
+      expect(runGit(["checkout", "-b", "feature/orchestrator-branch-pin"], repoRoot).status).toBe(0);
+
+      const workflow = loadWorkflow(repoRoot, "WORKFLOW.md");
+      expect(workflow.requiredBranch).toBe("feature/orchestrator-branch-pin");
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
