@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createApp } from "../../src/server";
 import * as schema from "../../src/db/schema";
@@ -61,6 +62,7 @@ type DashboardInternals = {
     handleAddFriendRequest: () => Promise<void>;
     handleRegister: () => Promise<void>;
     renderLogs: (direction?: string) => void;
+    renderFriends: (filter?: string) => void;
     handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
     selectChat: (username: string) => void;
@@ -1127,6 +1129,198 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     expect(harness.getElement("logs-list").innerHTML).toContain("Blocked");
     expect(harness.getElement("logs-list").innerHTML).toContain(
       "Ask-around thread (2)",
+    );
+  });
+});
+
+describe("Dashboard network list (DASH-020)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("renders accepted, incoming, outgoing, and blocked relationships from the real friendship model", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_network_viewer",
+      "Viewer",
+    );
+    const { user: acceptedPeer } = await createTestUser(
+      "dashboard_network_accepted",
+      "Accepted Peer",
+    );
+    const { user: incomingPeer } = await createTestUser(
+      "dashboard_network_incoming",
+      "Incoming Peer",
+    );
+    const { user: outgoingPeer } = await createTestUser(
+      "dashboard_network_outgoing",
+      "Outgoing Peer",
+    );
+    const { user: blockedPeer } = await createTestUser(
+      "dashboard_network_blocked",
+      "Blocked Peer",
+    );
+    const connection = await createAgentConnection(viewer.id, {
+      framework: "openclaw",
+      label: "default",
+    });
+
+    const accepted = await createFriendship(viewer.id, acceptedPeer.id, "accepted");
+    const incoming = await createFriendship(incomingPeer.id, viewer.id, "pending");
+    const outgoing = await createFriendship(viewer.id, outgoingPeer.id, "pending");
+    const blocked = await createFriendship(viewer.id, blockedPeer.id, "blocked");
+
+    await addRoleToFriendship(accepted.id, "close_friends");
+
+    await db
+      .update(schema.friendships)
+      .set({ createdAt: new Date("2026-03-01T00:00:00.000Z") })
+      .where(eq(schema.friendships.id, accepted.id));
+    await db
+      .update(schema.friendships)
+      .set({ createdAt: new Date("2026-03-02T00:00:00.000Z") })
+      .where(eq(schema.friendships.id, incoming.id));
+    await db
+      .update(schema.friendships)
+      .set({ createdAt: new Date("2026-03-03T00:00:00.000Z") })
+      .where(eq(schema.friendships.id, outgoing.id));
+    await db
+      .update(schema.friendships)
+      .set({ createdAt: new Date("2026-03-04T00:00:00.000Z") })
+      .where(eq(schema.friendships.id, blocked.id));
+
+    await db.insert(schema.messages).values([
+      {
+        action: "share",
+        context: "Network test outbound",
+        correlationId: "corr_network_outbound",
+        createdAt: new Date("2026-03-12T10:00:00.000Z"),
+        deliveredAt: new Date("2026-03-12T10:00:05.000Z"),
+        direction: "outbound",
+        id: "msg_network_outbound",
+        payload: "Do you know a good dentist?",
+        payloadType: "text/plain",
+        recipientId: acceptedPeer.id,
+        recipientType: "user",
+        resource: "message.general",
+        senderAgent: connection.label,
+        senderConnectionId: connection.id,
+        senderUserId: viewer.id,
+        status: "delivered",
+      },
+      {
+        action: "share",
+        context: null,
+        correlationId: "corr_network_inbound",
+        createdAt: new Date("2026-03-13T11:00:00.000Z"),
+        deliveredAt: new Date("2026-03-13T11:00:03.000Z"),
+        direction: "inbound",
+        id: "msg_network_inbound",
+        payload: "Yes, try Dr. Chen.",
+        payloadType: "text/plain",
+        recipientId: viewer.id,
+        recipientType: "user",
+        resource: "message.general",
+        senderAgent: "peer-agent",
+        senderConnectionId: null,
+        senderUserId: acceptedPeer.id,
+        status: "delivered",
+      },
+    ]);
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    expect(harness.getElement("all-network-count").textContent).toBe("4");
+    expect(harness.getElement("accepted-count").textContent).toBe("1");
+    expect(harness.getElement("incoming-count").textContent).toBe("1");
+    expect(harness.getElement("outgoing-count").textContent).toBe("1");
+    expect(harness.getElement("blocked-count").textContent).toBe("1");
+    expect(harness.getElement("network-list-total").textContent).toBe(
+      "4 relationships",
+    );
+
+    expect(harness.dashboard.State.friendsById.get(accepted.id)).toEqual(
+      expect.objectContaining({
+        friendshipId: accepted.id,
+        interactionCount: 2,
+        roles: ["close_friends"],
+      }),
+    );
+
+    const allHtml = harness.getElement("friends-list").innerHTML;
+    expect(allHtml).toContain("Pending incoming");
+    expect(allHtml).toContain("Pending outgoing");
+    expect(allHtml).toContain("Roles: Close Friends");
+    expect(allHtml).toContain("Interactions: 2 interactions");
+    expect(allHtml).toContain("Connected Mar 1, 2026");
+    expect(allHtml).toContain(`handleBlockFriend('${accepted.id}')`);
+    expect(allHtml).toContain(`handleAcceptFriend('${incoming.id}')`);
+    expect(allHtml).toContain(`handleUnfriend('${outgoing.id}')`);
+    expect(allHtml).toContain(`handleUnfriend('${blocked.id}')`);
+
+    harness.dashboard.UI.renderFriends("incoming");
+    const incomingHtml = harness.getElement("friends-list").innerHTML;
+    expect(incomingHtml).toContain(incomingPeer.username);
+    expect(incomingHtml).not.toContain(acceptedPeer.username);
+    expect(harness.getElement("network-list-title").textContent).toBe(
+      "Incoming requests",
+    );
+
+    harness.dashboard.UI.renderFriends("outgoing");
+    const outgoingHtml = harness.getElement("friends-list").innerHTML;
+    expect(outgoingHtml).toContain(outgoingPeer.username);
+    expect(outgoingHtml).not.toContain(incomingPeer.username);
+    expect(harness.getElement("network-list-title").textContent).toBe(
+      "Outgoing requests",
+    );
+
+    harness.dashboard.UI.renderFriends("blocked");
+    const blockedHtml = harness.getElement("friends-list").innerHTML;
+    expect(blockedHtml).toContain(blockedPeer.username);
+    expect(blockedHtml).not.toContain(outgoingPeer.username);
+    expect(harness.getElement("network-list-title").textContent).toBe(
+      "Blocked relationships",
+    );
+  });
+
+  it("uses network-specific empty states instead of generic friend-list copy", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing network empty states: ${url}`);
+      },
+    });
+
+    await harness.boot();
+
+    harness.dashboard.UI.renderFriends("accepted");
+
+    expect(harness.getElement("network-list-title").textContent).toBe(
+      "Accepted contacts",
+    );
+    expect(harness.getElement("friends-list").innerHTML).toContain(
+      "No accepted contacts yet",
+    );
+    expect(harness.getElement("friends-list").innerHTML).toContain(
+      "useful Mahilo circle",
+    );
+    expect(harness.getElement("friends-list").innerHTML).toContain(
+      "Add by Username",
     );
   });
 });

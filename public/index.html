@@ -568,27 +568,51 @@
               <div class="friends-sidebar">
                 <div class="search-box">
                   <span class="search-icon">🔍</span>
-                  <input type="text" placeholder="Filter your network..." class="squishy-input" id="user-search">
+                  <input type="text" placeholder="Search people or roles..." class="squishy-input" id="user-search">
                 </div>
                 <button class="squishy-btn btn-primary btn-full" id="find-users-btn">
                   <span>@</span> Add by Username
                 </button>
                 <div class="friends-filters">
-                  <button class="filter-btn active" data-filter="all">All Network</button>
-                  <button class="filter-btn" data-filter="pending">
-                    Pending
-                    <span class="filter-badge hidden" id="pending-count">0</span>
+                  <button class="filter-btn active" data-filter="all">
+                    All Relationships
+                    <span class="filter-badge hidden" id="all-network-count">0</span>
                   </button>
-                  <button class="filter-btn" data-filter="sent">Sent</button>
-                  <button class="filter-btn" data-filter="blocked">Blocked</button>
+                  <button class="filter-btn" data-filter="accepted">
+                    Accepted
+                    <span class="filter-badge hidden" id="accepted-count">0</span>
+                  </button>
+                  <button class="filter-btn" data-filter="incoming">
+                    Incoming Requests
+                    <span class="filter-badge hidden" id="incoming-count">0</span>
+                  </button>
+                  <button class="filter-btn" data-filter="outgoing">
+                    Outgoing Requests
+                    <span class="filter-badge hidden" id="outgoing-count">0</span>
+                  </button>
+                  <button class="filter-btn" data-filter="blocked">
+                    Blocked
+                    <span class="filter-badge hidden" id="blocked-count">0</span>
+                  </button>
                 </div>
               </div>
               <div class="friends-content">
+                <div class="friends-content-header">
+                  <div>
+                    <p class="friends-eyebrow">Real friendship data</p>
+                    <h3 id="network-list-title">All relationships</h3>
+                    <p class="friends-content-copy" id="network-list-description">
+                      Accepted contacts, pending requests, and blocked relationships powered by the real Mahilo friendship model.
+                    </p>
+                  </div>
+                  <div class="friends-total-chip" id="network-list-total">0 relationships</div>
+                </div>
+                <div class="network-summary-strip" id="network-summary-strip"></div>
                 <div class="friends-list" id="friends-list">
                   <div class="empty-state">
-                    <div class="empty-icon-large">👥</div>
-                    <h3>No network yet</h3>
-                    <p>Build your circle to start asking around</p>
+                    <div class="empty-icon-large">🤝</div>
+                    <h3>Your trust circle starts small</h3>
+                    <p>Add a few real people whose agents you want to ask around with.</p>
                   </div>
                 </div>
               </div>

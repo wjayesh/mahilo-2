@@ -2012,29 +2012,142 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   min-height: 500px;
+  overflow: hidden;
+}
+
+.friends-content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid rgba(255, 158, 107, 0.14);
+}
+
+.friends-eyebrow {
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary-dark);
+  margin-bottom: var(--space-xs);
+}
+
+.friends-content-header h3 {
+  font-size: 1.35rem;
+  color: var(--color-text);
+  margin-bottom: var(--space-xs);
+}
+
+.friends-content-copy {
+  color: var(--color-text-light);
+  line-height: 1.5;
+  max-width: 600px;
+}
+
+.friends-total-chip {
+  flex-shrink: 0;
+  background: rgba(255, 158, 107, 0.12);
+  border: 1px solid rgba(255, 158, 107, 0.2);
+  border-radius: var(--radius-full);
+  color: var(--color-primary-dark);
+  font-size: 0.85rem;
+  font-weight: var(--font-weight-bold);
+  padding: 10px 16px;
+}
+
+.network-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 158, 107, 0.12);
+}
+
+.network-summary-card {
+  background: linear-gradient(180deg, rgba(255, 248, 240, 0.95) 0%, rgba(255, 245, 235, 1) 100%);
+  border: 1px solid rgba(255, 158, 107, 0.14);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.network-summary-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-xs);
+}
+
+.network-summary-value {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  margin-bottom: 2px;
+}
+
+.network-summary-copy {
+  font-size: 0.82rem;
+  color: var(--color-text-light);
+  line-height: 1.35;
 }
 
 .friends-list {
   padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
 }
 
 .friend-item {
   display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md);
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid rgba(255, 158, 107, 0.14);
   border-radius: var(--radius-md);
+  background: var(--color-card);
+  box-shadow: var(--shadow-sm);
   transition: all var(--transition-fast);
-  margin-bottom: var(--space-sm);
 }
 
 .friend-item:hover {
   background: var(--color-bg);
+  transform: translateY(-1px);
+}
+
+.friend-item.accepted {
+  border-color: rgba(107, 203, 119, 0.24);
+}
+
+.friend-item.incoming {
+  border-color: rgba(255, 217, 61, 0.32);
+}
+
+.friend-item.outgoing {
+  border-color: rgba(135, 206, 235, 0.32);
+}
+
+.friend-item.blocked {
+  border-color: rgba(255, 107, 107, 0.28);
+  background: rgba(255, 107, 107, 0.04);
+}
+
+.friend-primary {
+  display: flex;
+  gap: var(--space-md);
+  flex: 1;
+  min-width: 0;
 }
 
 .friend-avatar {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: var(--radius-full);
   background: var(--color-primary-gradient);
   display: flex;
@@ -2045,13 +2158,34 @@ body {
   font-size: 1.1rem;
 }
 
+.friend-main,
 .friend-info {
   flex: 1;
+  min-width: 0;
+}
+
+.friend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.friend-heading {
+  min-width: 0;
+}
+
+.friend-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
 .friend-name {
   font-weight: var(--font-weight-bold);
   color: var(--color-text);
+  font-size: 1.05rem;
 }
 
 .friend-username {
@@ -2059,36 +2193,73 @@ body {
   color: var(--color-text-light);
 }
 
-.friend-status {
+.friend-summary {
+  margin-top: 6px;
+  color: var(--color-text-light);
+  line-height: 1.45;
+  font-size: 0.92rem;
+}
+
+.friend-meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.friend-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 158, 107, 0.08);
+  border: 1px solid rgba(255, 158, 107, 0.14);
+  color: var(--color-text-light);
   font-size: 0.8rem;
-  padding: 4px 12px;
+}
+
+.friend-status {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  padding: 6px 12px;
   border-radius: var(--radius-full);
   font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
 }
 
 .friend-status.accepted {
-  background: rgba(107, 203, 119, 0.2);
-  color: var(--color-success);
+  background: rgba(107, 203, 119, 0.18);
+  color: #2f8e45;
 }
 
-.friend-status.pending {
-  background: rgba(255, 217, 61, 0.2);
-  color: #D4A017;
+.friend-status.pending,
+.friend-status.incoming {
+  background: rgba(255, 217, 61, 0.22);
+  color: #a97800;
 }
 
-.friend-status.sent {
-  background: rgba(135, 206, 235, 0.2);
+.friend-status.sent,
+.friend-status.outgoing {
+  background: rgba(135, 206, 235, 0.22);
   color: var(--color-secondary-dark);
 }
 
 .friend-status.blocked {
-  background: rgba(255, 107, 107, 0.2);
+  background: rgba(255, 107, 107, 0.18);
   color: var(--color-danger);
 }
 
 .friend-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-xs);
+  align-self: center;
+}
+
+.friend-actions .squishy-btn {
+  white-space: nowrap;
 }
 
 /* ========================================
@@ -3768,6 +3939,35 @@ body {
   .view-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .friends-content-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .friends-total-chip {
+    align-self: flex-start;
+  }
+
+  .network-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .friend-item,
+  .friend-primary,
+  .friend-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .friend-status {
+    align-self: flex-start;
+  }
+
+  .friend-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
   
   .search-box {

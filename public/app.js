@@ -96,6 +96,8 @@ const State = {
   selectedChat: null,
   wsConnected: false,
   notifications: [],
+  networkFilter: 'all',
+  networkSearch: '',
 
   // Initialize state from localStorage
   init() {
@@ -159,6 +161,8 @@ const State = {
     this.currentView = 'overview';
     this.selectedChat = null;
     this.wsConnected = false;
+    this.networkFilter = 'all';
+    this.networkSearch = '';
     localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
 };
@@ -543,9 +547,49 @@ const Helpers = {
     }
   },
 
+  escapeHtml(value) {
+    return this.string(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  },
+
   truncate(value, limit = 120) {
     const text = this.string(value);
     return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+  },
+
+  pluralize(count, singular, plural = `${singular}s`) {
+    return `${count} ${count === 1 ? singular : plural}`;
+  },
+
+  titleizeToken(value, fallback = 'None yet') {
+    const token = this.nullableString(value);
+    if (!token) {
+      return fallback;
+    }
+
+    return token
+      .split(/[_-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  },
+
+  formatShortDate(value, fallback = 'Unknown date') {
+    const timestamp = this.timestampValue(value);
+    if (!timestamp) {
+      return fallback;
+    }
+
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(new Date(timestamp));
   },
 
   timestampValue(value) {
@@ -1388,19 +1432,18 @@ const DataLoader = {
       const acceptedFriendsModel = Normalizers.friendsModel(accepted);
       const pendingFriendsModel = Normalizers.friendsModel(pending);
       const blockedFriendsModel = Normalizers.friendsModel(blocked);
+      const allFriendsModel = Helpers.mergeCollectionModels(
+        [acceptedFriendsModel, pendingFriendsModel, blockedFriendsModel],
+        (friend) => friend.friendshipId
+      );
 
       Helpers.applyCollectionState(
         'friends',
         'friendsById',
-        Helpers.mergeCollectionModels(
-          [acceptedFriendsModel, pendingFriendsModel, blockedFriendsModel],
-          (friend) => friend.friendshipId
-        )
+        allFriendsModel
       );
       UI.updateFriendCount(acceptedFriendsModel.items.length);
-      UI.updatePendingCount(
-        pendingFriendsModel.items.filter((friend) => friend.direction === 'received').length
-      );
+      UI.updateNetworkRelationshipCounts(allFriendsModel.items);
       UI.renderFriends();
       UI.renderOverviewFriends();
       UI.renderConversations();
@@ -1612,6 +1655,11 @@ const UI = {
       this.handleAddFriendRequest();
     });
 
+    document.getElementById('user-search')?.addEventListener('input', (e) => {
+      State.networkSearch = e.currentTarget.value || '';
+      this.renderFriends();
+    });
+
     // Create group
     document.getElementById('create-group-btn')?.addEventListener('click', () => {
       this.showModal('create-group-modal');
@@ -1652,9 +1700,11 @@ const UI = {
     // Friend filters
     document.querySelectorAll('.friends-filters .filter-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        const filterButton = e.currentTarget;
         document.querySelectorAll('.friends-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        this.renderFriends(e.target.dataset.filter);
+        filterButton.classList.add('active');
+        State.networkFilter = filterButton.dataset.filter || 'all';
+        this.renderFriends();
       });
     });
 
@@ -2426,10 +2476,25 @@ const UI = {
     document.getElementById('profile-friend-count').textContent = count;
   },
 
-  updatePendingCount(count) {
-    const badge = document.getElementById('pending-count');
-    badge.textContent = count;
-    badge.classList.toggle('hidden', count === 0);
+  updateNetworkRelationshipCounts(friends = State.friends) {
+    const counts = this.getNetworkRelationshipCounts(friends);
+    const badges = {
+      'all-network-count': counts.all,
+      'accepted-count': counts.accepted,
+      'incoming-count': counts.incoming,
+      'outgoing-count': counts.outgoing,
+      'blocked-count': counts.blocked,
+    };
+
+    Object.entries(badges).forEach(([id, count]) => {
+      const badge = document.getElementById(id);
+      if (!badge) {
+        return;
+      }
+
+      badge.textContent = String(count);
+      badge.classList.toggle('hidden', count === 0);
+    });
   },
 
   updateGroupCount(count) {
@@ -2437,6 +2502,413 @@ const UI = {
     document.getElementById('group-count').classList.toggle('hidden', count === 0);
     document.getElementById('overview-group-count').textContent = count;
     document.getElementById('profile-group-count').textContent = count;
+  },
+
+  normalizeNetworkFilter(filter = State.networkFilter) {
+    const aliases = {
+      pending: 'incoming',
+      sent: 'outgoing',
+    };
+    const normalized = aliases[filter] || filter || 'all';
+    return ['all', 'accepted', 'incoming', 'outgoing', 'blocked'].includes(normalized)
+      ? normalized
+      : 'all';
+  },
+
+  networkBucket(friend) {
+    if (friend?.status === 'blocked') {
+      return 'blocked';
+    }
+
+    if (friend?.status === 'accepted') {
+      return 'accepted';
+    }
+
+    if (friend?.status === 'pending' && friend?.direction === 'received') {
+      return 'incoming';
+    }
+
+    return 'outgoing';
+  },
+
+  getNetworkRelationshipCounts(friends = State.friends) {
+    return friends.reduce(
+      (counts, friend) => {
+        const bucket = this.networkBucket(friend);
+        counts.all += 1;
+        counts[bucket] += 1;
+        return counts;
+      },
+      {
+        all: 0,
+        accepted: 0,
+        incoming: 0,
+        outgoing: 0,
+        blocked: 0,
+      }
+    );
+  },
+
+  networkFilterMeta(filter = State.networkFilter, visibleCount = 0) {
+    const searchTerm = Helpers.string(State.networkSearch).trim();
+    const matchesLabel = Helpers.pluralize(visibleCount, 'match');
+
+    switch (filter) {
+      case 'accepted':
+        return {
+          title: 'Accepted contacts',
+          description: 'These people are already in your trusted Mahilo circle and ready for direct asks, messages, and role-based boundaries.',
+          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'accepted contact'),
+        };
+      case 'incoming':
+        return {
+          title: 'Incoming requests',
+          description: 'These people are waiting on you to accept, reject, or block their request before they can join your useful circle.',
+          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'incoming request'),
+        };
+      case 'outgoing':
+        return {
+          title: 'Outgoing requests',
+          description: 'These requests are waiting on the other person before their agent can participate in your network.',
+          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'outgoing request'),
+        };
+      case 'blocked':
+        return {
+          title: 'Blocked relationships',
+          description: 'Blocked contacts stay out of ask-around, direct delivery, and future trust-circle decisions until you remove the record.',
+          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'blocked relationship'),
+        };
+      default:
+        return {
+          title: 'All relationships',
+          description: 'Accepted contacts, pending requests, and blocked relationships powered by the real Mahilo friendship model.',
+          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'relationship'),
+        };
+    }
+  },
+
+  networkStatusLabel(friend) {
+    const bucket = this.networkBucket(friend);
+
+    switch (bucket) {
+      case 'accepted':
+        return 'Accepted';
+      case 'incoming':
+        return 'Pending incoming';
+      case 'outgoing':
+        return 'Pending outgoing';
+      case 'blocked':
+        return 'Blocked';
+      default:
+        return 'Relationship';
+    }
+  },
+
+  networkRequestDirectionLabel(friend) {
+    return friend?.direction === 'sent' ? 'You initiated' : 'They initiated';
+  },
+
+  networkRolesLabel(friend) {
+    if (!Array.isArray(friend?.roles) || friend.roles.length === 0) {
+      return 'No roles yet';
+    }
+
+    return friend.roles.map((role) => Helpers.titleizeToken(role, '')).join(', ');
+  },
+
+  networkAgeLabel(friend) {
+    const labelByBucket = {
+      accepted: 'Connected',
+      incoming: 'Requested',
+      outgoing: 'Requested',
+      blocked: 'Recorded',
+    };
+    const bucket = this.networkBucket(friend);
+    return `${labelByBucket[bucket] || 'Started'} ${Helpers.formatShortDate(friend?.since, 'date pending')}`;
+  },
+
+  networkSummaryCopy(friend) {
+    const bucket = this.networkBucket(friend);
+
+    switch (bucket) {
+      case 'accepted':
+        return 'Ready for direct asks, conversation history, and role-based sharing boundaries.';
+      case 'incoming':
+        return 'Review this request before the person can join your ask-around circle.';
+      case 'outgoing':
+        return 'Waiting on the other person before their agent can participate in your network.';
+      case 'blocked':
+        return 'Blocked contacts stay outside your trust circle until you remove the relationship.';
+      default:
+        return 'Relationship details from the current Mahilo friendship model.';
+    }
+  },
+
+  networkMatchesSearch(friend, searchTerm = Helpers.string(State.networkSearch).trim()) {
+    const query = Helpers.string(searchTerm).trim().toLowerCase();
+    if (!query) {
+      return true;
+    }
+
+    const haystack = [
+      friend?.displayName,
+      friend?.username,
+      this.networkStatusLabel(friend),
+      this.networkRequestDirectionLabel(friend),
+      ...(Array.isArray(friend?.roles) ? friend.roles : []),
+      ...(Array.isArray(friend?.roles)
+        ? friend.roles.map((role) => Helpers.titleizeToken(role, ''))
+        : []),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(query);
+  },
+
+  getVisibleNetworkFriends(filter = State.networkFilter) {
+    const normalizedFilter = this.normalizeNetworkFilter(filter);
+    const sortOrder = {
+      accepted: 0,
+      incoming: 1,
+      outgoing: 2,
+      blocked: 3,
+    };
+
+    return State.friends
+      .filter((friend) => {
+        const bucket = this.networkBucket(friend);
+        return normalizedFilter === 'all' || bucket === normalizedFilter;
+      })
+      .filter((friend) => this.networkMatchesSearch(friend))
+      .slice()
+      .sort((left, right) => {
+        const bucketDelta =
+          (sortOrder[this.networkBucket(left)] ?? 99) -
+          (sortOrder[this.networkBucket(right)] ?? 99);
+
+        if (bucketDelta !== 0) {
+          return bucketDelta;
+        }
+
+        const interactionDelta = (right?.interactionCount || 0) - (left?.interactionCount || 0);
+        if (interactionDelta !== 0) {
+          return interactionDelta;
+        }
+
+        const sinceDelta = Helpers.timestampValue(right?.since) - Helpers.timestampValue(left?.since);
+        if (sinceDelta !== 0) {
+          return sinceDelta;
+        }
+
+        return Helpers.string(left?.displayName || left?.username).localeCompare(
+          Helpers.string(right?.displayName || right?.username)
+        );
+      });
+  },
+
+  renderNetworkHeader(filter, visibleFriends, counts = this.getNetworkRelationshipCounts()) {
+    const summaryTitle = document.getElementById('network-list-title');
+    const summaryDescription = document.getElementById('network-list-description');
+    const totalChip = document.getElementById('network-list-total');
+    const summaryStrip = document.getElementById('network-summary-strip');
+    const meta = this.networkFilterMeta(filter, visibleFriends.length);
+    const totalInteractions = State.friends.reduce(
+      (sum, friend) => sum + (Number.isFinite(friend?.interactionCount) ? friend.interactionCount : 0),
+      0
+    );
+
+    if (summaryTitle) {
+      summaryTitle.textContent = meta.title;
+    }
+
+    if (summaryDescription) {
+      summaryDescription.textContent = meta.description;
+    }
+
+    if (totalChip) {
+      totalChip.textContent = meta.total;
+    }
+
+    if (summaryStrip) {
+      const summaryCards = [
+        {
+          label: 'Accepted',
+          value: counts.accepted,
+          copy: 'Ready now',
+        },
+        {
+          label: 'Incoming',
+          value: counts.incoming,
+          copy: 'Waiting on you',
+        },
+        {
+          label: 'Outgoing',
+          value: counts.outgoing,
+          copy: 'Waiting on them',
+        },
+        {
+          label: 'Blocked',
+          value: counts.blocked,
+          copy: 'Held outside',
+        },
+        {
+          label: 'Interactions',
+          value: totalInteractions,
+          copy: 'Across your network',
+        },
+      ];
+
+      summaryStrip.innerHTML = summaryCards
+        .map(
+          (card) => `
+            <div class="network-summary-card">
+              <span class="network-summary-label">${card.label}</span>
+              <span class="network-summary-value">${card.value}</span>
+              <span class="network-summary-copy">${card.copy}</span>
+            </div>
+          `
+        )
+        .join('');
+    }
+  },
+
+  renderNetworkEmptyState(filter = State.networkFilter) {
+    const searchTerm = Helpers.string(State.networkSearch).trim();
+
+    if (searchTerm) {
+      return `
+        <div class="empty-state">
+          <div class="empty-icon-large">🔎</div>
+          <h3>No matches for "${Helpers.escapeHtml(searchTerm)}"</h3>
+          <p>Try a display name, exact username, or a role tag like close_friends.</p>
+        </div>
+      `;
+    }
+
+    const emptyStates = {
+      all: {
+        icon: '🤝',
+        title: 'Your trust circle starts with a few real people',
+        copy: 'Add the people whose agents you actually want to ask for recommendations, availability, and lived experience.',
+        action: true,
+      },
+      accepted: {
+        icon: '✅',
+        title: 'No accepted contacts yet',
+        copy: 'Accepted relationships are what turn a request list into a useful Mahilo circle.',
+        action: true,
+      },
+      incoming: {
+        icon: '📥',
+        title: 'No incoming requests right now',
+        copy: 'When someone asks to join your network, the request will show up here for review.',
+      },
+      outgoing: {
+        icon: '📤',
+        title: 'No outgoing requests yet',
+        copy: 'Reach out to a few trusted people by username so your ask-around circle can start taking shape.',
+        action: true,
+      },
+      blocked: {
+        icon: '🚫',
+        title: 'No blocked relationships',
+        copy: 'Use blocking when someone should stay out of your trust circle entirely. Those records will stay visible here.',
+      },
+    };
+    const state = emptyStates[filter] || emptyStates.all;
+
+    return `
+      <div class="empty-state">
+        <div class="empty-icon-large">${state.icon}</div>
+        <h3>${state.title}</h3>
+        <p>${state.copy}</p>
+        ${
+          state.action
+            ? `
+              <button class="squishy-btn btn-primary" onclick="UI.openAddFriendModal()">
+                <span>@</span> Add by Username
+              </button>
+            `
+            : ''
+        }
+      </div>
+    `;
+  },
+
+  renderNetworkActions(friend) {
+    const friendshipId = Helpers.string(friend?.friendshipId);
+    const bucket = this.networkBucket(friend);
+
+    if (bucket === 'incoming') {
+      return `
+        <button class="squishy-btn btn-primary btn-small" onclick="UI.handleAcceptFriend('${friendshipId}')">Accept</button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleRejectFriend('${friendshipId}')">Reject</button>
+      `;
+    }
+
+    if (bucket === 'accepted') {
+      return `
+        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleBlockFriend('${friendshipId}')">Block</button>
+        <button class="squishy-btn btn-danger btn-small" onclick="UI.handleUnfriend('${friendshipId}')">Unfriend</button>
+      `;
+    }
+
+    if (bucket === 'blocked') {
+      return `
+        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friendshipId}')">Remove</button>
+      `;
+    }
+
+    return `
+      <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friendshipId}')">Cancel Request</button>
+    `;
+  },
+
+  renderFriendCard(friend) {
+    const bucket = this.networkBucket(friend);
+    const displayName = Helpers.escapeHtml(friend?.displayName || friend?.username || 'Unknown');
+    const username = Helpers.escapeHtml(friend?.username || 'unknown');
+    const summary = Helpers.escapeHtml(this.networkSummaryCopy(friend));
+    const metaChips = [
+      `Request: ${this.networkRequestDirectionLabel(friend)}`,
+      `Roles: ${this.networkRolesLabel(friend)}`,
+      `Interactions: ${Helpers.pluralize(friend?.interactionCount || 0, 'interaction')}`,
+      this.networkAgeLabel(friend),
+    ]
+      .map(
+        (chip) => `
+          <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
+        `
+      )
+      .join('');
+
+    return `
+      <div class="friend-item ${bucket}">
+        <div class="friend-primary">
+          <div class="friend-avatar">
+            ${(friend?.displayName?.[0] || friend?.username?.[0] || '?').toUpperCase()}
+          </div>
+          <div class="friend-main">
+            <div class="friend-header">
+              <div class="friend-heading">
+                <div class="friend-name-row">
+                  <div class="friend-name">${displayName}</div>
+                  <div class="friend-username">@${username}</div>
+                </div>
+                <div class="friend-summary">${summary}</div>
+              </div>
+              <span class="friend-status ${bucket}">${this.networkStatusLabel(friend)}</span>
+            </div>
+            <div class="friend-meta-list">${metaChips}</div>
+          </div>
+        </div>
+        <div class="friend-actions">
+          ${this.renderNetworkActions(friend)}
+        </div>
+      </div>
+    `;
   },
 
   // Render functions
@@ -2504,58 +2976,33 @@ const UI = {
     }
   },
 
-  renderFriends(filter = 'all') {
+  renderFriends(filter = State.networkFilter) {
     const list = document.getElementById('friends-list');
-    const emptyLabels = {
-      all: 'network',
-      pending: 'pending requests',
-      sent: 'sent requests',
-      blocked: 'blocked contacts',
-    };
-    
-    let friends = State.friends;
-    if (filter !== 'all') {
-      friends = friends.filter(f => f.status === filter || (filter === 'sent' && f.direction === 'sent' && f.status === 'pending'));
-    }
-
-    if (!friends.length) {
-      list.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon-large">👥</div>
-          <h3>No ${emptyLabels[filter] || 'network'} yet</h3>
-          <p>Build your circle to start asking around with people you trust</p>
-        </div>
-      `;
+    if (!list) {
       return;
     }
 
-    list.innerHTML = friends.map(friend => `
-      <div class="friend-item">
-        <div class="friend-avatar">
-          ${(friend.displayName?.[0] || friend.username?.[0] || '?').toUpperCase()}
-        </div>
-        <div class="friend-info">
-          <div class="friend-name">${friend.displayName || friend.username}</div>
-          <div class="friend-username">@${friend.username}</div>
-        </div>
-        <span class="friend-status ${friend.status}">
-          ${friend.status === 'pending' ? (friend.direction === 'sent' ? 'Sent' : 'Pending') : friend.status}
-        </span>
-        <div class="friend-actions">
-          ${friend.status === 'pending' && friend.direction === 'received' ? `
-            <button class="squishy-btn btn-primary btn-small" onclick="UI.handleAcceptFriend('${friend.id}')">Accept</button>
-            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleRejectFriend('${friend.id}')">Reject</button>
-          ` : friend.status === 'accepted' ? `
-            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleBlockFriend('${friend.id}')">Block</button>
-            <button class="squishy-btn btn-danger btn-small" onclick="UI.handleUnfriend('${friend.id}')">Unfriend</button>
-          ` : friend.status === 'blocked' ? `
-            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friend.id}')">Remove</button>
-          ` : `
-            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friend.id}')">Cancel</button>
-          `}
-        </div>
-      </div>
-    `).join('');
+    State.networkFilter = this.normalizeNetworkFilter(filter);
+
+    const searchInput = document.getElementById('user-search');
+    if (searchInput && searchInput.value !== State.networkSearch) {
+      searchInput.value = State.networkSearch;
+    }
+
+    document.querySelectorAll('.friends-filters .filter-btn').forEach((button) => {
+      button.classList.toggle('active', button.dataset.filter === State.networkFilter);
+    });
+
+    const counts = this.getNetworkRelationshipCounts();
+    const friends = this.getVisibleNetworkFriends(State.networkFilter);
+    this.renderNetworkHeader(State.networkFilter, friends, counts);
+
+    if (!friends.length) {
+      list.innerHTML = this.renderNetworkEmptyState(State.networkFilter);
+      return;
+    }
+
+    list.innerHTML = friends.map((friend) => this.renderFriendCard(friend)).join('');
   },
 
   renderGroups() {
