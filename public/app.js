@@ -5669,8 +5669,8 @@ const UI = {
       `;
     };
 
-    title.textContent = selector.label || "Boundary provenance";
-    copy.textContent = `${provenance.sourceLabel} · ${audienceLabel}`;
+    title.textContent = selector.label || "Boundary inspector";
+    copy.textContent = `Canonical selectors, raw content, and provenance for ${audienceLabel}.`;
 
     const overviewDetails = [
       {
@@ -5678,26 +5678,85 @@ const UI = {
         value: audienceLabel,
       },
       {
-        label: "Effect",
+        label: "Outcome",
         value:
           effect.badgeLabel ||
           Helpers.titleizeToken(policy.effect, policy.effect),
       },
       {
-        label: "Selector",
-        value:
-          selector.summary ||
-          `${policy.resource}${policy.action ? ` / ${policy.action}` : ""}`,
+        label: "Source",
+        value: provenance.sourceLabel,
       },
       {
-        label: "Direction",
-        value:
-          selector.directionLabel ||
-          Helpers.titleizeToken(policy.direction, policy.direction),
+        label: "Status",
+        value: lifecycle.badgeLabel || "Inactive",
       },
-      ...provenance.detailItems,
+      ...provenance.detailItems.filter((item) => item.label !== "Source"),
       ...lifecycle.detailItems,
     ];
+    const canonicalSelectorDetails = [
+      {
+        label: "Direction",
+        value: Helpers.string(policy.direction, "outbound"),
+      },
+      {
+        label: "Resource",
+        value: Helpers.string(policy.resource, "message.general"),
+      },
+      {
+        label: "Action",
+        value: Helpers.string(policy.action, "share"),
+      },
+    ];
+    const canonicalPolicyDetails = [
+      {
+        label: "Policy ID",
+        value: policy.id,
+      },
+      {
+        label: "Scope",
+        value: Helpers.string(policy.scope, "global"),
+      },
+      policy.targetId
+        ? {
+            label: "Target ID",
+            value: policy.targetId,
+          }
+        : null,
+      {
+        label: "Evaluator",
+        value: Helpers.string(policy.evaluator, "llm"),
+      },
+      {
+        label: "Priority",
+        value: String(Helpers.number(policy.priority, 0)),
+      },
+      {
+        label: "Enabled",
+        value: policy.enabled ? "true" : "false",
+      },
+      policy.createdAt
+        ? {
+            label: "Created at",
+            value: Helpers.formatDateTime(policy.createdAt),
+          }
+        : null,
+      policy.updatedAt
+        ? {
+            label: "Updated at",
+            value: Helpers.formatDateTime(policy.updatedAt),
+          }
+        : null,
+    ];
+    const rawPolicyContent = Helpers.contentText(policy.content);
+    const advancedInspectorNote =
+      boundary.managementPath === "advanced"
+        ? `
+          <div class="policy-advanced-note">
+            This boundary stays on the advanced/custom path because its selector does not map to a guided product category. Inspect the canonical fields and raw content below when debugging it.
+          </div>
+        `
+        : "";
 
     let auditHtml = `
       <div class="boundary-provenance-callout loading">
@@ -5709,7 +5768,7 @@ const UI = {
       auditHtml = `
         <div class="boundary-provenance-callout error">
           <p>${Helpers.escapeHtml(
-            auditState.error || "Failed to load boundary provenance.",
+            auditState.error || "Failed to load boundary audit details.",
           )}</p>
         </div>
       `;
@@ -5883,10 +5942,35 @@ const UI = {
         <p class="boundary-row-footnote">${Helpers.escapeHtml(
           lifecycle.summary || "Currently active and enforced.",
         )}</p>
-        <div class="agent-detail-sections compact">
+        ${advancedInspectorNote}
+        <div class="policy-inspector-grid">
           <div class="detail-section">
             <h4>Boundary details</h4>
             ${renderDetailRows(overviewDetails)}
+          </div>
+          <div class="detail-section">
+            <h4>Canonical selectors</h4>
+            ${renderDetailRows(canonicalSelectorDetails)}
+          </div>
+          <div class="detail-section">
+            <h4>Canonical policy</h4>
+            ${renderDetailRows(canonicalPolicyDetails)}
+          </div>
+        </div>
+        <div class="agent-detail-sections compact">
+          <div class="detail-section">
+            <h4>Raw policy content</h4>
+            ${
+              Helpers.nullableString(rawPolicyContent)
+                ? `
+                  <pre class="policy-inspector-raw">${Helpers.escapeHtml(rawPolicyContent)}</pre>
+                `
+                : `
+                  <p class="boundary-provenance-empty">
+                    No raw policy content is stored for this boundary.
+                  </p>
+                `
+            }
           </div>
         </div>
       </div>
@@ -5918,7 +6002,7 @@ const UI = {
         await API.policies.provenance(id),
       );
       if (!audit) {
-        throw new Error("Boundary provenance payload was empty.");
+        throw new Error("Boundary inspector payload was empty.");
       }
 
       State.policyProvenanceById.set(id, audit);
@@ -5930,7 +6014,7 @@ const UI = {
       this.renderPolicyProvenanceModal(policy, {
         error:
           error.message ||
-          "Failed to load boundary provenance and audit details.",
+          "Failed to load boundary inspector audit details.",
         status: "error",
       });
     }
@@ -9817,7 +9901,7 @@ const UI = {
                     </div>
                     <div class="boundary-row-actions">
                       <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleInspectPolicy('${policy.id}')">
-                        Provenance
+                        Inspect
                       </button>
                       ${
                         canEdit

@@ -3996,6 +3996,12 @@ body {
   gap: var(--space-md);
 }
 
+.policy-inspector-grid {
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .boundary-provenance-overview {
   display: flex;
   flex-direction: column;
@@ -4085,6 +4091,26 @@ body {
   font-size: 0.88rem;
   line-height: 1.5;
   margin: 6px 0 0;
+}
+
+.policy-inspector-raw {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 248, 240, 0.86) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+  border: 1px solid rgba(255, 158, 107, 0.16);
+  border-radius: var(--radius-lg);
+  color: var(--color-text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--space-md);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .boundary-editor-preview-title {
