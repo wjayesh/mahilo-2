@@ -399,7 +399,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T14:29:06.592Z: DASH-051 completed via orchestrator integration.
 ### 5.3 Ask-Around and Delivery Timeline Signals
 - **ID**: `DASH-052`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-021`, `DASH-050`
 - **Description**:
@@ -413,6 +413,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ---
 
+- **Notes**:
+  - 2026-03-14T16:10:18.744Z: DASH-052 completed via orchestrator integration.
 ## Phase 6: Browser Access and Agent-Approved Sign-In
 
 ### 6.1 Invite-Only Browser Access Cleanup
