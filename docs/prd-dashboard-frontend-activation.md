@@ -453,7 +453,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T16:46:18.424Z: DASH-071 completed via orchestrator integration.
 ### 6.3 Sign In With Agent UX
 - **ID**: `DASH-072`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-071`
 - **Description**:
@@ -465,6 +465,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Pending, approved, expired, denied, and retry states are legible without manual page refreshes
   - [ ] If no agent is configured or approval times out, the UI offers useful fallback guidance instead of a dead end
 
+- **Notes**:
+  - 2026-03-14T17:01:40.796Z: DASH-072 completed via orchestrator integration.
 ### 6.4 Session-Backed Dashboard Bootstrap and Logout
 - **ID**: `DASH-073`
 - **Status**: `pending`
