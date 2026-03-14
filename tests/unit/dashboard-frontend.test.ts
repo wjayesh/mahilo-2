@@ -2589,6 +2589,261 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     );
   });
 
+  it("shows ask-around replies, no-grounded outcomes, waiting states, and readiness context", () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(
+          `Unexpected fetch while testing ask-around timeline signals: ${url}`,
+        );
+      },
+    });
+
+    const { Helpers, Normalizers, UI } = harness.dashboard;
+
+    const askAroundMessages = [
+      Normalizers.message(
+        {
+          action: "share",
+          correlation_id: "corr_ask_timeline",
+          created_at: "2026-03-14T12:00:00.000Z",
+          direction: "outbound",
+          id: "msg_ask_alice",
+          message: "Who knows a good ramen spot?",
+          recipient: { type: "user", username: "alice" },
+          resource: "message.general",
+          sender: { agent: "default", username: "viewer" },
+          status: "delivered",
+        },
+        { currentUsername: "viewer" },
+      ),
+      Normalizers.message(
+        {
+          action: "share",
+          correlation_id: "corr_ask_timeline",
+          created_at: "2026-03-14T12:01:00.000Z",
+          direction: "outbound",
+          id: "msg_ask_bob",
+          message: "Who knows a good ramen spot?",
+          recipient: { type: "user", username: "bob" },
+          resource: "message.general",
+          sender: { agent: "default", username: "viewer" },
+          status: "delivered",
+        },
+        { currentUsername: "viewer" },
+      ),
+      Normalizers.message(
+        {
+          action: "share",
+          context: "Went last month",
+          correlation_id: "corr_ask_timeline",
+          created_at: "2026-03-14T12:02:00.000Z",
+          direction: "inbound",
+          id: "msg_reply_alice",
+          in_response_to: "msg_ask_alice",
+          message: "Try Mensho for the broth.",
+          recipient: { type: "user", username: "viewer" },
+          resource: "message.general",
+          sender: { agent: "openclaw", username: "alice" },
+          status: "delivered",
+        },
+        { currentUsername: "viewer" },
+      ),
+      Normalizers.message(
+        {
+          action: "share",
+          correlation_id: "corr_ask_timeline",
+          created_at: "2026-03-14T12:02:30.000Z",
+          direction: "outbound",
+          id: "msg_ask_dana",
+          message: "Who knows a good ramen spot?",
+          recipient: { type: "user", username: "dana" },
+          resource: "message.general",
+          sender: { agent: "default", username: "viewer" },
+          status: "delivered",
+        },
+        { currentUsername: "viewer" },
+      ),
+      Normalizers.message(
+        {
+          action: "share",
+          correlation_id: "corr_ask_timeline",
+          created_at: "2026-03-14T12:03:00.000Z",
+          direction: "inbound",
+          id: "msg_reply_bob",
+          in_response_to: "msg_ask_bob",
+          message: JSON.stringify({
+            message: "I don't know.",
+            outcome: "no_grounded_answer",
+          }),
+          payload_type: "application/json",
+          recipient: { type: "user", username: "viewer" },
+          resource: "message.general",
+          sender: { agent: "openclaw", username: "bob" },
+          status: "delivered",
+        },
+        { currentUsername: "viewer" },
+      ),
+    ];
+
+    const review = Normalizers.review({
+      correlation_id: "corr_ask_timeline",
+      created_at: "2026-03-14T12:01:30.000Z",
+      decision: "ask",
+      delivery_mode: "review_required",
+      message_id: "msg_ask_charlie",
+      message_preview: "Who knows a good ramen spot?",
+      queue_direction: "outbound",
+      recipient: { type: "user", username: "charlie" },
+      review_id: "rev_ask_charlie",
+      sender: { username: "viewer" },
+      selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general",
+      },
+      status: "review_required",
+      summary: "Needs review before asking Charlie.",
+    });
+
+    Helpers.applyCollectionState(
+      "messages",
+      "messagesById",
+      Helpers.collectionModel(askAroundMessages),
+    );
+    Helpers.applyCollectionState(
+      "reviews",
+      "reviewsById",
+      Helpers.collectionModel([review]),
+    );
+
+    UI.renderLogs();
+    UI.renderOverviewMessages();
+
+    const logHtml = harness.getElement("logs-list").innerHTML;
+    expect(logHtml).toContain("Ask-around to alice");
+    expect(logHtml).toContain("Ask-around reply from bob");
+    expect(logHtml).toContain("Ask-around outcome");
+    expect(logHtml).toContain("alice replied: Try Mensho for the broth.");
+    expect(logHtml).toContain(
+      "bob reported no grounded answer: I don&#39;t know.",
+    );
+    expect(logHtml).toContain(
+      "charlie: review required before this ask can go out.",
+    );
+    expect(logHtml).toContain("Ready when asked: alice, bob, dana.");
+    expect(logHtml).toContain("Policy constrained: charlie (Review required).");
+    expect(logHtml).toContain("Reply context");
+    expect(logHtml).toContain("Went last month");
+    expect(logHtml).toContain("reply to msg_ask_alice");
+
+    const summaryHtml = harness.getElement("logs-summary").innerHTML;
+    expect(summaryHtml).toContain("Replies 1");
+    expect(summaryHtml).toContain("No grounded 1");
+    expect(summaryHtml).toContain("No reply yet 1");
+
+    const cueHtml = harness.getElement("overview-audit-cues").innerHTML;
+    expect(cueHtml).toContain("Ask-around");
+    expect(cueHtml).toContain("No reply yet");
+    expect(cueHtml).toContain("No grounded");
+
+    const overviewHtml = harness.getElement("overview-message-list").innerHTML;
+    expect(overviewHtml).toContain("Ask-around");
+    expect(overviewHtml).toContain("Who knows a good ramen spot?");
+    expect(overviewHtml).toContain("Replies: alice");
+    expect(overviewHtml).toContain("No grounded: bob");
+    expect(overviewHtml).toContain("No reply: dana");
+    expect(overviewHtml).toContain("Held: charlie (Review required)");
+  });
+
+  it("separates ready, not-ready, and constrained recipients for grouped ask-around activity", () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(
+          `Unexpected fetch while testing grouped ask-around readiness: ${url}`,
+        );
+      },
+    });
+
+    const { Helpers, Normalizers, UI } = harness.dashboard;
+
+    Helpers.applyCollectionState(
+      "groups",
+      "groupsById",
+      Helpers.collectionModel(
+        Normalizers.groups([
+          {
+            created_at: "2026-03-14T11:00:00.000Z",
+            id: "grp_foodies",
+            member_count: 3,
+            name: "foodies",
+            status: "active",
+          },
+        ]),
+      ),
+    );
+
+    const groupedAsk = Normalizers.message(
+      {
+        action: "share",
+        correlation_id: "corr_group_ask",
+        created_at: "2026-03-14T12:00:00.000Z",
+        direction: "outbound",
+        id: "msg_group_ask",
+        message: "Which lunch spot is actually worth it today?",
+        policies_evaluated: {
+          recipients: [
+            {
+              decision: "allow",
+              delivery_status: "delivered",
+              recipient_user_id: "usr_alice",
+              recipient_username: "alice",
+            },
+            {
+              decision: "allow",
+              delivery_status: "failed",
+              recipient_user_id: "usr_bob",
+              recipient_username: "bob",
+            },
+            {
+              decision: "ask",
+              delivery_status: "review_required",
+              recipient_user_id: "usr_charlie",
+              recipient_username: "charlie",
+            },
+          ],
+        },
+        recipient: null,
+        recipient_id: "grp_foodies",
+        recipient_type: "group",
+        resource: "message.general",
+        sender: { agent: "default", username: "viewer" },
+        status: "delivered",
+      },
+      { currentUsername: "viewer" },
+    );
+
+    Helpers.applyCollectionState(
+      "messages",
+      "messagesById",
+      Helpers.collectionModel([groupedAsk]),
+    );
+
+    UI.renderLogs();
+    UI.renderOverviewMessages();
+
+    const logHtml = harness.getElement("logs-list").innerHTML;
+    expect(logHtml).toContain("Ask-around to group foodies");
+    expect(logHtml).toContain("Ready when asked: alice.");
+    expect(logHtml).toContain("Not ready when asked: bob.");
+    expect(logHtml).toContain("Policy constrained: charlie (Review required).");
+
+    const overviewHtml = harness.getElement("overview-message-list").innerHTML;
+    expect(overviewHtml).toContain("Group foodies");
+    expect(overviewHtml).toContain("Ready: alice");
+    expect(overviewHtml).toContain("Not ready: bob");
+    expect(overviewHtml).toContain("Held: charlie (Review required)");
+  });
+
   it("renders compact overview cues for review-required, approval-pending, and blocked activity", () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url) => {

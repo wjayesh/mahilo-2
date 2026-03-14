@@ -534,6 +534,26 @@ const Helpers = {
     }
   },
 
+  jsonValue(value) {
+    if (value == null) {
+      return null;
+    }
+
+    if (this.isObject(value) || Array.isArray(value)) {
+      return value;
+    }
+
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  },
+
   nullableString(value) {
     if (typeof value === "string") {
       const trimmed = value.trim();
@@ -583,6 +603,24 @@ const Helpers = {
     }
 
     return this.participantLabel(value);
+  },
+
+  auditSenderLabel(item) {
+    return this.nullableString(item?.sender) || "Unknown sender";
+  },
+
+  auditRecipientLabel(item) {
+    if (item?.recipientType === "group") {
+      const groupId = this.nullableString(item?.recipientId);
+      const group = groupId ? State.groupsById.get(groupId) : null;
+      return (
+        this.nullableString(group?.name ?? group?.displayName) ||
+        this.nullableString(item?.recipient) ||
+        "Group conversation"
+      );
+    }
+
+    return this.nullableString(item?.recipient) || "Unknown recipient";
   },
 
   string(value, fallback = "") {
@@ -712,6 +750,92 @@ const Helpers = {
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ");
+  },
+
+  labelList(values, limit = 3) {
+    const labels = Array.from(
+      new Set(
+        (Array.isArray(values) ? values : [])
+          .map((value) => this.nullableString(value))
+          .filter(Boolean),
+      ),
+    );
+
+    if (!labels.length) {
+      return "None yet";
+    }
+
+    if (labels.length <= limit) {
+      return labels.join(", ");
+    }
+
+    return `${labels.slice(0, limit).join(", ")} +${labels.length - limit} more`;
+  },
+
+  auditParticipantKey(label, id = null) {
+    return this.nullableString(id) || this.string(label).trim().toLowerCase();
+  },
+
+  normalizeAskAroundReplyOutcome(value) {
+    const normalized = this
+      .string(value)
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+    if (normalized === "i_dont_know") {
+      return "no_grounded_answer";
+    }
+
+    if (
+      normalized === "direct_reply" ||
+      normalized === "no_grounded_answer" ||
+      normalized === "attribution_unverified"
+    ) {
+      return normalized;
+    }
+
+    return null;
+  },
+
+  groupFanoutRecipients(value) {
+    const record = this.record(value);
+    return (Array.isArray(record.recipients) ? record.recipients : [])
+      .map((entry) => {
+        const recipient = this.record(entry);
+        const label =
+          this.nullableString(
+            recipient.recipient_username ?? recipient.recipient,
+          ) || this.nullableString(recipient.recipient_user_id);
+
+        if (!label) {
+          return null;
+        }
+
+        return {
+          decision: this.nullableString(recipient.decision),
+          deliveryStatus: this.nullableString(recipient.delivery_status),
+          label,
+          reason: this.nullableString(recipient.reason),
+          reasonCode: this.nullableString(recipient.reason_code),
+          userId: this.nullableString(recipient.recipient_user_id),
+        };
+      })
+      .filter(Boolean);
+  },
+
+  askAroundReplyOutcomeLabel(value, fallback = "Reply received") {
+    const normalized = this.normalizeAskAroundReplyOutcome(value);
+
+    switch (normalized) {
+      case "direct_reply":
+        return "Reply received";
+      case "no_grounded_answer":
+        return "No grounded answer";
+      case "attribution_unverified":
+        return "Unverified reply";
+      default:
+        return fallback;
+    }
   },
 
   logStatusLabel(value, fallback = "Pending") {
@@ -1327,6 +1451,8 @@ const Helpers = {
       payloadType:
         this.nullableString(review?.payloadType) ||
         this.nullableString(message?.payloadType),
+      replyOutcome: this.normalizeAskAroundReplyOutcome(message?.replyOutcome),
+      fanoutRecipients: this.groupFanoutRecipients(message?.policyAudit),
       messageTimestamp: this.nullableString(message?.timestamp),
       reviewTimestamp: this.nullableString(review?.timestamp),
       blockedTimestamp: this.nullableString(blockedEvent?.timestamp),
@@ -1516,9 +1642,424 @@ const Helpers = {
     );
   },
 
+  askAroundThreadId(item) {
+    if (!item) {
+      return null;
+    }
+
+    if (item.correlationId) {
+      return item.correlationId;
+    }
+
+    if (
+      item.transportDirection === "sent" &&
+      item.recipientType === "group"
+    ) {
+      return `group:${item.messageId || item.id}`;
+    }
+
+    return null;
+  },
+
+  askAroundParticipantKey(value) {
+    const normalized = this.nullableString(value);
+    return normalized ? normalized.replace(/^@+/, "").toLowerCase() : null;
+  },
+
+  normalizeAskAroundOutcomeToken(value) {
+    const token = this.nullableString(value);
+    return token ? token.toLowerCase().replace(/[\s-]+/g, "_") : null;
+  },
+
+  isExplicitNoGroundedAnswer(value) {
+    const normalized = this.string(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
+    return [
+      "i dont know",
+      "i do not know",
+      "no grounded answer",
+      "no grounded answer available",
+      "i do not have a grounded answer",
+    ].includes(normalized);
+  },
+
+  readAskAroundReplyPayload(item) {
+    if (
+      !item ||
+      item.kind !== "message" ||
+      item.transportDirection !== "received"
+    ) {
+      return null;
+    }
+
+    const rawText = this.string(item.messageText || item.previewText);
+    const payloadType = this.string(item.payloadType).toLowerCase();
+    let parsed = this.isObject(item.parsedPayload) ? item.parsedPayload : null;
+    let text = rawText || "(no content)";
+    let context = this.nullableString(item.context);
+    let outcome = this.normalizeAskAroundReplyOutcome(item.replyOutcome);
+
+    if (!parsed && (rawText.trim().startsWith("{") || payloadType.includes("json"))) {
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        parsed = null;
+      }
+    }
+
+    if (this.isObject(parsed)) {
+      const candidates = [
+        parsed.outcome,
+        parsed.answer_status,
+        parsed.answerStatus,
+        parsed.kind,
+        parsed.status,
+      ];
+
+      candidates.forEach((candidate) => {
+        const normalized = this.normalizeAskAroundReplyOutcome(candidate);
+        if (normalized === "no_grounded_answer") {
+          outcome = "no_grounded_answer";
+        } else if (normalized === "direct_reply") {
+          outcome = outcome || "direct_reply";
+        }
+      });
+
+      text =
+        this.nullableString(
+          parsed.message ??
+            parsed.reply ??
+            parsed.answer ??
+            parsed.text ??
+            parsed.body,
+        ) || text;
+      context =
+        this.nullableString(
+          parsed.context ??
+            parsed.experience_context ??
+            parsed.experienceContext,
+        ) || context;
+    }
+
+    if (!outcome && this.isExplicitNoGroundedAnswer(text)) {
+      outcome = "no_grounded_answer";
+    }
+
+    return {
+      context,
+      outcome: outcome || "direct_reply",
+      text,
+    };
+  },
+
+  askAroundTargetSendState(value) {
+    const normalized = this.string(value).toLowerCase();
+
+    switch (normalized) {
+      case "approval_pending":
+        return "approval_pending";
+      case "review_required":
+      case "hold_for_approval":
+        return "review_required";
+      case "rejected":
+      case "blocked":
+        return "blocked";
+      case "failed":
+      case "send_failed":
+        return "failed";
+      default:
+        return "asked";
+    }
+  },
+
+  askAroundTargetFinalState(target) {
+    if (!target) {
+      return "no_reply";
+    }
+
+    if (target.replyOutcome === "no_grounded_answer") {
+      return "no_grounded_answer";
+    }
+
+    if (target.replyOutcome === "direct_reply") {
+      return "replied";
+    }
+
+    switch (target.askState) {
+      case "approval_pending":
+        return "approval_pending";
+      case "review_required":
+        return "review_required";
+      case "blocked":
+        return "blocked";
+      case "failed":
+        return "failed";
+      default:
+        return "no_reply";
+    }
+  },
+
+  buildAskAroundThread(items, threadId) {
+    const sortedItems = (Array.isArray(items) ? [...items] : []).sort(
+      (left, right) => this.compareByTimestampAsc(left, right),
+    );
+    const targetsByKey = new Map();
+    const unattributedReplies = [];
+    const itemIds = [];
+    let correlationId = null;
+    let groupLabel = null;
+    let latestTimestamp = null;
+    let questionPreview = null;
+    let hasGroup = false;
+
+    sortedItems.forEach((item) => {
+      itemIds.push(item.id);
+      correlationId = correlationId || this.nullableString(item.correlationId);
+      if (
+        this.timestampValue(item.timestamp) >
+        this.timestampValue(latestTimestamp)
+      ) {
+        latestTimestamp = item.timestamp;
+      }
+
+      if (
+        !questionPreview &&
+        item.transportDirection === "sent" &&
+        this.nullableString(item.messageText)
+      ) {
+        questionPreview = this.string(item.messageText);
+      }
+
+      if (item.transportDirection !== "sent") {
+        return;
+      }
+
+      const addTarget = (key, seed) => {
+        const existing = targetsByKey.get(key) || {};
+        targetsByKey.set(key, {
+          ...existing,
+          ...seed,
+          key,
+        });
+      };
+
+      if (item.recipientType === "group") {
+        hasGroup = true;
+        groupLabel = this.auditRecipientLabel(item) || groupLabel;
+        const recipientAudits = Array.isArray(item.audit?.recipients)
+          ? item.audit.recipients
+          : [];
+
+        if (!recipientAudits.length) {
+          addTarget(
+            this.askAroundParticipantKey(this.auditRecipientLabel(item)) ||
+              threadId,
+            {
+              askState: this.askAroundTargetSendState(item.status),
+              askTimestamp: item.timestamp,
+              decision: item.decision,
+              label: this.auditRecipientLabel(item),
+              reason: this.nullableString(item.summary || item.reason),
+              reasonCode: this.nullableString(item.reasonCode),
+              readyAtAsk: null,
+              recipientType: "group",
+              sourceMessageId: item.messageId || item.id,
+            },
+          );
+          return;
+        }
+
+        recipientAudits.forEach((recipientAudit) => {
+          const label =
+            this.nullableString(recipientAudit.recipient_username) ||
+            this.nullableString(recipientAudit.recipient_user_id);
+          const key =
+            this.askAroundParticipantKey(label) ||
+            this.askAroundParticipantKey(recipientAudit.recipient_user_id) ||
+            `${threadId}:${targetsByKey.size}`;
+
+          addTarget(key, {
+            askState: this.askAroundTargetSendState(
+              recipientAudit.delivery_status,
+            ),
+            askTimestamp: item.timestamp,
+            decision: this.nullableString(recipientAudit.decision),
+            groupLabel: this.auditRecipientLabel(item) || groupLabel,
+            label: label || "Unknown member",
+            reason: this.nullableString(recipientAudit.reason),
+            reasonCode: this.nullableString(recipientAudit.reason_code),
+            readyAtAsk:
+              recipientAudit.delivery_status === "delivered" ||
+              recipientAudit.delivery_status === "pending"
+                ? true
+                : recipientAudit.delivery_status === "failed"
+                  ? false
+                  : null,
+            recipientType: "user",
+            sourceMessageId: item.messageId || item.id,
+          });
+        });
+        return;
+      }
+
+      const key =
+        this.askAroundParticipantKey(this.auditRecipientLabel(item)) ||
+        this.askAroundParticipantKey(item.recipientId) ||
+        `${threadId}:${targetsByKey.size}`;
+
+      addTarget(key, {
+        askState: this.askAroundTargetSendState(item.status),
+        askTimestamp: item.timestamp,
+        decision: item.decision,
+        label: this.auditRecipientLabel(item),
+        reason: this.nullableString(item.summary || item.reason),
+        reasonCode: this.nullableString(item.reasonCode),
+        readyAtAsk:
+          item.recipientConnectionId
+            ? true
+            : this.askAroundTargetSendState(item.status) === "asked"
+              ? true
+              : this.askAroundTargetSendState(item.status) === "failed"
+                ? false
+                : null,
+        recipientType: item.recipientType || "user",
+        sourceMessageId: item.messageId || item.id,
+      });
+    });
+
+    sortedItems.forEach((item) => {
+      const reply = this.readAskAroundReplyPayload(item);
+      if (!reply) {
+        return;
+      }
+
+      const key =
+        this.askAroundParticipantKey(item.sender) ||
+        this.askAroundParticipantKey(item.senderId) ||
+        this.askAroundParticipantKey(item.senderConnectionId) ||
+        `${threadId}:reply:${item.messageId || item.id}`;
+      const target = targetsByKey.get(key) || null;
+      const replySignal = {
+        context: reply.context,
+        inResponseTo: this.nullableString(item.inResponseTo),
+        messageId: item.messageId || item.id,
+        outcome: target ? reply.outcome : "attribution_unverified",
+        preview: reply.text,
+        sender: item.sender || "Unknown sender",
+        senderAgent: this.nullableString(item.senderAgent),
+        timestamp: item.timestamp,
+      };
+
+      if (!target) {
+        unattributedReplies.push(replySignal);
+        return;
+      }
+
+      targetsByKey.set(key, {
+        ...target,
+        replyContext: replySignal.context,
+        replyInResponseTo: replySignal.inResponseTo,
+        replyMessageId: replySignal.messageId,
+        replyOutcome: reply.outcome,
+        replyPreview: reply.text,
+        replySenderAgent: replySignal.senderAgent,
+        replyTimestamp: item.timestamp,
+      });
+    });
+
+    const targets = [...targetsByKey.values()].sort((left, right) =>
+      this.string(left.label).localeCompare(this.string(right.label)),
+    );
+    const outboundTargets = targets.filter(
+      (target) => target.recipientType !== "group",
+    );
+    const replyParticipants = new Set(
+      targets
+        .filter((target) => Boolean(target.replyOutcome))
+        .map((target) => target.key),
+    );
+    const isAskAround =
+      hasGroup || outboundTargets.length > 1 || replyParticipants.size > 1;
+
+    if (!isAskAround) {
+      return null;
+    }
+
+    const counts = {
+      approvalPending: 0,
+      blocked: 0,
+      failed: 0,
+      noGrounded: 0,
+      ready: 0,
+      replied: 0,
+      reviewRequired: 0,
+      targets: targets.length,
+      unattributedReplies: unattributedReplies.length,
+      waiting: 0,
+    };
+
+    targets.forEach((target) => {
+      if (target.readyAtAsk === true) {
+        counts.ready += 1;
+      }
+
+      switch (this.askAroundTargetFinalState(target)) {
+        case "replied":
+          counts.replied += 1;
+          break;
+        case "no_grounded_answer":
+          counts.noGrounded += 1;
+          break;
+        case "approval_pending":
+          counts.approvalPending += 1;
+          break;
+        case "review_required":
+          counts.reviewRequired += 1;
+          break;
+        case "blocked":
+          counts.blocked += 1;
+          break;
+        case "failed":
+          counts.failed += 1;
+          break;
+        default:
+          counts.waiting += 1;
+      }
+    });
+
+    return {
+      correlationId,
+      counts,
+      groupLabel,
+      id: threadId,
+      isAskAround: true,
+      itemIds,
+      kind: hasGroup ? "group" : "fanout",
+      latestTimestamp,
+      questionPreview,
+      targets,
+      targetCount: targets.length,
+      unattributedReplies,
+    };
+  },
+
+  askAroundThread(item, threadSummary) {
+    const threadId = this.askAroundThreadId(item);
+    if (!threadId) {
+      return null;
+    }
+
+    return threadSummary?.threadsById?.get(threadId) || null;
+  },
+
   askAroundThreadSummary(items) {
     const correlationCounts = new Map();
     const threadIds = new Set();
+    const itemsByThreadId = new Map();
+    const threadsById = new Map();
 
     items.forEach((item) => {
       if (item.correlationId) {
@@ -1527,28 +2068,290 @@ const Helpers = {
           (correlationCounts.get(item.correlationId) || 0) + 1,
         );
       }
-    });
 
-    items.forEach((item) => {
-      if (item.recipientType === "group") {
-        threadIds.add(
-          item.correlationId || `group:${item.messageId || item.id}`,
-        );
+      const threadId = this.askAroundThreadId(item);
+      if (!threadId) {
         return;
       }
 
-      if (
-        item.correlationId &&
-        (correlationCounts.get(item.correlationId) || 0) > 1
-      ) {
-        threadIds.add(item.correlationId);
+      const existing = itemsByThreadId.get(threadId) || [];
+      existing.push(item);
+      itemsByThreadId.set(threadId, existing);
+    });
+
+    itemsByThreadId.forEach((threadItems, threadId) => {
+      const thread = this.buildAskAroundThread(threadItems, threadId);
+      if (!thread) {
+        return;
       }
+
+      threadIds.add(threadId);
+      threadsById.set(threadId, thread);
+    });
+
+    const counts = {
+      noGrounded: 0,
+      replies: 0,
+      threads: threadsById.size,
+      unattributedReplies: 0,
+      waiting: 0,
+    };
+
+    threadsById.forEach((thread) => {
+      counts.replies += thread.counts.replied;
+      counts.noGrounded += thread.counts.noGrounded;
+      counts.waiting += thread.counts.waiting;
+      counts.unattributedReplies += thread.counts.unattributedReplies;
     });
 
     return {
+      counts,
       correlationCounts,
       threadIds,
+      threadsById,
     };
+  },
+
+  formatLabelList(values, limit = 3) {
+    const labels = [...new Set(this.stringList(values))];
+
+    if (!labels.length) {
+      return "";
+    }
+
+    if (labels.length <= limit) {
+      return labels.join(", ");
+    }
+
+    return `${labels.slice(0, limit).join(", ")}, +${labels.length - limit} more`;
+  },
+
+  askAroundConstraintLabel(target) {
+    const label = this.string(target?.label, "Unknown");
+    const reason =
+      this.askAroundTargetFinalState(target) === "approval_pending"
+        ? "Approval pending"
+        : this.askAroundTargetFinalState(target) === "review_required"
+          ? "Review required"
+          : this.askAroundTargetFinalState(target) === "blocked"
+            ? "Blocked"
+            : "Send failed";
+
+    return `${label} (${reason})`;
+  },
+
+  askAroundOutcomeLines(thread) {
+    if (!thread?.targets?.length) {
+      return [];
+    }
+
+    return thread.targets.map((target) => {
+      const label = this.string(target.label, "Unknown");
+      const replyPreview = this.truncate(target.replyPreview, 120);
+
+      switch (this.askAroundTargetFinalState(target)) {
+        case "replied":
+          return replyPreview
+            ? `${label} replied: ${replyPreview}`
+            : `${label} replied.`;
+        case "no_grounded_answer":
+          return replyPreview
+            ? `${label} reported no grounded answer: ${replyPreview}`
+            : `${label} reported no grounded answer.`;
+        case "approval_pending":
+          return `${label}: approval pending before this ask can go out.`;
+        case "review_required":
+          return `${label}: review required before this ask can go out.`;
+        case "blocked":
+          return `${label}: blocked by boundaries.`;
+        case "failed":
+          return `${label}: Mahilo could not route the ask.`;
+        default:
+          return `${label}: no reply yet.`;
+      }
+    });
+  },
+
+  askAroundReadinessLines(thread) {
+    if (!thread?.targets?.length) {
+      return [];
+    }
+
+    const readyTargets = thread.targets
+      .filter((target) => target.readyAtAsk === true)
+      .map((target) => target.label);
+    const notReadyTargets = thread.targets
+      .filter((target) => target.readyAtAsk === false)
+      .map((target) => target.label);
+    const constrainedTargets = thread.targets
+      .filter((target) =>
+        ["approval_pending", "review_required", "blocked"].includes(
+          this.askAroundTargetFinalState(target),
+        ),
+      )
+      .map((target) => this.askAroundConstraintLabel(target));
+    const lines = [];
+
+    if (readyTargets.length) {
+      lines.push(
+        `Ready when asked: ${this.formatLabelList(readyTargets, 4)}.`,
+      );
+    }
+
+    if (notReadyTargets.length) {
+      lines.push(
+        `Not ready when asked: ${this.formatLabelList(notReadyTargets, 3)}.`,
+      );
+    }
+
+    if (constrainedTargets.length) {
+      lines.push(
+        `Policy constrained: ${this.formatLabelList(constrainedTargets, 3)}.`,
+      );
+    }
+
+    if (thread.unattributedReplies.length) {
+      lines.push(
+        `Unattributed replies: ${this.formatLabelList(
+          thread.unattributedReplies.map((reply) => reply.sender),
+          3,
+        )}.`,
+      );
+    }
+
+    return lines;
+  },
+
+  askAroundReplyContextLines(thread) {
+    if (!thread?.targets?.length && !thread?.unattributedReplies?.length) {
+      return [];
+    }
+
+    const lines = thread.targets
+      .filter((target) => Boolean(target.replyOutcome))
+      .sort((left, right) =>
+        this.compareByTimestampAsc(
+          { timestamp: left.replyTimestamp },
+          { timestamp: right.replyTimestamp },
+        ),
+      )
+      .map((target) => {
+        const parts = [];
+
+        if (target.replyContext) {
+          parts.push(`context: ${target.replyContext}`);
+        }
+
+        if (target.replyInResponseTo) {
+          parts.push(`reply to ${this.truncate(target.replyInResponseTo, 18)}`);
+        }
+
+        return parts.length
+          ? `${target.label}: ${parts.join(" • ")}`
+          : `${target.label}: direct reply recorded.`;
+      });
+
+    thread.unattributedReplies.forEach((reply) => {
+      const parts = [];
+
+      if (reply.context) {
+        parts.push(`context: ${reply.context}`);
+      }
+
+      if (reply.inResponseTo) {
+        parts.push(`reply to ${this.truncate(reply.inResponseTo, 18)}`);
+      }
+
+      lines.push(
+        parts.length
+          ? `${reply.sender}: ${parts.join(" • ")}`
+          : `${reply.sender}: unattributed reply kept separate.`,
+      );
+    });
+
+    return lines;
+  },
+
+  askAroundThreadSummaryLine(thread) {
+    if (!thread) {
+      return "Waiting on replies.";
+    }
+
+    const parts = [];
+
+    if (thread.counts.replied) {
+      parts.push(
+        `${this.pluralize(thread.counts.replied, "reply")} attributed`,
+      );
+    }
+
+    if (thread.counts.noGrounded) {
+      parts.push(
+        `${this.pluralize(thread.counts.noGrounded, "no-grounded answer", "no-grounded answers")}`,
+      );
+    }
+
+    if (thread.counts.waiting) {
+      parts.push(`${this.pluralize(thread.counts.waiting, "contact")} waiting`);
+    }
+
+    if (thread.counts.reviewRequired || thread.counts.approvalPending) {
+      parts.push(
+        `${thread.counts.reviewRequired + thread.counts.approvalPending} held for review`,
+      );
+    }
+
+    if (thread.counts.blocked) {
+      parts.push(`${this.pluralize(thread.counts.blocked, "contact")} blocked`);
+    }
+
+    if (thread.counts.failed) {
+      parts.push(
+        `${this.pluralize(thread.counts.failed, "contact")} not ready`,
+      );
+    }
+
+    if (thread.counts.unattributedReplies) {
+      parts.push(
+        `${this.pluralize(thread.counts.unattributedReplies, "unattributed reply")}`,
+      );
+    }
+
+    return parts.length ? parts.join(" • ") : "Waiting on replies.";
+  },
+
+  overviewActivityFeed(items = []) {
+    const sortedItems = this.filterAuditLog(items);
+    const threadSummary = this.askAroundThreadSummary(sortedItems);
+    const seenThreadIds = new Set();
+    const activities = [];
+
+    sortedItems.forEach((item) => {
+      const thread = this.askAroundThread(item, threadSummary);
+      if (thread) {
+        if (!seenThreadIds.has(thread.id)) {
+          seenThreadIds.add(thread.id);
+          activities.push({
+            id: `ask:${thread.id}`,
+            kind: "ask-around",
+            thread,
+            timestamp: thread.latestTimestamp,
+          });
+        }
+        return;
+      }
+
+      activities.push({
+        id: item.id,
+        item,
+        kind: "audit",
+        timestamp: item.timestamp,
+      });
+    });
+
+    return activities.sort((left, right) =>
+      this.compareByTimestampDesc(left, right),
+    );
   },
 
   auditCounts(items = []) {
@@ -1588,19 +2391,49 @@ const Helpers = {
       return null;
     }
 
-    if (item.recipientType === "group") {
-      return "Ask-around group";
+    const thread = this.askAroundThread(item, threadSummary);
+    if (!thread) {
+      return null;
     }
 
-    if (item.correlationId && threadSummary.threadIds.has(item.correlationId)) {
-      const threadSize =
-        threadSummary.correlationCounts.get(item.correlationId) || 0;
-      return threadSize > 1
-        ? `Ask-around thread (${threadSize})`
-        : "Ask-around thread";
+    if (item.transportDirection === "received" && item.kind === "message") {
+      const target = thread.targets.find(
+        (candidate) => candidate.replyMessageId === (item.messageId || item.id),
+      );
+      if (target?.replyOutcome === "no_grounded_answer") {
+        return "No grounded answer";
+      }
+
+      if (target?.replyOutcome === "direct_reply") {
+        return "Attributed reply";
+      }
+
+      if (
+        thread.unattributedReplies.some(
+          (reply) => reply.messageId === (item.messageId || item.id),
+        )
+      ) {
+        return "Unattributed reply";
+      }
     }
 
-    return null;
+    if (item.kind === "review") {
+      return "Ask-around review";
+    }
+
+    if (item.kind === "blocked") {
+      return "Ask blocked";
+    }
+
+    if (thread.kind === "group") {
+      return thread.targetCount > 1
+        ? `Ask-around group (${thread.targetCount})`
+        : "Ask-around group";
+    }
+
+    return thread.targetCount > 1
+      ? `Ask-around thread (${thread.targetCount})`
+      : "Ask-around thread";
   },
 };
 
@@ -2931,6 +3764,13 @@ const Normalizers = {
     const policyAudit = Helpers.jsonRecord(
       record.policies_evaluated ?? record.policiesEvaluated,
     );
+    const rawPayload =
+      record.message ??
+      record.payload ??
+      record.message_preview ??
+      record.stored_payload_excerpt;
+    const parsedPayload = Helpers.jsonValue(rawPayload);
+    const parsedPayloadRecord = Helpers.record(parsedPayload);
     const timestamp =
       Helpers.iso(
         record.created_at ??
@@ -2960,10 +3800,7 @@ const Normalizers = {
       Helpers.nullableString(record.id ?? record.message_id) ||
       `message_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const messageText = Helpers.contentText(
-      record.message ??
-        record.payload ??
-        record.message_preview ??
-        record.stored_payload_excerpt,
+      Helpers.nullableString(parsedPayloadRecord.message) || rawPayload,
     );
     const counterpart = transportDirection === "sent" ? recipient : sender;
     const status = Helpers.string(
@@ -3005,7 +3842,11 @@ const Normalizers = {
       deliveredAt: Helpers.iso(record.delivered_at ?? record.deliveredAt),
       messageText,
       previewText: Helpers.truncate(messageText, 120),
-      context: Helpers.contentText(record.context ?? record.context_preview),
+      context: Helpers.contentText(
+        record.context ??
+          record.context_preview ??
+          parsedPayloadRecord.context,
+      ),
       inResponseTo: Helpers.nullableString(
         record.in_response_to ?? record.inResponseTo,
       ),
@@ -3014,6 +3855,10 @@ const Normalizers = {
       ),
       outcome: Helpers.nullableString(record.outcome),
       outcomeDetails: record.outcome_details ?? record.outcomeDetails ?? null,
+      parsedPayload,
+      replyOutcome: Helpers.normalizeAskAroundReplyOutcome(
+        parsedPayloadRecord.outcome ?? record.outcome,
+      ),
       senderAgent: Helpers.nullableString(
         record.sender_agent ?? record.sender?.agent ?? record.sender?.label,
       ),
@@ -10185,17 +11030,20 @@ const UI = {
   },
 
   buildLogContextEntries(item) {
+    const senderLabel = Helpers.auditSenderLabel(item);
+    const recipientLabel = Helpers.auditRecipientLabel(item);
+
     return [
       {
         label: "Sender",
-        value: item.sender || "Unknown sender",
+        value: senderLabel,
       },
       {
         label: "Recipient",
         value:
           item.recipientType === "group"
-            ? `${item.recipient} (group)`
-            : item.recipient || "Unknown recipient",
+            ? `${recipientLabel} (group)`
+            : recipientLabel,
       },
       item.senderAgent
         ? {
@@ -10210,8 +11058,9 @@ const UI = {
     ].filter(Boolean);
   },
 
-  buildLogExcerpts(item) {
+  buildLogExcerpts(item, threadSummary = null) {
     const excerpts = [];
+    const thread = Helpers.askAroundThread(item, threadSummary);
 
     if (item.kind === "review") {
       if (item.messagePreview) {
@@ -10234,11 +11083,7 @@ const UI = {
           value: item.auditExplanation,
         });
       }
-
-      return excerpts;
-    }
-
-    if (item.kind === "blocked") {
+    } else if (item.kind === "blocked") {
       excerpts.push({
         label: "Audit note",
         value:
@@ -10253,14 +11098,48 @@ const UI = {
           item.storedPayloadExcerpt ||
           "Payload excerpt omitted by current retention settings.",
       });
-      return excerpts;
-    }
-
-    if (item.context) {
+    } else if (item.context) {
       excerpts.push({
         label: "Context",
         value: item.context,
       });
+    }
+
+    if (thread) {
+      if (item.transportDirection === "received" && thread.questionPreview) {
+        excerpts.unshift({
+          label: "Ask-around question",
+          maxLength: 280,
+          value: thread.questionPreview,
+        });
+      }
+
+      const outcomeLines = Helpers.askAroundOutcomeLines(thread);
+      if (outcomeLines.length) {
+        excerpts.push({
+          label: "Ask-around outcome",
+          maxLength: 420,
+          value: outcomeLines.join("\n"),
+        });
+      }
+
+      const readinessLines = Helpers.askAroundReadinessLines(thread);
+      if (readinessLines.length) {
+        excerpts.push({
+          label: "Ask-around readiness",
+          maxLength: 360,
+          value: readinessLines.join("\n"),
+        });
+      }
+
+      const replyContextLines = Helpers.askAroundReplyContextLines(thread);
+      if (replyContextLines.length) {
+        excerpts.push({
+          label: "Reply context",
+          maxLength: 360,
+          value: replyContextLines.join("\n"),
+        });
+      }
     }
 
     return excerpts;
@@ -10283,8 +11162,8 @@ const UI = {
     `;
   },
 
-  renderLogExcerptGrid(item) {
-    const excerpts = this.buildLogExcerpts(item);
+  renderLogExcerptGrid(item, threadSummary = null) {
+    const excerpts = this.buildLogExcerpts(item, threadSummary);
 
     if (!excerpts.length) {
       return "";
@@ -10297,7 +11176,9 @@ const UI = {
             (excerpt) => `
           <div class="log-excerpt-card">
             <span class="log-excerpt-label">${Helpers.escapeHtml(excerpt.label)}</span>
-            <p class="log-excerpt-copy">${Helpers.escapeHtml(Helpers.truncate(excerpt.value, 180))}</p>
+            <p class="log-excerpt-copy">${Helpers.escapeHtml(
+              Helpers.truncate(excerpt.value, excerpt.maxLength || 180),
+            )}</p>
           </div>
         `,
           )
@@ -10306,8 +11187,9 @@ const UI = {
     `;
   },
 
-  renderLogDetails(item, askAroundTag = null) {
+  renderLogDetails(item, threadSummary = null, askAroundTag = null) {
     const details = [];
+    const thread = Helpers.askAroundThread(item, threadSummary);
 
     if (item.kind === "review") {
       details.push({ label: "Review queue", highlight: true });
@@ -10362,6 +11244,26 @@ const UI = {
       details.push({ label: askAroundTag, highlight: true });
     }
 
+    if (thread) {
+      if (thread.counts.ready) {
+        details.push({ label: `Ready ${thread.counts.ready}` });
+      }
+
+      if (thread.counts.replied) {
+        details.push({ label: `Replies ${thread.counts.replied}` });
+      }
+
+      if (thread.counts.noGrounded) {
+        details.push({
+          label: `No grounded ${thread.counts.noGrounded}`,
+        });
+      }
+
+      if (thread.counts.waiting) {
+        details.push({ label: `No reply yet ${thread.counts.waiting}` });
+      }
+    }
+
     return `
       <div class="log-details">
         ${details
@@ -10378,6 +11280,12 @@ const UI = {
   renderLogItem(item, threadSummary) {
     const askAroundTag =
       item.askAroundTag || Helpers.askAroundTag(item, threadSummary);
+    const askAroundThread = Helpers.askAroundThread(item, threadSummary);
+    const askAroundReply = askAroundThread
+      ? Helpers.readAskAroundReplyPayload(item)
+      : null;
+    const recipientLabel = Helpers.auditRecipientLabel(item);
+    const senderLabel = Helpers.auditSenderLabel(item);
     const statusLabel =
       item.kind === "blocked"
         ? "Blocked"
@@ -10388,23 +11296,37 @@ const UI = {
     const directionLabel =
       item.transportDirection === "sent" ? "Outbound" : "Inbound";
     const heading =
-      item.kind === "review"
+      askAroundThread &&
+      item.kind === "message" &&
+      item.transportDirection === "sent"
+        ? item.recipientType === "group"
+          ? `Ask-around to group ${recipientLabel}`
+          : `Ask-around to ${recipientLabel}`
+        : askAroundThread &&
+            item.kind === "message" &&
+            item.transportDirection === "received"
+          ? `Ask-around reply from ${senderLabel}`
+          : item.kind === "review"
         ? `Review queue • ${
             item.transportDirection === "sent"
-              ? `To: ${item.recipient}`
-              : `From: ${item.sender}`
+              ? `To: ${recipientLabel}`
+              : `From: ${senderLabel}`
           }`
         : item.kind === "blocked"
           ? `Blocked event • ${
               item.transportDirection === "sent"
-                ? `To: ${item.recipient}`
-                : `From: ${item.sender}`
+                ? `To: ${recipientLabel}`
+                : `From: ${senderLabel}`
             }`
           : item.transportDirection === "sent"
-            ? `Delivery to ${item.recipient}`
-            : `Delivery from ${item.sender}`;
+            ? `Delivery to ${recipientLabel}`
+            : `Delivery from ${senderLabel}`;
     const icon =
-      item.kind === "review"
+      askAroundThread && item.kind === "message"
+        ? item.transportDirection === "sent"
+          ? "🗣️"
+          : "💬"
+        : item.kind === "review"
         ? item.transportDirection === "sent"
           ? "⏸️"
           : "🧾"
@@ -10414,7 +11336,15 @@ const UI = {
             ? "📤"
             : "📥";
     const contentLabel =
-      item.kind === "review"
+      askAroundThread &&
+      item.kind === "message" &&
+      item.transportDirection === "sent"
+        ? "Question"
+        : askAroundThread &&
+            item.kind === "message" &&
+            item.transportDirection === "received"
+          ? "Reply"
+          : item.kind === "review"
         ? "Queue summary"
         : item.kind === "blocked"
           ? "Block summary"
@@ -10427,10 +11357,12 @@ const UI = {
           "Message requires review before delivery."
         : item.kind === "blocked"
           ? item.reason || item.summary || "Message blocked by policy."
+          : askAroundReply
+            ? askAroundReply.text
           : item.messageText || item.previewText || "(no content)";
 
     return `
-      <div class="log-item ${item.auditState}">
+      <div class="log-item ${item.auditState}${askAroundThread ? " ask-around" : ""}">
         <div class="log-header">
           <div class="log-direction">
             <div class="log-direction-icon ${item.transportDirection}">
@@ -10451,8 +11383,8 @@ const UI = {
           <div class="log-content-body">${Helpers.escapeHtml(Helpers.truncate(contentText, item.kind === "message" ? 220 : 180))}</div>
         </div>
         ${this.renderLogContextGrid(item)}
-        ${this.renderLogExcerptGrid(item)}
-        ${this.renderLogDetails(item, askAroundTag)}
+        ${this.renderLogExcerptGrid(item, threadSummary)}
+        ${this.renderLogDetails(item, threadSummary, askAroundTag)}
       </div>
     `;
   },
@@ -10464,6 +11396,29 @@ const UI = {
     }
 
     const counts = Helpers.auditCounts(items);
+    const representedThreadIds = new Set(
+      items
+        .map((item) => Helpers.askAroundThread(item, threadSummary)?.id || null)
+        .filter(Boolean),
+    );
+    const askAroundCounts = {
+      noGrounded: 0,
+      replies: 0,
+      unattributedReplies: 0,
+      waiting: 0,
+    };
+    representedThreadIds.forEach((threadId) => {
+      const thread = threadSummary?.threadsById?.get(threadId);
+      if (!thread?.counts) {
+        return;
+      }
+
+      askAroundCounts.replies += thread.counts.replied || 0;
+      askAroundCounts.noGrounded += thread.counts.noGrounded || 0;
+      askAroundCounts.waiting += thread.counts.waiting || 0;
+      askAroundCounts.unattributedReplies +=
+        thread.counts.unattributedReplies || 0;
+    });
 
     container.innerHTML = `
       <div class="log-summary-card">
@@ -10486,8 +11441,17 @@ const UI = {
       </div>
       <div class="log-summary-card">
         <span class="log-summary-label">Ask-around Threads</span>
-        <span class="log-summary-value">${threadSummary.threadIds.size}</span>
-        <p>Detected fan-out or group delivery threads in this view.</p>
+        <span class="log-summary-value">${representedThreadIds.size}</span>
+        <div class="log-summary-breakdown">
+          <span class="log-summary-chip">Replies ${askAroundCounts.replies}</span>
+          <span class="log-summary-chip">No reply yet ${askAroundCounts.waiting}</span>
+          <span class="log-summary-chip">No grounded ${askAroundCounts.noGrounded}</span>
+        </div>
+        ${
+          askAroundCounts.unattributedReplies
+            ? `<p>${Helpers.pluralize(askAroundCounts.unattributedReplies, "unattributed reply")} kept separate from trusted attribution.</p>`
+            : "<p>Detected fan-out or group delivery threads in this view.</p>"
+        }
       </div>
     `;
   },
@@ -10516,7 +11480,7 @@ const UI = {
       direction: State.logDirectionFilter,
       state: State.logStateFilter,
     });
-    const threadSummary = Helpers.askAroundThreadSummary(items);
+    const threadSummary = Helpers.askAroundThreadSummary(State.auditLog);
 
     this.renderLogSummary(items, threadSummary);
 
@@ -10904,53 +11868,11 @@ const UI = {
     // Already handled by updateGroupCount
   },
 
-  renderOverviewAuditCues(items = State.auditLog) {
-    const container = document.getElementById("overview-audit-cues");
-    if (!container) {
-      return;
-    }
+  renderOverviewAuditItem(item) {
+    const recipientLabel = Helpers.auditRecipientLabel(item);
+    const senderLabel = Helpers.auditSenderLabel(item);
 
-    const counts = Helpers.auditCounts(items);
-
-    container.innerHTML = `
-      <div class="overview-audit-pill review_required">
-        <span class="overview-audit-value">${counts.reviewRequired}</span>
-        <span class="overview-audit-label">Review required</span>
-      </div>
-      <div class="overview-audit-pill approval_pending">
-        <span class="overview-audit-value">${counts.approvalPending}</span>
-        <span class="overview-audit-label">Approval pending</span>
-      </div>
-      <div class="overview-audit-pill blocked">
-        <span class="overview-audit-value">${counts.blocked}</span>
-        <span class="overview-audit-label">Blocked</span>
-      </div>
-    `;
-  },
-
-  renderOverviewMessages() {
-    const list = document.getElementById("overview-message-list");
-    if (!list) {
-      return;
-    }
-
-    this.renderOverviewAuditCues(State.auditLog);
-    const items = Helpers.filterAuditLog(State.auditLog).slice(0, 5);
-
-    if (!items.length) {
-      list.innerHTML = `
-        <div class="empty-state small" style="padding: 40px 20px;">
-          <div class="empty-icon" style="font-size: 3rem; margin-bottom: 16px;">📨</div>
-          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No delivery activity yet</p>
-          <p class="hint" style="font-size: 0.9rem;">Send a message or ask around to start your audit trail.</p>
-        </div>
-      `;
-      return;
-    }
-
-    list.innerHTML = items
-      .map(
-        (item) => `
+    return `
       <div class="message-preview-item ${item.auditState}">
         <div class="message-preview-main">
           <div class="message-preview-heading">
@@ -10964,8 +11886,8 @@ const UI = {
             )}</span>
             <span class="message-preview-sender">${Helpers.escapeHtml(
               item.transportDirection === "sent"
-                ? `To ${item.recipient}`
-                : `From ${item.sender}`,
+                ? `To ${recipientLabel}`
+                : `From ${senderLabel}`,
             )}</span>
           </div>
           <span class="message-preview-text">${Helpers.escapeHtml(
@@ -10994,7 +11916,164 @@ const UI = {
         </div>
         <span class="message-preview-time">${Helpers.escapeHtml(new Date(item.timestamp).toLocaleDateString())}</span>
       </div>
-    `,
+    `;
+  },
+
+  renderOverviewAskAroundItem(thread) {
+    const repliedLabels = thread.targets
+      .filter((target) => Helpers.askAroundTargetFinalState(target) === "replied")
+      .map((target) => target.label);
+    const noGroundedLabels = thread.targets
+      .filter(
+        (target) =>
+          Helpers.askAroundTargetFinalState(target) === "no_grounded_answer",
+      )
+      .map((target) => target.label);
+    const waitingLabels = thread.targets
+      .filter((target) => Helpers.askAroundTargetFinalState(target) === "no_reply")
+      .map((target) => target.label);
+    const readyLabels = thread.targets
+      .filter((target) => target.readyAtAsk === true)
+      .map((target) => target.label);
+    const notReadyLabels = thread.targets
+      .filter((target) => target.readyAtAsk === false)
+      .map((target) => target.label);
+    const constrainedLabels = thread.targets
+      .filter((target) =>
+        ["approval_pending", "review_required", "blocked"].includes(
+          Helpers.askAroundTargetFinalState(target),
+        ),
+      )
+      .map((target) => Helpers.askAroundConstraintLabel(target));
+    const metaChips = [
+      readyLabels.length
+        ? `Ready: ${Helpers.formatLabelList(readyLabels, 2)}`
+        : null,
+      notReadyLabels.length
+        ? `Not ready: ${Helpers.formatLabelList(notReadyLabels, 2)}`
+        : null,
+      repliedLabels.length
+        ? `Replies: ${Helpers.formatLabelList(repliedLabels, 2)}`
+        : null,
+      noGroundedLabels.length
+        ? `No grounded: ${Helpers.formatLabelList(noGroundedLabels, 2)}`
+        : null,
+      waitingLabels.length
+        ? `No reply: ${Helpers.formatLabelList(waitingLabels, 2)}`
+        : null,
+      constrainedLabels.length
+        ? `Held: ${Helpers.formatLabelList(constrainedLabels, 2)}`
+        : null,
+      thread.unattributedReplies.length
+        ? `Unattributed: ${Helpers.formatLabelList(
+            thread.unattributedReplies.map((reply) => reply.sender),
+            2,
+          )}`
+        : null,
+    ]
+      .filter(Boolean);
+    const targetLabel =
+      thread.kind === "group" && thread.groupLabel
+        ? `Group ${thread.groupLabel}`
+        : `Asked ${Helpers.pluralize(thread.targetCount || 0, "contact")}`;
+
+    return `
+      <div class="message-preview-item ask-around">
+        <div class="message-preview-main">
+          <div class="message-preview-heading">
+            <span class="message-preview-status ask_around">Ask-around</span>
+            <span class="message-preview-sender">${Helpers.escapeHtml(targetLabel)}</span>
+          </div>
+          <span class="message-preview-text">${Helpers.escapeHtml(
+            Helpers.truncate(
+              thread.questionPreview || "Mahilo ask-around activity",
+              120,
+            ),
+          )}</span>
+          <p class="message-preview-thread-copy">${Helpers.escapeHtml(
+            Helpers.askAroundThreadSummaryLine(thread),
+          )}</p>
+          <div class="message-preview-meta">
+            ${metaChips
+              .map(
+                (chip) => `
+                  <span class="message-preview-meta-chip">${Helpers.escapeHtml(chip)}</span>
+                `,
+              )
+              .join("")}
+          </div>
+        </div>
+        <span class="message-preview-time">${Helpers.escapeHtml(new Date(thread.latestTimestamp).toLocaleDateString())}</span>
+      </div>
+    `;
+  },
+
+  renderOverviewAuditCues(items = State.auditLog) {
+    const container = document.getElementById("overview-audit-cues");
+    if (!container) {
+      return;
+    }
+
+    const counts = Helpers.auditCounts(items);
+    const threadSummary = Helpers.askAroundThreadSummary(items);
+    const askAroundCounts = threadSummary.counts || {
+      noGrounded: 0,
+      waiting: 0,
+    };
+
+    container.innerHTML = `
+      <div class="overview-audit-pill review_required">
+        <span class="overview-audit-value">${counts.reviewRequired}</span>
+        <span class="overview-audit-label">Review required</span>
+      </div>
+      <div class="overview-audit-pill approval_pending">
+        <span class="overview-audit-value">${counts.approvalPending}</span>
+        <span class="overview-audit-label">Approval pending</span>
+      </div>
+      <div class="overview-audit-pill blocked">
+        <span class="overview-audit-value">${counts.blocked}</span>
+        <span class="overview-audit-label">Blocked</span>
+      </div>
+      <div class="overview-audit-pill ask_around">
+        <span class="overview-audit-value">${threadSummary.threadIds.size}</span>
+        <span class="overview-audit-label">Ask-around</span>
+      </div>
+      <div class="overview-audit-pill waiting">
+        <span class="overview-audit-value">${askAroundCounts.waiting}</span>
+        <span class="overview-audit-label">No reply yet</span>
+      </div>
+      <div class="overview-audit-pill no_grounded">
+        <span class="overview-audit-value">${askAroundCounts.noGrounded}</span>
+        <span class="overview-audit-label">No grounded</span>
+      </div>
+    `;
+  },
+
+  renderOverviewMessages() {
+    const list = document.getElementById("overview-message-list");
+    if (!list) {
+      return;
+    }
+
+    this.renderOverviewAuditCues(State.auditLog);
+    const activities = Helpers.overviewActivityFeed(State.auditLog).slice(0, 5);
+
+    if (!activities.length) {
+      list.innerHTML = `
+        <div class="empty-state small" style="padding: 40px 20px;">
+          <div class="empty-icon" style="font-size: 3rem; margin-bottom: 16px;">📨</div>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No delivery activity yet</p>
+          <p class="hint" style="font-size: 0.9rem;">Send a message or ask around to start your audit trail.</p>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = activities
+      .map((activity) =>
+        activity.kind === "ask-around"
+          ? this.renderOverviewAskAroundItem(activity.thread)
+          : this.renderOverviewAuditItem(activity.item),
       )
       .join("");
   },

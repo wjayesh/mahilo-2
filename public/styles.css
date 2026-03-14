@@ -4748,6 +4748,18 @@ body {
   border-color: rgba(255, 107, 107, 0.3);
 }
 
+.overview-audit-pill.ask_around {
+  border-color: rgba(135, 206, 235, 0.34);
+}
+
+.overview-audit-pill.waiting {
+  border-color: rgba(255, 205, 86, 0.34);
+}
+
+.overview-audit-pill.no_grounded {
+  border-color: rgba(122, 168, 255, 0.34);
+}
+
 .overview-audit-value {
   color: var(--color-text);
   font-size: 1.2rem;
@@ -4786,6 +4798,10 @@ body {
 
 .message-preview-item.blocked {
   border-color: rgba(255, 107, 107, 0.25);
+}
+
+.message-preview-item.ask-around {
+  border-color: rgba(135, 206, 235, 0.28);
 }
 
 .message-preview-main {
@@ -4833,11 +4849,23 @@ body {
   color: var(--color-success);
 }
 
+.message-preview-status.ask_around {
+  background: rgba(135, 206, 235, 0.2);
+  color: var(--color-secondary-dark);
+}
+
 .message-preview-text {
   color: var(--color-text-light);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.message-preview-thread-copy {
+  color: var(--color-text-light);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0;
 }
 
 .message-preview-meta {
@@ -5515,6 +5543,10 @@ body {
 
 .log-item.blocked {
   border-color: rgba(255, 107, 107, 0.24);
+}
+
+.log-item.ask-around {
+  border-color: rgba(135, 206, 235, 0.24);
 }
 
 .log-item:hover {

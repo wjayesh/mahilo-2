@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { createApp } from "../../src/server";
 import {
   cleanupTestDatabase,
+  createAgentConnection,
   createTestUser,
   createFriendship,
   setupTestDatabase,
@@ -171,6 +172,11 @@ describe("Message Reply Policies Integration", () => {
       const db = getTestDb();
       const { user: alice, apiKey: aliceKey } = await createTestUser("alice_sent");
       const { user: bob } = await createTestUser("bob_sent");
+      const bobConnection = await createAgentConnection(bob.id, {
+        callbackUrl: "polling://bob_sent",
+        framework: "openclaw",
+        label: "default",
+      });
 
       // Create friendship
       await createFriendship(alice.id, bob.id, "accepted");
@@ -182,7 +188,9 @@ describe("Message Reply Policies Integration", () => {
         senderAgent: "test-agent",
         recipientType: "user",
         recipientId: bob.id,
+        recipientConnectionId: bobConnection.id,
         payload: "Hey Bob!",
+        payloadType: "text/plain",
         status: "delivered",
         createdAt: new Date(),
       });
@@ -200,6 +208,10 @@ describe("Message Reply Policies Integration", () => {
       // Sent messages should NOT have reply_policies
       const message = data[0];
       expect(message.reply_policies).toBeUndefined();
+      expect(message.sender_user_id).toBe(alice.id);
+      expect(message.recipient_id).toBe(bob.id);
+      expect(message.recipient_connection_id).toBe(bobConnection.id);
+      expect(message.payload_type).toBe("text/plain");
     });
 
     it("should generate summary in reply_policies", async () => {

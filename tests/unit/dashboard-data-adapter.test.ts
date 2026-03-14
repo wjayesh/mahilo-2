@@ -187,6 +187,8 @@ describe("Dashboard Data Adapter", () => {
           delivery_status: "delivered",
           sender_agent: "openclaw",
           sender_connection_id: "conn_bob",
+          recipient_connection_id: "conn_alice",
+          payload_type: "text/plain",
           correlation_id: "corr_sent",
           direction: "outbound",
           resource: "message.general",
@@ -363,6 +365,8 @@ describe("Dashboard Data Adapter", () => {
       transportDirection: "sent",
       senderAgent: "openclaw",
       correlationId: "corr_sent",
+      recipientConnectionId: "conn_alice",
+      payloadType: "text/plain",
     });
     expect(State.messagesById.get("msg_received_nested")).toMatchObject({
       sender: "usr_alice",
