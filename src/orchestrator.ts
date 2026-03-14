@@ -559,8 +559,13 @@ export function removeWorkspace(repoRoot: string, config: WorkflowConfig, task: 
   }
 }
 
-export function buildTaskPrompt(config: WorkflowConfig, task: Task, workspacePath: string): string {
-  const instructionList = config.instructionFiles.map((file) => `- ${file}`).join("\n");
+export function buildTaskPrompt(
+  config: WorkflowConfig,
+  task: Task,
+  workspacePath: string,
+  instructionFiles: string[] = config.instructionFiles,
+): string {
+  const instructionList = instructionFiles.map((file) => `- ${file}`).join("\n");
   const workspaceNote = workspacePath === process.cwd() ? "shared repo workspace" : workspacePath;
 
   return [
@@ -573,7 +578,7 @@ export function buildTaskPrompt(config: WorkflowConfig, task: Task, workspacePat
     "",
     config.workflowBody,
     "",
-    "Instruction files to read first:",
+    "Instruction files to read first from the assigned workspace:",
     instructionList,
     "",
     "Task section to implement:",
