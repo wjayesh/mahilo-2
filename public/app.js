@@ -655,6 +655,47 @@ const Helpers = {
       .join(" ");
   },
 
+  logStatusLabel(value, fallback = "Pending") {
+    const normalized = this.string(value).toLowerCase();
+
+    switch (normalized) {
+      case "review_required":
+        return "Review required";
+      case "approval_pending":
+        return "Approval pending";
+      case "hold_for_approval":
+        return "Hold for approval";
+      case "rejected":
+        return "Blocked";
+      case "delivered":
+      case "full_send":
+        return "Delivered";
+      case "failed":
+      case "send_failed":
+        return "Failed";
+      case "pending":
+        return "Pending";
+      default:
+        return this.titleizeToken(value, fallback);
+    }
+  },
+
+  selectorTokens(selectors) {
+    const record = this.record(selectors);
+
+    return [
+      this.nullableString(record.direction)
+        ? this.titleizeToken(record.direction, record.direction)
+        : null,
+      this.nullableString(record.resource) || "message.general",
+      this.nullableString(record.action) || "share",
+    ].filter(Boolean);
+  },
+
+  selectorSummary(selectors) {
+    return this.selectorTokens(selectors).join(" / ");
+  },
+
   formatShortDate(value, fallback = "Unknown date") {
     const timestamp = this.timestampValue(value);
     if (!timestamp) {
@@ -1062,6 +1103,14 @@ const Helpers = {
       review ? "review" : null,
       blockedEvent ? "blocked" : null,
     ].filter(Boolean);
+    const reviewAudit = this.record(review?.audit);
+    const blockedAudit = this.record(blockedEvent?.audit);
+    const mergedAudit =
+      blockedEvent && Object.keys(blockedAudit).length
+        ? blockedAudit
+        : review && Object.keys(reviewAudit).length
+          ? reviewAudit
+          : this.record(message?.policyAudit);
 
     return {
       kind:
@@ -1155,6 +1204,28 @@ const Helpers = {
         this.nullableString(blockedEvent?.reasonCode) ||
         this.nullableString(review?.reasonCode) ||
         this.nullableString(message?.reasonCode),
+      resolverLayer:
+        this.nullableString(blockedAudit.resolver_layer) ||
+        this.nullableString(reviewAudit.resolver_layer) ||
+        this.nullableString(message?.resolverLayer),
+      winningPolicyId:
+        this.nullableString(blockedAudit.winning_policy_id) ||
+        this.nullableString(reviewAudit.winning_policy_id) ||
+        this.nullableString(message?.winningPolicyId),
+      matchedPolicyIds: this.stringList(
+        blockedAudit.matched_policy_ids ??
+          reviewAudit.matched_policy_ids ??
+          message?.matchedPolicyIds,
+      ),
+      evaluatedPolicyCount: Array.isArray(mergedAudit.evaluated_policies)
+        ? mergedAudit.evaluated_policies.length
+        : Array.isArray(message?.matchedPolicyIds)
+          ? message.matchedPolicyIds.length
+          : 0,
+      auditExplanation:
+        this.nullableString(blockedAudit.resolution_explanation) ||
+        this.nullableString(reviewAudit.resolution_explanation) ||
+        this.nullableString(mergedAudit.resolution_explanation),
       decision:
         this.nullableString(review?.decision) ||
         this.nullableString(message?.decision) ||
@@ -1186,6 +1257,7 @@ const Helpers = {
         messageId: this.nullableString(message?.messageId ?? message?.id),
         reviewId: this.nullableString(review?.reviewId),
       },
+      audit: mergedAudit,
       raw: {
         blockedEvent: blockedEvent?.raw || null,
         message: message?.raw || null,
@@ -1395,6 +1467,38 @@ const Helpers = {
       correlationCounts,
       threadIds,
     };
+  },
+
+  auditCounts(items = []) {
+    return (Array.isArray(items) ? items : []).reduce(
+      (counts, item) => {
+        if (item?.auditState === "delivered") {
+          counts.delivered += 1;
+        }
+
+        if (item?.auditState === "review") {
+          counts.review += 1;
+          if (item?.status === "approval_pending") {
+            counts.approvalPending += 1;
+          } else {
+            counts.reviewRequired += 1;
+          }
+        }
+
+        if (item?.auditState === "blocked") {
+          counts.blocked += 1;
+        }
+
+        return counts;
+      },
+      {
+        delivered: 0,
+        review: 0,
+        reviewRequired: 0,
+        approvalPending: 0,
+        blocked: 0,
+      },
+    );
   },
 
   askAroundTag(item, threadSummary) {
@@ -2999,12 +3103,14 @@ const DataLoader = {
       State.reviewQueue = Normalizers.reviewQueue(payload);
       const reviewsModel = Normalizers.reviewsModel(payload);
       Helpers.applyCollectionState("reviews", "reviewsById", reviewsModel);
+      UI.renderOverviewMessages();
       UI.renderLogs();
     } catch (error) {
       State.reviewQueue = null;
       State.reviews = [];
       State.reviewsById = new Map();
       Helpers.rebuildAuditLog();
+      UI.renderOverviewMessages();
       UI.renderLogs();
       console.error("Failed to load review queue:", error);
     }
@@ -3012,7 +3118,10 @@ const DataLoader = {
 
   async loadBlockedEvents() {
     try {
-      const payload = await API.plugin.blockedEvents({ limit: 25 });
+      const payload = await API.plugin.blockedEvents({
+        limit: 25,
+        includePayloadExcerpt: true,
+      });
       State.blockedEventRetention = Normalizers.blockedEventRetention(payload);
       const blockedEventsModel = Normalizers.blockedEventsModel(payload);
       Helpers.applyCollectionState(
@@ -3020,12 +3129,14 @@ const DataLoader = {
         "blockedEventsById",
         blockedEventsModel,
       );
+      UI.renderOverviewMessages();
       UI.renderLogs();
     } catch (error) {
       State.blockedEventRetention = null;
       State.blockedEvents = [];
       State.blockedEventsById = new Map();
       Helpers.rebuildAuditLog();
+      UI.renderOverviewMessages();
       UI.renderLogs();
       console.error("Failed to load blocked events:", error);
     }
@@ -6329,40 +6440,304 @@ const UI = {
     container.scrollTop = container.scrollHeight;
   },
 
+  buildLogContextEntries(item) {
+    return [
+      {
+        label: "Sender",
+        value: item.sender || "Unknown sender",
+      },
+      {
+        label: "Recipient",
+        value:
+          item.recipientType === "group"
+            ? `${item.recipient} (group)`
+            : item.recipient || "Unknown recipient",
+      },
+      item.senderAgent
+        ? {
+            label: "Via",
+            value: item.senderAgent,
+          }
+        : null,
+      {
+        label: "Selector",
+        value: Helpers.selectorSummary(item.selectors),
+      },
+    ].filter(Boolean);
+  },
+
+  buildLogExcerpts(item) {
+    const excerpts = [];
+
+    if (item.kind === "review") {
+      if (item.messagePreview) {
+        excerpts.push({
+          label: "Draft preview",
+          value: item.messagePreview,
+        });
+      }
+
+      if (item.contextPreview) {
+        excerpts.push({
+          label: "Context",
+          value: item.contextPreview,
+        });
+      }
+
+      if (!excerpts.length && item.auditExplanation) {
+        excerpts.push({
+          label: "Audit note",
+          value: item.auditExplanation,
+        });
+      }
+
+      return excerpts;
+    }
+
+    if (item.kind === "blocked") {
+      excerpts.push({
+        label: "Audit note",
+        value:
+          item.auditExplanation ||
+          item.reason ||
+          item.summary ||
+          "Mahilo blocked this delivery before it left the audit boundary.",
+      });
+      excerpts.push({
+        label: "Stored excerpt",
+        value:
+          item.storedPayloadExcerpt ||
+          "Payload excerpt omitted by current retention settings.",
+      });
+      return excerpts;
+    }
+
+    if (item.context) {
+      excerpts.push({
+        label: "Context",
+        value: item.context,
+      });
+    }
+
+    return excerpts;
+  },
+
+  renderLogContextGrid(item) {
+    return `
+      <div class="log-context-grid">
+        ${this.buildLogContextEntries(item)
+          .map(
+            (entry) => `
+          <div class="log-context-card">
+            <span class="log-context-label">${Helpers.escapeHtml(entry.label)}</span>
+            <span class="log-context-value">${Helpers.escapeHtml(entry.value)}</span>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+    `;
+  },
+
+  renderLogExcerptGrid(item) {
+    const excerpts = this.buildLogExcerpts(item);
+
+    if (!excerpts.length) {
+      return "";
+    }
+
+    return `
+      <div class="log-excerpt-grid">
+        ${excerpts
+          .map(
+            (excerpt) => `
+          <div class="log-excerpt-card">
+            <span class="log-excerpt-label">${Helpers.escapeHtml(excerpt.label)}</span>
+            <p class="log-excerpt-copy">${Helpers.escapeHtml(Helpers.truncate(excerpt.value, 180))}</p>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+    `;
+  },
+
+  renderLogDetails(item, askAroundTag = null) {
+    const details = [];
+
+    if (item.kind === "review") {
+      details.push({ label: "Review queue", highlight: true });
+      details.push({
+        label: `State: ${Helpers.logStatusLabel(item.status, "Review required")}`,
+      });
+      details.push({
+        label: `Decision: ${Helpers.titleizeToken(item.decision, "Ask")}`,
+      });
+      details.push({
+        label: `Mode: ${Helpers.logStatusLabel(item.deliveryMode, "Review required")}`,
+      });
+    } else if (item.kind === "blocked") {
+      details.push({ label: "Blocked", highlight: true });
+    } else {
+      details.push({
+        label:
+          item.transportDirection === "sent"
+            ? "Outbound delivery"
+            : "Inbound delivery",
+        highlight: true,
+      });
+    }
+
+    if (item.reasonCode) {
+      details.push({ label: `Reason code: ${item.reasonCode}` });
+    }
+
+    if (item.resolverLayer) {
+      details.push({
+        label: `Layer: ${Helpers.titleizeToken(item.resolverLayer, item.resolverLayer)}`,
+      });
+    }
+
+    if (item.correlationId) {
+      details.push({
+        label: `Thread: ${Helpers.truncate(item.correlationId, 16)}`,
+      });
+    }
+
+    if (item.payloadHash && item.kind === "blocked") {
+      details.push({
+        label: `Payload hash: ${Helpers.truncate(item.payloadHash, 22)}`,
+      });
+    }
+
+    if (item.recipientType === "group") {
+      details.push({ label: "Group delivery" });
+    }
+
+    if (askAroundTag) {
+      details.push({ label: askAroundTag, highlight: true });
+    }
+
+    return `
+      <div class="log-details">
+        ${details
+          .map(
+            (detail) => `
+          <span class="log-detail${detail.highlight ? " log-detail-highlight" : ""}">${Helpers.escapeHtml(detail.label)}</span>
+        `,
+          )
+          .join("")}
+      </div>
+    `;
+  },
+
+  renderLogItem(item, threadSummary) {
+    const askAroundTag =
+      item.askAroundTag || Helpers.askAroundTag(item, threadSummary);
+    const statusLabel =
+      item.kind === "blocked"
+        ? "Blocked"
+        : Helpers.logStatusLabel(
+            item.status,
+            item.kind === "review" ? "Review required" : "Pending",
+          );
+    const directionLabel =
+      item.transportDirection === "sent" ? "Outbound" : "Inbound";
+    const heading =
+      item.kind === "review"
+        ? `Review queue • ${
+            item.transportDirection === "sent"
+              ? `To: ${item.recipient}`
+              : `From: ${item.sender}`
+          }`
+        : item.kind === "blocked"
+          ? `Blocked event • ${
+              item.transportDirection === "sent"
+                ? `To: ${item.recipient}`
+                : `From: ${item.sender}`
+            }`
+          : item.transportDirection === "sent"
+            ? `Delivery to ${item.recipient}`
+            : `Delivery from ${item.sender}`;
+    const icon =
+      item.kind === "review"
+        ? item.transportDirection === "sent"
+          ? "⏸️"
+          : "🧾"
+        : item.kind === "blocked"
+          ? "🚫"
+          : item.transportDirection === "sent"
+            ? "📤"
+            : "📥";
+    const contentLabel =
+      item.kind === "review"
+        ? "Queue summary"
+        : item.kind === "blocked"
+          ? "Block summary"
+          : "Message";
+    const contentText =
+      item.kind === "review"
+        ? item.summary ||
+          item.messagePreview ||
+          item.previewText ||
+          "Message requires review before delivery."
+        : item.kind === "blocked"
+          ? item.reason || item.summary || "Message blocked by policy."
+          : item.messageText || item.previewText || "(no content)";
+
+    return `
+      <div class="log-item ${item.auditState}">
+        <div class="log-header">
+          <div class="log-direction">
+            <div class="log-direction-icon ${item.transportDirection}">
+              ${icon}
+            </div>
+            <div>
+              <div class="log-participants">${Helpers.escapeHtml(heading)}</div>
+              <div class="log-meta">
+                <span>${Helpers.escapeHtml(new Date(item.timestamp).toLocaleString())}</span>
+                <span>${Helpers.escapeHtml(directionLabel)}</span>
+              </div>
+            </div>
+          </div>
+          <span class="log-status ${item.status}">${Helpers.escapeHtml(statusLabel)}</span>
+        </div>
+        <div class="log-content">
+          <span class="log-content-title">${Helpers.escapeHtml(contentLabel)}</span>
+          <div class="log-content-body">${Helpers.escapeHtml(Helpers.truncate(contentText, item.kind === "message" ? 220 : 180))}</div>
+        </div>
+        ${this.renderLogContextGrid(item)}
+        ${this.renderLogExcerptGrid(item)}
+        ${this.renderLogDetails(item, askAroundTag)}
+      </div>
+    `;
+  },
+
   renderLogSummary(items, threadSummary) {
     const container = document.getElementById("logs-summary");
     if (!container) {
       return;
     }
 
-    const deliveredCount = items.filter(
-      (item) => item.auditState === "delivered",
-    ).length;
-    const reviewCount = items.filter(
-      (item) => item.auditState === "review",
-    ).length;
-    const blockedCount = items.filter(
-      (item) => item.auditState === "blocked",
-    ).length;
-    const approvalPendingCount = items.filter(
-      (item) =>
-        item.auditState === "review" && item.status === "approval_pending",
-    ).length;
+    const counts = Helpers.auditCounts(items);
 
     container.innerHTML = `
       <div class="log-summary-card">
         <span class="log-summary-label">Deliveries</span>
-        <span class="log-summary-value">${deliveredCount}</span>
+        <span class="log-summary-value">${counts.delivered}</span>
         <p>Completed sends or receives in the current audit view.</p>
       </div>
       <div class="log-summary-card">
         <span class="log-summary-label">Review Queue</span>
-        <span class="log-summary-value">${reviewCount}</span>
-        <p>${approvalPendingCount ? `${approvalPendingCount} waiting for approval.` : "Review-required and approval-pending records."}</p>
+        <span class="log-summary-value">${counts.review}</span>
+        <div class="log-summary-breakdown">
+          <span class="log-summary-chip">Review required ${counts.reviewRequired}</span>
+          <span class="log-summary-chip">Approval pending ${counts.approvalPending}</span>
+        </div>
       </div>
       <div class="log-summary-card">
         <span class="log-summary-label">Blocked Events</span>
-        <span class="log-summary-value">${blockedCount}</span>
+        <span class="log-summary-value">${counts.blocked}</span>
         <p>Boundary and policy denials captured for audit.</p>
       </div>
       <div class="log-summary-card">
@@ -6410,122 +6785,14 @@ const UI = {
         <div class="empty-state">
           <div class="empty-icon-large">📋</div>
           <h3>No delivery logs yet</h3>
-          <p>${emptyCopy}</p>
+          <p>${Helpers.escapeHtml(emptyCopy)}</p>
         </div>
       `;
       return;
     }
 
     list.innerHTML = items
-      .map((item) => {
-        const askAroundTag =
-          item.askAroundTag || Helpers.askAroundTag(item, threadSummary);
-        const selectorLabel = item.selectors.resource || "message.general";
-        const reasonCodeDetail = item.reasonCode
-          ? `<span class="log-detail">Reason: ${item.reasonCode}</span>`
-          : "";
-        const correlationDetail = item.correlationId
-          ? `<span class="log-detail">Corr: ${item.correlationId.substring(0, 12)}...</span>`
-          : "";
-
-        if (item.kind === "review") {
-          return `
-          <div class="log-item">
-            <div class="log-header">
-              <div class="log-direction">
-                <div class="log-direction-icon ${item.transportDirection}">
-                  ${item.transportDirection === "sent" ? "⏸️" : "🧾"}
-                </div>
-                <div>
-                  <div class="log-participants">
-                    Review required: ${item.transportDirection === "sent" ? `To: ${item.recipient}` : `From: ${item.sender}`}
-                  </div>
-                  <div class="log-meta">
-                    <span>${new Date(item.timestamp).toLocaleString()}</span>
-                    <span>ID: ${(item.reviewId || item.messageId || item.id).substring(0, 12)}...</span>
-                  </div>
-                </div>
-              </div>
-              <span class="log-status ${item.status}">${item.status}</span>
-            </div>
-            <div class="log-content">${item.messagePreview || item.previewText || item.summary}</div>
-            <div class="log-details">
-              <span class="log-detail log-detail-highlight">Review queue</span>
-              <span class="log-detail">Decision: ${item.decision || "ask"}</span>
-              <span class="log-detail">Mode: ${item.deliveryMode || "review_required"}</span>
-              <span class="log-detail">Selector: ${selectorLabel}</span>
-              ${reasonCodeDetail}
-              ${correlationDetail}
-              ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ""}
-            </div>
-          </div>
-        `;
-        }
-
-        if (item.kind === "blocked") {
-          return `
-          <div class="log-item">
-            <div class="log-header">
-              <div class="log-direction">
-                <div class="log-direction-icon ${item.transportDirection}">
-                  🚫
-                </div>
-                <div>
-                  <div class="log-participants">
-                    Blocked event: ${item.transportDirection === "sent" ? `To: ${item.recipient}` : `From: ${item.sender}`}
-                  </div>
-                  <div class="log-meta">
-                    <span>${new Date(item.timestamp).toLocaleString()}</span>
-                    <span>ID: ${(item.blockedEventId || item.messageId || item.id).substring(0, 12)}...</span>
-                  </div>
-                </div>
-              </div>
-              <span class="log-status ${item.status}">${item.status}</span>
-            </div>
-            <div class="log-content">${item.reason || item.summary}</div>
-            <div class="log-details">
-              <span class="log-detail log-detail-highlight">Blocked</span>
-              <span class="log-detail">Selector: ${selectorLabel}</span>
-              ${reasonCodeDetail}
-              ${correlationDetail}
-              ${item.payloadHash ? `<span class="log-detail">Hash: ${item.payloadHash.substring(0, 16)}...</span>` : ""}
-              ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ""}
-            </div>
-          </div>
-        `;
-        }
-
-        return `
-        <div class="log-item">
-          <div class="log-header">
-            <div class="log-direction">
-              <div class="log-direction-icon ${item.transportDirection}">
-                ${item.transportDirection === "sent" ? "📤" : "📥"}
-              </div>
-              <div>
-                <div class="log-participants">
-                  ${item.transportDirection === "sent" ? `To: ${item.recipient}` : `From: ${item.sender}`}
-                </div>
-                <div class="log-meta">
-                  <span>${new Date(item.timestamp).toLocaleString()}</span>
-                  <span>ID: ${(item.messageId || item.id).substring(0, 8)}...</span>
-                </div>
-              </div>
-            </div>
-            <span class="log-status ${item.status}">${item.status}</span>
-          </div>
-          <div class="log-content">${item.messageText || "(no content)"}</div>
-          <div class="log-details">
-            <span class="log-detail">🤖 ${item.senderAgent || "unknown"}</span>
-            <span class="log-detail">Selector: ${selectorLabel}</span>
-            ${reasonCodeDetail}
-            ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ""}
-            ${correlationDetail}
-            ${item.recipientType === "group" ? '<span class="log-detail">👥 Group</span>' : ""}
-          </div>
-        </div>
-      `;
-      })
+      .map((item) => this.renderLogItem(item, threadSummary))
       .join("");
   },
 
@@ -6680,10 +6947,40 @@ const UI = {
     // Already handled by updateGroupCount
   },
 
+  renderOverviewAuditCues(items = State.auditLog) {
+    const container = document.getElementById("overview-audit-cues");
+    if (!container) {
+      return;
+    }
+
+    const counts = Helpers.auditCounts(items);
+
+    container.innerHTML = `
+      <div class="overview-audit-pill review_required">
+        <span class="overview-audit-value">${counts.reviewRequired}</span>
+        <span class="overview-audit-label">Review required</span>
+      </div>
+      <div class="overview-audit-pill approval_pending">
+        <span class="overview-audit-value">${counts.approvalPending}</span>
+        <span class="overview-audit-label">Approval pending</span>
+      </div>
+      <div class="overview-audit-pill blocked">
+        <span class="overview-audit-value">${counts.blocked}</span>
+        <span class="overview-audit-label">Blocked</span>
+      </div>
+    `;
+  },
+
   renderOverviewMessages() {
     const list = document.getElementById("overview-message-list");
+    if (!list) {
+      return;
+    }
 
-    if (!State.messages.length) {
+    this.renderOverviewAuditCues(State.auditLog);
+    const items = Helpers.filterAuditLog(State.auditLog).slice(0, 5);
+
+    if (!items.length) {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 40px 20px;">
           <div class="empty-icon" style="font-size: 3rem; margin-bottom: 16px;">📨</div>
@@ -6694,14 +6991,51 @@ const UI = {
       return;
     }
 
-    list.innerHTML = State.messages
-      .slice(0, 5)
+    list.innerHTML = items
       .map(
-        (msg) => `
-      <div class="message-preview-item">
-        <span class="message-preview-sender">${msg.counterpartLabel}</span>
-        <span class="message-preview-text">${msg.previewText}</span>
-        <span class="message-preview-time">${new Date(msg.timestamp).toLocaleDateString()}</span>
+        (item) => `
+      <div class="message-preview-item ${item.auditState}">
+        <div class="message-preview-main">
+          <div class="message-preview-heading">
+            <span class="message-preview-status ${item.kind === "blocked" ? "blocked" : item.status}">${Helpers.escapeHtml(
+              item.kind === "blocked"
+                ? "Blocked"
+                : Helpers.logStatusLabel(
+                    item.status,
+                    item.kind === "review" ? "Review required" : "Delivered",
+                  ),
+            )}</span>
+            <span class="message-preview-sender">${Helpers.escapeHtml(
+              item.transportDirection === "sent"
+                ? `To ${item.recipient}`
+                : `From ${item.sender}`,
+            )}</span>
+          </div>
+          <span class="message-preview-text">${Helpers.escapeHtml(
+            Helpers.truncate(
+              item.kind === "review"
+                ? item.summary ||
+                    item.messagePreview ||
+                    item.previewText ||
+                    "Message requires review before delivery."
+                : item.kind === "blocked"
+                  ? item.reason || item.summary || "Message blocked by policy."
+                  : item.previewText || item.messageText || "(no content)",
+              120,
+            ),
+          )}</span>
+          <div class="message-preview-meta">
+            <span class="message-preview-selector">${Helpers.escapeHtml(
+              Helpers.selectorSummary(item.selectors),
+            )}</span>
+            ${
+              item.senderAgent
+                ? `<span class="message-preview-meta-chip">Via ${Helpers.escapeHtml(item.senderAgent)}</span>`
+                : ""
+            }
+          </div>
+        </div>
+        <span class="message-preview-time">${Helpers.escapeHtml(new Date(item.timestamp).toLocaleDateString())}</span>
       </div>
     `,
       )

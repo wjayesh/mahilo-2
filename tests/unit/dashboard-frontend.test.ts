@@ -68,6 +68,7 @@ type DashboardInternals = {
     handleRemoveFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
     renderLogs: (direction?: string) => void;
     renderFriends: (filter?: string) => void;
+    renderOverviewMessages: () => void;
     handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
     handleUnfriend: (id: string) => Promise<void>;
@@ -690,7 +691,7 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
         "/api/v1/groups",
         "/api/v1/messages?limit=50",
         "/api/v1/preferences",
-        "/api/v1/plugin/events/blocked?limit=25",
+        "/api/v1/plugin/events/blocked?limit=25&include_payload_excerpt=true",
         "/api/v1/plugin/reviews?limit=25",
         "/api/v1/policies",
         "/api/v1/roles",
@@ -1249,17 +1250,117 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     );
 
     UI.renderLogs();
+    UI.renderOverviewMessages();
 
     expect(harness.getElement("logs-summary").innerHTML).toContain("Review Queue");
     expect(harness.getElement("logs-summary").innerHTML).toContain("Blocked Events");
     expect(harness.getElement("logs-summary").innerHTML).toContain(
       "Ask-around Threads",
     );
+    expect(harness.getElement("logs-summary").innerHTML).toContain(
+      "Approval pending 1",
+    );
     expect(harness.getElement("logs-list").innerHTML).toContain("Review queue");
     expect(harness.getElement("logs-list").innerHTML).toContain("Blocked");
     expect(harness.getElement("logs-list").innerHTML).toContain(
       "Ask-around thread (2)",
     );
+    expect(harness.getElement("overview-audit-cues").innerHTML).toContain(
+      "Approval pending",
+    );
+    expect(harness.getElement("overview-audit-cues").innerHTML).toContain(
+      "Blocked",
+    );
+    expect(harness.getElement("overview-message-list").innerHTML).toContain(
+      "Approval pending",
+    );
+    expect(harness.getElement("overview-message-list").innerHTML).toContain(
+      "Blocked",
+    );
+  });
+
+  it("renders compact overview cues for review-required, approval-pending, and blocked activity", () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing overview cues: ${url}`);
+      },
+    });
+
+    const { Helpers, Normalizers, UI } = harness.dashboard;
+
+    const reviewRequired = Normalizers.review({
+      created_at: "2026-03-14T12:00:00.000Z",
+      decision: "ask",
+      delivery_mode: "review_required",
+      message_preview: "Share neighborhood-level location",
+      queue_direction: "outbound",
+      recipient: { type: "user", username: "alice" },
+      review_id: "rev_overview_required",
+      sender: { username: "viewer" },
+      selectors: {
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+      },
+      status: "review_required",
+      summary: "Needs review before delivery.",
+    });
+
+    const approvalPending = Normalizers.review({
+      created_at: "2026-03-14T12:01:00.000Z",
+      decision: "ask",
+      delivery_mode: "hold_for_approval",
+      message_preview: "Share exact location",
+      queue_direction: "outbound",
+      recipient: { type: "user", username: "bob" },
+      review_id: "rev_overview_pending",
+      sender: { username: "viewer" },
+      selectors: {
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+      },
+      status: "approval_pending",
+      summary: "Waiting for explicit approval.",
+    });
+
+    const blocked = Normalizers.blockedEvent({
+      created_at: "2026-03-14T12:02:00.000Z",
+      id: "blocked_overview",
+      queue_direction: "outbound",
+      reason: "Blocked by boundary.",
+      recipient: { type: "user", username: "charlie" },
+      resource: "health.summary",
+      action: "share",
+      sender: { username: "viewer" },
+      status: "rejected",
+      stored_payload_excerpt: "Share my health summary with Charlie",
+    });
+
+    Helpers.applyCollectionState(
+      "reviews",
+      "reviewsById",
+      Helpers.collectionModel([reviewRequired, approvalPending]),
+    );
+    Helpers.applyCollectionState(
+      "blockedEvents",
+      "blockedEventsById",
+      Helpers.collectionModel([blocked]),
+    );
+
+    UI.renderOverviewMessages();
+
+    const cueHtml = harness.getElement("overview-audit-cues").innerHTML;
+    expect(cueHtml).toContain("Review required");
+    expect(cueHtml).toContain("Approval pending");
+    expect(cueHtml).toContain("Blocked");
+
+    const overviewHtml = harness.getElement("overview-message-list").innerHTML;
+    expect(overviewHtml).toContain("Review required");
+    expect(overviewHtml).toContain("Approval pending");
+    expect(overviewHtml).toContain("Blocked");
+    expect(overviewHtml).toContain("To bob");
+    expect(overviewHtml).toContain("To charlie");
   });
 
   it("filters delivery logs by unified audit state and direction", async () => {
@@ -1331,11 +1432,16 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     ];
 
     const review = Normalizers.review({
+      audit: {
+        resolver_layer: "user_policies",
+        resolution_explanation: "User policy requires explicit approval.",
+      },
       created_at: "2026-03-14T12:01:30.000Z",
       decision: "ask",
       delivery_mode: "hold_for_approval",
       message_id: "msg_review_ui",
       message_preview: "Share exact location",
+      context_preview: "User asked where you are right now.",
       queue_direction: "outbound",
       recipient: { type: "user", username: "alice" },
       review_id: "rev_review_ui",
@@ -1352,6 +1458,10 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     });
 
     const blocked = Normalizers.blockedEvent({
+      audit: {
+        resolver_layer: "user_policies",
+        resolution_explanation: "Inbound request matched a deny policy.",
+      },
       created_at: "2026-03-14T12:02:30.000Z",
       id: "blocked_review_ui",
       message_id: "msg_blocked_ui",
@@ -1364,6 +1474,7 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
       reason_code: "policy.deny.inbound.request",
       sender: { username: "alice" },
       status: "rejected",
+      stored_payload_excerpt: "Share your health summary",
     });
 
     Helpers.applyCollectionState(
@@ -1388,9 +1499,14 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
 
     const reviewHtml = harness.getElement("logs-list").innerHTML;
     expect(reviewHtml).toContain("Review queue");
-    expect(reviewHtml).toContain("Reason: policy.ask.user.structured");
-    expect(reviewHtml).toContain("Corr: corr_review");
-    expect(reviewHtml.match(/class=\"log-item\"/g)?.length ?? 0).toBe(1);
+    expect(reviewHtml).toContain("State: Approval pending");
+    expect(reviewHtml).toContain("Mode: Hold for approval");
+    expect(reviewHtml).toContain("Reason code: policy.ask.user.structured");
+    expect(reviewHtml).toContain("Draft preview");
+    expect(reviewHtml).toContain("Context");
+    expect(reviewHtml).toContain("Layer: User Policies");
+    expect(reviewHtml).toContain("Thread: corr_review_ui");
+    expect(reviewHtml.match(/class=\"log-item/g)?.length ?? 0).toBe(1);
 
     State.logDirectionFilter = "all";
     State.logStateFilter = "blocked";
@@ -1398,20 +1514,24 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
 
     const blockedHtml = harness.getElement("logs-list").innerHTML;
     expect(blockedHtml).toContain("Blocked event");
-    expect(blockedHtml).toContain("Reason: policy.deny.inbound.request");
-    expect(blockedHtml).toContain("Corr: corr_blocked");
-    expect(blockedHtml.match(/class=\"log-item\"/g)?.length ?? 0).toBe(1);
+    expect(blockedHtml).toContain("Reason code: policy.deny.inbound.request");
+    expect(blockedHtml).toContain("Stored excerpt");
+    expect(blockedHtml).toContain("Inbound request matched a deny policy.");
+    expect(blockedHtml).toContain("Payload hash: abc123def456");
+    expect(blockedHtml).toContain("Layer: User Policies");
+    expect(blockedHtml).toContain("Thread: corr_blocked_ui");
+    expect(blockedHtml.match(/class=\"log-item/g)?.length ?? 0).toBe(1);
 
     State.logDirectionFilter = "received";
     State.logStateFilter = "all";
     UI.renderLogs();
 
     const receivedHtml = harness.getElement("logs-list").innerHTML;
-    expect(receivedHtml).toContain("Blocked event: From: alice");
-    expect(receivedHtml).toContain("Selector: health.summary");
+    expect(receivedHtml).toContain("Blocked event • From: alice");
+    expect(receivedHtml).toContain("Inbound / health.summary / request");
     expect(receivedHtml).not.toContain("Share exact location");
     expect(receivedHtml).not.toContain("Delivered dashboard ping");
-    expect(receivedHtml.match(/class=\"log-item\"/g)?.length ?? 0).toBe(1);
+    expect(receivedHtml.match(/class=\"log-item/g)?.length ?? 0).toBe(1);
   });
 });
 
