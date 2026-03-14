@@ -157,7 +157,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 2.1 Network List Built from Real Friendship Data
 - **ID**: `DASH-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-010`
 - **Description**:
@@ -169,6 +169,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Roles and interaction counts are visible in the list or its summary row
   - [ ] Empty states guide the user toward building a useful circle instead of generic messaging copy
 
+- **Notes**:
+  - 2026-03-14T13:20:41.961Z: DASH-020 completed via orchestrator integration.
 ### 2.2 Contact Detail and Connection Space
 - **ID**: `DASH-021`
 - **Status**: `pending`
