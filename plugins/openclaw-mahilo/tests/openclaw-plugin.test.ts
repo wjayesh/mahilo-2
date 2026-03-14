@@ -2669,6 +2669,18 @@ describe("createMahiloOpenClawPlugin", () => {
       outboundInput,
     );
     const toolResultForHook = structuredClone(toolResult);
+    const noSendToolResult = toolResult as {
+      content: Array<{ text: string }>;
+      details: {
+        gaps?: Array<{
+          kind?: string;
+          recipientLabels?: string[];
+        }>;
+        replyExpectation?: string;
+        replyRecipients?: Array<unknown>;
+        summary?: string;
+      };
+    };
 
     expect(toolResult).toMatchObject({
       details: {
@@ -2698,6 +2710,34 @@ describe("createMahiloOpenClawPlugin", () => {
         },
       },
     });
+    expect(noSendToolResult.details.gaps).toEqual([
+      expect.objectContaining({
+        kind: "blocked",
+        recipientLabels: ["bob"],
+      }),
+    ]);
+    expect(noSendToolResult.details.replyRecipients).toBeUndefined();
+    expect(String(noSendToolResult.details.summary)).toContain(
+      'couldn\'t ask group "Hiking Crew" right now',
+    );
+    expect(String(noSendToolResult.details.summary)).toContain(
+      "1 waiting on review",
+    );
+    expect(String(noSendToolResult.details.summary)).toContain(
+      "bob was blocked by Mahilo boundaries",
+    );
+    expect(String(noSendToolResult.details.replyExpectation)).toContain(
+      "Nothing is waiting on a reply yet.",
+    );
+    expect(String(noSendToolResult.details.replyExpectation)).toContain(
+      "1 ask still need review.",
+    );
+    expect(String(noSendToolResult.details.replyExpectation)).toContain(
+      "Bob was blocked by Mahilo boundaries.",
+    );
+    expect(noSendToolResult.content[0]?.text).toBe(
+      `${noSendToolResult.details.summary} ${noSendToolResult.details.replyExpectation}`,
+    );
     expect(state.groupFanoutBundleCalls).toHaveLength(1);
     expect(state.localDecisionCommitCalls).toHaveLength(2);
     expect(state.sendCalls).toHaveLength(0);
@@ -2740,6 +2780,204 @@ describe("createMahiloOpenClawPlugin", () => {
         inResponseToMessageId: "msg_123",
       }),
     ).toBeUndefined();
+  });
+
+  it("only registers group ask-around reply routes for members whose locally approved asks were sent", async () => {
+    const pluginState = new InMemoryPluginState();
+    const { client, state } = createMockContractClient({
+      groupFanoutBundleResponse: buildPolicyDrivenGroupFanoutBundle(
+        {
+          recipient: "grp_hiking",
+          sender_connection_id: "conn_sender",
+        },
+        [
+          {
+            decision: "allow",
+            username: "alice",
+          },
+          {
+            decision: "ask",
+            username: "bob",
+          },
+          {
+            decision: "deny",
+            username: "carol",
+          },
+        ],
+        {
+          resolutionId: "res_group_partial",
+        },
+      ),
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      pluginState,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET,
+      },
+    });
+    const { api, hooks, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "ask_network");
+    const outboundInput = {
+      correlationId: "corr_group_local_partial_1",
+      group: "Hiking Crew",
+      question: "Has anyone done Half Dome recently?",
+      senderConnectionId: "conn_sender",
+    };
+    const toolResult = await tool.execute(
+      "tool_call_group_local_partial_1",
+      outboundInput,
+    );
+    const toolResultForHook = structuredClone(toolResult);
+    const partialGroupToolResult = toolResult as {
+      content: Array<{ text: string }>;
+      details: {
+        gaps?: Array<{
+          kind?: string;
+          recipientLabels?: string[];
+        }>;
+        replyExpectation?: string;
+        replyRecipients?: Array<{
+          messageId?: string;
+          recipient?: string;
+          recipientType?: string;
+        }>;
+        summary?: string;
+      };
+    };
+
+    expect(toolResult).toMatchObject({
+      details: {
+        counts: {
+          awaitingReplies: 1,
+          blocked: 1,
+          reviewRequired: 1,
+          sendFailed: 0,
+          skipped: 0,
+        },
+        deliveries: [
+          expect.objectContaining({
+            decision: "allow",
+            messageId: "msg_123",
+            recipient: "alice",
+            recipientType: "user",
+            status: "awaiting_reply",
+          }),
+          expect.objectContaining({
+            decision: "ask",
+            recipient: "bob",
+            recipientType: "user",
+            status: "review_required",
+          }),
+          expect.objectContaining({
+            decision: "deny",
+            recipient: "carol",
+            recipientType: "user",
+            status: "blocked",
+          }),
+        ],
+        target: {
+          groupId: "grp_hiking",
+          groupName: "Hiking Crew",
+          kind: "group",
+          memberCount: 4,
+        },
+      },
+    });
+    expect(partialGroupToolResult.details.gaps).toEqual([
+      expect.objectContaining({
+        kind: "blocked",
+        recipientLabels: ["carol"],
+      }),
+    ]);
+    expect(partialGroupToolResult.details.replyRecipients).toEqual([
+      expect.objectContaining({
+        messageId: "msg_123",
+        recipient: "alice",
+        recipientType: "user",
+      }),
+    ]);
+    expect(String(partialGroupToolResult.details.summary)).toContain(
+      'asked 1 of 4 members in group "Hiking Crew"',
+    );
+    expect(String(partialGroupToolResult.details.summary)).toContain(
+      "1 waiting on review",
+    );
+    expect(String(partialGroupToolResult.details.summary)).toContain(
+      "carol was blocked by Mahilo boundaries",
+    );
+    expect(String(partialGroupToolResult.details.replyExpectation)).toContain(
+      '"Hiking Crew" (4 members) responds.',
+    );
+    expect(partialGroupToolResult.content[0]?.text).toBe(
+      partialGroupToolResult.details.summary,
+    );
+    expect(state.groupFanoutBundleCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(3);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      correlation_id: "corr_group_local_partial_1",
+      recipient: "alice",
+      resolution_id: "res_group_partial_usr_alice",
+      sender_connection_id: "conn_sender",
+    });
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResultForHook,
+        toolName: "ask_network",
+      },
+      {
+        agentId: "mahilo-group-agent",
+        runId: "run_group_local_partial_1",
+        sessionKey: "session_group_local_partial_1",
+        toolCallId: "tool_call_group_local_partial_1",
+        toolName: "ask_network",
+      },
+    );
+
+    expect(
+      pluginState.getAskAroundSession("corr_group_local_partial_1"),
+    ).toMatchObject({
+      correlationId: "corr_group_local_partial_1",
+      expectedParticipants: [
+        {
+          label: "alice",
+          recipient: "alice",
+        },
+      ],
+      target: {
+        groupId: "grp_hiking",
+        groupName: "Hiking Crew",
+        kind: "group",
+        memberCount: 4,
+      },
+    });
+    expect(
+      pluginState.resolveInboundRoute({
+        groupId: "grp_hiking",
+        localConnectionId: "conn_sender",
+      }),
+    ).toMatchObject({
+      correlationId: "corr_group_local_partial_1",
+      sessionKey: "session_group_local_partial_1",
+    });
+    expect(
+      pluginState.resolveInboundRoute({
+        inResponseToMessageId: "msg_123",
+      }),
+    ).toMatchObject({
+      correlationId: "corr_group_local_partial_1",
+      sessionKey: "session_group_local_partial_1",
+    });
   });
 
   it("keeps synthesized ask-around updates separate from direct attributed replies", async () => {
@@ -3346,6 +3584,22 @@ describe("createMahiloOpenClawPlugin", () => {
       "tool_call_network_local_policy_1",
       outboundInput,
     );
+    const contactToolResult = toolResult as {
+      content: Array<{ text: string }>;
+      details: {
+        gaps?: Array<{
+          kind?: string;
+          recipientLabels?: string[];
+        }>;
+        replyExpectation?: string;
+        replyRecipients?: Array<{
+          messageId?: string;
+          recipient?: string;
+          recipientType?: string;
+        }>;
+        summary?: string;
+      };
+    };
 
     expect(toolResult).toMatchObject({
       details: {
@@ -3376,6 +3630,34 @@ describe("createMahiloOpenClawPlugin", () => {
         ],
       },
     });
+    expect(contactToolResult.details.gaps).toEqual([
+      expect.objectContaining({
+        kind: "blocked",
+        recipientLabels: ["Carol"],
+      }),
+    ]);
+    expect(contactToolResult.details.replyRecipients).toEqual([
+      expect.objectContaining({
+        messageId: "msg_123",
+        recipient: "alice",
+        recipientType: "user",
+      }),
+    ]);
+    expect(String(contactToolResult.details.summary)).toContain(
+      "asked 1 of 3 your contacts",
+    );
+    expect(String(contactToolResult.details.summary)).toContain(
+      "1 waiting on review",
+    );
+    expect(String(contactToolResult.details.summary)).toContain(
+      "Carol was blocked by Mahilo boundaries",
+    );
+    expect(String(contactToolResult.details.replyExpectation)).toContain(
+      "Replies will show up in this thread with attribution and a running summary as your contacts respond.",
+    );
+    expect(contactToolResult.content[0]?.text).toBe(
+      contactToolResult.details.summary,
+    );
     expect(
       state.directSendBundleCalls.map((call) => String(call.recipient)),
     ).toEqual(["alice", "bob", "carol"]);
