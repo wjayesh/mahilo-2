@@ -474,7 +474,7 @@ This project is done when all of the following are true:
   - 2026-03-14T14:58:35.747Z: LPE-023 completed via orchestrator integration.
 ### 2.5 Retire the Plugin Toy Guard From the Active Path
 - **ID**: `LPE-024`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: `LPE-020`
 - **Description**:
@@ -488,6 +488,8 @@ This project is done when all of the following are true:
 
 ---
 
+- **Notes**:
+  - 2026-03-14T16:52:38.848Z: LPE-024 completed via orchestrator integration.
 ## Phase 3: Plugin Send and Ask Integration
 
 ### 3.1 Gate Direct `send_message` in the Shared Send Path
