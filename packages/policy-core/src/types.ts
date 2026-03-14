@@ -160,16 +160,53 @@ export interface LLMPolicyEvaluationInput {
   context?: string;
 }
 
+export type LLMPolicyEvaluationErrorKind =
+  | "timeout"
+  | "network"
+  | "provider"
+  | "invalid_response"
+  | "unavailable"
+  | "unknown";
+
 export interface LLMPolicyEvaluationResult {
   status: "pass" | "match" | "skip" | "error";
   reasoning?: string;
   skip_reason?: string;
   error?: string;
-  error_kind?: string;
+  error_kind?: LLMPolicyEvaluationErrorKind;
+}
+
+export interface LLMPolicyEvaluationError {
+  kind: LLMPolicyEvaluationErrorKind;
+  message: string;
+}
+
+export interface LLMProviderAdapterRequest {
+  input: LLMPolicyEvaluationInput;
+  prompt: string;
+}
+
+export interface LLMProviderAdapterResponse {
+  text: string;
+  provider?: string;
+  model?: string;
+}
+
+export type LLMProviderAdapter = (
+  request: LLMProviderAdapterRequest,
+) => Promise<LLMProviderAdapterResponse>;
+
+export interface CreateLLMPolicyEvaluatorOptions {
+  providerAdapter: LLMProviderAdapter;
+  normalizeError?: (error: unknown) => LLMPolicyEvaluationError;
+  onError?: (
+    error: LLMPolicyEvaluationError,
+    input: LLMPolicyEvaluationInput,
+  ) => LLMPolicyEvaluationResult | Promise<LLMPolicyEvaluationResult>;
 }
 
 export type LLMPolicyEvaluator = (
-  input: LLMPolicyEvaluationInput
+  input: LLMPolicyEvaluationInput,
 ) => Promise<LLMPolicyEvaluationResult>;
 
 export type LLMEvaluationFallbackMode = "skip" | PolicyEffect;
@@ -188,10 +225,7 @@ export interface ResolvePolicySetOptions {
   llmErrorMode?: LLMEvaluationFallbackMode;
 }
 
-export interface ParsedLLMPolicyEvaluation {
-  passed: boolean;
-  reasoning: string;
-}
+export interface ParsedLLMPolicyEvaluation extends LLMPolicyEvaluationResult {}
 
 export const POLICY_RESOLVER_ORDER: PolicyResolverLayer[] = [
   "platform_guardrails",

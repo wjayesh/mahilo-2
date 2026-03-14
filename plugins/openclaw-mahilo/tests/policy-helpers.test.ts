@@ -12,7 +12,7 @@ import {
   shouldSendForDecision,
   toToolStatus,
 } from "../src";
-import type { CorePolicy } from "@mahilo/policy-core";
+import type { CorePolicy, LLMPolicyEvaluator } from "@mahilo/policy-core";
 
 function createPolicy(
   overrides: Partial<CorePolicy> & Pick<CorePolicy, "id">,
@@ -110,6 +110,38 @@ describe("policy helpers", () => {
     expect(result.effect).toBe("deny");
     expect(result.reason_code).toBe("policy.deny.group.structured");
     expect(result.winning_policy_id).toBe("pol_group_deny");
+  });
+
+  it("forwards an injected llm evaluator so plugin adapters can be supplied later", async () => {
+    const llmEvaluator: LLMPolicyEvaluator = async () => ({
+      status: "match",
+      reasoning: "Provider adapter flagged this message",
+    });
+
+    const result = await resolveLocalPolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_llm_deny",
+          scope: "global",
+          effect: "deny",
+          evaluator: "llm",
+          policy_content: "Never share secrets",
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "The password is hunter2",
+      recipientUsername: "alice",
+      llmSubject: "alice",
+      llmEvaluator,
+      llmErrorMode: "ask",
+      llmUnavailableMode: "ask",
+    });
+
+    expect(result.effect).toBe("deny");
+    expect(result.reason_code).toBe("policy.deny.global.llm");
+    expect(result.winning_policy?.reason).toBe(
+      "Provider adapter flagged this message",
+    );
   });
 
   it("extracts policy decision from common response shapes", () => {

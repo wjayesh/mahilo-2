@@ -5,6 +5,8 @@ import {
   stricterEffect,
   type AuthenticatedSenderIdentity,
   type CorePolicy,
+  type LLMEvaluationFallbackMode,
+  type LLMPolicyEvaluator,
   type PolicyDirection,
   type PolicyEffect,
   type PolicyResolverLayer,
@@ -35,6 +37,9 @@ export interface SharedLocalPolicyResolverInput {
   context?: string;
   recipientUsername?: string;
   llmSubject?: string;
+  llmEvaluator?: LLMPolicyEvaluator;
+  llmUnavailableMode?: LLMEvaluationFallbackMode;
+  llmErrorMode?: LLMEvaluationFallbackMode;
   authenticatedIdentity?: AuthenticatedSenderIdentity;
   resolverLayer?: PolicyResolverLayer;
 }
@@ -179,6 +184,9 @@ export async function resolveLocalPolicySet(
     context: input.context,
     recipientUsername: input.recipientUsername,
     llmSubject: input.llmSubject ?? input.recipientUsername ?? "unknown",
+    llmEvaluator: input.llmEvaluator,
+    llmUnavailableMode: input.llmUnavailableMode,
+    llmErrorMode: input.llmErrorMode,
     authenticatedIdentity: input.authenticatedIdentity,
     resolverLayer: input.resolverLayer ?? "user_policies",
   });

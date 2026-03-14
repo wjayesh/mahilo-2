@@ -20,17 +20,11 @@ import {
 import { config } from "../config";
 import { getDb, schema } from "../db";
 import { evaluatePlatformGuardrails } from "./policyGuardrails";
-import { evaluateLLMPolicy, isLLMEnabled } from "./llm";
-import {
-  dbPolicyToCanonical,
-  type CanonicalPolicy,
-} from "./policySchema";
+import { createAnthropicLLMPolicyEvaluator } from "./llm";
+import { dbPolicyToCanonical, type CanonicalPolicy } from "./policySchema";
 import { getRolesForFriend } from "./roles";
 
-export {
-  POLICY_RESOLVER_ORDER,
-  validatePolicyContent,
-};
+export { POLICY_RESOLVER_ORDER, validatePolicyContent };
 
 export type {
   AuthenticatedSenderIdentity,
@@ -47,7 +41,7 @@ export async function loadApplicablePolicies(
   recipientUserId?: string,
   recipientRoles: string[] = [],
   groupId?: string,
-  selectors?: PolicySelectorContext
+  selectors?: PolicySelectorContext,
 ): Promise<CanonicalPolicy[]> {
   const db = getDb();
   const now = new Date();
@@ -55,19 +49,28 @@ export async function loadApplicablePolicies(
 
   if (recipientUserId) {
     policyConditions.push(
-      and(eq(schema.policies.scope, "user"), eq(schema.policies.targetId, recipientUserId))
+      and(
+        eq(schema.policies.scope, "user"),
+        eq(schema.policies.targetId, recipientUserId),
+      ),
     );
   }
 
   if (recipientRoles.length > 0) {
     policyConditions.push(
-      and(eq(schema.policies.scope, "role"), sql`${schema.policies.targetId} IN ${recipientRoles}`)
+      and(
+        eq(schema.policies.scope, "role"),
+        sql`${schema.policies.targetId} IN ${recipientRoles}`,
+      ),
     );
   }
 
   if (groupId) {
     policyConditions.push(
-      and(eq(schema.policies.scope, "group"), eq(schema.policies.targetId, groupId))
+      and(
+        eq(schema.policies.scope, "group"),
+        eq(schema.policies.targetId, groupId),
+      ),
     );
   }
 
@@ -75,18 +78,24 @@ export async function loadApplicablePolicies(
   const directionCondition = directionCandidates
     ? or(
         isNull(schema.policies.direction),
-        inArray(schema.policies.direction, directionCandidates)
+        inArray(schema.policies.direction, directionCandidates),
       )
     : null;
 
   const resourceSelector = normalizeSelectorToken(selectors?.resource);
   const resourceCondition = resourceSelector
-    ? or(isNull(schema.policies.resource), eq(schema.policies.resource, resourceSelector))
+    ? or(
+        isNull(schema.policies.resource),
+        eq(schema.policies.resource, resourceSelector),
+      )
     : null;
 
   const actionSelector = normalizeSelectorToken(selectors?.action);
   const actionCondition = actionSelector
-    ? or(isNull(schema.policies.action), eq(schema.policies.action, actionSelector))
+    ? or(
+        isNull(schema.policies.action),
+        eq(schema.policies.action, actionSelector),
+      )
     : null;
 
   const policies = await db
@@ -96,43 +105,41 @@ export async function loadApplicablePolicies(
       and(
         eq(schema.policies.userId, senderUserId),
         eq(schema.policies.enabled, true),
-        or(isNull(schema.policies.effectiveFrom), lte(schema.policies.effectiveFrom, now)),
-        or(isNull(schema.policies.expiresAt), gt(schema.policies.expiresAt, now)),
-        or(isNull(schema.policies.remainingUses), gt(schema.policies.remainingUses, 0)),
+        or(
+          isNull(schema.policies.effectiveFrom),
+          lte(schema.policies.effectiveFrom, now),
+        ),
+        or(
+          isNull(schema.policies.expiresAt),
+          gt(schema.policies.expiresAt, now),
+        ),
+        or(
+          isNull(schema.policies.remainingUses),
+          gt(schema.policies.remainingUses, 0),
+        ),
         or(...policyConditions),
         ...(directionCondition ? [directionCondition] : []),
         ...(resourceCondition ? [resourceCondition] : []),
-        ...(actionCondition ? [actionCondition] : [])
-      )
+        ...(actionCondition ? [actionCondition] : []),
+      ),
     )
     .orderBy(desc(schema.policies.priority));
 
   // Lifecycle and scope ownership stay server-side in SQL; the shared selector
   // filter is reapplied here so future bundle consumers reuse identical matching.
   return filterPolicyCandidatesBySelectors(policies, selectors).map((policy) =>
-    dbPolicyToCanonical(policy)
+    dbPolicyToCanonical(policy),
   );
 }
 
 function createServerLLMPolicyEvaluator(): LLMPolicyEvaluator | undefined {
-  if (!(config.trustedMode && isLLMEnabled())) {
+  if (!config.trustedMode) {
     return undefined;
   }
 
-  return async ({ policyContent, message, subject, context }) => {
-    const result = await evaluateLLMPolicy(policyContent, message, subject, context);
-    if (result.passed) {
-      return {
-        status: "pass",
-        reasoning: result.reasoning || "LLM policy passed",
-      };
-    }
-
-    return {
-      status: "match",
-      reasoning: result.reasoning || "Message blocked by LLM policy",
-    };
-  };
+  return createAnthropicLLMPolicyEvaluator({
+    onError: "pass",
+  });
 }
 
 async function resolveUserPolicyLayer(
@@ -147,14 +154,14 @@ async function resolveUserPolicyLayer(
     selectors?: PolicySelectorContext;
     llmSubject: string;
     context?: string;
-  }
+  },
 ): Promise<PolicyResult> {
   const applicablePolicies = await loadApplicablePolicies(
     senderUserId,
     options.recipientUserId,
     options.recipientRoles || [],
     options.groupId,
-    options.selectors
+    options.selectors,
   );
 
   return resolvePolicySet({
@@ -172,18 +179,20 @@ async function resolveUserPolicyLayer(
 
 function buildIdentityContext(
   senderUserId: string,
-  authenticatedIdentity?: AuthenticatedSenderIdentity
+  authenticatedIdentity?: AuthenticatedSenderIdentity,
 ): AuthenticatedSenderIdentity {
-  return authenticatedIdentity || {
-    sender_user_id: senderUserId,
-    sender_connection_id: "unknown",
-  };
+  return (
+    authenticatedIdentity || {
+      sender_user_id: senderUserId,
+      sender_connection_id: "unknown",
+    }
+  );
 }
 
 async function validateAuthenticatedIdentity(
   expectedSenderUserId: string,
   authenticatedIdentity: AuthenticatedSenderIdentity | undefined,
-  identityContext: AuthenticatedSenderIdentity
+  identityContext: AuthenticatedSenderIdentity,
 ): Promise<PolicyResult | null> {
   if (!authenticatedIdentity) {
     return null;
@@ -208,10 +217,13 @@ async function validateAuthenticatedIdentity(
     .from(schema.agentConnections)
     .where(
       and(
-        eq(schema.agentConnections.id, authenticatedIdentity.sender_connection_id),
+        eq(
+          schema.agentConnections.id,
+          authenticatedIdentity.sender_connection_id,
+        ),
         eq(schema.agentConnections.userId, expectedSenderUserId),
-        eq(schema.agentConnections.status, "active")
-      )
+        eq(schema.agentConnections.status, "active"),
+      ),
     )
     .limit(1);
 
@@ -233,7 +245,7 @@ async function validateAuthenticatedIdentity(
 
 function evaluatePolicyGuardrails(
   message: string,
-  identityContext: AuthenticatedSenderIdentity
+  identityContext: AuthenticatedSenderIdentity,
 ): PolicyResult | null {
   const guardrailResult = evaluatePlatformGuardrails(message);
   if (!guardrailResult.blocked) {
@@ -260,15 +272,18 @@ export async function evaluatePolicies(
   context?: string,
   authenticatedIdentity?: AuthenticatedSenderIdentity,
   selectorContext?: PolicySelectorContext,
-  groupId?: string
+  groupId?: string,
 ): Promise<PolicyResult> {
-  const identityContext = buildIdentityContext(senderUserId, authenticatedIdentity);
+  const identityContext = buildIdentityContext(
+    senderUserId,
+    authenticatedIdentity,
+  );
   const db = getDb();
 
   const identityValidationResult = await validateAuthenticatedIdentity(
     senderUserId,
     authenticatedIdentity,
-    identityContext
+    identityContext,
   );
   if (identityValidationResult) {
     return identityValidationResult;
@@ -301,7 +316,7 @@ export async function evaluatePolicies(
 export async function loadBilateralPolicies(
   userId: string,
   recipientUserId: string,
-  roles: string[] = []
+  roles: string[] = [],
 ): Promise<CanonicalPolicy[]> {
   return loadApplicablePolicies(userId, recipientUserId, roles);
 }
@@ -312,15 +327,18 @@ export async function evaluateInboundPolicies(
   message: string,
   context?: string,
   authenticatedRequesterIdentity?: AuthenticatedSenderIdentity,
-  selectorContext?: PolicySelectorContext
+  selectorContext?: PolicySelectorContext,
 ): Promise<PolicyResult> {
-  const identityContext = buildIdentityContext(requesterUserId, authenticatedRequesterIdentity);
+  const identityContext = buildIdentityContext(
+    requesterUserId,
+    authenticatedRequesterIdentity,
+  );
   const db = getDb();
 
   const identityValidationResult = await validateAuthenticatedIdentity(
     requesterUserId,
     authenticatedRequesterIdentity,
-    identityContext
+    identityContext,
   );
   if (identityValidationResult) {
     return identityValidationResult;
@@ -331,7 +349,10 @@ export async function evaluateInboundPolicies(
     return guardrailResult;
   }
 
-  const requesterRoles = await getRolesForFriend(recipientUserId, requesterUserId);
+  const requesterRoles = await getRolesForFriend(
+    recipientUserId,
+    requesterUserId,
+  );
   const [requester] = await db
     .select({ username: schema.users.username })
     .from(schema.users)
@@ -355,14 +376,17 @@ export async function evaluateGroupPolicies(
   message: string,
   context?: string,
   authenticatedIdentity?: AuthenticatedSenderIdentity,
-  selectorContext?: PolicySelectorContext
+  selectorContext?: PolicySelectorContext,
 ): Promise<PolicyResult> {
-  const identityContext = buildIdentityContext(senderUserId, authenticatedIdentity);
+  const identityContext = buildIdentityContext(
+    senderUserId,
+    authenticatedIdentity,
+  );
 
   const identityValidationResult = await validateAuthenticatedIdentity(
     senderUserId,
     authenticatedIdentity,
-    identityContext
+    identityContext,
   );
   if (identityValidationResult) {
     return identityValidationResult;
@@ -384,14 +408,15 @@ export async function evaluateGroupPolicies(
 
 export async function consumeWinningPolicyUse(
   senderUserId: string,
-  result: PolicyResult
+  result: PolicyResult,
 ): Promise<void> {
   const winningPolicy = result.winning_policy;
   if (!winningPolicy) {
     return;
   }
 
-  const hasUsageLimit = winningPolicy.max_uses !== null || winningPolicy.remaining_uses !== null;
+  const hasUsageLimit =
+    winningPolicy.max_uses !== null || winningPolicy.remaining_uses !== null;
   if (!hasUsageLimit) {
     return;
   }
@@ -412,8 +437,8 @@ export async function consumeWinningPolicyUse(
         and(
           eq(schema.policies.id, winningPolicy.policy_id),
           eq(schema.policies.userId, senderUserId),
-          gt(schema.policies.remainingUses, 0)
-        )
+          gt(schema.policies.remainingUses, 0),
+        ),
       );
     return;
   }
@@ -432,7 +457,7 @@ export async function consumeWinningPolicyUse(
         eq(schema.policies.id, winningPolicy.policy_id),
         eq(schema.policies.userId, senderUserId),
         isNull(schema.policies.remainingUses),
-        gt(schema.policies.maxUses, 0)
-      )
+        gt(schema.policies.maxUses, 0),
+      ),
     );
 }
