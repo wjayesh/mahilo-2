@@ -414,7 +414,7 @@ This project is done when all of the following are true:
   - 2026-03-14T14:27:24.779Z: LPE-020 completed via orchestrator integration.
 ### 2.2 Extend Plugin Config and Manifest for Local LLM Evaluation
 - **ID**: `LPE-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Description**:
@@ -432,6 +432,8 @@ This project is done when all of the following are true:
   - [ ] Unknown-key validation remains strict
   - [ ] Tests cover config precedence and manifest validation
 
+- **Notes**:
+  - 2026-03-14T14:37:34.148Z: LPE-021 completed via orchestrator integration.
 ### 2.3 Implement the Plugin OpenAI LLM Adapter
 - **ID**: `LPE-022`
 - **Status**: `pending`
