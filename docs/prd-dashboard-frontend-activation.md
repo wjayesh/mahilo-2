@@ -189,7 +189,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T13:31:32.678Z: DASH-021 completed via orchestrator integration.
 ### 2.3 Relationship Actions and Role Management
 - **ID**: `DASH-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-020`
 - **Description**:
@@ -201,6 +201,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] A contact's current roles are visible and editable from the dashboard
   - [ ] The UI does not depend on a global search API to make relationship management usable
 
+- **Notes**:
+  - 2026-03-14T13:41:07.787Z: DASH-022 completed via orchestrator integration.
 ### 2.4 Group Detail, Members, and Readiness
 - **ID**: `DASH-023`
 - **Status**: `pending`
