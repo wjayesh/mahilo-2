@@ -394,7 +394,7 @@ This project is done when all of the following are true:
 
 ### 2.1 Add a Plugin Local Policy Runtime Module
 - **ID**: `LPE-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-003`, `LPE-004`, `LPE-010`, `LPE-011`
 - **Description**:
@@ -410,6 +410,8 @@ This project is done when all of the following are true:
   - [ ] Result shape contains enough metadata for tool UX and server commit
   - [ ] Existing lightweight guard helper is not the active enforcement path anymore
 
+- **Notes**:
+  - 2026-03-14T14:27:24.779Z: LPE-020 completed via orchestrator integration.
 ### 2.2 Extend Plugin Config and Manifest for Local LLM Evaluation
 - **ID**: `LPE-021`
 - **Status**: `pending`
