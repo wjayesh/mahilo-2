@@ -11,8 +11,8 @@
 
 This document is the runtime contract between:
 
-- **Mahilo server**: identity, policy resolution, audit, and final enforcement.
-- **OpenClaw plugin**: native hooks, prompt-time context, send UX, and user-driven outcomes/overrides.
+- **Mahilo server**: identity and access checks, selector normalization, applicable-policy filtering, trusted-mode resolution, lifecycle mutation, and persisted audit/outcome storage.
+- **OpenClaw plugin**: native hooks, prompt-time advisory context, preview UX, non-trusted local evaluation, local provider credential handling, transport initiation, and user-driven outcomes/overrides.
 
 The goal is to let plugin and server teams integrate without guessing payloads.
 
@@ -20,19 +20,38 @@ The goal is to let plugin and server teams integrate without guessing payloads.
 
 ## Core Rules
 
-1. **Mahilo is policy truth**.
-   - Final `allow` / `ask` / `deny` decisions come from the server.
-   - Preflight helps UX, but does not bypass final send-time enforcement.
+1. **Mahilo is policy truth and lifecycle authority**.
+   - Canonical policies live on the server.
+   - Plugin-local evaluation is allowed only from server-issued policy bundles plus the shared resolver.
+   - The server is still authoritative for lifecycle mutation, persisted message artifacts, and audit surfaces.
 
-2. **Plugin requests are user-authenticated**.
-   - All plugin routes require `Authorization: Bearer <mahilo_api_key>`.
-   - Agent-behavior routes validate `sender_connection_id` ownership when provided.
+2. **Advisory context is not enforcement**.
+   - `POST /api/v1/plugin/context` is prompt-time guidance only.
+   - `policy_guidance.default_decision` is not a send token, a commit token, or a substitute for live resolution.
 
-3. **Selectors are plugin-declared and server-normalized**.
+3. **Preview is not live send**.
+   - `POST /api/v1/plugin/resolve` creates no message artifact, no delivery record, and no lifecycle mutation.
+   - In non-trusted mode, live sends must use the bundle -> local evaluation -> local-decision commit flow. Preview `resolution_id` values are not a substitute.
+
+4. **Live enforcement depends on runtime mode**.
+   - Trusted plaintext sends use server-side policy evaluation in `POST /api/v1/messages/send`.
+   - Non-trusted sends use plugin-local evaluation, then commit the local decision, then transport only committed `allow` recipients.
+   - Ciphertext payloads are not policy-evaluated server-side from payload content; if enforcement is required there, the plugin must evaluate before transport.
+
+5. **Selectors are plugin-declared and server-normalized**.
    - Server validates selector shape.
    - Unknown resources are allowed only when namespaced (for example `custom.preference`).
 
-4. **Policy outcomes are business outcomes**.
+6. **LLM defaults are hints, not credentials**.
+   - Bundle responses may return provider/model defaults only when an applicable LLM policy exists.
+   - Mahilo never returns provider secrets or host credentials.
+   - Missing or failed local LLM evaluation must degrade to `ask`, not fail open.
+
+7. **Group fanout is per-recipient**.
+   - Group bundles carry group overlays plus member-specific inputs and per-member `resolution_id` values.
+   - Local group commits, send retries, review surfaces, blocked-event surfaces, and outcome reports are all per committed member artifact.
+
+8. **Policy outcomes are business outcomes**.
    - `allow`, `ask`, and `deny` are returned in normal JSON payloads.
    - Validation/auth/resource failures use HTTP `4xx`/`5xx`.
 
@@ -113,22 +132,66 @@ Authorization: Bearer <mahilo_api_key>
 
 Verification requirements by route:
 
-- `POST /api/v1/plugin/context`: authenticated user required, Twitter verification not required.
-- `POST /api/v1/plugin/bundles/direct-send`: authenticated + verified user required.
-- `POST /api/v1/plugin/bundles/group-fanout`: authenticated + verified user required.
-- `POST /api/v1/plugin/local-decisions/commit`: authenticated + verified user required.
-- `POST /api/v1/plugin/resolve`: authenticated + verified user required.
-- `POST /api/v1/plugin/outcomes`: authenticated + verified user required.
-- `POST /api/v1/plugin/overrides`: authenticated + verified user required.
-- `GET /api/v1/plugin/reviews`: authenticated + verified user required.
-- `GET /api/v1/plugin/events/blocked`: authenticated + verified user required.
-- `POST /api/v1/messages/send`: authenticated + verified user required.
+- `POST /api/v1/plugin/context`: authenticated user required; active invite-backed account is not required.
+- `POST /api/v1/plugin/bundles/direct-send`: authenticated + active invite-backed account required.
+- `POST /api/v1/plugin/bundles/group-fanout`: authenticated + active invite-backed account required.
+- `POST /api/v1/plugin/local-decisions/commit`: authenticated + active invite-backed account required.
+- `POST /api/v1/plugin/resolve`: authenticated + active invite-backed account required.
+- `POST /api/v1/plugin/outcomes`: authenticated + active invite-backed account required.
+- `POST /api/v1/plugin/overrides`: authenticated + active invite-backed account required.
+- `GET /api/v1/plugin/reviews`: authenticated + active invite-backed account required.
+- `GET /api/v1/plugin/events/blocked`: authenticated + active invite-backed account required.
+- `POST /api/v1/messages/send`: authenticated + active invite-backed account required.
 
 Idempotency:
 
-- `POST /api/v1/messages/send`: `idempotency_key` in body.
+- `POST /api/v1/messages/send`: `idempotency_key` in body. When resuming a committed local `allow`, the bound `resolution_id` also deduplicates retries of that same artifact.
 - `POST /api/v1/plugin/local-decisions/commit`: authoritative commit key is `resolution_id`; `idempotency_key` in body or `Idempotency-Key` header may additionally deduplicate retries for the same committed artifact.
 - `POST /api/v1/plugin/outcomes`: `idempotency_key` in body or `Idempotency-Key` header.
+
+---
+
+## Surface Matrix
+
+| Surface | Endpoint / handle | Intended use | Creates message or lifecycle mutation? | Live-send rule |
+| --- | --- | --- | --- | --- |
+| Advisory context | `POST /api/v1/plugin/context` | Prompt-time hints and relationship context | No | Never use `policy_guidance.default_decision` as live authorization |
+| Preview / preflight | `POST /api/v1/plugin/resolve` | Preview UX and trusted-mode parity checks | No | Preview `resolution_id` is ephemeral and not reused for local commit/send |
+| Direct local bundle | `POST /api/v1/plugin/bundles/direct-send` | Direct non-trusted local enforcement input | No | Later commit/send must use `bundle_metadata.resolution_id` |
+| Group local bundle | `POST /api/v1/plugin/bundles/group-fanout` | Group non-trusted fanout input | No | Later commit/send must use `members[*].resolution_id` per recipient |
+| Local decision commit | `POST /api/v1/plugin/local-decisions/commit` | Persist the plugin-local decision | Yes | `ask`/`deny` stop here; `allow` continues to transport |
+| Final send / transport | `POST /api/v1/messages/send` | Trusted server send or resume committed local `allow` | Yes | Local group sends call this per allowed user recipient, not once for the whole group |
+| Outcome report | `POST /api/v1/plugin/outcomes` | Append post-send or post-review audit | Appends audit only | Correlated by `message_id`; local group reports are per member artifact |
+| Override creation | `POST /api/v1/plugin/overrides` | Create an explicit override policy | Creates policy | Can follow preview, review, or blocked outcomes |
+
+---
+
+## End-to-End Flows
+
+### Direct User Send in Non-Trusted Mode
+
+1. Optional: call `POST /api/v1/plugin/context` for prompt hints only.
+2. Optional: call `POST /api/v1/plugin/resolve` for preview UX only.
+3. Call `POST /api/v1/plugin/bundles/direct-send`.
+4. Evaluate locally from `applicable_policies` with the shared resolver. If an LLM policy applies, use `llm.subject` and optional `llm.provider_defaults`, but source credentials from the plugin/OpenClaw environment.
+5. Call `POST /api/v1/plugin/local-decisions/commit` with the bundle `resolution_id`.
+6. If the committed decision is `allow`, call `POST /api/v1/messages/send` with the same `resolution_id`. If the decision is `ask` or `deny`, do not send.
+7. Optionally call `POST /api/v1/plugin/outcomes` with the returned `message_id`.
+
+### Group Fanout in Non-Trusted Mode
+
+1. Optional: use `/plugin/context` or `/plugin/resolve` only for UX; neither endpoint authorizes the live group send path.
+2. Call `POST /api/v1/plugin/bundles/group-fanout`.
+3. Evaluate members locally in bundle order, combining `group_overlay_policies` with each member's `member_applicable_policies`.
+4. Commit each member in bundle order with `POST /api/v1/plugin/local-decisions/commit`, `group_id`, and that member's `resolution_id`.
+5. Transport only members whose committed decision is `allow`, using `POST /api/v1/messages/send` with `recipient_type=user` and the member `resolution_id`.
+6. Use `aggregate_metadata` only for plugin UX summaries. Review, blocked-event, and outcome surfaces are recorded per committed member artifact, not per bundle.
+
+### Trusted Preview and Trusted Send
+
+1. `POST /api/v1/plugin/resolve` remains the preview surface when `trustedMode=true` and the payload is not ciphertext.
+2. `POST /api/v1/messages/send` performs authoritative server-side policy evaluation only in that trusted/plaintext path.
+3. This is the only mode where preview/send parity comes from the server evaluation itself. In local mode, preview is informational and live enforcement comes from bundle evaluation plus commit.
 
 ---
 
@@ -165,6 +228,8 @@ Request notes:
 - `recipient_type` defaults to `user`.
 - `recipient_type=group` is currently rejected with `UNSUPPORTED_RECIPIENT_TYPE`.
 - `declared_selectors` is also accepted; `draft_selectors` takes precedence when both are set.
+- The response intentionally omits `bundle_metadata`, `resolution_id`, `llm.provider_defaults`, and detailed policy internals. It is safe prompt context, not a live-send contract.
+- Plugin clients must not use `policy_guidance.default_decision` as a substitute for bundle evaluation, local-decision commit, or trusted `/messages/send`.
 
 Response example:
 
@@ -258,6 +323,8 @@ Request notes:
 - The bundle intentionally excludes prompt/advisory fields from `/plugin/context` and does not resolve delivery routing.
 - `applicable_policies` are already filtered by server-side recipient identity, role membership, selector context, and lifecycle eligibility.
 - `bundle_metadata.resolution_id` is the send/report correlation handle for later local-decision commit work.
+- The bundle creates no message artifact, no delivery record, and no lifecycle mutation on its own.
+- `llm.provider_defaults` contains only non-secret provider/model hints and is `null` when no applicable LLM policy exists or no default is configured. Deterministic-only local evaluation still proceeds when it is `null`.
 
 Response example:
 
@@ -345,6 +412,9 @@ Request notes:
 - `group_overlay_policies` contain only group-scope policies; each member row carries only the member-specific/global/role policies that must be combined with those overlays locally.
 - `members[*].resolution_id` is the authoritative per-recipient correlation handle derived from `bundle_metadata.resolution_id`.
 - `aggregate_metadata` describes the trusted mixed-outcome rule used for partial fan-out summaries.
+- The bundle creates no message artifact, no delivery record, and no lifecycle mutation on its own.
+- In local mode, `aggregate_metadata` is for plugin-side summary UX only. Review, blocked-event, and outcome surfaces are later recorded per committed member artifact.
+- Each `members[*].llm.provider_defaults` follows the same provider/model-only rule as the direct-send bundle. Missing defaults do not block deterministic-only local evaluation for that member.
 
 Response example:
 
@@ -485,6 +555,9 @@ Request notes:
 - For group fan-out, plugin clients must commit members in the bundle member order and reuse each member `resolution_id`. This preserves trusted lifecycle semantics for shared one-time or limited policies across partial fan-out.
 - On the first successful commit, the server performs authoritative winning-policy lifecycle mutation and persists a message artifact even when transport never starts.
 - `allow` commits create a pending message artifact. Later `POST /api/v1/messages/send` must reuse the same `resolution_id` so transport binds to that committed local decision.
+- `ask` commits create a `review_required` message artifact that later appears in `GET /api/v1/plugin/reviews`.
+- `deny` commits create a `rejected` message artifact that later appears in `GET /api/v1/plugin/events/blocked`.
+- Queue and blocked-event APIs expose these local decisions through the normal audit fields, with `audit.policy_evaluation_mode = "plugin_local_pre_delivery"` when the record originated from local commit.
 - Degraded local LLM review outcomes use explicit reason codes under `policy.ask.llm.<kind>`. Current kinds include `unavailable`, normalized transport/provider/parser kinds such as `network`, `provider`, `invalid_response`, `timeout`, `unknown`, and `skip`.
 - Plugin clients must treat those degraded-review codes as review-required even when local UX is configured with `reviewMode=auto`; evaluator uncertainty must not silently auto-send.
 
@@ -584,6 +657,7 @@ Request notes:
 - Policy preflight runs only when `trustedMode=true` and `payload_type != application/mahilo+ciphertext`; otherwise decision defaults to `allow`.
 - Agent-facing preflight responses intentionally expose only outcome-safe explanation fields (`decision`, `delivery_mode`, `reason_code`, summary) and omit detailed policy internals.
 - No message or delivery record is created.
+- The returned `resolution_id` is preview-scoped. Plugin clients must not reuse it for non-trusted local commit/send; fetch a bundle to obtain the authoritative local-enforcement `resolution_id`.
 
 Response example:
 
@@ -640,12 +714,20 @@ Endpoint:
 POST /api/v1/messages/send
 ```
 
-This endpoint is not under `/plugin`, but plugin clients use it for final delivery after preflight.
-Policy enforcement follows the same trusted-mode/plaintext condition as `/api/v1/plugin/resolve`.
+This endpoint is not under `/plugin`. Plugin clients use it in two different ways:
 
-When a local `allow` was already committed through `POST /api/v1/plugin/local-decisions/commit`, plugin clients must send the same `resolution_id` here. The server reuses that committed message artifact and audit trail instead of creating a second message or re-consuming one-time/limited override lifecycle.
+- **Trusted/plaintext send**: when `trustedMode=true` and `payload_type != application/mahilo+ciphertext`, Mahilo evaluates policy on the server here.
+- **Resumed local `allow` send**: after a successful `POST /api/v1/plugin/local-decisions/commit` with `decision=allow`, the plugin resumes transport here by reusing the committed `resolution_id`.
 
-Plugin-relevant request fragment:
+Transport rules:
+
+- Local `ask` and `deny` decisions do not call `/messages/send`; the commit response is already the terminal pre-delivery artifact.
+- Direct local sends must reuse the committed `resolution_id`.
+- Local group fan-out does not send the original group target back through `/messages/send` after commit. It sends each allowed member separately as `recipient_type=user` with that member `resolution_id`.
+- When a `resolution_id` is already bound to a committed local artifact, sender connection, recipient, recipient connection (when already bound), selectors, payload, payload type, and context must match that artifact or the server returns `LOCAL_DECISION_CONFLICT`.
+- Replays with the same committed `resolution_id` deduplicate to the existing message, even if a later retry supplies a different `idempotency_key`.
+
+Plugin-relevant request fragment for a resumed local `allow`:
 
 ```json
 {
@@ -663,13 +745,12 @@ Plugin-relevant request fragment:
 }
 ```
 
-Response example (policy blocked / ask case is still HTTP `200`):
+Trusted direct review-required response example (no transport started, still HTTP `200`):
 
 ```json
 {
   "message_id": "msg_123",
   "status": "review_required",
-  "delivery_status": "pending",
   "resolution": {
     "resolution_id": "res_123",
     "decision": "ask",
@@ -682,36 +763,38 @@ Response example (policy blocked / ask case is still HTTP `200`):
       "recipient": "alice",
       "decision": "ask",
       "delivery_mode": "review_required",
-      "delivery_status": "pending"
-    }
-  ]
-}
-```
-
-Idempotency replay example:
-
-```json
-{
-  "message_id": "msg_123",
-  "status": "review_required",
-  "deduplicated": true,
-  "resolution": {
-    "resolution_id": "res_123",
-    "decision": "ask",
-    "delivery_mode": "review_required",
-    "summary": "Message requires review before delivery.",
-    "reason_code": "policy.ask.resolved"
-  },
-  "recipient_results": [
-    {
-      "recipient": "usr_alice",
-      "decision": "ask",
-      "delivery_mode": "review_required",
       "delivery_status": "review_required"
     }
   ]
 }
 ```
+
+Resumed local `allow` response example:
+
+```json
+{
+  "message_id": "msg_123",
+  "status": "delivered",
+  "delivery_status": "delivered",
+  "resolution": {
+    "resolution_id": "res_123",
+    "decision": "allow",
+    "delivery_mode": "full_send",
+    "summary": "Message allowed by policy.",
+    "reason_code": "policy.allow.user.structured"
+  },
+  "recipient_results": [
+    {
+      "recipient": "alice",
+      "decision": "allow",
+      "delivery_mode": "full_send",
+      "delivery_status": "delivered"
+    }
+  ]
+}
+```
+
+Trusted `recipient_type=group` sends additionally return aggregate fan-out counters (`recipients`, `delivered`, `pending`, `failed`, `denied`, `review_required`) plus per-recipient `recipient_results`. That aggregate group response shape is not reused in local group fan-out, because local mode commits and reports each member separately.
 
 ### 5) Report Outcome
 
@@ -751,6 +834,13 @@ Allowed `outcome` values:
 - `review_rejected`
 - `withheld`
 - `send_failed`
+
+Request notes:
+
+- Outcome reports append audit detail to an existing `message_id`; they do not create a new message artifact and do not mutate policy lifecycle.
+- For locally committed direct sends, use the `message_id` returned by `/api/v1/plugin/local-decisions/commit` or the resumed `/api/v1/messages/send`.
+- For local group fan-out, report outcomes per committed member artifact. There is no bundle-level aggregate outcome endpoint.
+- `resolution_id` is optional but should be supplied whenever available so plugin reports correlate cleanly with the committed/send artifact.
 
 Success response:
 
@@ -833,7 +923,7 @@ GET /api/v1/plugin/reviews
 
 Auth:
 
-- Requires authenticated + verified user.
+- Requires authenticated + active invite-backed account.
 
 Query params:
 
@@ -841,6 +931,8 @@ Query params:
 - `direction` optional: `all` (default), `outbound`, `inbound`.
 - `limit` optional: max `100`, default `50`.
 - Responses include a rich `audit` object for user/admin debugging (resolver layer, matched/winning policy IDs, evaluated policy trail, and explanation context when available).
+- Local `ask` commits appear here as ordinary review records. `audit.policy_evaluation_mode` distinguishes local commit records (`plugin_local_pre_delivery`) from trusted send records (`outbound_pre_delivery` / `inbound_pre_delivery`).
+- Local `allow` commits do not appear here, because they are stored as pending transport artifacts rather than review items.
 
 Success response:
 
@@ -900,13 +992,16 @@ GET /api/v1/plugin/events/blocked
 
 Auth:
 
-- Requires authenticated + verified user.
+- Requires authenticated + active invite-backed account.
 
 Query params:
 
 - `direction` optional: `all` (default), `outbound`, `inbound`.
 - `limit` optional: max `100`, default `50`.
 - `include_payload_excerpt` optional: `false` by default.
+- Local `deny` commits appear here as ordinary blocked events. In local group fan-out, denied members appear one event per committed member artifact.
+- Local `allow` commits never appear here.
+- `audit.policy_evaluation_mode` distinguishes local commit blocks (`plugin_local_pre_delivery`) from trusted send-time blocks.
 
 Success response:
 
@@ -1071,7 +1166,9 @@ Common machine codes relevant to plugin integration:
 - `INVALID_SELECTOR`
 - `INVALID_OVERRIDE`
 - `INVALID_LOCAL_DECISION`
+- `INVALID_QUERY`
 - `INVALID_ROLE`
+- `FORBIDDEN`
 - `LOCAL_DECISION_CONFLICT`
 - `LOCAL_DECISION_STALE`
 - `MESSAGE_NOT_FOUND`
@@ -1087,8 +1184,12 @@ Common machine codes relevant to plugin integration:
 Current integration tests covering this contract:
 
 - `tests/integration/plugin-context.test.ts`
+- `tests/integration/plugin-direct-send-bundle.test.ts`
+- `tests/integration/plugin-group-fanout-bundle.test.ts`
+- `tests/integration/plugin-local-decision-commit.test.ts`
 - `tests/integration/plugin-resolve.test.ts`
 - `tests/integration/plugin-outcomes.test.ts`
 - `tests/integration/plugin-overrides.test.ts`
 - `tests/integration/plugin-events-reviews.test.ts`
+- `tests/integration/group-fanout-resolution.test.ts`
 - `tests/integration/selector-aware-send.test.ts`
