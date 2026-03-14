@@ -888,8 +888,13 @@ async function main() {
       runResultLastMessage = runResult.lastMessage;
       historyNote = `Agent exited with code ${runResult.exitCode}.`;
 
-      const workspaceActionableTasks = loadTasks(preparedWorkspace.workspace.path, workflow.taskSources);
-      const workspaceTask = findTaskById(workspaceActionableTasks, task.id) ?? task;
+      let workspaceTask = task;
+      try {
+        const workspaceActionableTasks = loadTasks(preparedWorkspace.workspace.path, workflow.taskSources);
+        workspaceTask = findTaskById(workspaceActionableTasks, task.id) ?? task;
+      } catch {
+        workspaceTask = task;
+      }
 
       if (runResult.exitCode !== 0) {
         const failure = handleTaskFailure({
