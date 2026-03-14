@@ -80,6 +80,7 @@ describe("MahiloLocalPolicyRuntime", () => {
       },
     };
     const directBundleCalls: Record<string, unknown>[] = [];
+    const diagnostics: Record<string, unknown>[] = [];
 
     const runtime = createMahiloLocalPolicyRuntime({
       client: {
@@ -100,6 +101,9 @@ describe("MahiloLocalPolicyRuntime", () => {
           provider: "openai",
           text: "FAIL\nNeed consent for exact location.",
         };
+      },
+      onDiagnostics: (diagnostic) => {
+        diagnostics.push(diagnostic as unknown as Record<string, unknown>);
       },
       llmUnavailableMode: "ask",
       llmErrorMode: "ask",
@@ -163,6 +167,56 @@ describe("MahiloLocalPolicyRuntime", () => {
     expect(
       result.commit_payload.local_decision.evaluated_policies,
     ).toHaveLength(2);
+    expect(result.local_decision.diagnostics).toEqual(
+      expect.objectContaining({
+        applicable_policy_count: 2,
+        bundle_id: "bundle_direct_1",
+        bundle_type: "direct_send",
+        decision: "deny",
+        delivery_mode: "blocked",
+        diagnostic_version: "1.0.0",
+        evaluated_policy_count: 2,
+        matched_policy_count: 2,
+        reason_code: "policy.deny.user.llm",
+        reason_kind: "matched_policy",
+        redaction: {
+          context: "omitted",
+          credentials: "omitted",
+          message: "omitted",
+          raw_prompt: "omitted",
+        },
+        resolution_id: "res_direct_1",
+        timing_ms: expect.objectContaining({
+          bundle_fetch_ms: expect.any(Number),
+          evaluation_ms: expect.any(Number),
+          llm_evaluator_ms: expect.any(Number),
+          provider_ms: expect.any(Number),
+          total_ms: expect.any(Number),
+        }),
+        winning_policy: {
+          effect: "deny",
+          evaluator: "llm",
+          policy_id: "pol_user_llm",
+          scope: "user",
+        },
+        llm: expect.objectContaining({
+          applicable_policy_count: 1,
+          evaluator_invocation_count: 1,
+          model: "gpt-4o-mini",
+          provider: "openai",
+          provider_invocation_count: 1,
+        }),
+      }),
+    );
+    expect(diagnostics).toEqual([
+      result.local_decision.diagnostics as unknown as Record<string, unknown>,
+    ]);
+    expect(JSON.stringify(result.local_decision.diagnostics)).not.toContain(
+      "Alice is at home right now.",
+    );
+    expect(JSON.stringify(result.local_decision.diagnostics)).not.toContain(
+      "User asked for an exact location update.",
+    );
     expect(result.transport_payload).toMatchObject({
       recipient: "alice",
       recipient_type: "user",

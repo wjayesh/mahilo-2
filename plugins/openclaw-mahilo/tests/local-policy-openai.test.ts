@@ -353,6 +353,28 @@ describe("local policy OpenAI adapter", () => {
     expect(result.commit_payload.local_decision.reason_code).toBe(
       "policy.ask.llm.unavailable",
     );
+    expect(result.local_decision.diagnostics).toEqual(
+      expect.objectContaining({
+        bundle_id: "bundle_direct_openai_1",
+        reason_code: "policy.ask.llm.unavailable",
+        reason_kind: "degraded_llm_review",
+        redaction: {
+          context: "omitted",
+          credentials: "omitted",
+          message: "omitted",
+          raw_prompt: "omitted",
+        },
+        llm: expect.objectContaining({
+          applicable_policy_count: 1,
+          degraded_cause: "unavailable",
+          degraded_reason_code: "policy.ask.llm.unavailable",
+          evaluator_invocation_count: 0,
+          model: "gpt-4o-mini",
+          provider: "openai",
+          provider_invocation_count: 0,
+        }),
+      }),
+    );
   });
 
   it("fails closed on OpenAI timeout errors", async () => {
@@ -437,6 +459,33 @@ describe("local policy OpenAI adapter", () => {
       should_send: false,
       transport_action: "hold",
     });
+    expect(result.local_decision.diagnostics).toEqual(
+      expect.objectContaining({
+        reason_code: "policy.ask.llm.network",
+        reason_kind: "degraded_llm_review",
+        timing_ms: expect.objectContaining({
+          evaluation_ms: expect.any(Number),
+          llm_evaluator_ms: expect.any(Number),
+          provider_ms: expect.any(Number),
+          total_ms: expect.any(Number),
+        }),
+        llm: expect.objectContaining({
+          applicable_policy_count: 1,
+          degraded_cause: "network",
+          degraded_reason_code: "policy.ask.llm.network",
+          evaluator_invocation_count: 1,
+          model: "gpt-4o-mini",
+          provider: "openai",
+          provider_invocation_count: 1,
+        }),
+      }),
+    );
+    expect(JSON.stringify(result.local_decision.diagnostics)).not.toContain(
+      "sk-local-policy-openai",
+    );
+    expect(JSON.stringify(result.local_decision.diagnostics)).not.toContain(
+      "Alice is at home right now.",
+    );
   });
 
   it("fails closed on OpenAI provider failures", async () => {

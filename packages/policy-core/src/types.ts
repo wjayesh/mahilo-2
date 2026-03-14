@@ -181,6 +181,9 @@ export interface LLMPolicyEvaluationResult {
   skip_reason?: string;
   error?: string;
   error_kind?: LLMPolicyEvaluationErrorKind;
+  model?: string;
+  provider?: string;
+  provider_duration_ms?: number;
 }
 
 export interface LLMPolicyEvaluationError {
@@ -197,6 +200,7 @@ export interface LLMProviderAdapterResponse {
   text: string;
   provider?: string;
   model?: string;
+  duration_ms?: number;
 }
 
 export type LLMProviderAdapter = (

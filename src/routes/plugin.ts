@@ -133,6 +133,61 @@ const pluginResolveRequestSchema = pluginSendSelectorRequestSchema.extend({
 });
 
 const localDecisionAuditPolicySchema = z.record(z.unknown());
+const localPolicyDecisionDiagnosticTimingSchema = z.object({
+  bundle_fetch_ms: z.number().finite().min(0).max(60 * 60 * 1000).optional(),
+  evaluation_ms: z.number().finite().min(0).max(60 * 60 * 1000),
+  llm_evaluator_ms: z.number().finite().min(0).max(60 * 60 * 1000).optional(),
+  provider_ms: z.number().finite().min(0).max(60 * 60 * 1000).optional(),
+  total_ms: z.number().finite().min(0).max(60 * 60 * 1000),
+});
+const localPolicyDecisionLLMDiagnosticsSchema = z.object({
+  applicable_policy_count: z.number().int().min(0).max(100),
+  degraded_cause: z.string().min(1).max(120).optional(),
+  degraded_reason_code: z.string().min(1).max(255).optional(),
+  evaluator_invocation_count: z.number().int().min(0).max(100),
+  model: z.string().min(1).max(120).nullable(),
+  provider: z.string().min(1).max(120).nullable(),
+  provider_invocation_count: z.number().int().min(0).max(100),
+});
+const localPolicyDecisionWinningPolicyDiagnosticsSchema = z.object({
+  effect: z.enum(["allow", "ask", "deny"]).nullable(),
+  evaluator: z.enum(["structured", "heuristic", "llm"]).nullable(),
+  policy_id: z.string().min(1).max(255).nullable(),
+  scope: z.enum(["global", "user", "role", "group"]).nullable(),
+});
+const localPolicyDecisionRedactionDiagnosticsSchema = z.object({
+  context: z.enum(["absent", "omitted"]),
+  credentials: z.literal("omitted"),
+  message: z.literal("omitted"),
+  raw_prompt: z.literal("omitted"),
+});
+const localPolicyDecisionDiagnosticsSchema = z.object({
+  applicable_policy_count: z.number().int().min(0).max(100),
+  bundle_id: z.string().min(1).max(255),
+  bundle_type: z.enum(["direct_send", "group_fanout"]),
+  decision: z.enum(["allow", "ask", "deny"]),
+  delivery_mode: z.enum([
+    "full_send",
+    "review_required",
+    "hold_for_approval",
+    "blocked",
+  ]),
+  diagnostic_version: z.literal("1.0.0"),
+  evaluated_policy_count: z.number().int().min(0).max(100),
+  llm: localPolicyDecisionLLMDiagnosticsSchema.optional(),
+  matched_policy_count: z.number().int().min(0).max(100),
+  reason_code: z.string().min(1).max(255),
+  reason_kind: z.enum([
+    "degraded_llm_review",
+    "matched_policy",
+    "no_match_default",
+    "policy_resolved",
+  ]),
+  redaction: localPolicyDecisionRedactionDiagnosticsSchema,
+  resolution_id: z.string().min(1).max(255),
+  timing_ms: localPolicyDecisionDiagnosticTimingSchema,
+  winning_policy: localPolicyDecisionWinningPolicyDiagnosticsSchema,
+});
 
 const pluginLocalDecisionCommitRequestSchema =
   pluginSendSelectorRequestSchema.extend({
@@ -171,6 +226,7 @@ const pluginLocalDecisionCommitRequestSchema =
         .array(localDecisionAuditPolicySchema)
         .max(100)
         .optional(),
+      diagnostics: localPolicyDecisionDiagnosticsSchema.optional(),
     }),
   });
 
@@ -1207,6 +1263,7 @@ function buildLocalDecisionPolicyEvaluation(args: {
   winningPolicy: CanonicalPolicy | null;
   matchedPolicyIds: string[];
   evaluatedPolicies: Record<string, unknown>[];
+  localPolicyDiagnostics?: Record<string, unknown> | null;
 }) {
   return JSON.stringify({
     authenticated_identity: {
@@ -1240,6 +1297,7 @@ function buildLocalDecisionPolicyEvaluation(args: {
       summary: args.summary,
       ...(args.groupId ? { group_id: args.groupId } : {}),
     },
+    local_policy_diagnostics: args.localPolicyDiagnostics ?? null,
   });
 }
 
@@ -1804,6 +1862,97 @@ function parseEvaluatedPolicyAudit(evaluation: Record<string, unknown> | null) {
     }));
 }
 
+function parseLocalPolicyDiagnosticTiming(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    bundle_fetch_ms: parseNumberValue(parsed.bundle_fetch_ms),
+    evaluation_ms: parseNumberValue(parsed.evaluation_ms),
+    llm_evaluator_ms: parseNumberValue(parsed.llm_evaluator_ms),
+    provider_ms: parseNumberValue(parsed.provider_ms),
+    total_ms: parseNumberValue(parsed.total_ms),
+  };
+}
+
+function parseLocalPolicyLLMDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    applicable_policy_count: parseNumberValue(parsed.applicable_policy_count),
+    degraded_cause: parseStringValue(parsed.degraded_cause),
+    degraded_reason_code: parseReasonCode(parsed.degraded_reason_code),
+    evaluator_invocation_count: parseNumberValue(
+      parsed.evaluator_invocation_count,
+    ),
+    model: parseStringValue(parsed.model),
+    provider: parseStringValue(parsed.provider),
+    provider_invocation_count: parseNumberValue(
+      parsed.provider_invocation_count,
+    ),
+  };
+}
+
+function parseLocalPolicyWinningPolicyDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    effect: parseDecision(parsed.effect),
+    evaluator: parseStringValue(parsed.evaluator),
+    policy_id: parseStringValue(parsed.policy_id),
+    scope: parseStringValue(parsed.scope),
+  };
+}
+
+function parseLocalPolicyRedactionDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    context: parseStringValue(parsed.context),
+    credentials: parseStringValue(parsed.credentials),
+    message: parseStringValue(parsed.message),
+    raw_prompt: parseStringValue(parsed.raw_prompt),
+  };
+}
+
+function parseLocalPolicyDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    applicable_policy_count: parseNumberValue(parsed.applicable_policy_count),
+    bundle_id: parseStringValue(parsed.bundle_id),
+    bundle_type: parseStringValue(parsed.bundle_type),
+    decision: parseDecision(parsed.decision),
+    delivery_mode: parseStringValue(parsed.delivery_mode),
+    diagnostic_version: parseStringValue(parsed.diagnostic_version),
+    evaluated_policy_count: parseNumberValue(parsed.evaluated_policy_count),
+    llm: parseLocalPolicyLLMDiagnostics(parsed.llm),
+    matched_policy_count: parseNumberValue(parsed.matched_policy_count),
+    reason_code: parseReasonCode(parsed.reason_code),
+    reason_kind: parseStringValue(parsed.reason_kind),
+    redaction: parseLocalPolicyRedactionDiagnostics(parsed.redaction),
+    resolution_id: parseStringValue(parsed.resolution_id),
+    timing_ms: parseLocalPolicyDiagnosticTiming(parsed.timing_ms),
+    winning_policy: parseLocalPolicyWinningPolicyDiagnostics(
+      parsed.winning_policy,
+    ),
+  };
+}
+
 function buildPolicyAuditDetails(evaluation: Record<string, unknown> | null) {
   return {
     reason: parseStringValue(evaluation?.reason),
@@ -1825,6 +1974,9 @@ function buildPolicyAuditDetails(evaluation: Record<string, unknown> | null) {
     selector_context: parseSelectorContext(evaluation?.selector_context),
     selector_verification: parseSelectorVerification(
       evaluation?.selector_verification,
+    ),
+    local_policy_diagnostics: parseLocalPolicyDiagnostics(
+      evaluation?.local_policy_diagnostics,
     ),
     winning_policy_id: parseStringValue(evaluation?.winning_policy_id),
     winning_policy: parseWinningPolicyAudit(evaluation?.winning_policy),
@@ -2807,6 +2959,48 @@ pluginRoutes.post(
       data.local_decision.reason_code || defaultReasonCode(decision);
     const resolutionExplanation =
       data.local_decision.resolution_explanation || summary;
+    const localPolicyDiagnostics = data.local_decision.diagnostics || null;
+
+    if (
+      localPolicyDiagnostics &&
+      localPolicyDiagnostics.resolution_id !== data.resolution_id
+    ) {
+      throw new AppError(
+        "local_decision.diagnostics.resolution_id must match resolution_id",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
+
+    if (localPolicyDiagnostics && localPolicyDiagnostics.decision !== decision) {
+      throw new AppError(
+        "local_decision.diagnostics.decision must match local_decision.decision",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
+
+    if (
+      localPolicyDiagnostics &&
+      localPolicyDiagnostics.delivery_mode !== deliveryMode
+    ) {
+      throw new AppError(
+        "local_decision.diagnostics.delivery_mode must match local_decision.delivery_mode",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
+
+    if (
+      localPolicyDiagnostics &&
+      localPolicyDiagnostics.reason_code !== reasonCode
+    ) {
+      throw new AppError(
+        "local_decision.diagnostics.reason_code must match local_decision.reason_code",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
     const matchedPolicyIds = [
       ...new Set(
         data.local_decision.matched_policy_ids ||
@@ -2878,6 +3072,7 @@ pluginRoutes.post(
       winningPolicy,
       matchedPolicyIds,
       evaluatedPolicies,
+      localPolicyDiagnostics,
     });
 
     await db.insert(schema.messages).values({

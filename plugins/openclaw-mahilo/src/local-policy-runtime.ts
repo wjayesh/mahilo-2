@@ -29,6 +29,17 @@ export type LocalDecisionDeliveryMode =
   | "review_required";
 export type LocalTransportAction = "block" | "hold" | "send";
 export type LocalPolicyRecipientType = "group" | "user";
+export type LocalPolicyDiagnosticReasonKind =
+  | "degraded_llm_review"
+  | "matched_policy"
+  | "no_match_default"
+  | "policy_resolved";
+
+const LOCAL_POLICY_DIAGNOSTIC_VERSION = "1.0.0";
+
+export interface LocalPolicyDiagnosticContext {
+  bundle_fetch_ms?: number;
+}
 
 export interface LocalPolicyBundleMetadata {
   bundle_id: string;
@@ -137,11 +148,66 @@ export interface LocalPolicyEvaluationOptions {
   ) => LLMPolicyEvaluationResult | Promise<LLMPolicyEvaluationResult>;
   llmSkipMode?: LLMEvaluationFallbackMode;
   llmUnavailableMode?: LLMEvaluationFallbackMode;
+  diagnosticsContext?: LocalPolicyDiagnosticContext;
+  onDiagnostics?: (
+    diagnostic: LocalPolicyDecisionDiagnostics,
+  ) => void | Promise<void>;
+}
+
+export interface LocalPolicyDecisionTimingDiagnostics {
+  bundle_fetch_ms?: number;
+  evaluation_ms: number;
+  llm_evaluator_ms?: number;
+  provider_ms?: number;
+  total_ms: number;
+}
+
+export interface LocalPolicyDecisionLLMDiagnostics {
+  applicable_policy_count: number;
+  degraded_cause?: string;
+  degraded_reason_code?: string;
+  evaluator_invocation_count: number;
+  model: string | null;
+  provider: string | null;
+  provider_invocation_count: number;
+}
+
+export interface LocalPolicyDecisionWinningPolicyDiagnostics {
+  effect: PolicyDecision | null;
+  evaluator: CorePolicy["evaluator"] | null;
+  policy_id: string | null;
+  scope: CorePolicy["scope"] | null;
+}
+
+export interface LocalPolicyDecisionRedactionDiagnostics {
+  context: "absent" | "omitted";
+  credentials: "omitted";
+  message: "omitted";
+  raw_prompt: "omitted";
+}
+
+export interface LocalPolicyDecisionDiagnostics {
+  applicable_policy_count: number;
+  bundle_id: string;
+  bundle_type: LocalPolicyBundleType;
+  decision: PolicyDecision;
+  delivery_mode: LocalDecisionDeliveryMode;
+  diagnostic_version: typeof LOCAL_POLICY_DIAGNOSTIC_VERSION;
+  evaluated_policy_count: number;
+  llm?: LocalPolicyDecisionLLMDiagnostics;
+  matched_policy_count: number;
+  reason_code: string;
+  reason_kind: LocalPolicyDiagnosticReasonKind;
+  redaction: LocalPolicyDecisionRedactionDiagnostics;
+  resolution_id: string;
+  timing_ms: LocalPolicyDecisionTimingDiagnostics;
+  winning_policy: LocalPolicyDecisionWinningPolicyDiagnostics;
 }
 
 export interface LocalPolicyDecisionDetails {
   decision: PolicyDecision;
   delivery_mode: LocalDecisionDeliveryMode;
+  diagnostics?: LocalPolicyDecisionDiagnostics;
   summary: string;
   reason?: string;
   reason_code: string;
@@ -258,12 +324,14 @@ export class MahiloLocalPolicyRuntime {
   constructor(options: MahiloLocalPolicyRuntimeOptions) {
     this.client = options.client;
     this.options = {
+      diagnosticsContext: options.diagnosticsContext,
       llmErrorMode: options.llmErrorMode,
       llmEvaluator: options.llmEvaluator,
       llmEvaluatorFactory: options.llmEvaluatorFactory,
       llmProviderAdapter: options.llmProviderAdapter,
       normalizeLLMError: options.normalizeLLMError,
       onLLMError: options.onLLMError,
+      onDiagnostics: options.onDiagnostics,
       llmSkipMode: options.llmSkipMode,
       llmUnavailableMode: options.llmUnavailableMode,
     };
@@ -286,11 +354,21 @@ export class MahiloLocalPolicyRuntime {
       input.declaredSelectors,
       "outbound",
     );
+    const bundleFetchStart = performance.now();
     const bundle = (await this.client.getDirectSendPolicyBundle(
       buildBundleRequestPayload("user", input, normalizedSelectors),
     )) as DirectSendPolicyBundle;
+    const bundleFetchDurationMs = roundDurationMs(
+      performance.now() - bundleFetchStart,
+    );
 
-    return evaluateDirectSendBundleLocally(bundle, input, this.options);
+    return evaluateDirectSendBundleLocally(bundle, input, {
+      ...this.options,
+      diagnosticsContext: {
+        ...this.options.diagnosticsContext,
+        bundle_fetch_ms: bundleFetchDurationMs,
+      },
+    });
   }
 
   async evaluateGroupFanout(
@@ -300,11 +378,21 @@ export class MahiloLocalPolicyRuntime {
       input.declaredSelectors,
       "outbound",
     );
+    const bundleFetchStart = performance.now();
     const bundle = (await this.client.getGroupFanoutPolicyBundle(
       buildBundleRequestPayload("group", input, normalizedSelectors),
     )) as GroupFanoutPolicyBundle;
+    const bundleFetchDurationMs = roundDurationMs(
+      performance.now() - bundleFetchStart,
+    );
 
-    return evaluateGroupFanoutBundleLocally(bundle, input, this.options);
+    return evaluateGroupFanoutBundleLocally(bundle, input, {
+      ...this.options,
+      diagnosticsContext: {
+        ...this.options.diagnosticsContext,
+        bundle_fetch_ms: bundleFetchDurationMs,
+      },
+    });
   }
 }
 
@@ -319,16 +407,27 @@ export async function evaluateDirectSendBundleLocally(
   input: LocalPolicyRuntimeInput,
   options: LocalPolicyEvaluationOptions = {},
 ): Promise<LocalDirectPolicyRuntimeResult> {
+  const evaluationStart = performance.now();
   const selectorContext = normalizeDeclaredSelectors(
     bundle.selector_context,
     "outbound",
   );
-  const llmEvaluator = await resolveConfiguredLLMEvaluator(options, {
-    bundleType: bundle.bundle_type,
-    llm: bundle.llm,
-    recipient: bundle.recipient,
-    selectorContext,
-  });
+  const diagnosticsTracker = createLocalPolicyDecisionDiagnosticsTracker(
+    bundle.bundle_metadata,
+    bundle.bundle_type,
+    bundle.applicable_policies,
+    bundle.llm,
+    Boolean(input.context),
+    options.diagnosticsContext,
+  );
+  const llmEvaluator = diagnosticsTracker.wrapEvaluator(
+    await resolveConfiguredLLMEvaluator(options, {
+      bundleType: bundle.bundle_type,
+      llm: bundle.llm,
+      recipient: bundle.recipient,
+      selectorContext,
+    }),
+  );
   const policyResult = await resolveLocalPolicySet({
     policies: bundle.applicable_policies,
     ownerUserId: bundle.authenticated_identity.sender_user_id,
@@ -342,9 +441,19 @@ export async function evaluateDirectSendBundleLocally(
     llmErrorMode: options.llmErrorMode,
     llmSkipMode: options.llmSkipMode,
   });
+  const evaluationDurationMs = roundDurationMs(
+    performance.now() - evaluationStart,
+  );
+  const diagnostics = diagnosticsTracker.buildDiagnostic(
+    policyResult,
+    resolveDeliveryMode(policyResult.effect, selectorContext.direction),
+    evaluationDurationMs,
+  );
+  await emitLocalPolicyDiagnostics(options.onDiagnostics, diagnostics);
   const localDecision = toLocalDecision(
     policyResult,
     selectorContext.direction,
+    diagnostics,
   );
   const recipientResult = buildRecipientResult(
     bundle.recipient,
@@ -391,18 +500,33 @@ export async function evaluateGroupFanoutBundleLocally(
   const recipientResults: LocalPolicyRecipientResult[] = [];
 
   for (const member of bundle.members) {
-    const llmEvaluator = await resolveConfiguredLLMEvaluator(options, {
-      bundleType: bundle.bundle_type,
-      llm: member.llm,
-      recipient: member.recipient,
-      selectorContext,
-    });
+    const memberPolicies = buildMemberEvaluationPolicies(
+      member,
+      bundle.group_overlay_policies,
+      sharedPolicyState,
+    );
+    const diagnosticsTracker = createLocalPolicyDecisionDiagnosticsTracker(
+      {
+        ...bundle.bundle_metadata,
+        resolution_id: member.resolution_id,
+      },
+      bundle.bundle_type,
+      memberPolicies,
+      member.llm,
+      Boolean(input.context),
+      options.diagnosticsContext,
+    );
+    const evaluationStart = performance.now();
+    const llmEvaluator = diagnosticsTracker.wrapEvaluator(
+      await resolveConfiguredLLMEvaluator(options, {
+        bundleType: bundle.bundle_type,
+        llm: member.llm,
+        recipient: member.recipient,
+        selectorContext,
+      }),
+    );
     const policyResult = await resolveLocalPolicySet({
-      policies: buildMemberEvaluationPolicies(
-        member,
-        bundle.group_overlay_policies,
-        sharedPolicyState,
-      ),
+      policies: memberPolicies,
       ownerUserId: bundle.authenticated_identity.sender_user_id,
       message: input.message,
       context: input.context,
@@ -414,9 +538,19 @@ export async function evaluateGroupFanoutBundleLocally(
       llmErrorMode: options.llmErrorMode,
       llmSkipMode: options.llmSkipMode,
     });
+    const evaluationDurationMs = roundDurationMs(
+      performance.now() - evaluationStart,
+    );
+    const diagnostics = diagnosticsTracker.buildDiagnostic(
+      policyResult,
+      resolveDeliveryMode(policyResult.effect, selectorContext.direction),
+      evaluationDurationMs,
+    );
+    await emitLocalPolicyDiagnostics(options.onDiagnostics, diagnostics);
     const localDecision = toLocalDecision(
       policyResult,
       selectorContext.direction,
+      diagnostics,
     );
 
     recipientResults.push(
@@ -557,15 +691,208 @@ function consumeSharedPolicyUse(
   }
 }
 
+type ResolvedLocalPolicyResult = Awaited<ReturnType<typeof resolveLocalPolicySet>>;
+
+interface LocalPolicyDecisionDiagnosticsTrackerState {
+  applicablePolicyCount: number;
+  bundleMetadata: LocalPolicyBundleMetadata;
+  bundleType: LocalPolicyBundleType;
+  diagnosticsContext?: LocalPolicyDiagnosticContext;
+  evaluatorInvocationCount: number;
+  evaluatorMs: number;
+  hasContext: boolean;
+  llmApplicablePolicyCount: number;
+  llmContext: LocalPolicyLLMContext;
+  model: string | null;
+  provider: string | null;
+  providerInvocationCount: number;
+  providerMs: number;
+}
+
+function createLocalPolicyDecisionDiagnosticsTracker(
+  bundleMetadata: LocalPolicyBundleMetadata,
+  bundleType: LocalPolicyBundleType,
+  policies: ReadonlyArray<CorePolicy>,
+  llmContext: LocalPolicyLLMContext,
+  hasContext: boolean,
+  diagnosticsContext?: LocalPolicyDiagnosticContext,
+) {
+  const state: LocalPolicyDecisionDiagnosticsTrackerState = {
+    applicablePolicyCount: policies.length,
+    bundleMetadata,
+    bundleType,
+    diagnosticsContext,
+    evaluatorInvocationCount: 0,
+    evaluatorMs: 0,
+    hasContext,
+    llmApplicablePolicyCount: policies.filter(
+      (policy) => policy.evaluator === "llm",
+    ).length,
+    llmContext,
+    model: llmContext.provider_defaults?.model ?? null,
+    provider: llmContext.provider_defaults?.provider ?? null,
+    providerInvocationCount: 0,
+    providerMs: 0,
+  };
+
+  return {
+    wrapEvaluator(
+      evaluator: LLMPolicyEvaluator | undefined,
+    ): LLMPolicyEvaluator | undefined {
+      if (!evaluator) {
+        return undefined;
+      }
+
+      return async (input) => {
+        state.evaluatorInvocationCount += 1;
+        state.providerInvocationCount += 1;
+        const evaluationStart = performance.now();
+        const result = await evaluator(input);
+        const evaluatorMs = roundDurationMs(performance.now() - evaluationStart);
+        state.evaluatorMs += evaluatorMs;
+        state.providerMs +=
+          typeof result.provider_duration_ms === "number"
+            ? result.provider_duration_ms
+            : evaluatorMs;
+        state.provider = result.provider ?? state.provider;
+        state.model = result.model ?? state.model;
+        return result;
+      };
+    },
+    buildDiagnostic(
+      policyResult: ResolvedLocalPolicyResult,
+      deliveryMode: LocalDecisionDeliveryMode,
+      evaluationMs: number,
+    ): LocalPolicyDecisionDiagnostics {
+      const reasonKind = resolveLocalPolicyDiagnosticReasonKind(policyResult);
+      const degradedReasonCode =
+        reasonKind === "degraded_llm_review" ? policyResult.reason_code : undefined;
+      const llmDiagnostics =
+        state.llmApplicablePolicyCount > 0 ||
+        state.evaluatorInvocationCount > 0 ||
+        degradedReasonCode
+          ? {
+              applicable_policy_count: state.llmApplicablePolicyCount,
+              ...(degradedReasonCode
+                ? {
+                    degraded_cause:
+                      extractDegradedLLMReasonCause(degradedReasonCode),
+                    degraded_reason_code: degradedReasonCode,
+                  }
+                : {}),
+              evaluator_invocation_count: state.evaluatorInvocationCount,
+              model: state.model,
+              provider: state.provider,
+              provider_invocation_count: state.providerInvocationCount,
+            }
+          : undefined;
+
+      return {
+        applicable_policy_count: state.applicablePolicyCount,
+        bundle_id: state.bundleMetadata.bundle_id,
+        bundle_type: state.bundleType,
+        decision: policyResult.effect,
+        delivery_mode: deliveryMode,
+        diagnostic_version: LOCAL_POLICY_DIAGNOSTIC_VERSION,
+        evaluated_policy_count: policyResult.evaluated_policies.length,
+        ...(llmDiagnostics ? { llm: llmDiagnostics } : {}),
+        matched_policy_count: policyResult.matched_policy_ids.length,
+        reason_code: policyResult.reason_code,
+        reason_kind: reasonKind,
+        redaction: {
+          context: state.hasContext ? "omitted" : "absent",
+          credentials: "omitted",
+          message: "omitted",
+          raw_prompt: "omitted",
+        },
+        resolution_id: state.bundleMetadata.resolution_id,
+        timing_ms: {
+          ...(typeof state.diagnosticsContext?.bundle_fetch_ms === "number"
+            ? {
+                bundle_fetch_ms: state.diagnosticsContext.bundle_fetch_ms,
+              }
+            : {}),
+          evaluation_ms: evaluationMs,
+          ...(state.evaluatorInvocationCount > 0
+            ? {
+                llm_evaluator_ms: roundDurationMs(state.evaluatorMs),
+                provider_ms: roundDurationMs(state.providerMs),
+              }
+            : {}),
+          total_ms: roundDurationMs(
+            evaluationMs + (state.diagnosticsContext?.bundle_fetch_ms ?? 0),
+          ),
+        },
+        winning_policy: {
+          effect: policyResult.winning_policy?.effect ?? null,
+          evaluator: policyResult.winning_policy?.evaluator ?? null,
+          policy_id: policyResult.winning_policy_id ?? null,
+          scope: policyResult.winning_policy?.scope ?? null,
+        },
+      };
+    },
+  };
+}
+
+function resolveLocalPolicyDiagnosticReasonKind(
+  policyResult: ResolvedLocalPolicyResult,
+): LocalPolicyDiagnosticReasonKind {
+  if (isDegradedLLMReasonCode(policyResult.reason_code)) {
+    return "degraded_llm_review";
+  }
+
+  if (policyResult.winning_policy_id) {
+    return "matched_policy";
+  }
+
+  if (
+    policyResult.reason_code === "policy.allow.no_applicable" ||
+    policyResult.reason_code === "policy.allow.no_match"
+  ) {
+    return "no_match_default";
+  }
+
+  return "policy_resolved";
+}
+
+function extractDegradedLLMReasonCause(
+  reasonCode: string,
+): string | undefined {
+  if (!reasonCode.startsWith("policy.ask.llm.")) {
+    return undefined;
+  }
+
+  return reasonCode.slice("policy.ask.llm.".length) || undefined;
+}
+
+async function emitLocalPolicyDiagnostics(
+  onDiagnostics:
+    | LocalPolicyEvaluationOptions["onDiagnostics"]
+    | undefined,
+  diagnostic: LocalPolicyDecisionDiagnostics,
+): Promise<void> {
+  if (!onDiagnostics) {
+    return;
+  }
+
+  try {
+    await onDiagnostics(diagnostic);
+  } catch {
+    // Diagnostics should not block local enforcement.
+  }
+}
+
 function toLocalDecision(
-  policyResult: Awaited<ReturnType<typeof resolveLocalPolicySet>>,
+  policyResult: ResolvedLocalPolicyResult,
   direction: DeclaredSelectors["direction"],
+  diagnostics?: LocalPolicyDecisionDiagnostics,
 ): LocalPolicyDecisionDetails {
   const deliveryMode = resolveDeliveryMode(policyResult.effect, direction);
 
   return {
     decision: policyResult.effect,
     delivery_mode: deliveryMode,
+    ...(diagnostics ? { diagnostics } : {}),
     summary: buildLocalDecisionSummary(
       policyResult.effect,
       deliveryMode,
@@ -747,6 +1074,10 @@ function formatAggregateSummary(
     .replace("{denied}", String(counts.denied))
     .replace("{review_required}", String(counts.review_required))
     .replace("{failed}", String(counts.failed));
+}
+
+function roundDurationMs(value: number): number {
+  return Math.max(0, Math.round(value * 1000) / 1000);
 }
 
 async function resolveConfiguredLLMEvaluator(

@@ -114,6 +114,36 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
             reason: "Local review is required before sharing.",
             reason_code: "policy.ask.user.structured",
             winning_policy_id: askPolicyId,
+            diagnostics: {
+              applicable_policy_count: 1,
+              bundle_id: "bundle_local_commit_ask",
+              bundle_type: "direct_send",
+              decision: "ask",
+              delivery_mode: "review_required",
+              diagnostic_version: "1.0.0",
+              evaluated_policy_count: 1,
+              matched_policy_count: 1,
+              reason_code: "policy.ask.user.structured",
+              reason_kind: "matched_policy",
+              redaction: {
+                context: "absent",
+                credentials: "omitted",
+                message: "omitted",
+                raw_prompt: "omitted",
+              },
+              resolution_id: "res_local_commit_ask",
+              timing_ms: {
+                bundle_fetch_ms: 3.2,
+                evaluation_ms: 8.6,
+                total_ms: 11.8,
+              },
+              winning_policy: {
+                effect: "ask",
+                evaluator: "structured",
+                policy_id: askPolicyId,
+                scope: "user",
+              },
+            },
           },
         }),
       },
@@ -164,6 +194,24 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
         resolution_id: "res_local_commit_ask",
       }),
     );
+    expect(askEvaluation.local_policy_diagnostics).toEqual(
+      expect.objectContaining({
+        bundle_id: "bundle_local_commit_ask",
+        reason_code: "policy.ask.user.structured",
+        reason_kind: "matched_policy",
+        redaction: {
+          context: "absent",
+          credentials: "omitted",
+          message: "omitted",
+          raw_prompt: "omitted",
+        },
+        timing_ms: expect.objectContaining({
+          bundle_fetch_ms: 3.2,
+          evaluation_ms: 8.6,
+          total_ms: 11.8,
+        }),
+      }),
+    );
     expect(askEvaluation.winning_policy_id).toBe(askPolicyId);
 
     const [askPolicyAfterCommit] = await db
@@ -202,6 +250,36 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
             reason: "Local deny prevented delivery.",
             reason_code: "policy.deny.user.structured",
             winning_policy_id: denyPolicyId,
+            diagnostics: {
+              applicable_policy_count: 1,
+              bundle_id: "bundle_local_commit_deny",
+              bundle_type: "direct_send",
+              decision: "deny",
+              delivery_mode: "blocked",
+              diagnostic_version: "1.0.0",
+              evaluated_policy_count: 1,
+              matched_policy_count: 1,
+              reason_code: "policy.deny.user.structured",
+              reason_kind: "matched_policy",
+              redaction: {
+                context: "absent",
+                credentials: "omitted",
+                message: "omitted",
+                raw_prompt: "omitted",
+              },
+              resolution_id: "res_local_commit_deny",
+              timing_ms: {
+                bundle_fetch_ms: 2.1,
+                evaluation_ms: 5.4,
+                total_ms: 7.5,
+              },
+              winning_policy: {
+                effect: "deny",
+                evaluator: "structured",
+                policy_id: denyPolicyId,
+                scope: "user",
+              },
+            },
           },
         }),
       },
@@ -280,6 +358,15 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
         reason_code: "policy.ask.user.structured",
         summary: "Local review is required before sharing.",
         audit: expect.objectContaining({
+          local_policy_diagnostics: expect.objectContaining({
+            bundle_id: "bundle_local_commit_ask",
+            reason_code: "policy.ask.user.structured",
+            timing_ms: expect.objectContaining({
+              bundle_fetch_ms: 3.2,
+              evaluation_ms: 8.6,
+              total_ms: 11.8,
+            }),
+          }),
           policy_evaluation_mode: "plugin_local_pre_delivery",
           winning_policy_id: askPolicyId,
           matched_policy_ids: [askPolicyId],
@@ -319,6 +406,15 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
         reason_code: "policy.deny.user.structured",
         reason: "Local deny prevented delivery.",
         audit: expect.objectContaining({
+          local_policy_diagnostics: expect.objectContaining({
+            bundle_id: "bundle_local_commit_deny",
+            reason_code: "policy.deny.user.structured",
+            timing_ms: expect.objectContaining({
+              bundle_fetch_ms: 2.1,
+              evaluation_ms: 5.4,
+              total_ms: 7.5,
+            }),
+          }),
           policy_evaluation_mode: "plugin_local_pre_delivery",
           winning_policy_id: denyPolicyId,
           matched_policy_ids: [denyPolicyId],

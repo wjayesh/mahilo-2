@@ -27,7 +27,10 @@ import {
   type MahiloPluginConfig,
 } from "./config";
 import { createOpenAILocalPolicyEvaluatorFactory } from "./local-policy-openai";
-import { createMahiloLocalPolicyRuntime } from "./local-policy-runtime";
+import {
+  createMahiloLocalPolicyRuntime,
+  type LocalPolicyDecisionDiagnostics,
+} from "./local-policy-runtime";
 import type { DeclaredSelectors } from "./policy-helpers";
 import { fetchMahiloPromptContext } from "./prompt-context";
 import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
@@ -233,6 +236,9 @@ export function registerMahiloOpenClawPlugin(
   };
   const localPolicyRuntime = createMahiloLocalPolicyRuntime({
     client,
+    onDiagnostics: (diagnostic) => {
+      emitLocalPolicyDecisionDiagnostic(api.logger, diagnostic);
+    },
     llmErrorMode: "ask",
     llmEvaluatorFactory: createOpenAILocalPolicyEvaluatorFactory(config),
     llmSkipMode: "ask",
@@ -282,6 +288,23 @@ export function registerMahiloOpenClawPlugin(
 
 const defaultMahiloOpenClawPlugin = createMahiloOpenClawPlugin();
 export default defaultMahiloOpenClawPlugin;
+
+function emitLocalPolicyDecisionDiagnostic(
+  logger: OpenClawPluginApi["logger"] | undefined,
+  diagnostic: LocalPolicyDecisionDiagnostics,
+): void {
+  const payload = JSON.stringify({
+    event: "mahilo.local_policy.decision",
+    diagnostic,
+  });
+
+  if (diagnostic.reason_kind === "degraded_llm_review") {
+    logger?.warn?.(payload);
+    return;
+  }
+
+  logger?.debug?.(payload);
+}
 
 function createSendMessageTool(
   client: MahiloContractClient,

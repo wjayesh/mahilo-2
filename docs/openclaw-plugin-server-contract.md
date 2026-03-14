@@ -542,7 +542,28 @@ Request body:
     "delivery_mode": "review_required",
     "reason": "Local review is required before sharing current location.",
     "reason_code": "policy.ask.user.structured",
-    "winning_policy_id": "pol_user_1"
+    "winning_policy_id": "pol_user_1",
+    "diagnostics": {
+      "diagnostic_version": "1.0.0",
+      "bundle_id": "bundle_123",
+      "bundle_type": "direct_send",
+      "resolution_id": "res_123",
+      "decision": "ask",
+      "delivery_mode": "review_required",
+      "reason_code": "policy.ask.user.structured",
+      "reason_kind": "matched_policy",
+      "timing_ms": {
+        "bundle_fetch_ms": 2.4,
+        "evaluation_ms": 8.8,
+        "total_ms": 11.2
+      },
+      "redaction": {
+        "message": "omitted",
+        "context": "omitted",
+        "credentials": "omitted",
+        "raw_prompt": "omitted"
+      }
+    }
   }
 }
 ```
@@ -559,6 +580,7 @@ Request notes:
 - `ask` commits create a `review_required` message artifact that later appears in `GET /api/v1/plugin/reviews`.
 - `deny` commits create a `rejected` message artifact that later appears in `GET /api/v1/plugin/events/blocked`.
 - Queue and blocked-event APIs expose these local decisions through the normal audit fields, with `audit.policy_evaluation_mode = "plugin_local_pre_delivery"` when the record originated from local commit.
+- Plugins may optionally send `local_decision.diagnostics` when they want Mahilo review/blocked-event surfaces to retain bundle identifiers, timing, degraded-review causes, and explicit redaction markers. The server accepts only the bounded documented shape; arbitrary blobs are rejected.
 - Degraded local LLM review outcomes use explicit reason codes under `policy.ask.llm.<kind>`. Current kinds include `unavailable`, normalized transport/provider/parser kinds such as `network`, `provider`, `invalid_response`, `timeout`, `unknown`, and `skip`.
 - Plugin clients must treat those degraded-review codes as review-required even when local UX is configured with `reviewMode=auto`; evaluator uncertainty must not silently auto-send.
 
@@ -935,6 +957,7 @@ Query params:
 - Responses include a rich `audit` object for user/admin debugging (resolver layer, matched/winning policy IDs, evaluated policy trail, and explanation context when available).
 - Local `ask` commits appear here as ordinary review records. `audit.policy_evaluation_mode` distinguishes local commit records (`plugin_local_pre_delivery`) from trusted send records (`outbound_pre_delivery` / `inbound_pre_delivery`).
 - When a review record originated from `POST /api/v1/plugin/local-decisions/commit`, the response also includes top-level `resolution_id` and `audit.local_decision_commit` metadata (`source`, `resolution_id`, `committed_at`, `summary`, and optional `group_id`).
+- When the plugin supplied structured local diagnostics at commit time, the review `audit` also includes `local_policy_diagnostics` with bundle IDs, reason classification, evaluator/provider timing, degraded-review causes, and redaction markers.
 - Local `allow` commits do not appear here, because they are stored as pending transport artifacts rather than review items.
 
 Success response:
@@ -1015,6 +1038,7 @@ Query params:
 - Local `allow` commits never appear here.
 - `audit.policy_evaluation_mode` distinguishes local commit blocks (`plugin_local_pre_delivery`) from trusted send-time blocks.
 - When a blocked event originated from `POST /api/v1/plugin/local-decisions/commit`, the response also includes top-level `resolution_id` and `audit.local_decision_commit` metadata (`source`, `resolution_id`, `committed_at`, `summary`, and optional `group_id`).
+- When the plugin supplied structured local diagnostics at commit time, blocked events also expose `audit.local_policy_diagnostics` with the same bounded observability fields.
 
 Success response:
 

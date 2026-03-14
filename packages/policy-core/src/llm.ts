@@ -148,21 +148,46 @@ function toErrorEvaluationResult(
   };
 }
 
+function withProviderMetadata(
+  result: LLMPolicyEvaluationResult,
+  metadata: {
+    model?: string;
+    provider?: string;
+    provider_duration_ms?: number;
+  },
+): LLMPolicyEvaluationResult {
+  return {
+    ...result,
+    ...(metadata.model ? { model: metadata.model } : {}),
+    ...(metadata.provider ? { provider: metadata.provider } : {}),
+    ...(typeof metadata.provider_duration_ms === "number"
+      ? { provider_duration_ms: metadata.provider_duration_ms }
+      : {}),
+  };
+}
+
 export function createLLMPolicyEvaluator(
   options: CreateLLMPolicyEvaluatorOptions,
 ): LLMPolicyEvaluator {
   return async (input) => {
     const prompt = buildLLMPolicyEvaluationPrompt(input);
+    const providerStart = performance.now();
 
     try {
       const response = await options.providerAdapter({
         input,
         prompt,
       });
+      const providerDuration = Math.max(0, performance.now() - providerStart);
       const parsed = parseLLMPolicyEvaluationResponse(response.text);
+      const providerMetadata = {
+        model: response.model,
+        provider: response.provider,
+        provider_duration_ms: providerDuration,
+      };
 
       if (parsed.status !== "error") {
-        return parsed;
+        return withProviderMetadata(parsed, providerMetadata);
       }
 
       const normalizedError: LLMPolicyEvaluationError = {
@@ -171,20 +196,31 @@ export function createLLMPolicyEvaluator(
       };
 
       if (options.onError) {
-        return options.onError(normalizedError, input);
+        return withProviderMetadata(
+          await options.onError(normalizedError, input),
+          providerMetadata,
+        );
       }
 
-      return parsed;
+      return withProviderMetadata(parsed, providerMetadata);
     } catch (error) {
+      const providerDuration = Math.max(0, performance.now() - providerStart);
       const normalizedError =
         options.normalizeError?.(error) ||
         normalizeLLMPolicyEvaluationError(error);
 
       if (options.onError) {
-        return options.onError(normalizedError, input);
+        return withProviderMetadata(
+          await options.onError(normalizedError, input),
+          {
+            provider_duration_ms: providerDuration,
+          },
+        );
       }
 
-      return toErrorEvaluationResult(normalizedError);
+      return withProviderMetadata(toErrorEvaluationResult(normalizedError), {
+        provider_duration_ms: providerDuration,
+      });
     }
   };
 }
