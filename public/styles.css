@@ -1126,6 +1126,147 @@ body {
   line-height: 1.6;
 }
 
+.browser-access-inline-action {
+  border: 0;
+  background: transparent;
+  color: var(--color-primary-dark);
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+.browser-login-status {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 158, 107, 0.18);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.browser-login-status[data-state="pending"] {
+  border-color: rgba(255, 158, 107, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(255, 158, 107, 0.12), transparent 42%),
+    rgba(255, 255, 255, 0.92);
+}
+
+.browser-login-status[data-state="approved"] {
+  border-color: rgba(74, 179, 126, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(74, 179, 126, 0.14), transparent 42%),
+    rgba(247, 255, 251, 0.96);
+}
+
+.browser-login-status[data-state="redeeming"] {
+  border-color: rgba(70, 122, 214, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(70, 122, 214, 0.12), transparent 42%),
+    rgba(247, 250, 255, 0.96);
+}
+
+.browser-login-status[data-state="expired"],
+.browser-login-status[data-state="retry"] {
+  border-color: rgba(230, 168, 44, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(230, 168, 44, 0.14), transparent 42%),
+    rgba(255, 251, 241, 0.96);
+}
+
+.browser-login-status[data-state="denied"] {
+  border-color: rgba(214, 87, 70, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(214, 87, 70, 0.14), transparent 42%),
+    rgba(255, 247, 245, 0.96);
+}
+
+.browser-login-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.browser-login-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 158, 107, 0.14);
+  color: var(--color-primary-dark);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.browser-login-status-title {
+  margin-top: 10px;
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.browser-login-status-copy,
+.browser-login-instructions,
+.browser-login-guidance {
+  font-size: 0.92rem;
+  color: var(--color-text-light);
+  line-height: 1.7;
+}
+
+.browser-login-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.browser-login-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(18, 33, 53, 0.08);
+}
+
+.browser-login-meta-label {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.browser-login-code {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 1.5rem;
+  letter-spacing: 0.18em;
+  color: var(--color-text);
+}
+
+.browser-login-guidance {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(18, 33, 53, 0.04);
+  color: var(--color-text);
+}
+
+.browser-login-guidance strong {
+  color: var(--color-text);
+}
+
+.browser-login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 /* --- Section 8: Footer --- */
 .landing-footer {
   background: #2a2a3a;
@@ -1251,6 +1392,7 @@ body {
   }
 
   .browser-access-link,
+  .browser-login-actions .landing-btn,
   .browser-access-form .landing-btn {
     align-self: stretch;
     text-align: center;
@@ -1308,6 +1450,17 @@ body {
 
   .browser-access-card {
     padding: 24px 20px;
+  }
+
+  .browser-login-status-header,
+  .browser-login-meta,
+  .browser-login-actions {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .browser-access-inline-action {
+    align-self: flex-start;
   }
 }
 

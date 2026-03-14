@@ -667,17 +667,116 @@
                   <h3>Sign in with your agent</h3>
                 </div>
                 <p class="browser-access-card-copy">
-                  Ask your invited Mahilo agent to finish onboarding and
-                  approve browser access for the account it already created. The
-                  browser does not create Mahilo accounts on its own.
+                  Enter the Mahilo username your invited agent already
+                  registered. Mahilo will issue a short approval code for that
+                  account, then your configured agent can approve browser
+                  access without exposing a long-lived API key in the page.
                 </p>
+                <form id="agent-login-form" class="browser-access-form">
+                  <label class="browser-access-label" for="agent-login-username">
+                    Mahilo username
+                  </label>
+                  <input
+                    type="text"
+                    class="waitlist-input"
+                    id="agent-login-username"
+                    placeholder="your-username"
+                    autocomplete="username"
+                    autocapitalize="none"
+                    spellcheck="false"
+                  />
+                  <p id="agent-login-helper" class="browser-access-helper">
+                    Use the exact username your invited agent created on
+                    Mahilo. The browser does not create Mahilo accounts on its
+                    own.
+                  </p>
+                  <button
+                    id="agent-login-submit"
+                    type="submit"
+                    class="landing-btn landing-btn-primary"
+                  >
+                    Start browser sign-in
+                  </button>
+                </form>
+                <div
+                  id="agent-login-status"
+                  class="browser-login-status hidden"
+                  aria-live="polite"
+                >
+                  <div class="browser-login-status-header">
+                    <div>
+                      <span
+                        id="agent-login-status-badge"
+                        class="browser-login-status-badge"
+                        >Waiting</span
+                      >
+                      <h4
+                        id="agent-login-status-title"
+                        class="browser-login-status-title"
+                      >
+                        Enter your Mahilo username to begin
+                      </h4>
+                    </div>
+                    <button
+                      id="agent-login-reset"
+                      type="button"
+                      class="browser-access-inline-action hidden"
+                    >
+                      Change username
+                    </button>
+                  </div>
+                  <p
+                    id="agent-login-status-copy"
+                    class="browser-login-status-copy"
+                  >
+                    Mahilo will prepare a short code for your configured agent
+                    to approve.
+                  </p>
+                  <div class="browser-login-meta">
+                    <div class="browser-login-meta-item">
+                      <span class="browser-login-meta-label">Approval code</span>
+                      <strong
+                        id="agent-login-approval-code"
+                        class="browser-login-code"
+                        >------</strong
+                      >
+                    </div>
+                    <div class="browser-login-meta-item">
+                      <span class="browser-login-meta-label">Expires</span>
+                      <strong id="agent-login-expiry">Not started yet</strong>
+                    </div>
+                  </div>
+                  <p
+                    id="agent-login-instructions"
+                    class="browser-login-instructions"
+                  >
+                    Ask your agent to approve the short code shown here.
+                  </p>
+                  <div
+                    id="agent-login-guidance"
+                    class="browser-login-guidance"
+                  ></div>
+                  <div class="browser-login-actions">
+                    <button
+                      id="agent-login-continue"
+                      type="button"
+                      class="landing-btn landing-btn-primary hidden"
+                    >
+                      Continue to dashboard
+                    </button>
+                    <button
+                      id="agent-login-retry"
+                      type="button"
+                      class="landing-btn landing-btn-ghost hidden"
+                    >
+                      Start another code
+                    </button>
+                  </div>
+                </div>
                 <ol class="browser-access-steps">
                   <li>Install Mahilo in your agent and redeem your invite.</li>
                   <li>Let that agent register your Mahilo username.</li>
-                  <li>
-                    Return here to use agent-approved browser access as the
-                    normal sign-in path.
-                  </li>
+                  <li>Return here to request a short browser approval code.</li>
                 </ol>
                 <a
                   href="#invite-section"

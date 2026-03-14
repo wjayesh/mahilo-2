@@ -65,12 +65,88 @@ function buildBrowserLoginAttemptPayload(
     status: getBrowserLoginAttemptStatus(attempt),
     expires_at: attempt.expiresAt.toISOString(),
     approved_at: attempt.approvedAt?.toISOString() ?? null,
+    denied_at: attempt.deniedAt?.toISOString() ?? null,
     redeemed_at: attempt.redeemedAt?.toISOString() ?? null,
     ...(options.includeApprovalCode
       ? { approval_code: attempt.approvalCode }
       : {}),
     ...(options.browserToken ? { browser_token: options.browserToken } : {}),
   };
+}
+
+async function resolveBrowserLoginAttemptForActor(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  params: {
+    attemptId?: string;
+    approvalCode: string;
+  },
+) {
+  if (params.attemptId) {
+    const [existingAttempt] = await db
+      .select()
+      .from(schema.browserLoginAttempts)
+      .where(eq(schema.browserLoginAttempts.id, params.attemptId))
+      .limit(1);
+
+    if (!existingAttempt) {
+      throw new AppError(
+        "Login attempt not found",
+        404,
+        "LOGIN_ATTEMPT_NOT_FOUND",
+      );
+    }
+
+    if (existingAttempt.userId !== userId) {
+      throw new AppError(
+        "Login attempt does not belong to the authenticated user",
+        403,
+        "LOGIN_ATTEMPT_USER_MISMATCH",
+      );
+    }
+
+    if (existingAttempt.approvalCode !== params.approvalCode) {
+      throw new AppError(
+        "Approval code does not match the login attempt",
+        400,
+        "INVALID_APPROVAL_CODE",
+      );
+    }
+
+    return existingAttempt;
+  }
+
+  const matches = await db
+    .select()
+    .from(schema.browserLoginAttempts)
+    .where(
+      and(
+        eq(schema.browserLoginAttempts.userId, userId),
+        eq(schema.browserLoginAttempts.approvalCode, params.approvalCode),
+        isNull(schema.browserLoginAttempts.redeemedAt),
+        gt(schema.browserLoginAttempts.expiresAt, new Date()),
+      ),
+    )
+    .orderBy(desc(schema.browserLoginAttempts.createdAt))
+    .limit(2);
+
+  if (matches.length === 0) {
+    throw new AppError(
+      "Login attempt not found",
+      404,
+      "LOGIN_ATTEMPT_NOT_FOUND",
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new AppError(
+      "Approval code matches multiple active login attempts",
+      409,
+      "AMBIGUOUS_APPROVAL_CODE",
+    );
+  }
+
+  return matches[0];
 }
 
 function readBrowserLoginToken(c: {
@@ -310,74 +386,10 @@ authRoutes.post(
     const approvalCode = approval_code.trim().toUpperCase();
     const db = getDb();
     const now = new Date();
-
-    let attempt: schema.BrowserLoginAttempt;
-
-    if (attempt_id) {
-      const [existingAttempt] = await db
-        .select()
-        .from(schema.browserLoginAttempts)
-        .where(eq(schema.browserLoginAttempts.id, attempt_id))
-        .limit(1);
-
-      if (!existingAttempt) {
-        throw new AppError(
-          "Login attempt not found",
-          404,
-          "LOGIN_ATTEMPT_NOT_FOUND",
-        );
-      }
-
-      if (existingAttempt.userId !== user.id) {
-        throw new AppError(
-          "Login attempt does not belong to the authenticated user",
-          403,
-          "LOGIN_ATTEMPT_USER_MISMATCH",
-        );
-      }
-
-      if (existingAttempt.approvalCode !== approvalCode) {
-        throw new AppError(
-          "Approval code does not match the login attempt",
-          400,
-          "INVALID_APPROVAL_CODE",
-        );
-      }
-
-      attempt = existingAttempt;
-    } else {
-      const matches = await db
-        .select()
-        .from(schema.browserLoginAttempts)
-        .where(
-          and(
-            eq(schema.browserLoginAttempts.userId, user.id),
-            eq(schema.browserLoginAttempts.approvalCode, approvalCode),
-            isNull(schema.browserLoginAttempts.redeemedAt),
-            gt(schema.browserLoginAttempts.expiresAt, now),
-          ),
-        )
-        .orderBy(desc(schema.browserLoginAttempts.createdAt))
-        .limit(2);
-
-      if (matches.length === 0) {
-        throw new AppError(
-          "Login attempt not found",
-          404,
-          "LOGIN_ATTEMPT_NOT_FOUND",
-        );
-      }
-
-      if (matches.length > 1) {
-        throw new AppError(
-          "Approval code matches multiple active login attempts",
-          409,
-          "AMBIGUOUS_APPROVAL_CODE",
-        );
-      }
-
-      attempt = matches[0];
-    }
+    let attempt = await resolveBrowserLoginAttemptForActor(db, user.id, {
+      attemptId: attempt_id,
+      approvalCode,
+    });
 
     const status = getBrowserLoginAttemptStatus(attempt, now);
     if (status === "expired") {
@@ -396,17 +408,28 @@ authRoutes.post(
       );
     }
 
+    if (status === "denied") {
+      throw new AppError(
+        "Login attempt has been denied",
+        409,
+        "LOGIN_ATTEMPT_DENIED",
+      );
+    }
+
     if (status !== "approved") {
       const [approvedAttempt] = await db
         .update(schema.browserLoginAttempts)
         .set({
           approvedAt: now,
           approvedByUserId: user.id,
+          deniedAt: null,
+          deniedByUserId: null,
         })
         .where(
           and(
             eq(schema.browserLoginAttempts.id, attempt.id),
             isNull(schema.browserLoginAttempts.approvedAt),
+            isNull(schema.browserLoginAttempts.deniedAt),
             isNull(schema.browserLoginAttempts.redeemedAt),
             gt(schema.browserLoginAttempts.expiresAt, now),
           ),
@@ -428,6 +451,14 @@ authRoutes.post(
               buildBrowserLoginAttemptPayload(attempt, {
                 includeApprovalCode: true,
               }),
+            );
+          }
+
+          if (currentStatus === "denied") {
+            throw new AppError(
+              "Login attempt has been denied",
+              409,
+              "LOGIN_ATTEMPT_DENIED",
             );
           }
 
@@ -456,6 +487,129 @@ authRoutes.post(
       }
 
       attempt = approvedAttempt;
+    }
+
+    return c.json(
+      buildBrowserLoginAttemptPayload(attempt, { includeApprovalCode: true }),
+    );
+  },
+);
+
+authRoutes.post(
+  "/browser-login/deny",
+  requireAuth(),
+  requireActive(),
+  zValidator("json", browserLoginApproveSchema),
+  async (c) => {
+    const user = c.get("user");
+    if (!user) {
+      throw new AppError("Unauthorized", 401, "UNAUTHORIZED");
+    }
+
+    const { attempt_id, approval_code } = c.req.valid("json");
+    const approvalCode = approval_code.trim().toUpperCase();
+    const db = getDb();
+    const now = new Date();
+
+    let attempt = await resolveBrowserLoginAttemptForActor(db, user.id, {
+      attemptId: attempt_id,
+      approvalCode,
+    });
+
+    const status = getBrowserLoginAttemptStatus(attempt, now);
+    if (status === "expired") {
+      throw new AppError(
+        "Login attempt has expired",
+        410,
+        "LOGIN_ATTEMPT_EXPIRED",
+      );
+    }
+
+    if (status === "redeemed") {
+      throw new AppError(
+        "Login attempt has already been redeemed",
+        409,
+        "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+      );
+    }
+
+    if (status === "approved") {
+      throw new AppError(
+        "Login attempt has already been approved",
+        409,
+        "LOGIN_ATTEMPT_ALREADY_APPROVED",
+      );
+    }
+
+    if (status !== "denied") {
+      const [deniedAttempt] = await db
+        .update(schema.browserLoginAttempts)
+        .set({
+          deniedAt: now,
+          deniedByUserId: user.id,
+        })
+        .where(
+          and(
+            eq(schema.browserLoginAttempts.id, attempt.id),
+            isNull(schema.browserLoginAttempts.approvedAt),
+            isNull(schema.browserLoginAttempts.deniedAt),
+            isNull(schema.browserLoginAttempts.redeemedAt),
+            gt(schema.browserLoginAttempts.expiresAt, now),
+          ),
+        )
+        .returning();
+
+      if (!deniedAttempt) {
+        const [currentAttempt] = await db
+          .select()
+          .from(schema.browserLoginAttempts)
+          .where(eq(schema.browserLoginAttempts.id, attempt.id))
+          .limit(1);
+
+        if (currentAttempt) {
+          const currentStatus = getBrowserLoginAttemptStatus(currentAttempt, now);
+          if (currentStatus === "denied") {
+            attempt = currentAttempt;
+            return c.json(
+              buildBrowserLoginAttemptPayload(attempt, {
+                includeApprovalCode: true,
+              }),
+            );
+          }
+
+          if (currentStatus === "approved") {
+            throw new AppError(
+              "Login attempt has already been approved",
+              409,
+              "LOGIN_ATTEMPT_ALREADY_APPROVED",
+            );
+          }
+
+          if (currentStatus === "expired") {
+            throw new AppError(
+              "Login attempt has expired",
+              410,
+              "LOGIN_ATTEMPT_EXPIRED",
+            );
+          }
+
+          if (currentStatus === "redeemed") {
+            throw new AppError(
+              "Login attempt has already been redeemed",
+              409,
+              "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+            );
+          }
+        }
+
+        throw new AppError(
+          "Login attempt could not be denied",
+          409,
+          "LOGIN_ATTEMPT_NOT_DENIABLE",
+        );
+      }
+
+      attempt = deniedAttempt;
     }
 
     return c.json(
@@ -498,6 +652,14 @@ authRoutes.post("/browser-login/attempts/:attemptId/redeem", async (c) => {
       "Login attempt has not been approved",
       409,
       "LOGIN_ATTEMPT_NOT_APPROVED",
+    );
+  }
+
+  if (status === "denied") {
+    throw new AppError(
+      "Login attempt has been denied",
+      403,
+      "LOGIN_ATTEMPT_DENIED",
     );
   }
 
@@ -546,6 +708,14 @@ authRoutes.post("/browser-login/attempts/:attemptId/redeem", async (c) => {
         "Login attempt has not been approved",
         409,
         "LOGIN_ATTEMPT_NOT_APPROVED",
+      );
+    }
+
+    if (freshStatus === "denied") {
+      throw new AppError(
+        "Login attempt has been denied",
+        403,
+        "LOGIN_ATTEMPT_DENIED",
       );
     }
 

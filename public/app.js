@@ -22,8 +22,11 @@ const CONFIG = {
   WS_URL: `${WS_ORIGIN}/api/v1/notifications/ws`,
 
   STORAGE_KEY: "mahilo_session",
+  BROWSER_LOGIN_POLL_INTERVAL_MS: 2000,
   PING_INTERVAL: 30000,
 };
+
+const BROWSER_LOGIN_TOKEN_HEADER = "x-browser-login-token";
 
 const VIEW_ALIASES = {
   agents: "connections",
@@ -72,6 +75,22 @@ const VIEW_META = {
     subtitle: "Advanced API-key utilities, diagnostics, and test tooling",
   },
 };
+
+function createEmptyBrowserLoginState() {
+  return {
+    status: "idle",
+    username: "",
+    attemptId: null,
+    browserToken: null,
+    approvalCode: null,
+    expiresAt: null,
+    approvedAt: null,
+    deniedAt: null,
+    redeemedAt: null,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
 
 // ========================================
 // State Management
@@ -124,6 +143,7 @@ const State = {
   availableRolesStatus: "idle",
   availableRolesError: null,
   developerApiKeyVisible: false,
+  browserLogin: createEmptyBrowserLoginState(),
 
   // Initialize state from localStorage
   init() {
@@ -212,6 +232,7 @@ const State = {
     this.availableRolesStatus = "idle";
     this.availableRolesError = null;
     this.developerApiKeyVisible = false;
+    this.browserLogin = createEmptyBrowserLoginState();
     localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
 };
@@ -235,15 +256,20 @@ const API = {
     try {
       const response = await fetch(url, {
         ...options,
+        credentials: "same-origin",
         headers,
       });
 
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(
+        const error = new Error(
           data?.error || data?.message || `HTTP ${response.status}`,
         );
+        error.code = data?.code || null;
+        error.status = response.status;
+        error.data = data;
+        throw error;
       }
 
       return data;
@@ -257,6 +283,32 @@ const API = {
   auth: {
     async me() {
       return API.request("/auth/me");
+    },
+
+    browserLogin: {
+      async start(username) {
+        return API.request("/auth/browser-login/attempts", {
+          method: "POST",
+          body: JSON.stringify({ username }),
+        });
+      },
+
+      async status(attemptId, browserToken) {
+        return API.request(`/auth/browser-login/attempts/${attemptId}`, {
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: browserToken,
+          },
+        });
+      },
+
+      async redeem(attemptId, browserToken) {
+        return API.request(`/auth/browser-login/attempts/${attemptId}/redeem`, {
+          method: "POST",
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: browserToken,
+          },
+        });
+      },
     },
 
     async rotateKey() {
@@ -4819,9 +4871,12 @@ const DataLoader = {
 // UI Manager
 // ========================================
 const UI = {
+  browserLoginPollTimer: null,
+
   // Initialize UI
   init() {
     this.bindEvents();
+    this.renderBrowserLogin();
     this.checkAuth();
   },
 
@@ -4847,6 +4902,31 @@ const UI = {
 
   // Bind all event listeners
   bindEvents() {
+    document
+      .getElementById("agent-login-form")
+      ?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        this.handleAgentBrowserLogin();
+      });
+
+    document
+      .getElementById("agent-login-reset")
+      ?.addEventListener("click", () => {
+        this.resetBrowserLogin({ preserveUsername: true });
+      });
+
+    document
+      .getElementById("agent-login-retry")
+      ?.addEventListener("click", () => {
+        this.handleAgentBrowserLogin();
+      });
+
+    document
+      .getElementById("agent-login-continue")
+      ?.addEventListener("click", () => {
+        this.redeemBrowserLoginAttempt();
+      });
+
     // Advanced API-key fallback form
     document.getElementById("login-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -5255,6 +5335,480 @@ const UI = {
       });
   },
 
+  normalizeBrowserLoginAttempt(value) {
+    const record = Helpers.record(value);
+
+    return {
+      attemptId: Helpers.nullableString(record.attempt_id),
+      browserToken: Helpers.nullableString(record.browser_token),
+      approvalCode: Helpers.nullableString(record.approval_code),
+      expiresAt: Helpers.iso(record.expires_at),
+      approvedAt: Helpers.iso(record.approved_at),
+      deniedAt: Helpers.iso(record.denied_at),
+      redeemedAt: Helpers.iso(record.redeemed_at),
+      status: Helpers.string(record.status, "pending"),
+    };
+  },
+
+  clearBrowserLoginPolling() {
+    if (this.browserLoginPollTimer) {
+      clearTimeout(this.browserLoginPollTimer);
+      this.browserLoginPollTimer = null;
+    }
+  },
+
+  scheduleBrowserLoginPoll() {
+    this.clearBrowserLoginPolling();
+
+    const status = State.browserLogin?.status;
+    if (
+      !State.browserLogin?.attemptId ||
+      !State.browserLogin?.browserToken ||
+      !["pending", "approved"].includes(status)
+    ) {
+      return;
+    }
+
+    this.browserLoginPollTimer = setTimeout(() => {
+      this.pollBrowserLoginAttempt();
+    }, CONFIG.BROWSER_LOGIN_POLL_INTERVAL_MS);
+  },
+
+  resetBrowserLogin(options = {}) {
+    this.clearBrowserLoginPolling();
+    const usernameInput = document.getElementById("agent-login-username");
+    const preservedUsername = options.preserveUsername
+      ? Helpers.string(usernameInput?.value)
+      : "";
+
+    State.browserLogin = createEmptyBrowserLoginState();
+    State.browserLogin.username = preservedUsername;
+
+    if (usernameInput) {
+      usernameInput.value = preservedUsername;
+    }
+
+    this.renderBrowserLogin();
+  },
+
+  getBrowserLoginExpiryLabel(browserLogin = State.browserLogin) {
+    const expiresAt = Helpers.timestampValue(browserLogin?.expiresAt);
+    if (!expiresAt) {
+      return "Not issued yet";
+    }
+
+    const remainingMs = expiresAt - Date.now();
+    if (remainingMs <= 0) {
+      return `Expired at ${Helpers.formatDateTime(browserLogin.expiresAt)}`;
+    }
+
+    const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    const relativeLabel =
+      remainingMinutes === 1
+        ? "in about 1 minute"
+        : `in about ${remainingMinutes} minutes`;
+
+    return `${relativeLabel} (${Helpers.formatDateTime(browserLogin.expiresAt)})`;
+  },
+
+  getBrowserLoginPresentation(browserLogin = State.browserLogin) {
+    const login = browserLogin || createEmptyBrowserLoginState();
+    const username = Helpers.string(login.username || "your username");
+    const approvalCode = Helpers.string(login.approvalCode || "------");
+
+    const base = {
+      badge: "Waiting",
+      title: "Enter your Mahilo username to begin",
+      copy: "Mahilo will prepare a short approval code for your configured agent to approve.",
+      instructions: "Ask your agent to approve the short code shown here.",
+      guidance:
+        "Mahilo browser access is invite-backed. If your account does not exist yet, finish invite setup in your agent first.",
+      showContinue: false,
+      showRetry: false,
+      showReset: false,
+      disableForm: false,
+      showPanel: login.status !== "idle",
+      submitLabel: "Start browser sign-in",
+      state: login.status,
+    };
+
+    switch (login.status) {
+      case "submitting":
+        return {
+          ...base,
+          badge: "Starting",
+          title: `Preparing a code for @${username}`,
+          copy: "Checking that this invite-backed Mahilo account exists and generating a short approval code for your agent.",
+          instructions:
+            "Stay on this page. Mahilo will show the approval code as soon as the attempt is ready.",
+          guidance:
+            "If this username has not been created by your invited agent yet, finish onboarding there first or use the advanced API-key fallback for an existing account.",
+          disableForm: true,
+          showPanel: true,
+          showReset: true,
+          submitLabel: "Preparing code...",
+        };
+      case "pending":
+        return {
+          ...base,
+          badge: "Pending approval",
+          title: `Ask your agent to approve ${approvalCode}`,
+          copy: `Mahilo is waiting for browser approval on @${username}. This page checks automatically and does not need a manual refresh.`,
+          instructions: `In your configured agent, approve browser sign-in for @${username} using code ${approvalCode}.`,
+          guidance:
+            "If no agent is configured for this account yet, finish invite setup first. If approval does not arrive before the code expires, start another code or use the advanced API-key fallback.",
+          disableForm: true,
+          showPanel: true,
+          showReset: true,
+          submitLabel: "Waiting for approval...",
+        };
+      case "approved":
+        return {
+          ...base,
+          badge: "Approved",
+          title: `Code ${approvalCode} is approved`,
+          copy: `Your configured agent approved browser access for @${username}. Continue to redeem the short-lived browser session before the code expires.`,
+          instructions:
+            "Continue to the dashboard now. Mahilo will redeem the approved attempt into a browser session.",
+          guidance:
+            "If you wait too long and the code expires, just start another code. The browser will not store a long-lived API key for this path.",
+          disableForm: true,
+          showPanel: true,
+          showContinue: true,
+          showReset: true,
+          submitLabel: "Waiting for approval...",
+        };
+      case "redeeming":
+        return {
+          ...base,
+          badge: "Signing in",
+          title: "Opening your dashboard",
+          copy: `Redeeming the approved browser session for @${username}.`,
+          instructions:
+            "Mahilo is exchanging the approved code for a short-lived browser session now.",
+          guidance:
+            "If this stalls, start another code or use the advanced API-key fallback for the same account.",
+          disableForm: true,
+          showPanel: true,
+          submitLabel: "Signing in...",
+        };
+      case "expired":
+        return {
+          ...base,
+          badge: "Expired",
+          title: "That approval code expired",
+          copy: `The approval request for @${username} timed out before sign-in finished.`,
+          instructions:
+            "Start another code, then ask your agent to approve the new code while it is still active.",
+          guidance:
+            "If approval keeps timing out, confirm your agent is online and that it is approving the right username. The advanced API-key fallback still works for existing accounts.",
+          showPanel: true,
+          showRetry: true,
+          showReset: true,
+          state: "expired",
+        };
+      case "denied":
+        return {
+          ...base,
+          badge: "Denied",
+          title: "Your agent declined this sign-in",
+          copy: `The approval request for @${username} was denied before the browser session was redeemed.`,
+          instructions:
+            "Ask your agent to approve a new browser sign-in code if you still want dashboard access here.",
+          guidance:
+            "This usually means the wrong account or code was requested. Start another code after confirming the username, or use the advanced API-key fallback if appropriate.",
+          showPanel: true,
+          showRetry: true,
+          showReset: true,
+          state: "denied",
+        };
+      case "retry": {
+        const missingAccountCodes = ["USER_NOT_FOUND", "USER_NOT_ACTIVE"];
+        const reusedAttempt = login.errorCode === "LOGIN_ATTEMPT_ALREADY_REDEEMED";
+        const invalidAttemptCodes = [
+          "INVALID_BROWSER_LOGIN_TOKEN",
+          "LOGIN_ATTEMPT_NOT_FOUND",
+          "BROWSER_LOGIN_TOKEN_REQUIRED",
+        ];
+
+        let title = "Browser sign-in needs another try";
+        let copy =
+          login.errorMessage ||
+          "Mahilo could not finish this browser sign-in attempt.";
+        let guidance =
+          "Start another code from this page, or use the advanced API-key fallback if you already have direct access to the invite-backed account.";
+
+        if (missingAccountCodes.includes(login.errorCode)) {
+          title = `No active Mahilo account found for @${username}`;
+          copy =
+            "Mahilo could not find an active invite-backed account for that username.";
+          guidance =
+            "Finish invite setup and registration in your configured agent first. If the account already exists, check the exact username or use the advanced API-key fallback.";
+        } else if (reusedAttempt) {
+          title = "That browser code was already used";
+          copy =
+            "This approval code was redeemed elsewhere and cannot be reused in this browser.";
+          guidance =
+            "Start another code here if you still need access in this browser window.";
+        } else if (invalidAttemptCodes.includes(login.errorCode)) {
+          title = "This browser approval attempt is no longer valid";
+          copy =
+            login.errorMessage ||
+            "The stored approval attempt could not be resumed.";
+          guidance =
+            "Start another code from this page. If that keeps failing, fall back to an API key for the existing account.";
+        }
+
+        return {
+          ...base,
+          badge: "Retry",
+          title,
+          copy,
+          instructions:
+            "Enter or confirm the Mahilo username above, then request a fresh approval code.",
+          guidance,
+          showPanel: true,
+          showRetry: true,
+          showReset: true,
+          state: "retry",
+        };
+      }
+      default:
+        return base;
+    }
+  },
+
+  renderBrowserLogin() {
+    const browserLogin = State.browserLogin || createEmptyBrowserLoginState();
+    const presentation = this.getBrowserLoginPresentation(browserLogin);
+    const usernameInput = document.getElementById("agent-login-username");
+    const submitButton = document.getElementById("agent-login-submit");
+    const statusPanel = document.getElementById("agent-login-status");
+    const statusBadge = document.getElementById("agent-login-status-badge");
+    const statusTitle = document.getElementById("agent-login-status-title");
+    const statusCopy = document.getElementById("agent-login-status-copy");
+    const approvalCode = document.getElementById("agent-login-approval-code");
+    const expiry = document.getElementById("agent-login-expiry");
+    const instructions = document.getElementById("agent-login-instructions");
+    const guidance = document.getElementById("agent-login-guidance");
+    const continueButton = document.getElementById("agent-login-continue");
+    const retryButton = document.getElementById("agent-login-retry");
+    const resetButton = document.getElementById("agent-login-reset");
+
+    if (usernameInput && browserLogin.username && !usernameInput.value) {
+      usernameInput.value = browserLogin.username;
+    }
+
+    if (usernameInput) {
+      usernameInput.disabled = presentation.disableForm;
+    }
+
+    if (submitButton) {
+      submitButton.disabled = presentation.disableForm;
+      submitButton.textContent = presentation.submitLabel;
+    }
+
+    if (statusPanel) {
+      statusPanel.classList.toggle("hidden", !presentation.showPanel);
+      statusPanel.dataset.state = presentation.state || "idle";
+    }
+
+    if (statusBadge) {
+      statusBadge.textContent = presentation.badge;
+    }
+
+    if (statusTitle) {
+      statusTitle.textContent = presentation.title;
+    }
+
+    if (statusCopy) {
+      statusCopy.textContent = presentation.copy;
+    }
+
+    if (approvalCode) {
+      approvalCode.textContent = browserLogin.approvalCode || "------";
+    }
+
+    if (expiry) {
+      expiry.textContent = this.getBrowserLoginExpiryLabel(browserLogin);
+    }
+
+    if (instructions) {
+      instructions.textContent = presentation.instructions;
+    }
+
+    if (guidance) {
+      guidance.innerHTML = `<strong>Fallback guidance:</strong> ${Helpers.escapeHtml(
+        presentation.guidance,
+      )}`;
+    }
+
+    if (continueButton) {
+      continueButton.classList.toggle("hidden", !presentation.showContinue);
+      continueButton.disabled = browserLogin.status === "redeeming";
+    }
+
+    if (retryButton) {
+      retryButton.classList.toggle("hidden", !presentation.showRetry);
+      retryButton.disabled = browserLogin.status === "submitting";
+    }
+
+    if (resetButton) {
+      resetButton.classList.toggle("hidden", !presentation.showReset);
+      resetButton.disabled = browserLogin.status === "redeeming";
+    }
+  },
+
+  async handleAgentBrowserLogin() {
+    const usernameInput = document.getElementById("agent-login-username");
+    if (!usernameInput) {
+      this.showToast("Agent-backed browser sign-in is unavailable here.", "error");
+      return;
+    }
+
+    const username = Helpers.string(usernameInput.value).trim().toLowerCase();
+    if (!username) {
+      this.showToast("Enter your Mahilo username to request an approval code.", "error");
+      return;
+    }
+
+    this.clearBrowserLoginPolling();
+    State.browserLogin = {
+      ...createEmptyBrowserLoginState(),
+      status: "submitting",
+      username,
+    };
+    this.renderBrowserLogin();
+
+    try {
+      const started = this.normalizeBrowserLoginAttempt(
+        await API.auth.browserLogin.start(username),
+      );
+      State.browserLogin = {
+        ...createEmptyBrowserLoginState(),
+        ...started,
+        username,
+      };
+      this.renderBrowserLogin();
+      this.scheduleBrowserLoginPoll();
+    } catch (error) {
+      this.applyBrowserLoginError(error, { username });
+    }
+  },
+
+  applyBrowserLoginError(error, options = {}) {
+    this.clearBrowserLoginPolling();
+
+    const preservedState =
+      options.preserveAttempt && State.browserLogin
+        ? {
+            attemptId: State.browserLogin.attemptId,
+            browserToken: State.browserLogin.browserToken,
+            approvalCode: State.browserLogin.approvalCode,
+            expiresAt: State.browserLogin.expiresAt,
+            approvedAt: State.browserLogin.approvedAt,
+            deniedAt: State.browserLogin.deniedAt,
+            redeemedAt: State.browserLogin.redeemedAt,
+          }
+        : {};
+
+    const status =
+      error?.code === "LOGIN_ATTEMPT_EXPIRED"
+        ? "expired"
+        : error?.code === "LOGIN_ATTEMPT_DENIED"
+          ? "denied"
+          : "retry";
+
+    State.browserLogin = {
+      ...createEmptyBrowserLoginState(),
+      ...preservedState,
+      status,
+      username: options.username || State.browserLogin?.username || "",
+      errorCode: error?.code || null,
+      errorMessage: error?.message || "Mahilo could not finish browser sign-in.",
+    };
+
+    this.renderBrowserLogin();
+  },
+
+  async pollBrowserLoginAttempt() {
+    const browserLogin = State.browserLogin;
+    if (!browserLogin?.attemptId || !browserLogin?.browserToken) {
+      return;
+    }
+
+    try {
+      const update = this.normalizeBrowserLoginAttempt(
+        await API.auth.browserLogin.status(
+          browserLogin.attemptId,
+          browserLogin.browserToken,
+        ),
+      );
+
+      State.browserLogin = {
+        ...State.browserLogin,
+        ...update,
+        attemptId: update.attemptId || State.browserLogin.attemptId,
+        approvalCode: update.approvalCode || State.browserLogin.approvalCode,
+        browserToken: update.browserToken || State.browserLogin.browserToken,
+      };
+
+      if (update.status === "redeemed") {
+        State.browserLogin.status = "retry";
+        State.browserLogin.errorCode = "LOGIN_ATTEMPT_ALREADY_REDEEMED";
+        State.browserLogin.errorMessage =
+          "This approval code has already been redeemed in another browser session.";
+      }
+
+      this.renderBrowserLogin();
+      this.scheduleBrowserLoginPoll();
+    } catch (error) {
+      this.applyBrowserLoginError(error, {
+        preserveAttempt: true,
+      });
+    }
+  },
+
+  async redeemBrowserLoginAttempt() {
+    const browserLogin = State.browserLogin;
+    if (!browserLogin?.attemptId || !browserLogin?.browserToken) {
+      this.showToast("Start browser sign-in again to continue.", "error");
+      return;
+    }
+
+    this.clearBrowserLoginPolling();
+    State.browserLogin = {
+      ...State.browserLogin,
+      status: "redeeming",
+      errorCode: null,
+      errorMessage: null,
+    };
+    this.renderBrowserLogin();
+
+    try {
+      await API.auth.browserLogin.redeem(
+        browserLogin.attemptId,
+        browserLogin.browserToken,
+      );
+
+      const user = Normalizers.user(await API.auth.me());
+      if (!user) {
+        throw new Error("Failed to load the current user after browser sign-in");
+      }
+
+      State.user = user;
+      this.showDashboard();
+      await DataLoader.loadAll();
+      WebSocketManager.connect();
+      this.showToast("Signed in with agent approval", "success");
+    } catch (error) {
+      this.applyBrowserLoginError(error, {
+        preserveAttempt: true,
+        username: browserLogin.username,
+      });
+    }
+  },
+
   // Handle login
   async handleLogin() {
     const apiKeyInput = document.getElementById("login-api-key");
@@ -5327,6 +5881,7 @@ const UI = {
   // Handle logout
   handleLogout() {
     WebSocketManager.disconnect();
+    this.clearBrowserLoginPolling();
     State.clear();
     this.hideModals();
     this.showLanding();
@@ -7290,6 +7845,7 @@ const UI = {
     document.getElementById("landing-page").classList.remove("hidden");
     document.getElementById("dashboard-screen").classList.add("hidden");
     document.getElementById("ws-status").style.display = "none";
+    this.renderBrowserLogin();
     this.initLandingAnimations();
   },
 

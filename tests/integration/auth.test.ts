@@ -257,6 +257,57 @@ describe("Auth Routes Integration", () => {
       expect(data.user_id).toBe(user.id);
       expect(data.username).toBe("me_user");
     });
+
+    it("should return user info with a valid browser session cookie", async () => {
+      const { user, apiKey } = await createTestUser("me_browser_user");
+
+      const start = await app.request("/api/v1/auth/browser-login/attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username }),
+      });
+      const started = await start.json();
+
+      const approve = await app.request("/api/v1/auth/browser-login/approve", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          attempt_id: started.attempt_id,
+          approval_code: started.approval_code,
+        }),
+      });
+      expect(approve.status).toBe(200);
+
+      const redeem = await app.request(
+        `/api/v1/auth/browser-login/attempts/${started.attempt_id}/redeem`,
+        {
+          method: "POST",
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: started.browser_token,
+          },
+        },
+      );
+      expect(redeem.status).toBe(200);
+
+      const sessionToken = extractCookieValue(
+        redeem.headers.get("set-cookie")!,
+        BROWSER_SESSION_COOKIE_NAME,
+      );
+
+      const res = await app.request("/api/v1/auth/me", {
+        headers: {
+          Cookie: `${BROWSER_SESSION_COOKIE_NAME}=${sessionToken}`,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.user_id).toBe(user.id);
+      expect(data.username).toBe(user.username);
+    });
   });
 
   describe("Browser login contract (DASH-071)", () => {
@@ -396,6 +447,71 @@ describe("Auth Routes Integration", () => {
       expect(replay.status).toBe(409);
       const replayed = await replay.json();
       expect(replayed.code).toBe("LOGIN_ATTEMPT_ALREADY_REDEEMED");
+    });
+
+    it("reports denied attempts over polling and blocks redeem cleanly", async () => {
+      const { user, apiKey } = await createTestUser("browser_denied");
+
+      const start = await app.request("/api/v1/auth/browser-login/attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username }),
+      });
+      const started = await start.json();
+
+      const deny = await app.request("/api/v1/auth/browser-login/deny", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          attempt_id: started.attempt_id,
+          approval_code: started.approval_code,
+        }),
+      });
+
+      expect(deny.status).toBe(200);
+      const denied = await deny.json();
+      expect(denied).toEqual(
+        expect.objectContaining({
+          attempt_id: started.attempt_id,
+          approval_code: started.approval_code,
+          status: "denied",
+        }),
+      );
+      expect(denied.denied_at).toBeTruthy();
+
+      const status = await app.request(
+        `/api/v1/auth/browser-login/attempts/${started.attempt_id}`,
+        {
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: started.browser_token,
+          },
+        },
+      );
+
+      expect(status.status).toBe(200);
+      expect(await status.json()).toEqual(
+        expect.objectContaining({
+          attempt_id: started.attempt_id,
+          status: "denied",
+        }),
+      );
+
+      const redeem = await app.request(
+        `/api/v1/auth/browser-login/attempts/${started.attempt_id}/redeem`,
+        {
+          method: "POST",
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: started.browser_token,
+          },
+        },
+      );
+
+      expect(redeem.status).toBe(403);
+      const redeemData = await redeem.json();
+      expect(redeemData.code).toBe("LOGIN_ATTEMPT_DENIED");
     });
 
     it("rejects approval by an authenticated user who does not own the attempt", async () => {

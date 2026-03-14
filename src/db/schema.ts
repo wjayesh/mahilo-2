@@ -70,6 +70,10 @@ export const browserLoginAttempts = sqliteTable(
       onDelete: "set null",
     }),
     approvedAt: integer("approved_at", { mode: "timestamp" }),
+    deniedByUserId: text("denied_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    deniedAt: integer("denied_at", { mode: "timestamp" }),
     redeemedAt: integer("redeemed_at", { mode: "timestamp" }),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" })

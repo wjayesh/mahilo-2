@@ -24,6 +24,7 @@ const generateApprovalCode = customAlphabet(
 export type BrowserLoginAttemptStatus =
   | "pending"
   | "approved"
+  | "denied"
   | "redeemed"
   | "expired";
 
@@ -56,12 +57,16 @@ export function createBrowserLoginAttemptArtifacts() {
 export function getBrowserLoginAttemptStatus(
   attempt: Pick<
     schema.BrowserLoginAttempt,
-    "approvedAt" | "expiresAt" | "redeemedAt"
+    "approvedAt" | "deniedAt" | "expiresAt" | "redeemedAt"
   >,
   now = new Date(),
 ): BrowserLoginAttemptStatus {
   if (attempt.redeemedAt) {
     return "redeemed";
+  }
+
+  if (attempt.deniedAt) {
+    return "denied";
   }
 
   if (attempt.expiresAt.getTime() <= now.getTime()) {

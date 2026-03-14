@@ -74,6 +74,8 @@ export async function setupTestDatabase() {
       browser_token_hash TEXT NOT NULL,
       approved_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       approved_at INTEGER,
+      denied_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      denied_at INTEGER,
       redeemed_at INTEGER,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch())

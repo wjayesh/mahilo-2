@@ -1,7 +1,12 @@
+import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../server";
 import { verifyApiKey } from "../services/auth";
+import {
+  BROWSER_SESSION_COOKIE_NAME,
+  verifyBrowserSessionToken,
+} from "../services/browserAuth";
 import { config } from "../config";
 import { ACTIVE_USER_STATUS, SUSPENDED_USER_STATUS } from "../services/auth";
 
@@ -79,25 +84,53 @@ export function enforceRegisterRateLimit(c: {
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const authHeader = c.req.header("Authorization");
+  const browserSessionToken = getCookie(c, BROWSER_SESSION_COOKIE_NAME);
 
-  if (!authHeader) {
+  if (authHeader) {
+    const [scheme, token] = authHeader.split(" ");
+
+    if (scheme !== "Bearer" || !token) {
+      throw new HTTPException(401, {
+        message: "Invalid Authorization header format. Use: Bearer <api_key>",
+      });
+    }
+
+    // Verify the API key
+    const user = await verifyApiKey(token);
+
+    if (!user) {
+      throw new HTTPException(401, { message: "Invalid API key" });
+    }
+
+    // Enforce per-user rate limit (simple in-memory)
+    enforceAuthenticatedRateLimit(user.id);
+
+    if (user.status === SUSPENDED_USER_STATUS) {
+      throw new HTTPException(403, { message: "Account is suspended" });
+    }
+
+    // Attach user to context
+    c.set("user", {
+      id: user.id,
+      status: user.status,
+      username: user.username,
+    });
+
+    await next();
+    return;
+  }
+
+  if (!browserSessionToken) {
     throw new HTTPException(401, { message: "Missing Authorization header" });
   }
 
-  const [scheme, token] = authHeader.split(" ");
+  const session = await verifyBrowserSessionToken(browserSessionToken);
 
-  if (scheme !== "Bearer" || !token) {
-    throw new HTTPException(401, {
-      message: "Invalid Authorization header format. Use: Bearer <api_key>",
-    });
+  if (!session) {
+    throw new HTTPException(401, { message: "Invalid browser session" });
   }
 
-  // Verify the API key
-  const user = await verifyApiKey(token);
-
-  if (!user) {
-    throw new HTTPException(401, { message: "Invalid API key" });
-  }
+  const user = session.user;
 
   // Enforce per-user rate limit (simple in-memory)
   enforceAuthenticatedRateLimit(user.id);

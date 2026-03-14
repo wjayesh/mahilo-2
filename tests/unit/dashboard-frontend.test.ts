@@ -63,6 +63,7 @@ type DashboardInternals = {
   UI: {
     handleAcceptFriend: (id: string) => Promise<void>;
     handleAddFriendRequest: () => Promise<void>;
+    handleAgentBrowserLogin: () => Promise<void>;
     handleAddFriendRole: (
       friendshipId: string,
       roleName: string,
@@ -99,6 +100,9 @@ type DashboardInternals = {
     handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
     handleUnfriend: (id: string) => Promise<void>;
+    pollBrowserLoginAttempt: () => Promise<void>;
+    redeemBrowserLoginAttempt: () => Promise<void>;
+    resetBrowserLogin: (options?: { preserveUsername?: boolean }) => void;
     getSenderConnectionWorkspaceItems: () => Array<Record<string, any>>;
     openAgentEditor: (agent?: string | Record<string, unknown> | null) => void;
     renderDeveloperConsole: () => void;
@@ -318,11 +322,35 @@ async function flushDashboardWork() {
   }
 }
 
+function mergeCookieHeader(existingCookieHeader: string, setCookie: string) {
+  const cookies = new Map<string, string>();
+
+  for (const cookie of existingCookieHeader.split(/;\s*/).filter(Boolean)) {
+    const [name, ...valueParts] = cookie.split("=");
+    if (!name || !valueParts.length) {
+      continue;
+    }
+
+    cookies.set(name.trim(), valueParts.join("="));
+  }
+
+  const [cookiePair] = setCookie.split(";");
+  const [name, ...valueParts] = cookiePair.split("=");
+  if (name && valueParts.length) {
+    cookies.set(name.trim(), valueParts.join("="));
+  }
+
+  return Array.from(cookies.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+}
+
 function createDashboardHarness(
   options: HarnessOptions = {},
 ): DashboardHarness {
   const { documentStub, getElement } = createDocumentStub(extractHtmlIds());
   const sessionStore = new Map<string, string>();
+  let cookieHeader = "";
 
   if (options.apiKey || options.sessionUser) {
     sessionStore.set(
@@ -346,7 +374,21 @@ function createDashboardHarness(
       const path = `${requestUrl.pathname}${requestUrl.search}`;
       fetchCalls.push(path);
 
-      const response = await options.app.request(path, requestOptions);
+      const requestHeaders = new Headers(requestOptions?.headers ?? {});
+      if (cookieHeader && !requestHeaders.has("Cookie")) {
+        requestHeaders.set("Cookie", cookieHeader);
+      }
+
+      const response = await options.app.request(path, {
+        ...requestOptions,
+        headers: Object.fromEntries(requestHeaders.entries()),
+      });
+
+      const setCookie = response.headers.get("set-cookie");
+      if (setCookie) {
+        cookieHeader = mergeCookieHeader(cookieHeader, setCookie);
+      }
+
       return {
         ok: response.ok,
         status: response.status,
@@ -1734,6 +1776,9 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
     expect(html).toContain('id="browser-access-section"');
     expect(html).toContain("Sign in with your agent");
     expect(html).toContain("self-serve browser registration flow");
+    expect(html).toContain('id="agent-login-form"');
+    expect(html).toContain('id="agent-login-status"');
+    expect(html).toContain("Start browser sign-in");
     expect(html).toContain("Manual API-key entry");
     expect(html).toContain("Advanced fallback");
     expect(html).toContain('id="login-form"');
@@ -1774,6 +1819,182 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
     ).toBe(false);
     expect(harness.getElement("toast-container").children[0]?.innerHTML).toContain(
       "Welcome back!",
+    );
+  });
+});
+
+describe("Dashboard sign in with agent UX (DASH-072)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("starts browser sign-in, shows the approval code, and opens the dashboard after agent approval", async () => {
+    await seedTestSystemRoles();
+    const { user, apiKey } = await createTestUser(
+      "dashboard_browser_agent",
+      "Agent Approved",
+    );
+    const app = createApp();
+    const harness = createDashboardHarness({ app });
+
+    await harness.boot();
+
+    harness.getElement("agent-login-username").value = user.username;
+
+    await harness.dashboard.UI.handleAgentBrowserLogin();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.browserLogin).toEqual(
+      expect.objectContaining({
+        approvalCode: expect.stringMatching(/^[A-Z2-9]{6}$/),
+        status: "pending",
+        username: user.username,
+      }),
+    );
+    expect(harness.getElement("agent-login-status-title").textContent).toContain(
+      "approve",
+    );
+    expect(harness.getElement("agent-login-instructions").textContent).toContain(
+      user.username,
+    );
+    expect(harness.fetchCalls).toContain("/api/v1/auth/browser-login/attempts");
+
+    const approve = await app.request("/api/v1/auth/browser-login/approve", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        attempt_id: harness.dashboard.State.browserLogin.attemptId,
+        approval_code: harness.dashboard.State.browserLogin.approvalCode,
+      }),
+    });
+    expect(approve.status).toBe(200);
+
+    await harness.dashboard.UI.pollBrowserLoginAttempt();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.browserLogin.status).toBe("approved");
+    expect(
+      harness.getElement("agent-login-continue").classList.contains("hidden"),
+    ).toBe(false);
+
+    await harness.dashboard.UI.redeemBrowserLoginAttempt();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.user).toEqual(
+      expect.objectContaining({
+        username: user.username,
+      }),
+    );
+    expect(
+      harness.getElement("landing-page").classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      harness.getElement("dashboard-screen").classList.contains("hidden"),
+    ).toBe(false);
+    expect(harness.fetchCalls).toContain("/api/v1/auth/me");
+    expect(
+      harness.getElement("toast-container").children[0]?.innerHTML,
+    ).toContain("Signed in with agent approval");
+  });
+
+  it("shows retry guidance when the username does not map to an active invite-backed account", async () => {
+    const app = createApp();
+    const harness = createDashboardHarness({ app });
+
+    await harness.boot();
+
+    harness.getElement("agent-login-username").value = "missing_browser_user";
+
+    await harness.dashboard.UI.handleAgentBrowserLogin();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.browserLogin).toEqual(
+      expect.objectContaining({
+        errorCode: "USER_NOT_FOUND",
+        status: "retry",
+        username: "missing_browser_user",
+      }),
+    );
+    expect(harness.getElement("agent-login-status-title").textContent).toContain(
+      "No active Mahilo account found",
+    );
+    expect(harness.getElement("agent-login-guidance").innerHTML).toContain(
+      "Finish invite setup",
+    );
+    expect(
+      harness.getElement("agent-login-retry").classList.contains("hidden"),
+    ).toBe(false);
+  });
+
+  it("surfaces denied and expired approval outcomes without a manual page refresh", async () => {
+    const { user, apiKey } = await createTestUser(
+      "dashboard_browser_states",
+      "Browser States",
+    );
+    const app = createApp();
+    const harness = createDashboardHarness({ app });
+
+    await harness.boot();
+
+    harness.getElement("agent-login-username").value = user.username;
+    await harness.dashboard.UI.handleAgentBrowserLogin();
+    await flushDashboardWork();
+
+    const firstAttemptId = harness.dashboard.State.browserLogin.attemptId;
+    const firstApprovalCode = harness.dashboard.State.browserLogin.approvalCode;
+
+    const deny = await app.request("/api/v1/auth/browser-login/deny", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        attempt_id: firstAttemptId,
+        approval_code: firstApprovalCode,
+      }),
+    });
+    expect(deny.status).toBe(200);
+
+    await harness.dashboard.UI.pollBrowserLoginAttempt();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.browserLogin.status).toBe("denied");
+    expect(harness.getElement("agent-login-status-title").textContent).toContain(
+      "declined",
+    );
+    expect(harness.getElement("agent-login-guidance").innerHTML).toContain(
+      "Start another code",
+    );
+
+    await harness.dashboard.UI.handleAgentBrowserLogin();
+    await flushDashboardWork();
+
+    const secondAttemptId = harness.dashboard.State.browserLogin.attemptId;
+    const db = getTestDb();
+    await db
+      .update(schema.browserLoginAttempts)
+      .set({
+        expiresAt: new Date(Date.now() - 1_000),
+      })
+      .where(eq(schema.browserLoginAttempts.id, secondAttemptId));
+
+    await harness.dashboard.UI.pollBrowserLoginAttempt();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.browserLogin.status).toBe("expired");
+    expect(harness.getElement("agent-login-status-title").textContent).toContain(
+      "expired",
+    );
+    expect(harness.getElement("agent-login-status-copy").textContent).toContain(
+      "timed out",
     );
   });
 });
