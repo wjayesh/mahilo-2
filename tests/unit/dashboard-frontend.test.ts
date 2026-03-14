@@ -3510,7 +3510,7 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     UI.renderOverviewMessages();
 
     expect(harness.getElement("logs-summary").innerHTML).toContain(
-      "Review Queue",
+      "Review Required",
     );
     expect(harness.getElement("logs-summary").innerHTML).toContain(
       "Blocked Events",
@@ -3521,7 +3521,9 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     expect(harness.getElement("logs-summary").innerHTML).toContain(
       "Approval pending 1",
     );
-    expect(harness.getElement("logs-list").innerHTML).toContain("Review queue");
+    expect(harness.getElement("logs-list").innerHTML).toContain(
+      "Review required",
+    );
     expect(harness.getElement("logs-list").innerHTML).toContain("Blocked");
     expect(harness.getElement("logs-list").innerHTML).toContain(
       "Ask-around thread (2)",
@@ -4014,7 +4016,7 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     UI.renderLogs();
 
     const reviewHtml = harness.getElement("logs-list").innerHTML;
-    expect(reviewHtml).toContain("Review queue");
+    expect(reviewHtml).toContain("Review required");
     expect(reviewHtml).toContain("State: Approval pending");
     expect(reviewHtml).toContain("Mode: Hold for approval");
     expect(reviewHtml).toContain("Reason code: policy.ask.user.structured");
@@ -4238,10 +4240,10 @@ describe("Dashboard overview readiness (DASH-011)", () => {
     expect(readinessHtml).toContain("1 review item");
     expect(readinessHtml).toContain("1 blocked event");
     expect(readinessHtml).toMatch(
-      /Accepted contacts<\/span>\s*<span class="network-summary-value">2<\/span>/,
+      /Circle size<\/span>\s*<span class="network-summary-value">2<\/span>/,
     );
     expect(readinessHtml).toMatch(
-      /Ready contacts<\/span>\s*<span class="network-summary-value">1<\/span>/,
+      /Ready now<\/span>\s*<span class="network-summary-value">1<\/span>/,
     );
     expect(readinessHtml).toMatch(
       /Incoming requests<\/span>\s*<span class="network-summary-value">1<\/span>/,
@@ -4250,10 +4252,10 @@ describe("Dashboard overview readiness (DASH-011)", () => {
       /Outgoing requests<\/span>\s*<span class="network-summary-value">1<\/span>/,
     );
     expect(readinessHtml).toMatch(
-      /Review queue<\/span>\s*<span class="network-summary-value">1<\/span>/,
+      /Review required<\/span>\s*<span class="network-summary-value">1<\/span>/,
     );
     expect(readinessHtml).toMatch(
-      /Blocked events<\/span>\s*<span class="network-summary-value">1<\/span>/,
+      /Blocked by boundaries<\/span>\s*<span class="network-summary-value">1<\/span>/,
     );
 
     const senderHtml = harness.getElement("overview-sender-summary").innerHTML;
@@ -4273,7 +4275,7 @@ describe("Dashboard overview readiness (DASH-011)", () => {
     expect(networkListHtml).toContain("1 active connection live");
     expect(networkListHtml).toContain("Bob");
     expect(networkListHtml).toContain(
-      "Accepted, but no active Mahilo connection is live right now.",
+      "Accepted, but no sender connection is live right now.",
     );
     expect(networkListHtml).toContain("Incoming requests");
     expect(networkListHtml).toContain("Outgoing requests");
@@ -4564,10 +4566,10 @@ describe("Dashboard network list (DASH-020)", () => {
       "Accepted contacts",
     );
     expect(harness.getElement("friends-list").innerHTML).toContain(
-      "No accepted contacts yet",
+      "No accepted contacts in your circle yet",
     );
     expect(harness.getElement("friends-list").innerHTML).toContain(
-      "useful Mahilo circle",
+      "Accepted relationships are what make ask-around and contact boundaries useful.",
     );
     expect(harness.getElement("friends-list").innerHTML).toContain(
       "Add by Username",
@@ -4633,7 +4635,7 @@ describe("Dashboard contact detail and connection space (DASH-021)", () => {
     expect(detailHtml).toContain("Connection space");
     expect(detailHtml).toContain("Ready for direct send and ask-around");
     expect(detailHtml).toContain(
-      "Framework, label, capabilities, and live status",
+      "See which sender connections this contact has live right now, plus their framework, label, and declared capabilities.",
     );
     expect(detailHtml).toContain("travel_helper");
     expect(detailHtml).toContain("Openclaw");
@@ -4670,12 +4672,12 @@ describe("Dashboard contact detail and connection space (DASH-021)", () => {
     await harness.boot();
 
     const detailHtml = harness.getElement("network-detail-panel").innerHTML;
-    expect(detailHtml).toContain("No active Mahilo connections right now");
+    expect(detailHtml).toContain("No live sender connections right now");
     expect(detailHtml).toContain(
-      "No active Mahilo connections are live for this contact.",
+      "No sender connections are live for this contact right now.",
     );
     expect(detailHtml).toContain(
-      "Without an active connection, this contact cannot participate in ask-around results.",
+      "Without a live sender connection, this contact cannot take part in ask-around results.",
     );
     expect(detailHtml).toContain("Not ready");
   });

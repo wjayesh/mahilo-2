@@ -394,8 +394,8 @@ async function createDashboardHarness(
 ): Promise<DashboardHarness> {
   const installed = installDashboardGlobals(fetchImpl);
   activeCleanup = installed.cleanup;
-  vi.resetModules();
-  await import("../../public/app.js");
+  const cacheBust = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await import(`../../public/app.js?dashboard-regression=${cacheBust}`);
 
   const dashboard = (globalThis as Record<string, unknown>)
     .__MAHILO_DASHBOARD__ as DashboardAppSurface | undefined;

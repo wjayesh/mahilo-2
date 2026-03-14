@@ -13296,7 +13296,7 @@ const UI = {
         const lastMessage = messages[messages.length - 1];
 
         return `
-        <div class="conversation-item ${State.selectedChat === friend.username ? "active" : ""}" 
+        <div class="conversation-item ${State.selectedChat === friend.username ? "active" : ""}"
              onclick="UI.selectDevChat('${friend.username}')">
           <div class="conversation-avatar">${name[0].toUpperCase()}</div>
           <div class="conversation-info">
