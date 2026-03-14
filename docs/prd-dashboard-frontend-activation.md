@@ -469,7 +469,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T17:01:40.796Z: DASH-072 completed via orchestrator integration.
 ### 6.4 Session-Backed Dashboard Bootstrap and Logout
 - **ID**: `DASH-073`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-071`, `DASH-072`
 - **Description**:
@@ -481,6 +481,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Logout clears the server session and returns the UI to a clean signed-out state
   - [ ] Manual API-key login remains available only as an explicitly advanced path
 
+- **Notes**:
+  - 2026-03-14T17:09:34.594Z: DASH-073 completed via orchestrator integration.
 ### 6.5 Login Security, Rate Limits, and Diagnostics
 - **ID**: `DASH-074`
 - **Status**: `pending`
