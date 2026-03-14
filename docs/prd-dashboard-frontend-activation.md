@@ -269,7 +269,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 4.1 Boundary Taxonomy and Canonical Policy Mapping
 - **ID**: `DASH-040`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-010`
 - **Description**:
@@ -281,6 +281,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Global, user, role, and group scopes are represented in user-facing language
   - [ ] Unmatched/custom selector combinations fall back to an explicit advanced path instead of disappearing
 
+- **Notes**:
+  - 2026-03-14T13:52:49.983Z: DASH-040 completed via orchestrator integration.
 ### 4.2 Boundaries Overview and Browsing Experience
 - **ID**: `DASH-041`
 - **Status**: `pending`
