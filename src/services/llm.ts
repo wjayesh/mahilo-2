@@ -5,6 +5,10 @@
  */
 
 import { config } from "../config";
+import {
+  buildLLMPolicyEvaluationPrompt,
+  parseLLMPolicyEvaluationResponse,
+} from "../policy/core";
 
 interface LLMEvaluationResult {
   passed: boolean;
@@ -59,11 +63,16 @@ export async function evaluateLLMPolicy(
     };
   }
 
-  const prompt = buildEvaluationPrompt(policyContent, message, recipientUsername, context);
+  const prompt = buildLLMPolicyEvaluationPrompt({
+    policyContent,
+    message,
+    subject: recipientUsername,
+    context,
+  });
 
   try {
     const response = await callAnthropic(prompt);
-    return parseEvaluationResponse(response);
+    return parseLLMPolicyEvaluationResponse(response);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("LLM policy evaluation failed:", errorMessage);
@@ -75,35 +84,6 @@ export async function evaluateLLMPolicy(
       error: errorMessage,
     };
   }
-}
-
-/**
- * Build the evaluation prompt for the LLM
- */
-function buildEvaluationPrompt(
-  policyContent: string,
-  message: string,
-  recipientUsername: string,
-  context?: string
-): string {
-  let prompt = `You are evaluating if a message complies with a policy.
-
-POLICY: ${policyContent}
-
-MESSAGE TO: ${recipientUsername}
-MESSAGE CONTENT: ${message}`;
-
-  if (context) {
-    prompt += `\nMESSAGE CONTEXT: ${context}`;
-  }
-
-  prompt += `
-
-Does this message comply with the policy?
-Answer with PASS or FAIL on the first line, followed by brief reasoning on the next line.
-Do not include any other text before PASS or FAIL.`;
-
-  return prompt;
 }
 
 /**
@@ -149,35 +129,4 @@ async function callAnthropic(prompt: string): Promise<string> {
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-/**
- * Parse the LLM response to extract PASS/FAIL and reasoning
- */
-function parseEvaluationResponse(response: string): LLMEvaluationResult {
-  const lines = response.trim().split("\n");
-  const firstLine = lines[0].trim().toUpperCase();
-
-  // Extract PASS or FAIL from the first line
-  let passed: boolean;
-  if (firstLine.startsWith("PASS")) {
-    passed = true;
-  } else if (firstLine.startsWith("FAIL")) {
-    passed = false;
-  } else {
-    // If the response doesn't clearly start with PASS or FAIL, default to PASS
-    console.warn("LLM response did not start with PASS/FAIL, defaulting to PASS:", firstLine);
-    return {
-      passed: true,
-      reasoning: `Unclear response: ${response}`,
-    };
-  }
-
-  // Get reasoning from remaining lines
-  const reasoning = lines.slice(1).join("\n").trim() || "No reasoning provided";
-
-  return {
-    passed,
-    reasoning,
-  };
 }
