@@ -141,6 +141,7 @@ type HarnessOptions = {
     status: number;
     text: () => Promise<string>;
   }>;
+  locationPath?: string;
   sessionUser?: Record<string, unknown>;
 };
 
@@ -194,12 +195,14 @@ class ElementStub {
   id: string;
   innerHTML = "";
   onclick: (() => void) | null = null;
+  parentElement: ElementStub | null = null;
   previousElementSibling: { style: Record<string, string> } | null = {
     style: {},
   };
   scrollHeight = 0;
   scrollTop = 0;
   textContent = "";
+  type = "text";
   value = "";
 
   constructor(id = "") {
@@ -209,8 +212,19 @@ class ElementStub {
   addEventListener() {}
 
   appendChild(child: ElementStub) {
+    child.parentElement = this;
     this.children.push(child);
     return child;
+  }
+
+  closest() {
+    return null;
+  }
+
+  focus() {}
+
+  getAttribute(name: string) {
+    return this.dataset[name] ?? null;
   }
 
   querySelector() {
@@ -235,6 +249,10 @@ class ElementStub {
   scrollIntoView() {}
 
   select() {}
+
+  setAttribute(name: string, value: string) {
+    this.dataset[name] = value;
+  }
 }
 
 class WebSocketStub {
@@ -454,7 +472,10 @@ function createDashboardHarness(
   context.window.fetch = context.fetch;
   context.window.IntersectionObserver = IntersectionObserverStub;
   context.window.localStorage = localStorage;
-  context.window.location = { origin: "http://localhost" };
+  context.window.location = {
+    origin: "http://localhost",
+    pathname: options.locationPath ?? "/",
+  };
   context.window.navigator = context.navigator;
   context.window.removeEventListener = () => {};
   context.window.scrollY = 0;
@@ -1963,6 +1984,21 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
   });
 });
 
+describe("Landing dashboard activation (DASH-090)", () => {
+  it("surfaces a clean dashboard entry from the landing page without hiding the waitlist path", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const dashboardEntryLinks =
+      html.match(/href=\"\/dashboard#browser-access-section\"/g) ?? [];
+
+    expect(dashboardEntryLinks).toHaveLength(3);
+    expect(html).toContain("Open dashboard");
+    expect(html).toContain("Already invited? Open dashboard");
+    expect(html).toContain('id="waitlist-section"');
+    expect(html).toContain("Join waitlist");
+    expect(html).toContain("invite-backed sign-in path");
+  });
+});
+
 describe("Dashboard sign in with agent UX (DASH-072)", () => {
   beforeEach(async () => {
     await setupTestDatabase();
@@ -2278,6 +2314,91 @@ describe("Dashboard session-backed bootstrap and logout (DASH-073)", () => {
       },
     });
     expect(me.status).toBe(401);
+  });
+});
+
+describe("Landing dashboard activation (DASH-090)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("surfaces a dedicated dashboard entry from the landing page", () => {
+    const html = readFileSync("public/index.html", "utf8");
+
+    expect(html).toContain('id="landing-dashboard-entry"');
+    expect(html).toContain('id="landing-mobile-dashboard-entry"');
+    expect(html).toContain('id="hero-dashboard-entry"');
+    expect(html).toContain('href="/dashboard');
+    expect(html).toContain("Already invited? Open dashboard");
+    expect(html).toContain('id="browser-access-entry-note"');
+  });
+
+  it("treats /dashboard as a signed-out entry into the browser sign-in flow", async () => {
+    const harness = createDashboardHarness({
+      app: createApp(),
+      locationPath: "/dashboard",
+    });
+
+    await harness.boot();
+
+    expect(
+      harness.getElement("landing-page").classList.contains("hidden"),
+    ).toBe(false);
+    expect(
+      harness.getElement("dashboard-screen").classList.contains("hidden"),
+    ).toBe(true);
+    expect(harness.getElement("landing-dashboard-entry").textContent).toBe(
+      "Sign in to dashboard",
+    );
+    expect(harness.getElement("hero-dashboard-entry").textContent).toBe(
+      "Sign in to dashboard",
+    );
+    expect(
+      harness
+        .getElement("browser-access-section")
+        .classList.contains("dashboard-entry-focus"),
+    ).toBe(true);
+    expect(harness.getElement("browser-access-entry-note").textContent).toContain(
+      "Start the primary agent-backed sign-in below",
+    );
+  });
+
+  it("opens the dashboard shell directly from /dashboard when a browser session already exists", async () => {
+    await seedTestSystemRoles();
+    const { user, apiKey } = await createTestUser(
+      "dashboard_entry_boot",
+      "Dashboard Entry",
+    );
+    const app = createApp();
+    const sessionCookie = await createBrowserSessionCookie(
+      app,
+      user.username,
+      apiKey,
+    );
+
+    const harness = createDashboardHarness({
+      app,
+      initialCookieHeader: sessionCookie,
+      locationPath: "/dashboard",
+    });
+
+    await harness.boot();
+
+    expect(harness.dashboard.State.user).toEqual(
+      expect.objectContaining({
+        username: user.username,
+      }),
+    );
+    expect(
+      harness.getElement("landing-page").classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      harness.getElement("dashboard-screen").classList.contains("hidden"),
+    ).toBe(false);
   });
 });
 

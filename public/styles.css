@@ -997,6 +997,19 @@ body {
   margin-bottom: 40px;
 }
 
+.browser-access-entry-note {
+  max-width: 760px;
+  margin: 18px auto 0;
+  padding: 14px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 158, 107, 0.18);
+  background: rgba(255, 158, 107, 0.08);
+  color: var(--color-text-light);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .browser-access-kicker {
   font-size: 0.78rem;
   font-weight: 800;

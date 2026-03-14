@@ -27,6 +27,7 @@ const CONFIG = {
 };
 
 const BROWSER_LOGIN_TOKEN_HEADER = "x-browser-login-token";
+const DASHBOARD_ENTRY_PATH = "/dashboard";
 
 const VIEW_ALIASES = {
   agents: "connections",
@@ -5803,6 +5804,16 @@ const UI = {
       });
     });
 
+    [
+      "landing-dashboard-entry",
+      "landing-mobile-dashboard-entry",
+      "hero-dashboard-entry",
+    ].forEach((id) => {
+      document.getElementById(id)?.addEventListener("click", (event) => {
+        this.handleLandingDashboardEntryClick(event);
+      });
+    });
+
     // Landing page: waitlist form
     document
       .getElementById("waitlist-form")
@@ -5826,6 +5837,161 @@ const UI = {
             ?.classList.remove("open");
         });
       });
+  },
+
+  getCurrentPath() {
+    const rawPath =
+      typeof window !== "undefined" && window.location?.pathname
+        ? window.location.pathname
+        : "/";
+    const normalizedPath = rawPath.replace(/\/+$/, "");
+
+    return normalizedPath || "/";
+  },
+
+  isDashboardEntryRoute() {
+    return this.getCurrentPath() === DASHBOARD_ENTRY_PATH;
+  },
+
+  getLandingDashboardEntryPresentation() {
+    const dashboardRouteActive = this.isDashboardEntryRoute();
+    const browserLoginState = Helpers.string(State.browserLogin?.status || "idle");
+    const browserLoginUsername = Helpers.string(State.browserLogin?.username);
+
+    if (State.user) {
+      const signedInUsername = Helpers.string(State.user.username || "you");
+      return {
+        action: "open_dashboard",
+        href: DASHBOARD_ENTRY_PATH,
+        navLabel: "Open dashboard",
+        mobileLabel: "Open dashboard",
+        heroLabel: "Open dashboard",
+        note: `Signed in as @${signedInUsername}. Opening the dashboard takes you straight back into Mahilo.`,
+        state: "authenticated",
+      };
+    }
+
+    if (
+      [
+        "submitting",
+        "pending",
+        "approved",
+        "redeeming",
+        "retry",
+        "expired",
+        "denied",
+      ].includes(browserLoginState)
+    ) {
+      const browserLoginLabel =
+        browserLoginState === "approved"
+          ? "Continue to dashboard"
+          : "Finish sign-in";
+      const note = browserLoginUsername
+        ? `Browser sign-in is already in progress for @${browserLoginUsername}. Finish the agent-approved flow below to open the dashboard.`
+        : "Browser sign-in is already in progress. Finish the agent-approved flow below to open the dashboard.";
+
+      return {
+        action: "scroll_browser_access",
+        href: "#browser-access-section",
+        navLabel: browserLoginLabel,
+        mobileLabel: browserLoginLabel,
+        heroLabel: browserLoginLabel,
+        note,
+        state: browserLoginState,
+      };
+    }
+
+    if (dashboardRouteActive) {
+      return {
+        action: "scroll_browser_access",
+        href: "#browser-access-section",
+        navLabel: "Sign in to dashboard",
+        mobileLabel: "Sign in",
+        heroLabel: "Sign in to dashboard",
+        note: "This dashboard entry is for invited or already signed-in users. Start the primary agent-backed sign-in below, or use the advanced API-key fallback only for an existing account.",
+        state: "signin",
+      };
+    }
+
+    return {
+      action: "navigate_dashboard",
+      href: DASHBOARD_ENTRY_PATH,
+      navLabel: "Open dashboard",
+      mobileLabel: "Open dashboard",
+      heroLabel: "Already invited? Open dashboard",
+      note: "Already invited? The dashboard entry takes you straight to browser access, while the public landing and waitlist stay available here.",
+      state: "marketing",
+    };
+  },
+
+  renderLandingDashboardEntry() {
+    const presentation = this.getLandingDashboardEntryPresentation();
+    const linkSpecs = [
+      {
+        id: "landing-dashboard-entry",
+        label: presentation.navLabel,
+      },
+      {
+        id: "landing-mobile-dashboard-entry",
+        label: presentation.mobileLabel,
+      },
+      {
+        id: "hero-dashboard-entry",
+        label: presentation.heroLabel,
+      },
+    ];
+
+    linkSpecs.forEach(({ id, label }) => {
+      const element = document.getElementById(id);
+      if (!element) {
+        return;
+      }
+
+      element.textContent = label;
+      element.setAttribute("href", presentation.href);
+      element.dataset.state = presentation.state;
+    });
+
+    const entryNote = document.getElementById("browser-access-entry-note");
+    if (entryNote) {
+      entryNote.textContent = presentation.note;
+    }
+
+    const browserAccessSection = document.getElementById("browser-access-section");
+    if (browserAccessSection) {
+      browserAccessSection.classList.toggle(
+        "dashboard-entry-focus",
+        presentation.action === "scroll_browser_access",
+      );
+      browserAccessSection.dataset.entryState = presentation.state;
+    }
+  },
+
+  focusBrowserAccessEntry() {
+    const browserAccessSection = document.getElementById("browser-access-section");
+    if (browserAccessSection) {
+      browserAccessSection.classList.add("dashboard-entry-focus");
+      browserAccessSection.scrollIntoView({ behavior: "smooth" });
+    }
+
+    document.getElementById("agent-login-username")?.focus();
+  },
+
+  handleLandingDashboardEntryClick(event) {
+    const presentation = this.getLandingDashboardEntryPresentation();
+    if (presentation.action === "navigate_dashboard") {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (presentation.action === "open_dashboard") {
+      this.showDashboard();
+    } else {
+      this.focusBrowserAccessEntry();
+    }
+
+    document.getElementById("landing-mobile-menu")?.classList.remove("open");
   },
 
   normalizeBrowserLoginAttempt(value) {
@@ -6172,6 +6338,8 @@ const UI = {
       resetButton.classList.toggle("hidden", !presentation.showReset);
       resetButton.disabled = browserLogin.status === "redeeming";
     }
+
+    this.renderLandingDashboardEntry();
   },
 
   async handleAgentBrowserLogin() {
@@ -8639,6 +8807,9 @@ const UI = {
     document.getElementById("ws-status").style.display = "none";
     this.renderBrowserLogin();
     this.initLandingAnimations();
+    if (this.isDashboardEntryRoute() && !State.user) {
+      this.focusBrowserAccessEntry();
+    }
   },
 
   // Initialize landing page animations

@@ -46,9 +46,10 @@
                 >Join waitlist</a
               >
               <a
-                href="#browser-access-section"
+                id="landing-dashboard-entry"
+                href="/dashboard#browser-access-section"
                 class="landing-btn landing-btn-primary landing-btn-small"
-                >Sign in</a
+                >Open dashboard</a
               >
             </div>
             <button
@@ -62,8 +63,11 @@
               <a href="#waitlist-section" class="landing-mobile-link"
                 >Join waitlist</a
               >
-              <a href="#browser-access-section" class="landing-mobile-link"
-                >Sign in</a
+              <a
+                id="landing-mobile-dashboard-entry"
+                href="/dashboard#browser-access-section"
+                class="landing-mobile-link"
+                >Open dashboard</a
               >
             </div>
           </div>
@@ -202,10 +206,11 @@
                 Join the waitlist <span class="btn-arrow">&rarr;</span>
               </a>
               <a
-                href="#browser-access-section"
+                id="hero-dashboard-entry"
+                href="/dashboard#browser-access-section"
                 class="landing-btn landing-btn-ghost landing-btn-large hero-cta-link hero-cta-secondary"
               >
-                Already invited? Sign in
+                Already invited? Open dashboard
               </a>
             </div>
             <p class="hero-fine-print">
@@ -657,6 +662,13 @@
                 self-serve browser registration flow. Agent-backed sign-in is
                 the primary path. Manual API-key entry stays available only as
                 an advanced fallback for existing invite-backed accounts.
+              </p>
+              <p
+                id="browser-access-entry-note"
+                class="browser-access-entry-note"
+              >
+                Already invited? Use the dashboard entry to reach this
+                invite-backed sign-in path without digging for hidden routes.
               </p>
             </div>
 

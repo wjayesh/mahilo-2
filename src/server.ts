@@ -60,6 +60,8 @@ export function createApp() {
 
   // Serve invite page at clean URL
   app.get("/invite", serveStatic({ path: "./public/invite.html" }));
+  app.get("/dashboard", serveStatic({ path: "./public/index.html" }));
+  app.get("/dashboard/", serveStatic({ path: "./public/index.html" }));
 
   // Serve static files (dashboard)
   app.use("/*", serveStatic({ root: "./public" }));

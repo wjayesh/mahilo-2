@@ -310,6 +310,27 @@ describe("Auth Routes Integration", () => {
     });
   });
 
+  describe("Landing/dashboard entry route (DASH-090)", () => {
+    it("keeps the public landing page at root and serves the shared shell at /dashboard", async () => {
+      const landing = await app.request("/");
+      expect(landing.status).toBe(200);
+      const landingHtml = await landing.text();
+      expect(landingHtml).toContain('id="waitlist-section"');
+      expect(landingHtml).toContain(
+        'href="/dashboard#browser-access-section"',
+      );
+
+      const dashboardEntry = await app.request("/dashboard");
+      expect(dashboardEntry.status).toBe(200);
+      const dashboardHtml = await dashboardEntry.text();
+      expect(dashboardHtml).toContain('id="browser-access-section"');
+      expect(dashboardHtml).toContain('id="dashboard-screen"');
+      expect(dashboardHtml).toContain(
+        'href="/dashboard#browser-access-section"',
+      );
+    });
+  });
+
   describe("POST /api/v1/auth/logout", () => {
     it("should revoke the current browser session and clear the session cookie", async () => {
       const { user, apiKey } = await createTestUser("logout_browser_user");
@@ -1097,6 +1118,16 @@ describe("General API Tests", () => {
     const data = await res.json();
     expect(data.status).toBe("healthy");
     expect(data.version).toBe("0.1.0");
+  });
+
+  it("should serve the dashboard entry route from /dashboard", async () => {
+    const res = await app.request("/dashboard");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+
+    const html = await res.text();
+    expect(html).toContain("Open dashboard");
+    expect(html).toContain('id="browser-access-section"');
   });
 
   it("should return 404 for unknown routes", async () => {
