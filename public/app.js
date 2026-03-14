@@ -6,10 +6,17 @@
 // ========================================
 // Configuration
 // ========================================
+const APP_ORIGIN =
+  typeof window !== 'undefined' &&
+  window.location.origin &&
+  window.location.origin !== 'null'
+    ? window.location.origin
+    : 'https://mahilo.io';
+const WS_ORIGIN = APP_ORIGIN.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+
 const CONFIG = {
-  // Always use production mahilo.io server
-  API_URL: 'https://mahilo.io/api/v1',
-  WS_URL: 'wss://mahilo.io/api/v1/notifications/ws',
+  API_URL: `${APP_ORIGIN}/api/v1`,
+  WS_URL: `${WS_ORIGIN}/api/v1/notifications/ws`,
 
   STORAGE_KEY: 'mahilo_session',
   PING_INTERVAL: 30000,
@@ -23,10 +30,22 @@ const State = {
   apiKey: null,
   ws: null,
   agents: [],
+  agentsById: new Map(),
   friends: [],
+  friendsById: new Map(),
   groups: [],
+  groupsById: new Map(),
   messages: [],
+  messagesById: new Map(),
   policies: [],
+  policiesById: new Map(),
+  reviews: [],
+  reviewsById: new Map(),
+  reviewQueue: null,
+  blockedEvents: [],
+  blockedEventsById: new Map(),
+  blockedEventRetention: null,
+  preferences: null,
   conversations: new Map(),
   currentView: 'overview',
   selectedChat: null,
@@ -39,9 +58,9 @@ const State = {
     if (session) {
       try {
         const data = JSON.parse(session);
-        this.apiKey = data.apiKey;
-        this.user = data.user;
-        return true;
+        this.apiKey = typeof data.apiKey === 'string' ? data.apiKey : null;
+        this.user = Normalizers.user(data.user);
+        return Boolean(this.apiKey && this.user);
       } catch (e) {
         console.error('Failed to parse session:', e);
       }
@@ -51,9 +70,22 @@ const State = {
 
   // Save state to localStorage
   save() {
+    const user = this.user
+      ? {
+          user_id: this.user.user_id,
+          username: this.user.username,
+          display_name: this.user.display_name,
+          created_at: this.user.created_at,
+          registration_source: this.user.registration_source,
+          status: this.user.status,
+          verified: this.user.verified,
+          verified_at: this.user.verified_at,
+        }
+      : null;
+
     localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify({
       apiKey: this.apiKey,
-      user: this.user,
+      user,
     }));
   },
 
@@ -62,11 +94,24 @@ const State = {
     this.user = null;
     this.apiKey = null;
     this.agents = [];
+    this.agentsById = new Map();
     this.friends = [];
+    this.friendsById = new Map();
     this.groups = [];
+    this.groupsById = new Map();
     this.messages = [];
+    this.messagesById = new Map();
     this.policies = [];
-    this.conversations.clear();
+    this.policiesById = new Map();
+    this.reviews = [];
+    this.reviewsById = new Map();
+    this.reviewQueue = null;
+    this.blockedEvents = [];
+    this.blockedEventsById = new Map();
+    this.blockedEventRetention = null;
+    this.preferences = null;
+    this.conversations = new Map();
+    this.currentView = 'overview';
     this.selectedChat = null;
     this.wsConnected = false;
     localStorage.removeItem(CONFIG.STORAGE_KEY);
@@ -289,6 +334,742 @@ const API = {
       return API.request(`/contacts/${username}/connections`);
     },
   },
+
+  // Plugin inspection endpoints
+  plugin: {
+    async reviews(options = {}) {
+      const params = new URLSearchParams();
+      if (options.status) params.append('status', options.status);
+      if (options.direction) params.append('direction', options.direction);
+      if (options.limit) params.append('limit', options.limit);
+      const query = params.toString();
+      return API.request(`/plugin/reviews${query ? `?${query}` : ''}`);
+    },
+
+    async blockedEvents(options = {}) {
+      const params = new URLSearchParams();
+      if (options.direction) params.append('direction', options.direction);
+      if (options.limit) params.append('limit', options.limit);
+      if (options.includePayloadExcerpt) {
+        params.append('include_payload_excerpt', 'true');
+      }
+      const query = params.toString();
+      return API.request(`/plugin/events/blocked${query ? `?${query}` : ''}`);
+    },
+  },
+};
+
+// ========================================
+// Data Normalization
+// ========================================
+const Helpers = {
+  isObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  },
+
+  record(value) {
+    return this.isObject(value) ? value : {};
+  },
+
+  collection(value, keys = []) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    const record = this.record(value);
+    for (const key of keys) {
+      if (Array.isArray(record[key])) {
+        return record[key];
+      }
+    }
+
+    return [];
+  },
+
+  nullableString(value) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : null;
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    return null;
+  },
+
+  participantLabel(value) {
+    if (this.isObject(value)) {
+      return (
+        this.nullableString(
+          value.username ??
+            value.user_id ??
+            value.display_name ??
+            value.displayName ??
+            value.name ??
+            value.id ??
+            value.connection_id
+        ) || null
+      );
+    }
+
+    return this.nullableString(value);
+  },
+
+  participantType(value) {
+    return this.isObject(value) ? this.nullableString(value.type) : null;
+  },
+
+  recipientLabel(value, recipientType = 'user') {
+    if (recipientType === 'group') {
+      if (typeof value === 'string') {
+        return this.nullableString(value);
+      }
+
+      if (this.isObject(value)) {
+        return this.nullableString(value.name ?? value.label);
+      }
+
+      return null;
+    }
+
+    return this.participantLabel(value);
+  },
+
+  string(value, fallback = '') {
+    return this.nullableString(value) ?? fallback;
+  },
+
+  number(value, fallback = 0) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    return fallback;
+  },
+
+  stringList(value) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .map((item) => this.nullableString(item))
+      .filter(Boolean);
+  },
+
+  iso(value) {
+    const raw =
+      value instanceof Date
+        ? value.toISOString()
+        : typeof value === 'string'
+          ? value
+          : null;
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = Date.parse(raw);
+    return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+  },
+
+  contentText(value) {
+    if (value == null) {
+      return '';
+    }
+
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  },
+
+  truncate(value, limit = 120) {
+    const text = this.string(value);
+    return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+  },
+
+  timestampValue(value) {
+    if (!value) {
+      return 0;
+    }
+
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  },
+
+  compareByTimestampDesc(left, right) {
+    return this.timestampValue(right.timestamp || right.createdAt) - this.timestampValue(left.timestamp || left.createdAt);
+  },
+
+  compareByTimestampAsc(left, right) {
+    return this.timestampValue(left.timestamp || left.createdAt) - this.timestampValue(right.timestamp || right.createdAt);
+  },
+
+  collectionModel(items, getId = (item) => item?.id) {
+    const byId = new Map();
+    const ids = [];
+
+    items.forEach((item) => {
+      const id = this.nullableString(getId(item));
+      if (!id) {
+        return;
+      }
+
+      if (!byId.has(id)) {
+        ids.push(id);
+      }
+
+      byId.set(id, item);
+    });
+
+    return {
+      ids,
+      byId,
+      items: ids
+        .map((id) => byId.get(id))
+        .filter(Boolean),
+    };
+  },
+
+  mergeCollectionModels(models, getId = (item) => item?.id) {
+    return this.collectionModel(
+      models.flatMap((model) => (Array.isArray(model?.items) ? model.items : [])),
+      getId
+    );
+  },
+
+  applyCollectionState(stateKey, indexKey, model) {
+    State[stateKey] = Array.isArray(model?.items) ? model.items : [];
+    State[indexKey] = model?.byId instanceof Map ? model.byId : new Map();
+  },
+
+  normalizeTransportDirection(record, currentUsername) {
+    const sender = this.participantLabel(record.sender);
+    const recipient = this.participantLabel(record.recipient);
+    const queueDirection = this.nullableString(record.queue_direction);
+    const normalizedCurrentUser = currentUsername?.toLowerCase() || null;
+
+    if (queueDirection === 'outbound') {
+      return 'sent';
+    }
+
+    if (queueDirection === 'inbound') {
+      return 'received';
+    }
+
+    if (normalizedCurrentUser && sender?.toLowerCase() === normalizedCurrentUser) {
+      return 'sent';
+    }
+
+    if (normalizedCurrentUser && recipient?.toLowerCase() === normalizedCurrentUser) {
+      return 'received';
+    }
+
+    if (sender && !recipient) {
+      return 'received';
+    }
+
+    if (recipient && !sender) {
+      return 'sent';
+    }
+
+    return 'sent';
+  },
+
+  buildConversations(messages) {
+    const threads = new Map();
+
+    messages
+      .filter((message) => message.kind === 'message' && message.counterpart)
+      .slice()
+      .sort((left, right) => this.compareByTimestampAsc(left, right))
+      .forEach((message) => {
+        const thread = threads.get(message.counterpart) || [];
+        thread.push({
+          id: message.id,
+          message: message.messageText,
+          previewText: message.previewText,
+          timestamp: message.timestamp,
+          sent: message.isSent,
+          status: message.status,
+          sender: message.sender,
+          recipient: message.recipient,
+          recipientType: message.recipientType,
+          counterpartLabel: message.counterpartLabel,
+        });
+        threads.set(message.counterpart, thread);
+      });
+
+    return threads;
+  },
+
+  rebuildConversations() {
+    State.conversations = this.buildConversations(State.messages);
+  },
+
+  upsertMessage(message) {
+    if (!message) {
+      return;
+    }
+
+    const existing = State.messagesById.get(message.id) || null;
+    State.messagesById.set(
+      message.id,
+      existing
+        ? {
+            ...existing,
+            ...message,
+          }
+        : message
+    );
+
+    State.messages = Array.from(State.messagesById.values()).sort((left, right) =>
+      this.compareByTimestampDesc(left, right)
+    );
+    this.rebuildConversations();
+  },
+
+  logFeed(messages, reviews, blockedEvents, direction = 'all') {
+    return [...messages, ...reviews, ...blockedEvents]
+      .filter((item) => {
+        if (direction === 'all') {
+          return true;
+        }
+        return item.transportDirection === direction;
+      })
+      .sort((left, right) => this.compareByTimestampDesc(left, right));
+  },
+};
+
+const Normalizers = {
+  user(value) {
+    const record = Helpers.record(value);
+    const username = Helpers.nullableString(record.username);
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      user_id: Helpers.string(record.user_id ?? record.id, username),
+      username,
+      display_name: Helpers.nullableString(record.display_name ?? record.displayName),
+      created_at: Helpers.iso(record.created_at ?? record.createdAt),
+      registration_source: Helpers.nullableString(record.registration_source ?? record.registrationSource),
+      status: Helpers.nullableString(record.status),
+      verified: Boolean(record.verified),
+      verified_at: Helpers.iso(record.verified_at ?? record.verifiedAt),
+      raw: value,
+    };
+  },
+
+  agents(value) {
+    return Helpers.collection(value, ['agents', 'connections', 'items'])
+      .map((entry) => this.agent(entry))
+      .filter(Boolean);
+  },
+
+  agentsModel(value) {
+    return Helpers.collectionModel(this.agents(value), (agent) => agent.id);
+  },
+
+  agent(value) {
+    const record = Helpers.record(value);
+    const id = Helpers.nullableString(record.id ?? record.connection_id);
+
+    if (!id) {
+      return null;
+    }
+
+    return {
+      id,
+      label: Helpers.string(record.label, id),
+      framework: Helpers.string(record.framework, 'unknown'),
+      description: Helpers.nullableString(record.description),
+      capabilities: Helpers.stringList(record.capabilities),
+      routingPriority: Helpers.number(record.routing_priority ?? record.routingPriority, 0),
+      callbackUrl: Helpers.nullableString(record.callback_url ?? record.callbackUrl),
+      publicKey: Helpers.nullableString(record.public_key ?? record.publicKey),
+      publicKeyAlg: Helpers.nullableString(record.public_key_alg ?? record.publicKeyAlg),
+      status: Helpers.string(record.status, 'unknown'),
+      lastSeen: Helpers.iso(record.last_seen ?? record.lastSeen),
+      createdAt: Helpers.iso(record.created_at ?? record.createdAt),
+      raw: value,
+    };
+  },
+
+  friends(value) {
+    return Helpers.collection(value, ['friends', 'items', 'results', 'data'])
+      .map((entry) => this.friend(entry))
+      .filter(Boolean);
+  },
+
+  friendsModel(value) {
+    return Helpers.collectionModel(this.friends(value), (friend) => friend.friendshipId);
+  },
+
+  friend(value) {
+    const record = Helpers.record(value);
+    const friendshipId = Helpers.nullableString(record.friendship_id ?? record.id);
+
+    if (!friendshipId) {
+      return null;
+    }
+
+    const username =
+      Helpers.nullableString(record.username) ||
+      Helpers.nullableString(record.user_id) ||
+      friendshipId;
+
+    return {
+      id: friendshipId,
+      friendshipId,
+      userId: Helpers.nullableString(record.user_id),
+      username,
+      displayName:
+        Helpers.nullableString(record.display_name ?? record.displayName) ||
+        username,
+      status: Helpers.string(record.status, 'pending'),
+      direction: Helpers.string(record.direction, 'received'),
+      since: Helpers.iso(record.since ?? record.created_at ?? record.createdAt),
+      roles: Helpers.stringList(record.roles),
+      interactionCount: Helpers.number(record.interaction_count ?? record.interactionCount, 0),
+      raw: value,
+    };
+  },
+
+  groups(value) {
+    return Helpers.collection(value, ['groups', 'items', 'results', 'data'])
+      .map((entry) => this.group(entry))
+      .filter(Boolean);
+  },
+
+  groupsModel(value) {
+    return Helpers.collectionModel(this.groups(value), (group) => group.id);
+  },
+
+  group(value) {
+    const record = Helpers.record(value);
+    const id = Helpers.nullableString(record.group_id ?? record.id);
+
+    if (!id) {
+      return null;
+    }
+
+    return {
+      id,
+      name: Helpers.string(record.name, id),
+      description: Helpers.nullableString(record.description),
+      inviteOnly: Boolean(record.invite_only ?? record.inviteOnly),
+      role: Helpers.nullableString(record.role),
+      status: Helpers.nullableString(record.status),
+      memberCount: Helpers.number(record.member_count ?? record.memberCount, 0),
+      createdAt: Helpers.iso(record.created_at ?? record.createdAt),
+      raw: value,
+    };
+  },
+
+  messages(value, options = {}) {
+    return Helpers.collection(value, ['messages', 'items', 'results', 'data'])
+      .map((entry) => this.message(entry, options))
+      .filter(Boolean)
+      .sort((left, right) => Helpers.compareByTimestampDesc(left, right));
+  },
+
+  messagesModel(value, options = {}) {
+    return Helpers.collectionModel(this.messages(value, options), (message) => message.id);
+  },
+
+  message(value, options = {}) {
+    const record = Helpers.record(value);
+    const timestamp =
+      Helpers.iso(record.created_at ?? record.timestamp ?? record.delivered_at ?? record.createdAt) ||
+      new Date().toISOString();
+    const transportDirection = Helpers.normalizeTransportDirection(record, options.currentUsername);
+    const sender =
+      Helpers.participantLabel(record.sender) ||
+      (transportDirection === 'sent' ? options.currentUsername : null) ||
+      'Unknown sender';
+    const recipientType =
+      Helpers.nullableString(record.recipient_type) ||
+      Helpers.participantType(record.recipient) ||
+      'user';
+    const recipient =
+      Helpers.recipientLabel(record.recipient, recipientType) ||
+      (recipientType === 'group' ? 'Group conversation' : options.currentUsername) ||
+      'Unknown recipient';
+    const id =
+      Helpers.nullableString(record.id ?? record.message_id) ||
+      `message_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const messageText = Helpers.contentText(
+      record.message ?? record.payload ?? record.message_preview ?? record.stored_payload_excerpt
+    );
+    const counterpart = transportDirection === 'sent' ? recipient : sender;
+    const status = Helpers.string(record.status ?? record.delivery_status, 'pending');
+
+    return {
+      kind: 'message',
+      id,
+      messageId: Helpers.string(record.message_id ?? record.id, id),
+      senderId: Helpers.nullableString(
+        record.sender_user_id ?? record.sender?.user_id ?? record.sender?.id
+      ),
+      sender,
+      recipientId: Helpers.nullableString(
+        record.recipient_id ?? record.recipient?.user_id ?? record.recipient?.id
+      ),
+      recipient,
+      recipientType,
+      transportDirection,
+      isSent: transportDirection === 'sent',
+      counterpart,
+      counterpartLabel: counterpart || (transportDirection === 'sent' ? recipient : sender),
+      status,
+      deliveryStatus: Helpers.string(record.delivery_status, status),
+      timestamp,
+      createdAt: timestamp,
+      deliveredAt: Helpers.iso(record.delivered_at ?? record.deliveredAt),
+      messageText,
+      previewText: Helpers.truncate(messageText, 120),
+      context: Helpers.contentText(record.context ?? record.context_preview),
+      senderAgent: Helpers.nullableString(
+        record.sender_agent ?? record.sender?.agent ?? record.sender?.label
+      ),
+      senderConnectionId: Helpers.nullableString(
+        record.sender_connection_id ?? record.sender?.connection_id ?? record.sender?.id
+      ),
+      recipientConnectionId: Helpers.nullableString(
+        record.recipient_connection_id ?? record.recipient?.connection_id ?? record.recipient?.id
+      ),
+      correlationId: Helpers.nullableString(record.correlation_id),
+      selectors: {
+        direction: Helpers.nullableString(
+          record.direction ?? record.selectors?.direction ?? record.classified_direction
+        ),
+        resource: Helpers.nullableString(
+          record.resource ?? record.selectors?.resource ?? record.classified_resource
+        ),
+        action: Helpers.nullableString(
+          record.action ?? record.selectors?.action ?? record.classified_action
+        ),
+      },
+      replyPolicies: Helpers.isObject(record.reply_policies) ? record.reply_policies : null,
+      raw: value,
+    };
+  },
+
+  policies(value) {
+    return Helpers.collection(value, ['policies', 'items', 'results', 'data'])
+      .map((entry) => this.policy(entry))
+      .filter(Boolean);
+  },
+
+  policiesModel(value) {
+    return Helpers.collectionModel(this.policies(value), (policy) => policy.id);
+  },
+
+  policy(value) {
+    const record = Helpers.record(value);
+    const id = Helpers.nullableString(record.id ?? record.policy_id);
+
+    if (!id) {
+      return null;
+    }
+
+    const evaluator = Helpers.string(record.evaluator ?? record.policy_type, 'llm');
+
+    return {
+      id,
+      scope: Helpers.string(record.scope, 'global'),
+      targetId: Helpers.nullableString(record.target_id),
+      direction: Helpers.string(record.direction, 'outbound'),
+      resource: Helpers.string(record.resource, 'message.general'),
+      action: Helpers.nullableString(record.action) || 'share',
+      effect: Helpers.string(record.effect, 'deny'),
+      evaluator,
+      policyType: evaluator,
+      content: record.policy_content,
+      contentText: Helpers.contentText(record.policy_content),
+      priority: Helpers.number(record.priority, 0),
+      enabled: record.enabled !== false,
+      source: Helpers.nullableString(record.source),
+      createdAt: Helpers.iso(record.created_at ?? record.createdAt),
+      raw: value,
+    };
+  },
+
+  preferences(value) {
+    const record = Helpers.record(value);
+    const quietHours = Helpers.record(record.quiet_hours ?? record.quietHours);
+
+    return {
+      preferredChannel: Helpers.nullableString(
+        record.preferred_channel ?? record.preferredChannel
+      ),
+      urgentBehavior: Helpers.string(
+        record.urgent_behavior ?? record.urgentBehavior,
+        'preferred_only'
+      ),
+      quietHours: {
+        enabled: Boolean(quietHours.enabled),
+        start: Helpers.string(quietHours.start, '22:00'),
+        end: Helpers.string(quietHours.end, '07:00'),
+        timezone: Helpers.string(quietHours.timezone, 'UTC'),
+      },
+      defaultLlmProvider: Helpers.nullableString(
+        record.default_llm_provider ?? record.defaultLlmProvider
+      ),
+      defaultLlmModel: Helpers.nullableString(
+        record.default_llm_model ?? record.defaultLlmModel
+      ),
+      raw: value,
+    };
+  },
+
+  reviews(value) {
+    return Helpers.collection(value, ['reviews', 'items', 'results', 'data'])
+      .map((entry) => this.review(entry))
+      .filter(Boolean);
+  },
+
+  reviewsModel(value) {
+    return Helpers.collectionModel(this.reviews(value), (review) => review.id);
+  },
+
+  review(value) {
+    const record = Helpers.record(value);
+    const id = Helpers.nullableString(record.review_id ?? record.id);
+
+    if (!id) {
+      return null;
+    }
+
+    const queueDirection = Helpers.string(record.queue_direction, 'outbound');
+    const transportDirection = queueDirection === 'inbound' ? 'received' : 'sent';
+
+    return {
+      kind: 'review',
+      id,
+      reviewId: id,
+      messageId: Helpers.nullableString(record.message_id) || id,
+      queueDirection,
+      transportDirection,
+      status: Helpers.string(record.status, 'approval_pending'),
+      decision: Helpers.string(record.decision, 'ask'),
+      deliveryMode: Helpers.nullableString(record.delivery_mode),
+      summary: Helpers.string(record.summary, 'Message requires review before delivery.'),
+      reasonCode: Helpers.nullableString(record.reason_code),
+      timestamp: Helpers.iso(record.created_at ?? record.timestamp) || new Date().toISOString(),
+      messagePreview: Helpers.contentText(record.message_preview),
+      contextPreview: Helpers.contentText(record.context_preview),
+      sender: Helpers.participantLabel(record.sender) || 'Unknown sender',
+      recipient:
+        Helpers.recipientLabel(
+          record.recipient,
+          Helpers.participantType(record.recipient) || 'user'
+        ) ||
+        (Helpers.participantType(record.recipient) === 'group'
+          ? 'Group conversation'
+          : 'Unknown recipient'),
+      selectors: {
+        direction: Helpers.nullableString(record.selectors?.direction),
+        resource: Helpers.nullableString(record.selectors?.resource),
+        action: Helpers.nullableString(record.selectors?.action),
+      },
+      raw: value,
+    };
+  },
+
+  blockedEvents(value) {
+    return Helpers.collection(value, ['blocked_events', 'items', 'results', 'data'])
+      .map((entry) => this.blockedEvent(entry))
+      .filter(Boolean);
+  },
+
+  blockedEventsModel(value) {
+    return Helpers.collectionModel(this.blockedEvents(value), (blockedEvent) => blockedEvent.id);
+  },
+
+  blockedEventRetention(value) {
+    const record = Helpers.record(Helpers.record(value).retention);
+
+    return {
+      blockedEventLog: Helpers.nullableString(record.blocked_event_log),
+      payloadExcerptDefault: Helpers.nullableString(record.payload_excerpt_default),
+      payloadExcerptIncluded: Boolean(record.payload_excerpt_included),
+      payloadHashAlgorithm: Helpers.nullableString(record.payload_hash_algorithm),
+      sourceMessagePayload: Helpers.nullableString(record.source_message_payload),
+      raw: record,
+    };
+  },
+
+  blockedEvent(value) {
+    const record = Helpers.record(value);
+    const id = Helpers.nullableString(record.id ?? record.blocked_event_id);
+
+    if (!id) {
+      return null;
+    }
+
+    const queueDirection = Helpers.string(record.queue_direction, 'outbound');
+    const transportDirection = queueDirection === 'inbound' ? 'received' : 'sent';
+
+    return {
+      kind: 'blocked',
+      id,
+      blockedEventId: id,
+      messageId: Helpers.nullableString(record.message_id) || id,
+      queueDirection,
+      transportDirection,
+      status: Helpers.string(record.status, 'rejected'),
+      reason: Helpers.string(record.reason, 'Message blocked by policy.'),
+      reasonCode: Helpers.nullableString(record.reason_code),
+      timestamp: Helpers.iso(record.timestamp ?? record.created_at) || new Date().toISOString(),
+      sender: Helpers.participantLabel(record.sender) || 'Unknown sender',
+      recipient:
+        Helpers.recipientLabel(
+          record.recipient,
+          Helpers.participantType(record.recipient) || 'user'
+        ) ||
+        (Helpers.participantType(record.recipient) === 'group'
+          ? 'Group conversation'
+          : 'Unknown recipient'),
+      storedPayloadExcerpt: Helpers.contentText(record.stored_payload_excerpt),
+      payloadHash: Helpers.nullableString(record.payload_hash),
+      selectors: {
+        direction: Helpers.nullableString(record.direction),
+        resource: Helpers.nullableString(record.resource),
+        action: Helpers.nullableString(record.action),
+      },
+      raw: value,
+    };
+  },
+
+  reviewQueue(value) {
+    const record = Helpers.record(Helpers.record(value).review_queue);
+
+    return {
+      count: Helpers.number(record.count, 0),
+      direction: Helpers.nullableString(record.direction),
+      statuses: Helpers.stringList(record.statuses),
+      raw: record,
+    };
+  },
 };
 
 // ========================================
@@ -409,21 +1190,38 @@ const WebSocketManager = {
   },
 
   handleNewMessage(data) {
-    // Update conversations
-    const sender = data.sender;
-    if (!State.conversations.has(sender)) {
-      State.conversations.set(sender, []);
+    const message = Normalizers.message(data, {
+      currentUsername: State.user?.username,
+    });
+
+    if (!message) {
+      return;
     }
-    State.conversations.get(sender).push(data);
+
+    Helpers.upsertMessage(message);
 
     // Show notification
-    UI.showToast(`New message from ${sender}`, 'info');
+    UI.showToast(`New message from ${message.counterpartLabel}`, 'info');
 
-    // Update UI if in messages view
-    if (State.currentView === 'messages') {
-      UI.renderConversations();
-      if (State.selectedChat === sender) {
-        UI.renderChat(sender);
+    UI.renderOverviewMessages();
+    UI.renderLogs();
+    UI.renderConversations();
+    UI.renderDevConversations();
+
+    if (State.currentView === 'messages' && State.selectedChat === message.counterpart) {
+      UI.renderChat(message.counterpart);
+    }
+
+    if (State.currentView === 'developer' && State.selectedChat === message.counterpart) {
+      UI.renderDevChat(message.counterpart);
+    }
+
+    if (!State.selectedChat && message.counterpart) {
+      if (State.currentView === 'messages') {
+        UI.selectChat(message.counterpart);
+      }
+      if (State.currentView === 'developer') {
+        UI.selectDevChat(message.counterpart);
       }
     }
 
@@ -436,19 +1234,43 @@ const WebSocketManager = {
 // Data Loader
 // ========================================
 const DataLoader = {
+  async bootstrap() {
+    const user = Normalizers.user(await API.auth.me());
+
+    if (!user) {
+      throw new Error('Unable to load the current user');
+    }
+
+    State.user = user;
+    State.save();
+    UI.showDashboard();
+
+    await this.loadAll();
+  },
+
   async loadAll() {
     await Promise.all([
       this.loadAgents(),
       this.loadFriends(),
       this.loadGroups(),
-      this.loadMessages(),
+      this.loadLogFeed(),
       this.loadPolicies(),
+      this.loadPreferences(),
+    ]);
+  },
+
+  async loadLogFeed() {
+    await Promise.all([
+      this.loadMessages(),
+      this.loadReviewQueue(),
+      this.loadBlockedEvents(),
     ]);
   },
 
   async loadAgents() {
     try {
-      State.agents = await API.agents.list();
+      const agentsModel = Normalizers.agentsModel(await API.agents.list());
+      Helpers.applyCollectionState('agents', 'agentsById', agentsModel);
       UI.updateAgentCount(State.agents.length);
       UI.renderAgents();
       UI.renderOverviewAgents();
@@ -459,13 +1281,36 @@ const DataLoader = {
 
   async loadFriends() {
     try {
-      const all = await API.friends.list('accepted');
-      const pending = await API.friends.list('pending');
-      State.friends = [...all, ...pending];
-      UI.updateFriendCount(all.length);
-      UI.updatePendingCount(pending.filter(f => f.direction === 'received').length);
+      const [accepted, pending, blocked] = await Promise.all([
+        API.friends.list('accepted'),
+        API.friends.list('pending'),
+        API.friends.list('blocked'),
+      ]);
+
+      const acceptedFriendsModel = Normalizers.friendsModel(accepted);
+      const pendingFriendsModel = Normalizers.friendsModel(pending);
+      const blockedFriendsModel = Normalizers.friendsModel(blocked);
+
+      Helpers.applyCollectionState(
+        'friends',
+        'friendsById',
+        Helpers.mergeCollectionModels(
+          [acceptedFriendsModel, pendingFriendsModel, blockedFriendsModel],
+          (friend) => friend.friendshipId
+        )
+      );
+      UI.updateFriendCount(acceptedFriendsModel.items.length);
+      UI.updatePendingCount(
+        pendingFriendsModel.items.filter((friend) => friend.direction === 'received').length
+      );
       UI.renderFriends();
       UI.renderOverviewFriends();
+      UI.renderConversations();
+      UI.renderDevConversations();
+      if (State.selectedChat) {
+        UI.renderChat(State.selectedChat);
+        UI.renderDevChat(State.selectedChat);
+      }
     } catch (error) {
       console.error('Failed to load friends:', error);
     }
@@ -473,7 +1318,8 @@ const DataLoader = {
 
   async loadGroups() {
     try {
-      State.groups = await API.groups.list();
+      const groupsModel = Normalizers.groupsModel(await API.groups.list());
+      Helpers.applyCollectionState('groups', 'groupsById', groupsModel);
       UI.updateGroupCount(State.groups.length);
       UI.renderGroups();
       UI.renderOverviewGroups();
@@ -484,9 +1330,22 @@ const DataLoader = {
 
   async loadMessages() {
     try {
-      State.messages = await API.messages.list({ limit: 50 });
-      UI.renderMessages();
+      const messagesModel = Normalizers.messagesModel(
+        await API.messages.list({ limit: 50 }),
+        {
+          currentUsername: State.user?.username,
+        }
+      );
+      Helpers.applyCollectionState('messages', 'messagesById', messagesModel);
+      Helpers.rebuildConversations();
+      UI.renderConversations();
+      UI.renderDevConversations();
+      if (State.selectedChat) {
+        UI.renderChat(State.selectedChat);
+        UI.renderDevChat(State.selectedChat);
+      }
       UI.renderOverviewMessages();
+      UI.renderLogs();
     } catch (error) {
       console.error('Failed to load messages:', error);
     }
@@ -494,7 +1353,8 @@ const DataLoader = {
 
   async loadPolicies() {
     try {
-      State.policies = await API.policies.list();
+      const policiesModel = Normalizers.policiesModel(await API.policies.list());
+      Helpers.applyCollectionState('policies', 'policiesById', policiesModel);
       UI.renderPolicies();
     } catch (error) {
       console.error('Failed to load policies:', error);
@@ -503,10 +1363,45 @@ const DataLoader = {
 
   async loadPreferences() {
     try {
-      State.preferences = await API.preferences.get();
+      State.preferences = Normalizers.preferences(await API.preferences.get());
       UI.renderSettings();
     } catch (error) {
+      State.preferences = null;
       console.error('Failed to load preferences:', error);
+    }
+  },
+
+  async loadReviewQueue() {
+    try {
+      const payload = await API.plugin.reviews({ limit: 25 });
+      State.reviewQueue = Normalizers.reviewQueue(payload);
+      const reviewsModel = Normalizers.reviewsModel(payload);
+      Helpers.applyCollectionState('reviews', 'reviewsById', reviewsModel);
+      UI.renderLogs();
+    } catch (error) {
+      State.reviewQueue = null;
+      State.reviews = [];
+      State.reviewsById = new Map();
+      console.error('Failed to load review queue:', error);
+    }
+  },
+
+  async loadBlockedEvents() {
+    try {
+      const payload = await API.plugin.blockedEvents({ limit: 25 });
+      State.blockedEventRetention = Normalizers.blockedEventRetention(payload);
+      const blockedEventsModel = Normalizers.blockedEventsModel(payload);
+      Helpers.applyCollectionState(
+        'blockedEvents',
+        'blockedEventsById',
+        blockedEventsModel
+      );
+      UI.renderLogs();
+    } catch (error) {
+      State.blockedEventRetention = null;
+      State.blockedEvents = [];
+      State.blockedEventsById = new Map();
+      console.error('Failed to load blocked events:', error);
     }
   },
 };
@@ -522,11 +1417,17 @@ const UI = {
   },
 
   // Check authentication status
-  checkAuth() {
+  async checkAuth() {
     if (State.init()) {
-      this.showDashboard();
-      DataLoader.loadAll();
-      WebSocketManager.connect();
+      try {
+        await DataLoader.bootstrap();
+        WebSocketManager.connect();
+      } catch (error) {
+        console.error('Failed to resume dashboard session:', error);
+        State.clear();
+        this.showLanding();
+        this.showToast('Session expired. Please authenticate again.', 'error');
+      }
     } else {
       this.showLanding();
     }
@@ -672,12 +1573,12 @@ const UI = {
 
     // View all messages (logs)
     document.getElementById('view-all-messages')?.addEventListener('click', () => {
-      this.switchView('logs');
+      this.switchView('messages');
     });
 
     // Refresh logs
     document.getElementById('refresh-logs-btn')?.addEventListener('click', () => {
-      DataLoader.loadMessages();
+      DataLoader.loadLogFeed();
       this.showToast('Logs refreshed', 'success');
     });
 
@@ -721,6 +1622,14 @@ const UI = {
     });
 
     // Send test message (developer)
+    document.getElementById('send-message-btn')?.addEventListener('click', () => {
+      this.handleSendMessage();
+    });
+
+    document.getElementById('chat-input')?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') this.handleSendMessage();
+    });
+
     document.getElementById('dev-send-message-btn')?.addEventListener('click', () => {
       this.handleSendTestMessage();
     });
@@ -769,7 +1678,13 @@ const UI = {
 
   // Handle login
   async handleLogin() {
-    const apiKey = document.getElementById('login-api-key').value.trim();
+    const apiKeyInput = document.getElementById('login-api-key');
+    if (!apiKeyInput) {
+      this.showToast('Dashboard login inputs are not available on this page.', 'error');
+      return;
+    }
+
+    const apiKey = apiKeyInput.value.trim();
     if (!apiKey) {
       this.showToast('Please enter your API key', 'error');
       return;
@@ -779,22 +1694,34 @@ const UI = {
     
     try {
       const user = await API.auth.me();
-      State.user = user;
+      State.user = Normalizers.user(user);
+      if (!State.user) {
+        throw new Error('Failed to load current user');
+      }
       State.save();
       
       this.showDashboard();
-      DataLoader.loadAll();
+      await DataLoader.loadAll();
       WebSocketManager.connect();
       this.showToast('Welcome back!', 'success');
     } catch (error) {
       State.apiKey = null;
+      State.user = null;
       this.showToast('Invalid API key', 'error');
     }
   },
 
   async handleRegister() {
-    const username = document.getElementById('reg-username').value.trim();
-    const displayName = document.getElementById('reg-display-name').value.trim();
+    const usernameInput = document.getElementById('reg-username');
+    const displayNameInput = document.getElementById('reg-display-name');
+
+    if (!usernameInput || !displayNameInput) {
+      this.showToast('Dashboard registration inputs are not available on this page.', 'error');
+      return;
+    }
+
+    const username = usernameInput.value.trim();
+    const displayName = displayNameInput.value.trim();
 
     if (!username || username.length < 3) {
       this.showToast('Username must be at least 3 characters', 'error');
@@ -804,11 +1731,16 @@ const UI = {
     try {
       const result = await API.auth.register(username, displayName);
       State.apiKey = result.api_key;
-      State.user = {
+      State.user = Normalizers.user({
         user_id: result.user_id,
         username: result.username,
         display_name: displayName,
-      };
+        status: result.status,
+        verified: result.verified,
+      });
+      if (!State.user) {
+        throw new Error('Failed to create dashboard session');
+      }
       State.save();
 
       // Show simplified API key modal (no Twitter verification)
@@ -816,6 +1748,7 @@ const UI = {
       this.showModal('api-key-modal');
 
       this.showDashboard();
+      await DataLoader.loadAll();
       WebSocketManager.connect();
     } catch (error) {
       this.showToast(error.message || 'Registration failed', 'error');
@@ -1014,16 +1947,21 @@ const UI = {
     }
 
     try {
-      // Validate JSON for heuristic policies
-      if (policyType === 'heuristic') {
-        JSON.parse(content);
-      }
+      const parsedContent =
+        policyType === 'llm'
+          ? content
+          : JSON.parse(content);
 
       await API.policies.create({
         scope,
         target_id: targetId || undefined,
+        direction: 'outbound',
+        resource: 'message.general',
+        action: 'share',
+        effect: 'deny',
+        evaluator: policyType,
         policy_type: policyType,
-        policy_content: content,
+        policy_content: parsedContent,
         priority,
       });
 
@@ -1033,7 +1971,7 @@ const UI = {
       this.showToast('Policy created successfully', 'success');
     } catch (error) {
       if (error instanceof SyntaxError) {
-        this.showToast('Invalid JSON in policy content', 'error');
+        this.showToast('Structured and heuristic policies must use valid JSON', 'error');
       } else {
         this.showToast(error.message || 'Failed to create policy', 'error');
       }
@@ -1121,6 +2059,44 @@ const UI = {
     }
   },
 
+  // Handle send message (user-facing chat)
+  async handleSendMessage() {
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+
+    if (!message || !State.selectedChat) return;
+
+    const thread = State.conversations.get(State.selectedChat) || [];
+    const latestMessage = thread[thread.length - 1] || null;
+    const latestRecord = latestMessage ? State.messagesById.get(latestMessage.id) : null;
+    const isGroupThread = latestMessage?.recipientType === 'group';
+
+    if (isGroupThread && !latestRecord?.recipientId) {
+      this.showToast(
+        'Group replies are unavailable until the server includes a stable group identifier.',
+        'info'
+      );
+      return;
+    }
+
+    const payload = {
+      recipient: isGroupThread ? latestRecord.recipientId : State.selectedChat,
+      recipient_type: isGroupThread ? 'group' : 'user',
+      message,
+      context: 'Sent from the Mahilo dashboard',
+    };
+
+    try {
+      const result = await API.messages.send(payload);
+
+      input.value = '';
+      await DataLoader.loadLogFeed();
+      this.showToast(`Message queued: ${result.status}`, 'success');
+    } catch (error) {
+      this.showToast(error.message || 'Failed to send message', 'error');
+    }
+  },
+
   // Handle send test message (developer view)
   async handleSendTestMessage() {
     const input = document.getElementById('dev-chat-input');
@@ -1136,21 +2112,7 @@ const UI = {
       });
 
       input.value = '';
-      
-      // Add to conversation
-      if (!State.conversations.has(State.selectedChat)) {
-        State.conversations.set(State.selectedChat, []);
-      }
-      State.conversations.get(State.selectedChat).push({
-        sender: State.user?.username || 'me',
-        message,
-        timestamp: new Date().toISOString(),
-        sent: true,
-        status: result.status,
-        messageId: result.message_id,
-      });
-
-      this.renderDevChat(State.selectedChat);
+      await DataLoader.loadLogFeed();
       this.showToast(`Test message sent: ${result.status}`, 'success');
     } catch (error) {
       this.showToast(error.message || 'Failed to send test message', 'error');
@@ -1190,10 +2152,11 @@ const UI = {
     document.getElementById('detail-agent-status').className = `status-badge ${agent.status}`;
     document.getElementById('detail-agent-id').textContent = agent.id;
     document.getElementById('detail-agent-label').textContent = agent.label;
-    document.getElementById('detail-agent-callback').textContent = agent.callback_url;
-    document.getElementById('detail-agent-public-key').textContent = agent.public_key?.substring(0, 50) + '...' || 'None';
-    document.getElementById('detail-agent-alg').textContent = agent.public_key_alg || 'None';
-    document.getElementById('detail-agent-priority').textContent = agent.routing_priority || 0;
+    document.getElementById('detail-agent-callback').textContent = agent.callbackUrl || 'None';
+    document.getElementById('detail-agent-public-key').textContent =
+      agent.publicKey ? `${agent.publicKey.substring(0, 50)}...` : 'None';
+    document.getElementById('detail-agent-alg').textContent = agent.publicKeyAlg || 'None';
+    document.getElementById('detail-agent-priority').textContent = agent.routingPriority || 0;
 
     const capsContainer = document.getElementById('detail-agent-capabilities');
     capsContainer.innerHTML = '';
@@ -1225,16 +2188,16 @@ const UI = {
         .filter(f => f.status === 'accepted')
         .forEach(friend => {
           const option = document.createElement('option');
-          option.value = friend.user_id;  // Use the actual user ID, not friendship ID
-          option.textContent = friend.display_name || friend.username;
+          option.value = friend.userId;  // Use the actual user ID, not friendship ID
+          option.textContent = friend.displayName || friend.username;
           select.appendChild(option);
         });
     } else if (scope === 'group') {
       State.groups.forEach(group => {
-        const option = document.createElement('option');
-        option.value = group.group_id;
-        option.textContent = group.name;
-        select.appendChild(option);
+          const option = document.createElement('option');
+          option.value = group.id;
+          option.textContent = group.name;
+          select.appendChild(option);
       });
     }
   },
@@ -1254,6 +2217,7 @@ const UI = {
       agents: { title: 'My Agents', subtitle: 'Manage your agent connections' },
       friends: { title: 'Friends', subtitle: 'Connect with other users' },
       groups: { title: 'Groups', subtitle: 'Collaborate with multiple friends' },
+      messages: { title: 'Messages', subtitle: 'Talk directly with your trusted network' },
       logs: { title: 'Delivery Logs', subtitle: 'Monitor and audit message delivery' },
       policies: { title: 'Policies', subtitle: 'Control what your agents can share' },
       settings: { title: 'Settings', subtitle: 'Manage your preferences and notification settings' },
@@ -1266,10 +2230,22 @@ const UI = {
 
     // Show view
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.getElementById(`${view}-view`).classList.add('active');
+    const nextView = document.getElementById(`${view}-view`);
+    if (!nextView) {
+      console.warn(`View not found: ${view}`);
+      State.currentView = 'overview';
+      document.getElementById('overview-view')?.classList.add('active');
+      return;
+    }
+    nextView.classList.add('active');
 
     // Load data if needed
-    if (view === 'logs') {
+    if (view === 'messages') {
+      this.renderConversations();
+      if (State.selectedChat) {
+        this.renderChat(State.selectedChat);
+      }
+    } else if (view === 'logs') {
       this.renderLogs();
     } else if (view === 'settings') {
       DataLoader.loadPreferences();
@@ -1283,6 +2259,7 @@ const UI = {
   showLanding() {
     document.getElementById('landing-page').classList.remove('hidden');
     document.getElementById('dashboard-screen').classList.add('hidden');
+    document.getElementById('ws-status').style.display = 'none';
     this.initLandingAnimations();
   },
 
@@ -1349,11 +2326,14 @@ const UI = {
   showDashboard() {
     document.getElementById('landing-page').classList.add('hidden');
     document.getElementById('dashboard-screen').classList.remove('hidden');
+    document.getElementById('ws-status').style.display = 'flex';
     
     // Update sidebar
     document.getElementById('sidebar-username').textContent = State.user?.username || 'User';
     document.getElementById('user-avatar-initial').textContent = 
       (State.user?.display_name?.[0] || State.user?.username?.[0] || 'U').toUpperCase();
+    document.getElementById('welcome-name').textContent =
+      State.user?.display_name || State.user?.username || 'Friend';
   },
 
   // Show modal
@@ -1432,7 +2412,7 @@ const UI = {
         <div class="agent-card-body">
           <div class="agent-description">${agent.description || 'No description'}</div>
           <div class="agent-capabilities">
-            ${agent.capabilities?.map(c => `<span class="capability-tag">${c}</span>`).join('') || '<span class="capability-tag">No capabilities</span>'}
+            ${agent.capabilities.map(c => `<span class="capability-tag">${c}</span>`).join('') || '<span class="capability-tag">No capabilities</span>'}
           </div>
         </div>
         <div class="agent-card-footer">
@@ -1482,10 +2462,10 @@ const UI = {
     list.innerHTML = friends.map(friend => `
       <div class="friend-item">
         <div class="friend-avatar">
-          ${(friend.display_name?.[0] || friend.username?.[0] || '?').toUpperCase()}
+          ${(friend.displayName?.[0] || friend.username?.[0] || '?').toUpperCase()}
         </div>
         <div class="friend-info">
-          <div class="friend-name">${friend.display_name || friend.username}</div>
+          <div class="friend-name">${friend.displayName || friend.username}</div>
           <div class="friend-username">@${friend.username}</div>
         </div>
         <span class="friend-status ${friend.status}">
@@ -1527,21 +2507,44 @@ const UI = {
     }
 
     grid.innerHTML = State.groups.map(group => `
-      <div class="group-card" onclick="UI.handleJoinGroup('${group.group_id}')">
+      <div class="group-card" onclick="UI.handleJoinGroup('${group.id}')">
         <div class="group-icon">🏘️</div>
         <div class="group-name">${group.name}</div>
         <div class="group-description">${group.description || 'No description'}</div>
         <div class="group-meta">
-          <span>👥 ${group.member_count || 0} members</span>
-          <span>${group.invite_only ? '🔒 Invite only' : '🌐 Public'}</span>
+          <span>👥 ${group.memberCount || 0} members</span>
+          <span>${group.inviteOnly ? '🔒 Invite only' : '🌐 Public'}</span>
+          <span>${group.status === 'invited' ? '✉️ Tap to join' : `Role: ${group.role || 'member'}`}</span>
         </div>
       </div>
     `).join('');
   },
 
   async handleJoinGroup(groupId) {
-    // For demo, just show info
-    this.showToast(`Group ${groupId} - Join functionality would go here`, 'info');
+    const group = State.groups.find((entry) => entry.id === groupId);
+
+    if (!group) {
+      this.showToast('Group not found', 'error');
+      return;
+    }
+
+    if (group.status === 'invited') {
+      try {
+        await API.groups.join(groupId);
+        await DataLoader.loadGroups();
+        this.showToast(`Joined ${group.name}`, 'success');
+      } catch (error) {
+        this.showToast(error.message || 'Failed to join group', 'error');
+      }
+      return;
+    }
+
+    this.showToast(
+      group.status === 'active'
+        ? `${group.name} is already active in your network`
+        : `${group.name} is currently ${group.status || 'inactive'}`,
+      'info'
+    );
   },
 
   renderPolicies(scope = 'all') {
@@ -1572,13 +2575,18 @@ const UI = {
     list.innerHTML = policies.map(policy => `
       <div class="policy-card">
         <div class="policy-header">
-          <span class="policy-title">${policy.policy_type === 'heuristic' ? '📋' : '🧠'} Policy</span>
+          <span class="policy-title">${policy.policyType === 'heuristic' ? '📋' : '🧠'} ${policy.effect} policy</span>
           <div class="policy-badges">
             <span class="policy-badge ${policy.scope}">${policy.scope}</span>
+            <span class="policy-badge">${policy.direction}</span>
             <span class="policy-badge ${policy.enabled ? 'enabled' : 'disabled'}">${policy.enabled ? 'enabled' : 'disabled'}</span>
           </div>
         </div>
-        <div class="policy-content">${policy.policy_content}</div>
+        <div class="policy-content">${policy.contentText}</div>
+        <div class="log-details">
+          <span class="log-detail">Selector: ${policy.resource}${policy.action ? ` / ${policy.action}` : ''}</span>
+          <span class="log-detail">Evaluator: ${policy.evaluator}</span>
+        </div>
         <div class="policy-actions">
           <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleTogglePolicy('${policy.id}', ${!policy.enabled})">
             ${policy.enabled ? 'Disable' : 'Enable'}
@@ -1618,45 +2626,66 @@ const UI = {
     if (!prefs) return;
 
     // Notification preferences
-    if (prefs.preferred_channel !== undefined) {
-      document.getElementById('pref-channel').value = prefs.preferred_channel || '';
+    if (prefs.preferredChannel !== undefined) {
+      document.getElementById('pref-channel').value = prefs.preferredChannel || '';
     }
-    if (prefs.urgent_behavior) {
-      document.getElementById('pref-urgent').value = prefs.urgent_behavior;
+    if (prefs.urgentBehavior) {
+      document.getElementById('pref-urgent').value = prefs.urgentBehavior;
     }
 
     // Quiet hours
-    if (prefs.quiet_hours) {
-      document.getElementById('pref-quiet-enabled').checked = prefs.quiet_hours.enabled;
-      document.getElementById('pref-quiet-start').value = prefs.quiet_hours.start || '22:00';
-      document.getElementById('pref-quiet-end').value = prefs.quiet_hours.end || '07:00';
-      document.getElementById('pref-quiet-timezone').value = prefs.quiet_hours.timezone || 'UTC';
+    if (prefs.quietHours) {
+      document.getElementById('pref-quiet-enabled').checked = prefs.quietHours.enabled;
+      document.getElementById('pref-quiet-start').value = prefs.quietHours.start || '22:00';
+      document.getElementById('pref-quiet-end').value = prefs.quietHours.end || '07:00';
+      document.getElementById('pref-quiet-timezone').value = prefs.quietHours.timezone || 'UTC';
       
       // Show/hide quiet hours row
       const row = document.getElementById('quiet-hours-row');
-      row.classList.toggle('hidden', !prefs.quiet_hours.enabled);
+      row.classList.toggle('hidden', !prefs.quietHours.enabled);
     }
 
     // LLM defaults
-    if (prefs.default_llm_provider !== undefined) {
-      document.getElementById('pref-llm-provider').value = prefs.default_llm_provider || '';
+    if (prefs.defaultLlmProvider !== undefined) {
+      document.getElementById('pref-llm-provider').value = prefs.defaultLlmProvider || '';
     }
-    if (prefs.default_llm_model !== undefined) {
-      document.getElementById('pref-llm-model').value = prefs.default_llm_model || '';
+    if (prefs.defaultLlmModel !== undefined) {
+      document.getElementById('pref-llm-model').value = prefs.defaultLlmModel || '';
     }
   },
 
   renderConversations() {
     const list = document.getElementById('conversations-list');
+    if (!list) {
+      return;
+    }
     
-    // Build conversations from messages and friends
+    // Build conversations from loaded messages first so non-friend threads still show up.
     const conversations = new Map();
-    
+
+    State.conversations.forEach((messages, counterpart) => {
+      const friend = State.friends.find((entry) => entry.username === counterpart);
+      const name =
+        friend?.displayName ||
+        messages[messages.length - 1]?.counterpartLabel ||
+        counterpart;
+
+      conversations.set(counterpart, {
+        name,
+        username: counterpart,
+        messages,
+      });
+    });
+
     State.friends.filter(f => f.status === 'accepted').forEach(friend => {
+      if (conversations.has(friend.username)) {
+        return;
+      }
+
       conversations.set(friend.username, {
-        name: friend.display_name || friend.username,
+        name: friend.displayName || friend.username,
         username: friend.username,
-        messages: State.conversations.get(friend.username) || [],
+        messages: [],
       });
     });
 
@@ -1671,35 +2700,74 @@ const UI = {
       return;
     }
 
-    list.innerHTML = Array.from(conversations.entries()).map(([username, conv]) => {
-      const lastMessage = conv.messages[conv.messages.length - 1];
-      return `
-        <div class="conversation-item ${State.selectedChat === username ? 'active' : ''}" onclick="UI.selectChat('${username}')">
-          <div class="conversation-avatar">${conv.name[0].toUpperCase()}</div>
-          <div class="conversation-info">
-            <div class="conversation-name">${conv.name}</div>
-            <div class="conversation-preview">${lastMessage?.message || 'No messages yet'}</div>
+    list.innerHTML = Array.from(conversations.entries())
+      .sort(([, left], [, right]) => {
+        const leftLast = left.messages[left.messages.length - 1];
+        const rightLast = right.messages[right.messages.length - 1];
+        return (
+          (Date.parse(rightLast?.timestamp || '') || 0) -
+          (Date.parse(leftLast?.timestamp || '') || 0)
+        );
+      })
+      .map(([username, conv]) => {
+        const lastMessage = conv.messages[conv.messages.length - 1];
+        return `
+          <div class="conversation-item ${State.selectedChat === username ? 'active' : ''}" onclick="UI.selectChat('${username}')">
+            <div class="conversation-avatar">${conv.name[0].toUpperCase()}</div>
+            <div class="conversation-info">
+              <div class="conversation-name">${conv.name}</div>
+              <div class="conversation-preview">${lastMessage?.previewText || lastMessage?.message || 'No messages yet'}</div>
+            </div>
+            <div class="conversation-meta">
+              <div class="conversation-time">${lastMessage ? new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+            </div>
           </div>
-          <div class="conversation-meta">
-            <div class="conversation-time">${lastMessage ? new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
-          </div>
-        </div>
-      `;
-    }).join('');
+        `;
+      }).join('');
   },
 
   selectChat(username) {
     State.selectedChat = username;
     
     const friend = State.friends.find(f => f.username === username);
-    const name = friend?.display_name || username;
-    
-    document.getElementById('chat-placeholder').classList.add('hidden');
-    document.getElementById('chat-container').classList.remove('hidden');
+    const messages = State.conversations.get(username) || [];
+    const name = friend?.displayName || messages[messages.length - 1]?.counterpartLabel || username;
+    const isGroupThread = messages.some((entry) => entry.recipientType === 'group');
+    const latestMessage = messages[messages.length - 1] || null;
+    const latestRecord = latestMessage ? State.messagesById.get(latestMessage.id) : null;
+    const canSend =
+      !isGroupThread ||
+      Boolean(latestRecord?.recipientId);
+
+    const placeholder = document.getElementById('chat-placeholder');
+    const chatContainer = document.getElementById('chat-container');
+    const chatInput = document.getElementById('chat-input');
+    const sendButton = document.getElementById('send-message-btn');
+    if (!placeholder || !chatContainer) {
+      return;
+    }
+
+    placeholder.classList.add('hidden');
+    chatContainer.classList.remove('hidden');
     
     document.getElementById('chat-recipient-avatar').textContent = name[0].toUpperCase();
     document.getElementById('chat-recipient-name').textContent = name;
-    document.getElementById('chat-recipient-status').textContent = 'Online';
+    document.getElementById('chat-recipient-status').textContent = isGroupThread
+      ? 'Group thread'
+      : friend
+        ? 'Online'
+        : 'Conversation';
+
+    if (chatInput) {
+      chatInput.disabled = !canSend;
+      chatInput.placeholder = canSend
+        ? 'Type a message...'
+        : 'Group replies need a stable group ID from the server';
+    }
+
+    if (sendButton) {
+      sendButton.disabled = !canSend;
+    }
     
     this.renderConversations();
     this.renderChat(username);
@@ -1707,12 +2775,18 @@ const UI = {
 
   renderChat(username) {
     const container = document.getElementById('chat-messages');
+    if (!container) {
+      return;
+    }
     const messages = State.conversations.get(username) || [];
     
     container.innerHTML = messages.map(msg => `
       <div class="message ${msg.sent ? 'sent' : 'received'}">
         <div class="message-content">${msg.message}</div>
-        <div class="message-time">${new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        <div class="message-time">
+          ${new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          ${msg.status && msg.status !== 'delivered' ? ` • ${msg.status}` : ''}
+        </div>
       </div>
     `).join('');
     
@@ -1721,16 +2795,15 @@ const UI = {
 
   renderLogs(direction = 'all') {
     const list = document.getElementById('logs-list');
-    
-    let messages = State.messages;
-    if (direction !== 'all') {
-      messages = messages.filter(m => 
-        (direction === 'sent' && m.sender === State.user?.username) ||
-        (direction === 'received' && m.sender !== State.user?.username)
-      );
-    }
 
-    if (!messages.length) {
+    const items = Helpers.logFeed(
+      State.messages,
+      State.reviews,
+      State.blockedEvents,
+      direction
+    );
+
+    if (!items.length) {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">📋</div>
@@ -1741,34 +2814,90 @@ const UI = {
       return;
     }
 
-    list.innerHTML = messages.map(msg => {
-      const isSent = msg.sender === State.user?.username;
-      const statusClass = msg.status || 'pending';
-      
+    list.innerHTML = items.map(item => {
+      if (item.kind === 'review') {
+        return `
+          <div class="log-item">
+            <div class="log-header">
+              <div class="log-direction">
+                <div class="log-direction-icon ${item.transportDirection}">
+                  ${item.transportDirection === 'sent' ? '⏸️' : '🧾'}
+                </div>
+                <div>
+                  <div class="log-participants">
+                    Review required: ${item.transportDirection === 'sent' ? `To: ${item.recipient}` : `From: ${item.sender}`}
+                  </div>
+                  <div class="log-meta">
+                    <span>${new Date(item.timestamp).toLocaleString()}</span>
+                    <span>ID: ${item.reviewId.substring(0, 12)}...</span>
+                  </div>
+                </div>
+              </div>
+              <span class="log-status ${item.status}">${item.status}</span>
+            </div>
+            <div class="log-content">${item.messagePreview || item.summary}</div>
+            <div class="log-details">
+              <span class="log-detail">Decision: ${item.decision}</span>
+              <span class="log-detail">Mode: ${item.deliveryMode || 'review_required'}</span>
+              <span class="log-detail">Selector: ${item.selectors.resource || 'message.general'}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      if (item.kind === 'blocked') {
+        return `
+          <div class="log-item">
+            <div class="log-header">
+              <div class="log-direction">
+                <div class="log-direction-icon ${item.transportDirection}">
+                  🚫
+                </div>
+                <div>
+                  <div class="log-participants">
+                    Blocked event: ${item.transportDirection === 'sent' ? `To: ${item.recipient}` : `From: ${item.sender}`}
+                  </div>
+                  <div class="log-meta">
+                    <span>${new Date(item.timestamp).toLocaleString()}</span>
+                    <span>ID: ${item.blockedEventId.substring(0, 12)}...</span>
+                  </div>
+                </div>
+              </div>
+              <span class="log-status ${item.status}">${item.status}</span>
+            </div>
+            <div class="log-content">${item.reason}</div>
+            <div class="log-details">
+              <span class="log-detail">Selector: ${item.selectors.resource || 'message.general'}</span>
+              ${item.payloadHash ? `<span class="log-detail">Hash: ${item.payloadHash.substring(0, 16)}...</span>` : ''}
+            </div>
+          </div>
+        `;
+      }
+
       return `
         <div class="log-item">
           <div class="log-header">
             <div class="log-direction">
-              <div class="log-direction-icon ${isSent ? 'sent' : 'received'}">
-                ${isSent ? '📤' : '📥'}
+              <div class="log-direction-icon ${item.transportDirection}">
+                ${item.transportDirection === 'sent' ? '📤' : '📥'}
               </div>
               <div>
                 <div class="log-participants">
-                  ${isSent ? `To: ${msg.recipient}` : `From: ${msg.sender}`}
+                  ${item.transportDirection === 'sent' ? `To: ${item.recipient}` : `From: ${item.sender}`}
                 </div>
                 <div class="log-meta">
-                  <span>${new Date(msg.created_at).toLocaleString()}</span>
-                  <span>ID: ${msg.id?.substring(0, 8)}...</span>
+                  <span>${new Date(item.timestamp).toLocaleString()}</span>
+                  <span>ID: ${item.messageId.substring(0, 8)}...</span>
                 </div>
               </div>
             </div>
-            <span class="log-status ${statusClass}">${msg.status || 'pending'}</span>
+            <span class="log-status ${item.status}">${item.status}</span>
           </div>
-          <div class="log-content">${msg.message || msg.payload || '(no content)'}</div>
+          <div class="log-content">${item.messageText || '(no content)'}</div>
           <div class="log-details">
-            <span class="log-detail">🤖 ${msg.sender_agent || 'unknown'}</span>
-            ${msg.correlation_id ? `<span class="log-detail">🔗 ${msg.correlation_id.substring(0, 8)}...</span>` : ''}
-            ${msg.recipient_type === 'group' ? '<span class="log-detail">👥 Group</span>' : ''}
+            <span class="log-detail">🤖 ${item.senderAgent || 'unknown'}</span>
+            ${item.correlationId ? `<span class="log-detail">🔗 ${item.correlationId.substring(0, 8)}...</span>` : ''}
+            ${item.recipientType === 'group' ? '<span class="log-detail">👥 Group</span>' : ''}
           </div>
         </div>
       `;
@@ -1792,7 +2921,7 @@ const UI = {
     }
 
     list.innerHTML = acceptedFriends.map(friend => {
-      const name = friend.display_name || friend.username;
+      const name = friend.displayName || friend.username;
       const messages = State.conversations.get(friend.username) || [];
       const lastMessage = messages[messages.length - 1];
       
@@ -1802,7 +2931,7 @@ const UI = {
           <div class="conversation-avatar">${name[0].toUpperCase()}</div>
           <div class="conversation-info">
             <div class="conversation-name">${name}</div>
-            <div class="conversation-preview">${lastMessage?.message || 'Click to test messaging'}</div>
+            <div class="conversation-preview">${lastMessage?.previewText || 'Click to test messaging'}</div>
           </div>
         </div>
       `;
@@ -1813,7 +2942,7 @@ const UI = {
     State.selectedChat = username;
     
     const friend = State.friends.find(f => f.username === username);
-    const name = friend?.display_name || username;
+    const name = friend?.displayName || username;
     
     document.getElementById('dev-chat-placeholder').classList.add('hidden');
     document.getElementById('dev-chat-container').classList.remove('hidden');
@@ -1893,8 +3022,8 @@ const UI = {
 
     list.innerHTML = acceptedFriends.slice(0, 5).map(friend => `
       <div class="friend-preview-item">
-        <div class="friend-preview-avatar">${(friend.display_name?.[0] || friend.username?.[0]).toUpperCase()}</div>
-        <span class="friend-preview-name">${friend.display_name || friend.username}</span>
+        <div class="friend-preview-avatar">${(friend.displayName?.[0] || friend.username?.[0]).toUpperCase()}</div>
+        <span class="friend-preview-name">${friend.displayName || friend.username}</span>
       </div>
     `).join('');
   },
@@ -1919,9 +3048,9 @@ const UI = {
 
     list.innerHTML = State.messages.slice(0, 5).map(msg => `
       <div class="message-preview-item">
-        <span class="message-preview-sender">${msg.sender}</span>
-        <span class="message-preview-text">${msg.message?.substring(0, 50)}${msg.message?.length > 50 ? '...' : ''}</span>
-        <span class="message-preview-time">${new Date(msg.created_at).toLocaleDateString()}</span>
+        <span class="message-preview-sender">${msg.counterpartLabel}</span>
+        <span class="message-preview-text">${msg.previewText}</span>
+        <span class="message-preview-time">${new Date(msg.timestamp).toLocaleDateString()}</span>
       </div>
     `).join('');
   },

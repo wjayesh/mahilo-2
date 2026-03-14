@@ -1,0 +1,751 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { createContext, runInContext } from "node:vm";
+import { nanoid } from "nanoid";
+import { createApp } from "../../src/server";
+import * as schema from "../../src/db/schema";
+import {
+  addRoleToFriendship,
+  cleanupTestDatabase,
+  createAgentConnection,
+  createFriendship,
+  createTestUser,
+  getTestDb,
+  setupTestDatabase,
+} from "../helpers/setup";
+
+type DashboardInternals = {
+  Helpers: {
+    applyCollectionState: (
+      stateKey: string,
+      indexKey: string,
+      model: { ids: string[]; byId: Map<string, unknown>; items: unknown[] },
+    ) => void;
+    collectionModel: (
+      items: unknown[],
+      getId?: (item: unknown) => unknown,
+    ) => { ids: string[]; byId: Map<string, unknown>; items: unknown[] };
+    rebuildConversations: () => void;
+  };
+  Normalizers: {
+    blockedEventsModel: (value: unknown) => {
+      ids: string[];
+      byId: Map<string, unknown>;
+      items: unknown[];
+    };
+    friendsModel: (value: unknown) => {
+      ids: string[];
+      byId: Map<string, unknown>;
+      items: unknown[];
+    };
+    group: (value: unknown) => unknown;
+    message: (
+      value: unknown,
+      options?: { currentUsername?: string },
+    ) => Record<string, unknown>;
+    policiesModel: (value: unknown) => {
+      ids: string[];
+      byId: Map<string, unknown>;
+      items: unknown[];
+    };
+    reviewsModel: (value: unknown) => {
+      ids: string[];
+      byId: Map<string, unknown>;
+      items: unknown[];
+    };
+  };
+  State: Record<string, any>;
+  UI: {
+    handleSendMessage: () => Promise<void>;
+    selectChat: (username: string) => void;
+  };
+};
+
+type DashboardHarness = {
+  boot: () => Promise<void>;
+  dashboard: DashboardInternals;
+  fetchCalls: string[];
+  getElement: (id: string) => ElementStub;
+};
+
+type HarnessOptions = {
+  app?: ReturnType<typeof createApp>;
+  apiKey?: string;
+  fetchImpl?: (url: string, options?: RequestInit) => Promise<{
+    json: () => Promise<unknown>;
+    ok: boolean;
+    status: number;
+    text: () => Promise<string>;
+  }>;
+  sessionUser?: Record<string, unknown>;
+};
+
+class ClassListStub {
+  private readonly values = new Set<string>();
+
+  add(...classes: string[]) {
+    for (const className of classes) {
+      this.values.add(className);
+    }
+  }
+
+  contains(className: string) {
+    return this.values.has(className);
+  }
+
+  remove(...classes: string[]) {
+    for (const className of classes) {
+      this.values.delete(className);
+    }
+  }
+
+  toggle(className: string, force?: boolean) {
+    if (force === undefined) {
+      if (this.values.has(className)) {
+        this.values.delete(className);
+      } else {
+        this.values.add(className);
+      }
+      return this.values.has(className);
+    }
+
+    if (force) {
+      this.values.add(className);
+    } else {
+      this.values.delete(className);
+    }
+
+    return this.values.has(className);
+  }
+}
+
+class ElementStub {
+  readonly children: ElementStub[] = [];
+  readonly classList = new ClassListStub();
+  readonly dataset: Record<string, string> = {};
+  readonly style: Record<string, string> = {};
+  checked = false;
+  className = "";
+  disabled = false;
+  id: string;
+  innerHTML = "";
+  onclick: (() => void) | null = null;
+  previousElementSibling: { style: Record<string, string> } | null = {
+    style: {},
+  };
+  scrollHeight = 0;
+  scrollTop = 0;
+  textContent = "";
+  value = "";
+
+  constructor(id = "") {
+    this.id = id;
+  }
+
+  addEventListener() {}
+
+  appendChild(child: ElementStub) {
+    this.children.push(child);
+    return child;
+  }
+
+  querySelector() {
+    return new ElementStub();
+  }
+
+  querySelectorAll() {
+    return [];
+  }
+
+  remove() {}
+
+  removeChild(child: ElementStub) {
+    const index = this.children.indexOf(child);
+    if (index >= 0) {
+      this.children.splice(index, 1);
+    }
+  }
+
+  reset() {}
+
+  scrollIntoView() {}
+
+  select() {}
+}
+
+class WebSocketStub {
+  static readonly OPEN = 1;
+  onclose?: () => void;
+  onopen?: () => void;
+  readyState = WebSocketStub.OPEN;
+  readonly url: string;
+
+  constructor(url: string) {
+    this.url = url;
+    setTimeout(() => this.onopen?.(), 0);
+  }
+
+  close() {
+    this.readyState = 3;
+    this.onclose?.();
+  }
+
+  send() {}
+}
+
+class IntersectionObserverStub {
+  observe() {}
+  disconnect() {}
+}
+
+function extractHtmlIds() {
+  return Array.from(
+    new Set(
+      [...readFileSync("public/index.html", "utf8").matchAll(/id=\"([^\"]+)\"/g)].map(
+        (match) => match[1],
+      ),
+    ),
+  );
+}
+
+function createDocumentStub(ids: string[]) {
+  const elements = new Map(ids.map((id) => [id, new ElementStub(id)]));
+
+  const getElement = (id: string) => {
+    const existing = elements.get(id);
+    if (existing) {
+      return existing;
+    }
+
+    const next = new ElementStub(id);
+    elements.set(id, next);
+    return next;
+  };
+
+  const documentStub = {
+    _readyCallbacks: [] as Array<() => void>,
+    addEventListener(event: string, callback: () => void) {
+      if (event === "DOMContentLoaded") {
+        this._readyCallbacks.push(callback);
+      }
+    },
+    body: new ElementStub("body"),
+    createElement(tag: string) {
+      return new ElementStub(tag);
+    },
+    execCommand() {
+      return true;
+    },
+    getElementById(id: string) {
+      return getElement(id);
+    },
+    querySelector(selector: string) {
+      if (selector === ".landing-nav") {
+        return new ElementStub("landing-nav");
+      }
+      return null;
+    },
+    querySelectorAll() {
+      return [] as ElementStub[];
+    },
+  };
+
+  return {
+    documentStub,
+    getElement,
+  };
+}
+
+async function flushDashboardWork() {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+function createDashboardHarness(options: HarnessOptions = {}): DashboardHarness {
+  const { documentStub, getElement } = createDocumentStub(extractHtmlIds());
+  const sessionStore = new Map<string, string>();
+
+  if (options.apiKey || options.sessionUser) {
+    sessionStore.set(
+      "mahilo_session",
+      JSON.stringify({
+        apiKey: options.apiKey ?? null,
+        user: options.sessionUser ?? null,
+      }),
+    );
+  }
+
+  const fetchCalls: string[] = [];
+  const fetchImpl =
+    options.fetchImpl ??
+    (async (url: string, requestOptions?: RequestInit) => {
+      if (!options.app) {
+        throw new Error(`Unexpected fetch without app: ${url}`);
+      }
+
+      const requestUrl = new URL(url);
+      const path = `${requestUrl.pathname}${requestUrl.search}`;
+      fetchCalls.push(path);
+
+      const response = await options.app.request(path, requestOptions);
+      return {
+        ok: response.ok,
+        status: response.status,
+        async json() {
+          return await response.clone().json();
+        },
+        async text() {
+          return await response.clone().text();
+        },
+      };
+    });
+
+  const localStorage = {
+    getItem(key: string) {
+      return sessionStore.get(key) ?? null;
+    },
+    removeItem(key: string) {
+      sessionStore.delete(key);
+    },
+    setItem(key: string, value: string) {
+      sessionStore.set(key, value);
+    },
+  };
+
+  const context: Record<string, any> = {
+    Date,
+    JSON,
+    Map,
+    Math,
+    Promise,
+    URL,
+    URLSearchParams,
+    WebSocket: WebSocketStub,
+    IntersectionObserver: IntersectionObserverStub,
+    clearInterval: () => {},
+    clearTimeout,
+    confirm: () => true,
+    console,
+    document: documentStub,
+    fetch: (url: string, requestOptions?: RequestInit) =>
+      fetchImpl(url, requestOptions),
+    localStorage,
+    navigator: {
+      clipboard: {
+        writeText: async () => {},
+      },
+    },
+    setInterval: () => 1,
+    setTimeout,
+  };
+
+  context.window = context;
+  context.window.addEventListener = () => {};
+  context.window.confirm = context.confirm;
+  context.window.document = documentStub;
+  context.window.fetch = context.fetch;
+  context.window.IntersectionObserver = IntersectionObserverStub;
+  context.window.localStorage = localStorage;
+  context.window.location = { origin: "http://localhost" };
+  context.window.navigator = context.navigator;
+  context.window.removeEventListener = () => {};
+  context.window.scrollY = 0;
+  context.window.WebSocket = WebSocketStub;
+
+  createContext(context);
+  runInContext(
+    `${readFileSync("public/app.js", "utf8")}\n;globalThis.__dashboard__ = { Helpers, Normalizers, State, UI };`,
+    context,
+    {
+      filename: "public/app.js",
+    },
+  );
+
+  return {
+    async boot() {
+      for (const callback of documentStub._readyCallbacks) {
+        callback();
+      }
+      await flushDashboardWork();
+    },
+    dashboard: context.__dashboard__ as DashboardInternals,
+    fetchCalls,
+    getElement,
+  };
+}
+
+describe("Dashboard frontend data adapter (DASH-001)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("normalizes friend collections by friendship_id and resolves nested message participants", () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing normalizers: ${url}`);
+      },
+    });
+
+    const { Normalizers } = harness.dashboard;
+    const friendsModel = Normalizers.friendsModel({
+      friends: [
+        {
+          friendship_id: "fr_dashboard",
+          user_id: "usr_peer",
+          username: "peer",
+          display_name: "Peer User",
+          direction: "received",
+          interaction_count: 7,
+          roles: ["friends"],
+          since: "2026-03-14T10:00:00.000Z",
+          status: "accepted",
+        },
+      ],
+    });
+
+    expect(friendsModel.ids).toEqual(["fr_dashboard"]);
+    expect(friendsModel.byId.get("fr_dashboard")).toEqual(
+      expect.objectContaining({
+        displayName: "Peer User",
+        friendshipId: "fr_dashboard",
+        interactionCount: 7,
+        username: "peer",
+      }),
+    );
+
+    const message = Normalizers.message(
+      {
+        created_at: "2026-03-14T12:00:00.000Z",
+        id: "msg_nested",
+        message: { body: "Hello from nested sender" },
+        recipient: {
+          connection_id: "conn_alice",
+          type: "user",
+          username: "alice",
+        },
+        sender: {
+          agent: "openclaw",
+          connection_id: "conn_bob",
+          username: "bob",
+        },
+        status: "delivered",
+      },
+      { currentUsername: "alice" },
+    );
+
+    expect(message).toEqual(
+      expect.objectContaining({
+        counterpart: "bob",
+        recipient: "alice",
+        recipientConnectionId: "conn_alice",
+        sender: "bob",
+        senderAgent: "openclaw",
+        senderConnectionId: "conn_bob",
+        transportDirection: "received",
+      }),
+    );
+    expect(message.previewText).toContain("Hello from nested sender");
+  });
+
+  it("disables user-facing sends for group threads that lack a stable group identifier", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing group-thread guard: ${url}`);
+      },
+    });
+
+    const { Helpers, Normalizers, State, UI } = harness.dashboard;
+    const groupMessage = Normalizers.message(
+      {
+        created_at: "2026-03-14T12:30:00.000Z",
+        id: "msg_group_missing_id",
+        message: "Group announcement",
+        recipient_type: "group",
+        sender: "dashboard_viewer",
+        status: "delivered",
+      },
+      { currentUsername: "dashboard_viewer" },
+    );
+
+    Helpers.applyCollectionState(
+      "messages",
+      "messagesById",
+      Helpers.collectionModel([groupMessage]),
+    );
+    Helpers.rebuildConversations();
+
+    expect(State.conversations.get("Group conversation")).toHaveLength(1);
+
+    UI.selectChat("Group conversation");
+
+    const input = harness.getElement("chat-input");
+    const sendButton = harness.getElement("send-message-btn");
+    input.value = "Can anyone see this?";
+
+    expect(input.disabled).toBe(true);
+    expect(sendButton.disabled).toBe(true);
+
+    await UI.handleSendMessage();
+
+    expect(input.value).toBe("Can anyone see this?");
+    expect(harness.getElement("chat-recipient-status").textContent).toBe("Group thread");
+  });
+
+  it("boots after auth and completes all top-level loaders against current server routes", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_viewer",
+      "Viewer",
+    );
+    const { user: peer } = await createTestUser("dashboard_peer", "Peer");
+    const connection = await createAgentConnection(viewer.id, {
+      framework: "openclaw",
+      label: "default",
+    });
+    const friendship = await createFriendship(viewer.id, peer.id, "accepted");
+    await addRoleToFriendship(friendship.id, "friends");
+
+    const groupId = nanoid();
+    await db.insert(schema.groups).values({
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      description: "Garden Club",
+      id: groupId,
+      inviteOnly: true,
+      name: "garden_club",
+      ownerUserId: viewer.id,
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    });
+    await db.insert(schema.groupMemberships).values([
+      {
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: null,
+        role: "owner",
+        status: "active",
+        userId: viewer.id,
+      },
+      {
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: viewer.id,
+        role: "member",
+        status: "active",
+        userId: peer.id,
+      },
+    ]);
+
+    await db.insert(schema.policies).values({
+      action: "share",
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      direction: "outbound",
+      effect: "ask",
+      enabled: true,
+      evaluator: "llm",
+      id: "pol_dashboard",
+      policyContent: "Ask before sharing exact location.",
+      policyType: "llm",
+      priority: 50,
+      resource: "message.general",
+      scope: "global",
+      source: "default",
+      targetId: null,
+      userId: viewer.id,
+    });
+
+    await db.insert(schema.messages).values([
+      {
+        action: "share",
+        context: "Sent from the dashboard",
+        correlationId: "corr_dashboard_1",
+        createdAt: new Date("2026-03-14T01:00:00.000Z"),
+        deliveredAt: new Date("2026-03-14T01:00:05.000Z"),
+        direction: "outbound",
+        id: "msg_dashboard_outbound",
+        payload: "Checking in about dinner",
+        payloadType: "text/plain",
+        recipientId: peer.id,
+        recipientType: "user",
+        resource: "message.general",
+        senderAgent: connection.label,
+        senderConnectionId: connection.id,
+        senderUserId: viewer.id,
+        status: "delivered",
+      },
+      {
+        action: "share",
+        context: null,
+        correlationId: "corr_dashboard_2",
+        createdAt: new Date("2026-03-14T02:00:00.000Z"),
+        deliveredAt: new Date("2026-03-14T02:00:03.000Z"),
+        direction: "inbound",
+        id: "msg_dashboard_inbound",
+        payload: "Sounds good here.",
+        payloadType: "text/plain",
+        recipientId: viewer.id,
+        recipientType: "user",
+        resource: "message.general",
+        senderAgent: "peer-agent",
+        senderConnectionId: null,
+        senderUserId: peer.id,
+        status: "delivered",
+      },
+      {
+        action: "share",
+        context: "plugin preflight",
+        createdAt: new Date("2026-03-14T03:00:00.000Z"),
+        direction: "outbound",
+        id: "msg_dashboard_review",
+        payload: "Share exact location",
+        payloadType: "text/plain",
+        policiesEvaluated: JSON.stringify({
+          effect: "ask",
+          matched_policy_ids: ["pol_dashboard"],
+          reason: "Needs review before delivery.",
+          reason_code: "policy.ask.role.structured",
+          resolver_layer: "user_policies",
+          winning_policy_id: "pol_dashboard",
+        }),
+        recipientId: peer.id,
+        recipientType: "user",
+        resource: "location.current",
+        senderAgent: connection.label,
+        senderConnectionId: connection.id,
+        senderUserId: viewer.id,
+        status: "approval_pending",
+      },
+      {
+        action: "share",
+        context: "plugin send",
+        createdAt: new Date("2026-03-14T04:00:00.000Z"),
+        direction: "outbound",
+        id: "msg_dashboard_blocked",
+        payload: "My exact address is 123 Example St",
+        payloadType: "text/plain",
+        policiesEvaluated: JSON.stringify({
+          effect: "deny",
+          matched_policy_ids: ["pol_dashboard"],
+          reason: "Blocked by policy.",
+          reason_code: "policy.deny.role.structured",
+          resolver_layer: "user_policies",
+          winning_policy_id: "pol_dashboard",
+        }),
+        recipientId: peer.id,
+        recipientType: "user",
+        rejectionReason: "Blocked by policy.",
+        resource: "location.current",
+        senderAgent: connection.label,
+        senderConnectionId: connection.id,
+        senderUserId: viewer.id,
+        status: "rejected",
+      },
+    ]);
+
+    const app = createApp();
+    const harness = createDashboardHarness({
+      app,
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    expect(harness.fetchCalls.slice().sort()).toEqual(
+      [
+        "/api/v1/agents",
+        "/api/v1/auth/me",
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+        "/api/v1/groups",
+        "/api/v1/messages?limit=50",
+        "/api/v1/preferences",
+        "/api/v1/plugin/events/blocked?limit=25",
+        "/api/v1/plugin/reviews?limit=25",
+        "/api/v1/policies",
+      ].sort(),
+    );
+
+    const { State } = harness.dashboard;
+    expect(State.agentsById.size).toBe(1);
+    expect(State.friendsById.get(friendship.id)).toEqual(
+      expect.objectContaining({
+        direction: "sent",
+        friendshipId: friendship.id,
+        username: peer.username,
+      }),
+    );
+    expect(State.groupsById.get(groupId)).toEqual(
+      expect.objectContaining({
+        id: groupId,
+        inviteOnly: true,
+        memberCount: 2,
+      }),
+    );
+    expect(State.messagesById.size).toBe(4);
+    expect(State.messagesById.get("msg_dashboard_inbound")).toEqual(
+      expect.objectContaining({
+        counterpart: peer.username,
+        transportDirection: "received",
+      }),
+    );
+    expect(State.policiesById.get("pol_dashboard")).toEqual(
+      expect.objectContaining({
+        effect: "ask",
+        policyType: "llm",
+        resource: "message.general",
+      }),
+    );
+    expect(State.reviewsById.size).toBe(1);
+    expect(State.blockedEventsById.size).toBe(1);
+    expect(State.reviewQueue).toEqual(
+      expect.objectContaining({
+        count: 1,
+      }),
+    );
+    expect(State.blockedEventRetention).toEqual(
+      expect.objectContaining({
+        blockedEventLog: "metadata_only",
+        payloadHashAlgorithm: "sha256",
+      }),
+    );
+    expect(State.preferences).toEqual(
+      expect.objectContaining({
+        urgentBehavior: "preferred_only",
+        quietHours: expect.objectContaining({
+          enabled: false,
+          timezone: "UTC",
+        }),
+      }),
+    );
+    expect(State.conversations.get(peer.username)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "Checking in about dinner",
+        }),
+      ]),
+    );
+    expect(harness.getElement("dashboard-screen").classList.contains("hidden")).toBe(
+      false,
+    );
+    expect(harness.getElement("pref-urgent").value).toBe("preferred_only");
+    expect(harness.getElement("groups-grid").innerHTML.length).toBeGreaterThan(0);
+    expect(harness.getElement("logs-list").innerHTML.length).toBeGreaterThan(0);
+    expect(harness.getElement("overview-message-list").innerHTML.length).toBeGreaterThan(
+      0,
+    );
+  });
+});

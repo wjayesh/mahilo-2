@@ -407,6 +407,10 @@
             <span class="nav-text">Groups</span>
             <span class="nav-badge hidden" id="group-count">0</span>
           </button>
+          <button class="nav-item" data-view="messages">
+            <span class="nav-icon">💬</span>
+            <span class="nav-text">Messages</span>
+          </button>
           <button class="nav-item" data-view="logs">
             <span class="nav-icon">📋</span>
             <span class="nav-text">Delivery Logs</span>
@@ -613,6 +617,55 @@
                 <button class="squishy-btn btn-primary" id="create-first-group">
                   <span>🏘️</span> Create Your First Group
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Messages View -->
+          <div id="messages-view" class="view">
+            <div class="messages-layout">
+              <div class="conversations-sidebar">
+                <div class="dev-sidebar-header">
+                  <h4>💬 Direct Messages</h4>
+                  <p>Pick a friend to continue the conversation</p>
+                </div>
+                <div class="conversations-list" id="conversations-list">
+                  <div class="empty-state small">
+                    <div class="empty-icon">💬</div>
+                    <p>No conversations yet</p>
+                    <p class="hint">Accepted friends appear here automatically</p>
+                  </div>
+                </div>
+              </div>
+              <div class="chat-area">
+                <div class="chat-placeholder" id="chat-placeholder">
+                  <div class="placeholder-content">
+                    <div class="placeholder-icon">✉️</div>
+                    <h3>Your network inbox</h3>
+                    <p>Select a friend to view history and send a message.</p>
+                    <p class="hint">Messages use your active Mahilo agent connection.</p>
+                  </div>
+                </div>
+                <div class="chat-container hidden" id="chat-container">
+                  <div class="chat-header">
+                    <div class="chat-recipient">
+                      <div class="recipient-avatar" id="chat-recipient-avatar">A</div>
+                      <div class="recipient-info">
+                        <span class="recipient-name" id="chat-recipient-name">Alice</span>
+                        <span class="recipient-status" id="chat-recipient-status">Active</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="chat-messages" id="chat-messages"></div>
+                  <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                      <input type="text" placeholder="Type a message..." class="squishy-input" id="chat-input">
+                      <button class="squishy-btn btn-primary" id="send-message-btn">
+                        <span>📨</span> Send
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

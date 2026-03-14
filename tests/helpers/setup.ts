@@ -178,6 +178,20 @@ export async function setupTestDatabase() {
     CREATE INDEX IF NOT EXISTS idx_groups_name ON groups(name);
     CREATE INDEX IF NOT EXISTS idx_groups_owner ON groups(owner_user_id);
 
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      preferred_channel TEXT,
+      urgent_behavior TEXT NOT NULL DEFAULT 'preferred_only',
+      quiet_hours_enabled INTEGER NOT NULL DEFAULT 0,
+      quiet_hours_start TEXT DEFAULT '22:00',
+      quiet_hours_end TEXT DEFAULT '07:00',
+      quiet_hours_timezone TEXT DEFAULT 'UTC',
+      default_llm_provider TEXT,
+      default_llm_model TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
     CREATE TABLE IF NOT EXISTS group_memberships (
       id TEXT PRIMARY KEY,
       group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
