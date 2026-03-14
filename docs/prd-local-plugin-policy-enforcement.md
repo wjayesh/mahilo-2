@@ -760,7 +760,7 @@ This project is done when all of the following are true:
 
 ### 6.1 Update Plugin and Server Docs
 - **ID**: `LPE-060`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: `LPE-014`, `LPE-021`, `LPE-030`, `LPE-040`
 - **Description**:
@@ -777,6 +777,8 @@ This project is done when all of the following are true:
   - [ ] Operator guidance covers required config and expected failure semantics
   - [ ] Preview/context docs no longer overstate enforcement
 
+- **Notes**:
+  - 2026-03-14T18:24:21.093Z: LPE-060 completed via orchestrator integration.
 ### 6.2 Define Rollout and Enablement Rules
 - **ID**: `LPE-061`
 - **Status**: `pending`
