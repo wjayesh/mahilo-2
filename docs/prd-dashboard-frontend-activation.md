@@ -318,7 +318,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T14:58:36.583Z: DASH-042 completed via orchestrator integration.
 ### 4.4 Temporary Overrides, Lifecycle, and Provenance
 - **ID**: `DASH-043`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-042`
 - **Description**:
@@ -329,6 +329,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Boundary/source provenance is visible, including user-created vs learned vs override states
   - [ ] A user can drill into provenance or audit for a specific boundary without leaving the dashboard
 
+- **Notes**:
+  - 2026-03-14T15:09:19.094Z: DASH-043 completed via orchestrator integration.
 ### 4.5 Advanced Canonical Policy Inspector
 - **ID**: `DASH-044`
 - **Status**: `pending`
