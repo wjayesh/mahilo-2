@@ -7,63 +7,69 @@
 // Configuration
 // ========================================
 const APP_ORIGIN =
-  typeof window !== 'undefined' &&
+  typeof window !== "undefined" &&
   window.location.origin &&
-  window.location.origin !== 'null'
+  window.location.origin !== "null"
     ? window.location.origin
-    : 'https://mahilo.io';
-const WS_ORIGIN = APP_ORIGIN.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+    : "https://mahilo.io";
+const WS_ORIGIN = APP_ORIGIN.replace(/^http:/, "ws:").replace(
+  /^https:/,
+  "wss:",
+);
 
 const CONFIG = {
   API_URL: `${APP_ORIGIN}/api/v1`,
   WS_URL: `${WS_ORIGIN}/api/v1/notifications/ws`,
 
-  STORAGE_KEY: 'mahilo_session',
+  STORAGE_KEY: "mahilo_session",
   PING_INTERVAL: 30000,
 };
 
 const VIEW_ALIASES = {
-  agents: 'connections',
-  friends: 'network',
-  policies: 'boundaries',
+  agents: "connections",
+  friends: "network",
+  policies: "boundaries",
 };
 
 const VIEW_META = {
   overview: {
-    title: 'Overview',
-    subtitle: 'Readiness across your Mahilo network',
+    title: "Overview",
+    subtitle: "Readiness across your Mahilo network",
   },
   network: {
-    title: 'Network',
-    subtitle: 'People, roles, and relationship state across your circle',
+    title: "Network",
+    subtitle: "People, roles, and relationship state across your circle",
   },
   connections: {
-    title: 'Sender Connections',
-    subtitle: 'Manage the Mahilo connections that can send on your behalf',
+    title: "Sender Connections",
+    subtitle: "Manage the Mahilo connections that can send on your behalf",
   },
   groups: {
-    title: 'Groups',
-    subtitle: 'Coordinate trusted circles for targeted ask-around flows',
+    title: "Groups",
+    subtitle: "Coordinate trusted circles for targeted ask-around flows",
   },
   messages: {
-    title: 'Direct Messages',
-    subtitle: 'Inspect legacy one-to-one message threads and delivery history',
+    title: "Direct Messages",
+    subtitle: "Inspect legacy one-to-one message threads and delivery history",
   },
   logs: {
-    title: 'Delivery Logs',
-    subtitle: 'Audit deliveries, reviews, blocked events, and ask-around threads',
+    title: "Delivery Logs",
+    subtitle:
+      "Audit deliveries, reviews, blocked events, and ask-around threads",
   },
   boundaries: {
-    title: 'Boundaries',
-    subtitle: 'Control what Mahilo can share, hold for review, or block outright',
+    title: "Boundaries",
+    subtitle:
+      "Control what Mahilo can share, hold for review, or block outright",
   },
   settings: {
-    title: 'Settings',
-    subtitle: 'Manage notifications, quiet hours, and your default dashboard behavior',
+    title: "Settings",
+    subtitle:
+      "Manage notifications, quiet hours, and your default dashboard behavior",
   },
   developer: {
-    title: 'Developer',
-    subtitle: 'Advanced API-key utilities, diagnostics, and test tooling',
+    title: "Developer",
+    subtitle: "Advanced API-key utilities, diagnostics, and test tooling",
   },
 };
 
@@ -92,18 +98,19 @@ const State = {
   blockedEventRetention: null,
   preferences: null,
   conversations: new Map(),
-  currentView: 'overview',
+  currentView: "overview",
   selectedChat: null,
   selectedNetworkFriendId: null,
   wsConnected: false,
   notifications: [],
-  networkFilter: 'all',
-  networkSearch: '',
-  boundaryScopeFilter: 'all',
+  networkFilter: "all",
+  networkSearch: "",
+  boundaryScopeFilter: "all",
+  boundaryCategoryFilter: "all",
   contactConnectionsByUsername: new Map(),
   availableRoles: [],
   availableRolesByName: new Map(),
-  availableRolesStatus: 'idle',
+  availableRolesStatus: "idle",
   availableRolesError: null,
 
   // Initialize state from localStorage
@@ -112,11 +119,11 @@ const State = {
     if (session) {
       try {
         const data = JSON.parse(session);
-        this.apiKey = typeof data.apiKey === 'string' ? data.apiKey : null;
+        this.apiKey = typeof data.apiKey === "string" ? data.apiKey : null;
         this.user = Normalizers.user(data.user);
         return Boolean(this.apiKey && this.user);
       } catch (e) {
-        console.error('Failed to parse session:', e);
+        console.error("Failed to parse session:", e);
       }
     }
     return false;
@@ -137,10 +144,13 @@ const State = {
         }
       : null;
 
-    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify({
-      apiKey: this.apiKey,
-      user,
-    }));
+    localStorage.setItem(
+      CONFIG.STORAGE_KEY,
+      JSON.stringify({
+        apiKey: this.apiKey,
+        user,
+      }),
+    );
   },
 
   // Clear state
@@ -165,17 +175,18 @@ const State = {
     this.blockedEventRetention = null;
     this.preferences = null;
     this.conversations = new Map();
-    this.currentView = 'overview';
+    this.currentView = "overview";
     this.selectedChat = null;
     this.selectedNetworkFriendId = null;
     this.wsConnected = false;
-    this.networkFilter = 'all';
-    this.networkSearch = '';
-    this.boundaryScopeFilter = 'all';
+    this.networkFilter = "all";
+    this.networkSearch = "";
+    this.boundaryScopeFilter = "all";
+    this.boundaryCategoryFilter = "all";
     this.contactConnectionsByUsername = new Map();
     this.availableRoles = [];
     this.availableRolesByName = new Map();
-    this.availableRolesStatus = 'idle';
+    this.availableRolesStatus = "idle";
     this.availableRolesError = null;
     localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
@@ -189,12 +200,12 @@ const API = {
   async request(endpoint, options = {}) {
     const url = `${CONFIG.API_URL}${endpoint}`;
     const headers = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...options.headers,
     };
 
     if (State.apiKey) {
-      headers['Authorization'] = `Bearer ${State.apiKey}`;
+      headers["Authorization"] = `Bearer ${State.apiKey}`;
     }
 
     try {
@@ -206,12 +217,14 @@ const API = {
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+        throw new Error(
+          data?.error || data?.message || `HTTP ${response.status}`,
+        );
       }
 
       return data;
     } catch (error) {
-      console.error('API Error:', error);
+      console.error("API Error:", error);
       throw error;
     }
   },
@@ -219,26 +232,26 @@ const API = {
   // Auth endpoints
   auth: {
     async register(username, displayName) {
-      return API.request('/auth/register', {
-        method: 'POST',
+      return API.request("/auth/register", {
+        method: "POST",
         body: JSON.stringify({ username, display_name: displayName }),
       });
     },
 
     async me() {
-      return API.request('/auth/me');
+      return API.request("/auth/me");
     },
 
     async rotateKey() {
-      return API.request('/auth/rotate-key', { method: 'POST' });
+      return API.request("/auth/rotate-key", { method: "POST" });
     },
   },
 
   // Waitlist endpoint
   waitlist: {
     async join(email) {
-      return API.request('/waitlist', {
-        method: 'POST',
+      return API.request("/waitlist", {
+        method: "POST",
         body: JSON.stringify({ email }),
       });
     },
@@ -247,65 +260,68 @@ const API = {
   // Agent endpoints
   agents: {
     async list() {
-      return API.request('/agents');
+      return API.request("/agents");
     },
 
     async register(agent) {
-      return API.request('/agents', {
-        method: 'POST',
+      return API.request("/agents", {
+        method: "POST",
         body: JSON.stringify(agent),
       });
     },
 
     async delete(id) {
-      return API.request(`/agents/${id}`, { method: 'DELETE' });
+      return API.request(`/agents/${id}`, { method: "DELETE" });
     },
 
     async ping(id) {
-      return API.request(`/agents/${id}/ping`, { method: 'POST' });
+      return API.request(`/agents/${id}/ping`, { method: "POST" });
     },
   },
 
   // Friend endpoints
   friends: {
-    async list(status = 'accepted') {
+    async list(status = "accepted") {
       return API.request(`/friends?status=${status}`);
     },
 
     async request(username) {
-      return API.request('/friends/request', {
-        method: 'POST',
+      return API.request("/friends/request", {
+        method: "POST",
         body: JSON.stringify({ username }),
       });
     },
 
     async accept(id) {
-      return API.request(`/friends/${id}/accept`, { method: 'POST' });
+      return API.request(`/friends/${id}/accept`, { method: "POST" });
     },
 
     async reject(id) {
-      return API.request(`/friends/${id}/reject`, { method: 'POST' });
+      return API.request(`/friends/${id}/reject`, { method: "POST" });
     },
 
     async block(id) {
-      return API.request(`/friends/${id}/block`, { method: 'POST' });
+      return API.request(`/friends/${id}/block`, { method: "POST" });
     },
 
     async unfriend(id) {
-      return API.request(`/friends/${id}`, { method: 'DELETE' });
+      return API.request(`/friends/${id}`, { method: "DELETE" });
     },
 
     async addRole(id, role) {
       return API.request(`/friends/${id}/roles`, {
-        method: 'POST',
+        method: "POST",
         body: JSON.stringify({ role }),
       });
     },
 
     async removeRole(id, roleName) {
-      return API.request(`/friends/${id}/roles/${encodeURIComponent(roleName)}`, {
-        method: 'DELETE',
-      });
+      return API.request(
+        `/friends/${id}/roles/${encodeURIComponent(roleName)}`,
+        {
+          method: "DELETE",
+        },
+      );
     },
   },
 
@@ -313,23 +329,23 @@ const API = {
     async list(type) {
       const params = new URLSearchParams();
       if (type) {
-        params.append('type', type);
+        params.append("type", type);
       }
 
       const query = params.toString();
-      return API.request(`/roles${query ? `?${query}` : ''}`);
+      return API.request(`/roles${query ? `?${query}` : ""}`);
     },
   },
 
   // Group endpoints
   groups: {
     async list() {
-      return API.request('/groups');
+      return API.request("/groups");
     },
 
     async create(group) {
-      return API.request('/groups', {
-        method: 'POST',
+      return API.request("/groups", {
+        method: "POST",
         body: JSON.stringify(group),
       });
     },
@@ -340,17 +356,17 @@ const API = {
 
     async invite(id, username) {
       return API.request(`/groups/${id}/invite`, {
-        method: 'POST',
+        method: "POST",
         body: JSON.stringify({ username }),
       });
     },
 
     async join(id) {
-      return API.request(`/groups/${id}/join`, { method: 'POST' });
+      return API.request(`/groups/${id}/join`, { method: "POST" });
     },
 
     async leave(id) {
-      return API.request(`/groups/${id}/leave`, { method: 'DELETE' });
+      return API.request(`/groups/${id}/leave`, { method: "DELETE" });
     },
 
     async members(id) {
@@ -362,15 +378,15 @@ const API = {
   messages: {
     async list(options = {}) {
       const params = new URLSearchParams();
-      if (options.limit) params.append('limit', options.limit);
-      if (options.direction) params.append('direction', options.direction);
-      if (options.since) params.append('since', options.since);
+      if (options.limit) params.append("limit", options.limit);
+      if (options.direction) params.append("direction", options.direction);
+      if (options.since) params.append("since", options.since);
       return API.request(`/messages?${params}`);
     },
 
     async send(message) {
-      return API.request('/messages/send', {
-        method: 'POST',
+      return API.request("/messages/send", {
+        method: "POST",
         body: JSON.stringify(message),
       });
     },
@@ -379,38 +395,38 @@ const API = {
   // Policy endpoints
   policies: {
     async list(scope) {
-      const url = scope ? `/policies?scope=${scope}` : '/policies';
+      const url = scope ? `/policies?scope=${scope}` : "/policies";
       return API.request(url);
     },
 
     async create(policy) {
-      return API.request('/policies', {
-        method: 'POST',
+      return API.request("/policies", {
+        method: "POST",
         body: JSON.stringify(policy),
       });
     },
 
     async update(id, updates) {
       return API.request(`/policies/${id}`, {
-        method: 'PATCH',
+        method: "PATCH",
         body: JSON.stringify(updates),
       });
     },
 
     async delete(id) {
-      return API.request(`/policies/${id}`, { method: 'DELETE' });
+      return API.request(`/policies/${id}`, { method: "DELETE" });
     },
   },
 
   // Preferences endpoints
   preferences: {
     async get() {
-      return API.request('/preferences');
+      return API.request("/preferences");
     },
 
     async update(prefs) {
-      return API.request('/preferences', {
-        method: 'PATCH',
+      return API.request("/preferences", {
+        method: "PATCH",
         body: JSON.stringify(prefs),
       });
     },
@@ -427,22 +443,22 @@ const API = {
   plugin: {
     async reviews(options = {}) {
       const params = new URLSearchParams();
-      if (options.status) params.append('status', options.status);
-      if (options.direction) params.append('direction', options.direction);
-      if (options.limit) params.append('limit', options.limit);
+      if (options.status) params.append("status", options.status);
+      if (options.direction) params.append("direction", options.direction);
+      if (options.limit) params.append("limit", options.limit);
       const query = params.toString();
-      return API.request(`/plugin/reviews${query ? `?${query}` : ''}`);
+      return API.request(`/plugin/reviews${query ? `?${query}` : ""}`);
     },
 
     async blockedEvents(options = {}) {
       const params = new URLSearchParams();
-      if (options.direction) params.append('direction', options.direction);
-      if (options.limit) params.append('limit', options.limit);
+      if (options.direction) params.append("direction", options.direction);
+      if (options.limit) params.append("limit", options.limit);
       if (options.includePayloadExcerpt) {
-        params.append('include_payload_excerpt', 'true');
+        params.append("include_payload_excerpt", "true");
       }
       const query = params.toString();
-      return API.request(`/plugin/events/blocked${query ? `?${query}` : ''}`);
+      return API.request(`/plugin/events/blocked${query ? `?${query}` : ""}`);
     },
   },
 };
@@ -452,7 +468,7 @@ const API = {
 // ========================================
 const Helpers = {
   isObject(value) {
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
   },
 
   record(value) {
@@ -475,12 +491,12 @@ const Helpers = {
   },
 
   nullableString(value) {
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       const trimmed = value.trim();
       return trimmed.length ? trimmed : null;
     }
 
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       return String(value);
     }
 
@@ -497,7 +513,7 @@ const Helpers = {
             value.displayName ??
             value.name ??
             value.id ??
-            value.connection_id
+            value.connection_id,
         ) || null
       );
     }
@@ -509,9 +525,9 @@ const Helpers = {
     return this.isObject(value) ? this.nullableString(value.type) : null;
   },
 
-  recipientLabel(value, recipientType = 'user') {
-    if (recipientType === 'group') {
-      if (typeof value === 'string') {
+  recipientLabel(value, recipientType = "user") {
+    if (recipientType === "group") {
+      if (typeof value === "string") {
         return this.nullableString(value);
       }
 
@@ -525,16 +541,16 @@ const Helpers = {
     return this.participantLabel(value);
   },
 
-  string(value, fallback = '') {
+  string(value, fallback = "") {
     return this.nullableString(value) ?? fallback;
   },
 
   number(value, fallback = 0) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       return value;
     }
 
-    if (typeof value === 'string' && value.trim()) {
+    if (typeof value === "string" && value.trim()) {
       const parsed = Number(value);
       if (Number.isFinite(parsed)) {
         return parsed;
@@ -549,16 +565,14 @@ const Helpers = {
       return [];
     }
 
-    return value
-      .map((item) => this.nullableString(item))
-      .filter(Boolean);
+    return value.map((item) => this.nullableString(item)).filter(Boolean);
   },
 
   iso(value) {
     const raw =
       value instanceof Date
         ? value.toISOString()
-        : typeof value === 'string'
+        : typeof value === "string"
           ? value
           : null;
 
@@ -572,10 +586,10 @@ const Helpers = {
 
   contentText(value) {
     if (value == null) {
-      return '';
+      return "";
     }
 
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       return value;
     }
 
@@ -588,11 +602,11 @@ const Helpers = {
 
   escapeHtml(value) {
     return this.string(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
   },
 
   truncate(value, limit = 120) {
@@ -604,7 +618,7 @@ const Helpers = {
     return `${count} ${count === 1 ? singular : plural}`;
   },
 
-  titleizeToken(value, fallback = 'None yet') {
+  titleizeToken(value, fallback = "None yet") {
     const token = this.nullableString(value);
     if (!token) {
       return fallback;
@@ -614,20 +628,20 @@ const Helpers = {
       .split(/[_-]+/)
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
+      .join(" ");
   },
 
-  formatShortDate(value, fallback = 'Unknown date') {
+  formatShortDate(value, fallback = "Unknown date") {
     const timestamp = this.timestampValue(value);
     if (!timestamp) {
       return fallback;
     }
 
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      timeZone: 'UTC',
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
     }).format(new Date(timestamp));
   },
 
@@ -641,11 +655,17 @@ const Helpers = {
   },
 
   compareByTimestampDesc(left, right) {
-    return this.timestampValue(right.timestamp || right.createdAt) - this.timestampValue(left.timestamp || left.createdAt);
+    return (
+      this.timestampValue(right.timestamp || right.createdAt) -
+      this.timestampValue(left.timestamp || left.createdAt)
+    );
   },
 
   compareByTimestampAsc(left, right) {
-    return this.timestampValue(left.timestamp || left.createdAt) - this.timestampValue(right.timestamp || right.createdAt);
+    return (
+      this.timestampValue(left.timestamp || left.createdAt) -
+      this.timestampValue(right.timestamp || right.createdAt)
+    );
   },
 
   collectionModel(items, getId = (item) => item?.id) {
@@ -668,16 +688,16 @@ const Helpers = {
     return {
       ids,
       byId,
-      items: ids
-        .map((id) => byId.get(id))
-        .filter(Boolean),
+      items: ids.map((id) => byId.get(id)).filter(Boolean),
     };
   },
 
   mergeCollectionModels(models, getId = (item) => item?.id) {
     return this.collectionModel(
-      models.flatMap((model) => (Array.isArray(model?.items) ? model.items : [])),
-      getId
+      models.flatMap((model) =>
+        Array.isArray(model?.items) ? model.items : [],
+      ),
+      getId,
     );
   },
 
@@ -687,54 +707,63 @@ const Helpers = {
   },
 
   isInternalIdentifier(value) {
-    return /^(usr|grp|fr|pol|msg|conn|rev)_[a-z0-9]/i.test(this.string(value).trim());
+    return /^(usr|grp|fr|pol|msg|conn|rev)_[a-z0-9]/i.test(
+      this.string(value).trim(),
+    );
   },
 
   policySourceLabel(value) {
     const source = this.string(value).toLowerCase();
 
     switch (source) {
-      case 'default':
-        return 'Default';
-      case 'learned':
-        return 'Learned';
-      case 'user_confirmed':
-        return 'User confirmed';
-      case 'override':
-        return 'Override';
-      case 'user_created':
-        return 'User created';
-      case 'legacy_migrated':
-        return 'Legacy import';
+      case "default":
+        return "Default";
+      case "learned":
+        return "Learned";
+      case "user_confirmed":
+        return "User confirmed";
+      case "override":
+        return "Override";
+      case "user_created":
+        return "User created";
+      case "legacy_migrated":
+        return "Legacy import";
       default:
-        return this.titleizeToken(value, 'Unknown source');
+        return this.titleizeToken(value, "Unknown source");
     }
   },
 
   resolvePolicyTargetLabel(policy) {
-    const scope = this.string(policy?.scope, 'global');
+    const scope = this.string(policy?.scope, "global");
     const targetId = this.nullableString(policy?.targetId);
 
     if (!targetId) {
       return null;
     }
 
-    if (scope === 'user') {
+    if (scope === "user") {
       const match = State.friends.find((friend) => {
-        return friend?.userId === targetId || friend?.username === targetId || friend?.friendshipId === targetId;
+        return (
+          friend?.userId === targetId ||
+          friend?.username === targetId ||
+          friend?.friendshipId === targetId
+        );
       });
       return match?.displayName || match?.username || null;
     }
 
-    if (scope === 'group') {
+    if (scope === "group") {
       const target = this.string(targetId).toLowerCase();
       const match = State.groups.find((group) => {
-        return group?.id === targetId || this.string(group?.name).toLowerCase() === target;
+        return (
+          group?.id === targetId ||
+          this.string(group?.name).toLowerCase() === target
+        );
       });
       return match?.name || null;
     }
 
-    if (scope === 'role') {
+    if (scope === "role") {
       return this.titleizeToken(targetId, targetId);
     }
 
@@ -742,27 +771,34 @@ const Helpers = {
   },
 
   policyAudienceDisplay(policy) {
-    const scope = this.string(policy?.scope, 'global');
+    const scope = this.string(policy?.scope, "global");
     const audience = policy?.boundary?.audience || {};
-    const resolvedTargetLabel = this.resolvePolicyTargetLabel(policy) || audience.targetLabel;
+    const resolvedTargetLabel =
+      this.resolvePolicyTargetLabel(policy) || audience.targetLabel;
 
-    if (scope === 'global') {
-      return audience.displayLabel || 'Anyone on Mahilo';
+    if (scope === "global") {
+      return audience.displayLabel || "Anyone on Mahilo";
     }
 
-    if (scope === 'user') {
-      return resolvedTargetLabel ? `Contact: ${resolvedTargetLabel}` : audience.displayLabel || 'Specific contact';
+    if (scope === "user") {
+      return resolvedTargetLabel
+        ? `Contact: ${resolvedTargetLabel}`
+        : audience.displayLabel || "Specific contact";
     }
 
-    if (scope === 'role') {
-      return resolvedTargetLabel ? `Role: ${resolvedTargetLabel}` : audience.displayLabel || 'Trust role';
+    if (scope === "role") {
+      return resolvedTargetLabel
+        ? `Role: ${resolvedTargetLabel}`
+        : audience.displayLabel || "Trust role";
     }
 
-    if (scope === 'group') {
-      return resolvedTargetLabel ? `Group: ${resolvedTargetLabel}` : audience.displayLabel || 'Group conversation';
+    if (scope === "group") {
+      return resolvedTargetLabel
+        ? `Group: ${resolvedTargetLabel}`
+        : audience.displayLabel || "Group conversation";
     }
 
-    return audience.displayLabel || this.titleizeToken(scope, 'Audience');
+    return audience.displayLabel || this.titleizeToken(scope, "Audience");
   },
 
   normalizeTransportDirection(record, currentUsername) {
@@ -771,38 +807,44 @@ const Helpers = {
     const queueDirection = this.nullableString(record.queue_direction);
     const normalizedCurrentUser = currentUsername?.toLowerCase() || null;
 
-    if (queueDirection === 'outbound') {
-      return 'sent';
+    if (queueDirection === "outbound") {
+      return "sent";
     }
 
-    if (queueDirection === 'inbound') {
-      return 'received';
+    if (queueDirection === "inbound") {
+      return "received";
     }
 
-    if (normalizedCurrentUser && sender?.toLowerCase() === normalizedCurrentUser) {
-      return 'sent';
+    if (
+      normalizedCurrentUser &&
+      sender?.toLowerCase() === normalizedCurrentUser
+    ) {
+      return "sent";
     }
 
-    if (normalizedCurrentUser && recipient?.toLowerCase() === normalizedCurrentUser) {
-      return 'received';
+    if (
+      normalizedCurrentUser &&
+      recipient?.toLowerCase() === normalizedCurrentUser
+    ) {
+      return "received";
     }
 
     if (sender && !recipient) {
-      return 'received';
+      return "received";
     }
 
     if (recipient && !sender) {
-      return 'sent';
+      return "sent";
     }
 
-    return 'sent';
+    return "sent";
   },
 
   buildConversations(messages) {
     const threads = new Map();
 
     messages
-      .filter((message) => message.kind === 'message' && message.counterpart)
+      .filter((message) => message.kind === "message" && message.counterpart)
       .slice()
       .sort((left, right) => this.compareByTimestampAsc(left, right))
       .forEach((message) => {
@@ -842,19 +884,19 @@ const Helpers = {
             ...existing,
             ...message,
           }
-        : message
+        : message,
     );
 
-    State.messages = Array.from(State.messagesById.values()).sort((left, right) =>
-      this.compareByTimestampDesc(left, right)
+    State.messages = Array.from(State.messagesById.values()).sort(
+      (left, right) => this.compareByTimestampDesc(left, right),
     );
     this.rebuildConversations();
   },
 
-  logFeed(messages, reviews, blockedEvents, direction = 'all') {
+  logFeed(messages, reviews, blockedEvents, direction = "all") {
     return [...messages, ...reviews, ...blockedEvents]
       .filter((item) => {
-        if (direction === 'all') {
+        if (direction === "all") {
           return true;
         }
         return item.transportDirection === direction;
@@ -867,25 +909,28 @@ const Helpers = {
     const threadIds = new Set();
 
     messages
-      .filter((message) => message.kind === 'message')
+      .filter((message) => message.kind === "message")
       .forEach((message) => {
         if (message.correlationId) {
           correlationCounts.set(
             message.correlationId,
-            (correlationCounts.get(message.correlationId) || 0) + 1
+            (correlationCounts.get(message.correlationId) || 0) + 1,
           );
         }
       });
 
     messages
-      .filter((message) => message.kind === 'message')
+      .filter((message) => message.kind === "message")
       .forEach((message) => {
-        if (message.recipientType === 'group') {
+        if (message.recipientType === "group") {
           threadIds.add(message.correlationId || `group:${message.messageId}`);
           return;
         }
 
-        if (message.correlationId && (correlationCounts.get(message.correlationId) || 0) > 1) {
+        if (
+          message.correlationId &&
+          (correlationCounts.get(message.correlationId) || 0) > 1
+        ) {
           threadIds.add(message.correlationId);
         }
       });
@@ -897,19 +942,23 @@ const Helpers = {
   },
 
   askAroundTag(message, threadSummary) {
-    if (!message || message.kind !== 'message') {
+    if (!message || message.kind !== "message") {
       return null;
     }
 
-    if (message.recipientType === 'group') {
-      return 'Ask-around group';
+    if (message.recipientType === "group") {
+      return "Ask-around group";
     }
 
-    if (message.correlationId && threadSummary.threadIds.has(message.correlationId)) {
-      const threadSize = threadSummary.correlationCounts.get(message.correlationId) || 0;
+    if (
+      message.correlationId &&
+      threadSummary.threadIds.has(message.correlationId)
+    ) {
+      const threadSize =
+        threadSummary.correlationCounts.get(message.correlationId) || 0;
       return threadSize > 1
         ? `Ask-around thread (${threadSize})`
-        : 'Ask-around thread';
+        : "Ask-around thread";
     }
 
     return null;
@@ -918,109 +967,137 @@ const Helpers = {
 
 const BOUNDARY_EFFECT_META = {
   allow: {
-    badgeLabel: 'Allow',
-    label: 'Allow sharing',
-    description: 'Mahilo can send matching content without stopping.',
-    tone: 'allow',
+    badgeLabel: "Allow",
+    label: "Allow sharing",
+    description: "Mahilo can send matching content without stopping.",
+    tone: "allow",
   },
   ask: {
-    badgeLabel: 'Ask',
-    label: 'Ask before sharing',
-    description: 'Mahilo should pause matching content for review before sending.',
-    tone: 'ask',
+    badgeLabel: "Ask",
+    label: "Ask before sharing",
+    description:
+      "Mahilo should pause matching content for review before sending.",
+    tone: "ask",
   },
   deny: {
-    badgeLabel: 'Deny',
-    label: 'Block sharing',
-    description: 'Mahilo should stop matching content from being sent.',
-    tone: 'deny',
+    badgeLabel: "Deny",
+    label: "Block sharing",
+    description: "Mahilo should stop matching content from being sent.",
+    tone: "deny",
   },
 };
 
+const BOUNDARY_EFFECT_ORDER = {
+  deny: 0,
+  ask: 1,
+  allow: 2,
+};
+
+const BOUNDARY_SCOPE_ORDER = ["global", "user", "role", "group"];
+
+const BOUNDARY_CATEGORY_ORDER = [
+  "opinions",
+  "availability",
+  "location",
+  "health",
+  "financial",
+  "contact",
+  "generic",
+  "advanced",
+];
+
 const BOUNDARY_SCOPE_META = {
   global: {
-    filterLabel: 'Global',
-    scopeLabel: 'Global',
-    summary: 'Applies across every conversation unless a narrower rule wins.',
-    defaultDisplayLabel: 'Anyone on Mahilo',
+    filterLabel: "Global",
+    scopeLabel: "Global",
+    summary: "Applies across every conversation unless a narrower rule wins.",
+    defaultDisplayLabel: "Anyone on Mahilo",
   },
   user: {
-    filterLabel: 'Contact',
-    scopeLabel: 'Contact',
-    summary: 'Applies only to one specific contact.',
-    defaultDisplayLabel: 'Specific contact',
+    filterLabel: "Contact",
+    scopeLabel: "Contact",
+    summary: "Applies only to one specific contact.",
+    defaultDisplayLabel: "Specific contact",
   },
   role: {
-    filterLabel: 'Role',
-    scopeLabel: 'Role',
-    summary: 'Applies to contacts with a specific trust role.',
-    defaultDisplayLabel: 'Trust role',
+    filterLabel: "Role",
+    scopeLabel: "Role",
+    summary: "Applies to contacts with a specific trust role.",
+    defaultDisplayLabel: "Trust role",
   },
   group: {
-    filterLabel: 'Group',
-    scopeLabel: 'Group',
-    summary: 'Applies only when sending into a specific group.',
-    defaultDisplayLabel: 'Group conversation',
+    filterLabel: "Group",
+    scopeLabel: "Group",
+    summary: "Applies only when sending into a specific group.",
+    defaultDisplayLabel: "Group conversation",
   },
 };
 
 const BOUNDARY_CATEGORY_META = {
   opinions: {
-    description: 'Recommendations, reviews, and other lived experience.',
-    icon: '💬',
-    label: 'Opinions and recommendations',
-    managementPath: 'guided',
+    description: "Recommendations, reviews, and other lived experience.",
+    icon: "💬",
+    label: "Opinions and recommendations",
+    managementPath: "guided",
   },
   availability: {
-    description: 'Availability, event details, and schedule coordination.',
-    icon: '🗓️',
-    label: 'Availability and schedule',
-    managementPath: 'guided',
+    description: "Availability, event details, and schedule coordination.",
+    icon: "🗓️",
+    label: "Availability and schedule",
+    managementPath: "guided",
   },
   location: {
-    description: 'Current location, whereabouts, and location history.',
-    icon: '📍',
-    label: 'Location',
-    managementPath: 'guided',
+    description: "Current location, whereabouts, and location history.",
+    icon: "📍",
+    label: "Location",
+    managementPath: "guided",
   },
   health: {
-    description: 'Health summaries, wellness context, and medical details.',
-    icon: '🩺',
-    label: 'Health details',
-    managementPath: 'guided',
+    description: "Health summaries, wellness context, and medical details.",
+    icon: "🩺",
+    label: "Health details",
+    managementPath: "guided",
   },
   financial: {
-    description: 'Balances, transactions, and other money-related details.',
-    icon: '💳',
-    label: 'Financial details',
-    managementPath: 'guided',
+    description: "Balances, transactions, and other money-related details.",
+    icon: "💳",
+    label: "Financial details",
+    managementPath: "guided",
   },
   contact: {
-    description: 'Email, phone, profile, and direct contact details.',
-    icon: '📇',
-    label: 'Contact details',
-    managementPath: 'guided',
+    description: "Email, phone, profile, and direct contact details.",
+    icon: "📇",
+    label: "Contact details",
+    managementPath: "guided",
   },
   generic: {
-    description: 'General messages that do not map to a more specific boundary.',
-    icon: '✉️',
-    label: 'Generic messages',
-    managementPath: 'guided',
+    description:
+      "General messages that do not map to a more specific boundary.",
+    icon: "✉️",
+    label: "Generic messages",
+    managementPath: "guided",
   },
   advanced: {
-    description: 'Custom selector combinations stay visible here but use the advanced path.',
-    icon: '🧩',
-    label: 'Advanced/custom boundary',
-    managementPath: 'advanced',
+    description:
+      "Custom selector combinations stay visible here but use the advanced path.",
+    icon: "🧩",
+    label: "Advanced/custom boundary",
+    managementPath: "advanced",
   },
 };
 
-const BOUNDARY_OPINION_PATTERN = /\b(recommend|recommendation|opinion|opinions|review|reviews|advice|suggest|suggestion|taste|experience)\b/;
-const BOUNDARY_AVAILABILITY_PATTERN = /\b(availability|available|free\/busy|free busy|calendar|schedule|meeting|event|appointment|time slot|busy)\b/;
-const BOUNDARY_LOCATION_PATTERN = /\b(location|whereabouts|address|gps|coordinates?|latitude|longitude|home|nearby|city)\b/;
-const BOUNDARY_HEALTH_PATTERN = /\b(health|medical|doctor|wellness|heart rate|blood pressure|sleep|bmi|symptom)\b/;
-const BOUNDARY_FINANCIAL_PATTERN = /\b(financial|finance|money|balance|transaction|payment|invoice|charge|bank|credit|debit)\b/;
-const BOUNDARY_CONTACT_PATTERN = /\b(contact|email|phone|sms|call|number|profile)\b/;
+const BOUNDARY_OPINION_PATTERN =
+  /\b(recommend|recommendation|opinion|opinions|review|reviews|advice|suggest|suggestion|taste|experience)\b/;
+const BOUNDARY_AVAILABILITY_PATTERN =
+  /\b(availability|available|free\/busy|free busy|calendar|schedule|meeting|event|appointment|time slot|busy)\b/;
+const BOUNDARY_LOCATION_PATTERN =
+  /\b(location|whereabouts|address|gps|coordinates?|latitude|longitude|home|nearby|city)\b/;
+const BOUNDARY_HEALTH_PATTERN =
+  /\b(health|medical|doctor|wellness|heart rate|blood pressure|sleep|bmi|symptom)\b/;
+const BOUNDARY_FINANCIAL_PATTERN =
+  /\b(financial|finance|money|balance|transaction|payment|invoice|charge|bank|credit|debit)\b/;
+const BOUNDARY_CONTACT_PATTERN =
+  /\b(contact|email|phone|sms|call|number|profile)\b/;
 
 function normalizeBoundaryValue(value) {
   return Helpers.string(value).toLowerCase();
@@ -1032,7 +1109,7 @@ function formatBoundaryTargetLabel(scope, targetId) {
     return null;
   }
 
-  if (scope === 'role') {
+  if (scope === "role") {
     return Helpers.titleizeToken(normalizedTargetId, normalizedTargetId);
   }
 
@@ -1040,7 +1117,7 @@ function formatBoundaryTargetLabel(scope, targetId) {
     return null;
   }
 
-  if (scope === 'group') {
+  if (scope === "group") {
     return Helpers.titleizeToken(normalizedTargetId, normalizedTargetId);
   }
 
@@ -1051,27 +1128,27 @@ function inferBoundaryCategoryFromContent(content) {
   const normalizedContent = normalizeBoundaryValue(content);
 
   if (BOUNDARY_OPINION_PATTERN.test(normalizedContent)) {
-    return 'opinions';
+    return "opinions";
   }
 
   if (BOUNDARY_AVAILABILITY_PATTERN.test(normalizedContent)) {
-    return 'availability';
+    return "availability";
   }
 
   if (BOUNDARY_LOCATION_PATTERN.test(normalizedContent)) {
-    return 'location';
+    return "location";
   }
 
   if (BOUNDARY_HEALTH_PATTERN.test(normalizedContent)) {
-    return 'health';
+    return "health";
   }
 
   if (BOUNDARY_FINANCIAL_PATTERN.test(normalizedContent)) {
-    return 'financial';
+    return "financial";
   }
 
   if (BOUNDARY_CONTACT_PATTERN.test(normalizedContent)) {
-    return 'contact';
+    return "contact";
   }
 
   return null;
@@ -1079,137 +1156,168 @@ function inferBoundaryCategoryFromContent(content) {
 
 function inferBoundaryCategory(resource, action, contentText) {
   const normalizedResource = normalizeBoundaryValue(resource);
-  const normalizedAction = normalizeBoundaryValue(action) || 'share';
+  const normalizedAction = normalizeBoundaryValue(action) || "share";
 
-  if (normalizedResource === 'calendar' || normalizedResource.startsWith('calendar.')) {
-    return 'availability';
-  }
-
-  if (normalizedResource === 'location' || normalizedResource.startsWith('location.')) {
-    return 'location';
-  }
-
-  if (normalizedResource === 'health' || normalizedResource.startsWith('health.')) {
-    return 'health';
-  }
-
-  if (normalizedResource === 'financial' || normalizedResource.startsWith('financial.')) {
-    return 'financial';
+  if (
+    normalizedResource === "calendar" ||
+    normalizedResource.startsWith("calendar.")
+  ) {
+    return "availability";
   }
 
   if (
-    normalizedResource === 'contact' ||
-    normalizedResource.startsWith('contact.') ||
-    normalizedResource === 'profile.basic'
+    normalizedResource === "location" ||
+    normalizedResource.startsWith("location.")
   ) {
-    return 'contact';
+    return "location";
   }
 
-  if (normalizedResource === 'message.general' && BOUNDARY_OPINION_PATTERN.test(normalizedAction)) {
-    return 'opinions';
+  if (
+    normalizedResource === "health" ||
+    normalizedResource.startsWith("health.")
+  ) {
+    return "health";
   }
 
-  if (normalizedResource === 'message.general') {
-    return inferBoundaryCategoryFromContent(contentText) || 'generic';
+  if (
+    normalizedResource === "financial" ||
+    normalizedResource.startsWith("financial.")
+  ) {
+    return "financial";
   }
 
-  return 'advanced';
+  if (
+    normalizedResource === "contact" ||
+    normalizedResource.startsWith("contact.") ||
+    normalizedResource === "profile.basic"
+  ) {
+    return "contact";
+  }
+
+  if (
+    normalizedResource === "message.general" &&
+    BOUNDARY_OPINION_PATTERN.test(normalizedAction)
+  ) {
+    return "opinions";
+  }
+
+  if (normalizedResource === "message.general") {
+    return inferBoundaryCategoryFromContent(contentText) || "generic";
+  }
+
+  return "advanced";
 }
 
 function boundaryDirectionLabel(direction) {
   const normalizedDirection = normalizeBoundaryValue(direction);
 
   switch (normalizedDirection) {
-    case 'outbound':
-      return 'Outbound';
-    case 'inbound':
-      return 'Inbound';
-    case 'request':
-      return 'Request';
-    case 'response':
-      return 'Response';
-    case 'notification':
-      return 'Notification';
-    case 'error':
-      return 'Error';
+    case "outbound":
+      return "Outbound";
+    case "inbound":
+      return "Inbound";
+    case "request":
+      return "Request";
+    case "response":
+      return "Response";
+    case "notification":
+      return "Notification";
+    case "error":
+      return "Error";
     default:
-      return Helpers.titleizeToken(direction, 'Outbound');
+      return Helpers.titleizeToken(direction, "Outbound");
   }
 }
 
 function boundarySelectorLabel(category, resource, action) {
   const normalizedResource = normalizeBoundaryValue(resource);
-  const normalizedAction = normalizeBoundaryValue(action) || 'share';
+  const normalizedAction = normalizeBoundaryValue(action) || "share";
 
-  if (category === 'opinions') {
-    return normalizedAction === 'recommend' ? 'Recommendations' : 'Opinion sharing';
+  if (category === "opinions") {
+    return normalizedAction === "recommend"
+      ? "Recommendations"
+      : "Opinion sharing";
   }
 
-  if (category === 'availability') {
-    if (normalizedResource === 'calendar.availability' || normalizedAction === 'read_availability') {
-      return 'Availability windows';
+  if (category === "availability") {
+    if (
+      normalizedResource === "calendar.availability" ||
+      normalizedAction === "read_availability"
+    ) {
+      return "Availability windows";
     }
 
-    if (normalizedResource === 'calendar.event' || normalizedAction === 'read_details') {
-      return 'Event details';
+    if (
+      normalizedResource === "calendar.event" ||
+      normalizedAction === "read_details"
+    ) {
+      return "Event details";
     }
 
-    return 'Schedule details';
+    return "Schedule details";
   }
 
-  if (category === 'location') {
-    return normalizedResource === 'location.history' ? 'Location history' : 'Current location';
+  if (category === "location") {
+    return normalizedResource === "location.history"
+      ? "Location history"
+      : "Current location";
   }
 
-  if (category === 'health') {
-    return normalizedResource === 'health.summary' ? 'Health summaries' : 'Health metrics';
+  if (category === "health") {
+    return normalizedResource === "health.summary"
+      ? "Health summaries"
+      : "Health metrics";
   }
 
-  if (category === 'financial') {
-    return normalizedResource === 'financial.transaction' ? 'Transactions' : 'Balances';
+  if (category === "financial") {
+    return normalizedResource === "financial.transaction"
+      ? "Transactions"
+      : "Balances";
   }
 
-  if (category === 'contact') {
-    if (normalizedResource === 'contact.email') {
-      return 'Email address';
+  if (category === "contact") {
+    if (normalizedResource === "contact.email") {
+      return "Email address";
     }
 
-    if (normalizedResource === 'contact.phone') {
-      return 'Phone number';
+    if (normalizedResource === "contact.phone") {
+      return "Phone number";
     }
 
-    return 'Contact profile';
+    return "Contact profile";
   }
 
-  if (category === 'generic') {
-    return 'General messages';
+  if (category === "generic") {
+    return "General messages";
   }
 
   return Helpers.titleizeToken(
-    normalizedResource.replace(/[._-]+/g, '_'),
-    'Custom selector'
+    normalizedResource.replace(/[._-]+/g, "_"),
+    "Custom selector",
   );
 }
 
 function buildBoundaryAudience(scope, targetId) {
-  const normalizedScope = Helpers.string(scope, 'global');
-  const scopeMeta = BOUNDARY_SCOPE_META[normalizedScope] || BOUNDARY_SCOPE_META.global;
+  const normalizedScope = Helpers.string(scope, "global");
+  const scopeMeta =
+    BOUNDARY_SCOPE_META[normalizedScope] || BOUNDARY_SCOPE_META.global;
   const targetLabel = formatBoundaryTargetLabel(normalizedScope, targetId);
   let displayLabel = scopeMeta.defaultDisplayLabel;
   let summary = scopeMeta.summary;
 
-  if (normalizedScope === 'role' && targetLabel) {
+  if (normalizedScope === "role" && targetLabel) {
     displayLabel = `Role: ${targetLabel}`;
     summary = `Applies to contacts tagged ${targetLabel}.`;
-  } else if (normalizedScope === 'group' && targetLabel) {
+  } else if (normalizedScope === "group" && targetLabel) {
     displayLabel = `Group: ${targetLabel}`;
     summary = `Applies only when sending into ${targetLabel}.`;
-  } else if (normalizedScope === 'user' && targetLabel) {
+  } else if (normalizedScope === "user" && targetLabel) {
     displayLabel = `Contact: ${targetLabel}`;
     summary = `Applies only to ${targetLabel}.`;
   }
 
   return {
+    key: `${normalizedScope}:${Helpers.nullableString(targetId) || "all"}`,
     scope: normalizedScope,
     filterLabel: scopeMeta.filterLabel,
     scopeLabel: scopeMeta.scopeLabel,
@@ -1221,26 +1329,232 @@ function buildBoundaryAudience(scope, targetId) {
 }
 
 function buildBoundarySelector(category, direction, resource, action) {
-  const normalizedAction = Helpers.nullableString(action) || 'share';
+  const normalizedAction = Helpers.nullableString(action) || "share";
 
   return {
     action: normalizedAction,
-    direction: Helpers.string(direction, 'outbound'),
+    direction: Helpers.string(direction, "outbound"),
     directionLabel: boundaryDirectionLabel(direction),
     label: boundarySelectorLabel(category, resource, normalizedAction),
-    resource: Helpers.string(resource, 'message.general'),
-    summary: `${Helpers.string(resource, 'message.general')}${normalizedAction ? ` / ${normalizedAction}` : ''}`,
+    resource: Helpers.string(resource, "message.general"),
+    summary: `${Helpers.string(resource, "message.general")}${normalizedAction ? ` / ${normalizedAction}` : ""}`,
   };
 }
 
+function buildBoundaryLifecycle(policy) {
+  const effectiveFromTimestamp = Helpers.timestampValue(policy.effectiveFrom);
+  const expiresAtTimestamp = Helpers.timestampValue(policy.expiresAt);
+  const remainingUses =
+    typeof policy.remainingUses === "number" &&
+    Number.isFinite(policy.remainingUses)
+      ? policy.remainingUses
+      : null;
+  const maxUses =
+    typeof policy.maxUses === "number" && Number.isFinite(policy.maxUses)
+      ? policy.maxUses
+      : null;
+  const now = Date.now();
+
+  if (!policy.enabled) {
+    return {
+      badgeLabel: "Disabled",
+      isActive: false,
+      state: "disabled",
+      summary: "Disabled manually and not currently enforced.",
+      tone: "disabled",
+    };
+  }
+
+  if (effectiveFromTimestamp && effectiveFromTimestamp > now) {
+    return {
+      badgeLabel: "Scheduled",
+      isActive: false,
+      state: "scheduled",
+      summary: `Starts ${Helpers.formatShortDate(policy.effectiveFrom)}.`,
+      tone: "scheduled",
+    };
+  }
+
+  if (expiresAtTimestamp && expiresAtTimestamp <= now) {
+    return {
+      badgeLabel: "Expired",
+      isActive: false,
+      state: "expired",
+      summary: `Ended ${Helpers.formatShortDate(policy.expiresAt)}.`,
+      tone: "expired",
+    };
+  }
+
+  if (remainingUses !== null && remainingUses <= 0) {
+    return {
+      badgeLabel: "Used up",
+      isActive: false,
+      state: "spent",
+      summary: "This temporary boundary has no uses remaining.",
+      tone: "spent",
+    };
+  }
+
+  const notes = [];
+  if (policy.effectiveFrom) {
+    notes.push(`Started ${Helpers.formatShortDate(policy.effectiveFrom)}.`);
+  }
+  if (policy.expiresAt) {
+    notes.push(`Active until ${Helpers.formatShortDate(policy.expiresAt)}.`);
+  }
+  if (remainingUses !== null) {
+    if (maxUses !== null) {
+      notes.push(
+        `${Helpers.pluralize(remainingUses, "use")} left out of ${maxUses}.`,
+      );
+    } else {
+      notes.push(`${Helpers.pluralize(remainingUses, "use")} remaining.`);
+    }
+  }
+
+  return {
+    badgeLabel: "Active now",
+    isActive: true,
+    state: "active",
+    summary: notes.join(" ") || "Currently active and enforced.",
+    tone: "active",
+  };
+}
+
+function boundarySelectorPhrase(label) {
+  const text = Helpers.string(label, "matching content");
+  return text
+    ? `${text.charAt(0).toLowerCase()}${text.slice(1)}`
+    : "matching content";
+}
+
+function buildBoundaryAudienceNarrative(policy, audienceLabel) {
+  const scope = Helpers.string(policy.scope, "global");
+  const label = Helpers.string(audienceLabel, "this audience");
+
+  if (scope === "user") {
+    return `with ${label.replace(/^Contact:\s*/i, "")}`;
+  }
+
+  if (scope === "role") {
+    return `with contacts tagged ${label.replace(/^Role:\s*/i, "")}`;
+  }
+
+  if (scope === "group") {
+    return `when sending into ${label.replace(/^Group:\s*/i, "")}`;
+  }
+
+  return `with ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+}
+
+function buildBoundaryNarrative(policy, audienceLabel) {
+  const boundary = policy.boundary || {};
+  const effect = boundary.effect || {};
+  const selector = boundary.selector || {};
+  const selectorPhrase = boundarySelectorPhrase(selector.label);
+  const audience = buildBoundaryAudienceNarrative(policy, audienceLabel);
+  const effectValue = effect.value || policy.effect;
+
+  switch (effectValue) {
+    case "allow":
+      return `Mahilo can share ${selectorPhrase} ${audience}.`;
+    case "ask":
+      return `Mahilo asks before sharing ${selectorPhrase} ${audience}.`;
+    case "deny":
+      return `Mahilo blocks ${selectorPhrase} ${audience}.`;
+    default:
+      return Helpers.string(
+        boundary.categoryDescription,
+        "Mahilo applies this boundary to matching content.",
+      );
+  }
+}
+
+function buildBoundaryAudienceSummary(policy, audienceLabel) {
+  const scope = Helpers.string(policy.scope, "global");
+  const label = Helpers.string(audienceLabel);
+
+  if (!label) {
+    return Helpers.string(
+      policy.boundary?.audience?.summary,
+      "This boundary applies to the selected audience.",
+    );
+  }
+
+  if (scope === "user") {
+    return `Applies only to ${label.replace(/^Contact:\s*/i, "")}.`;
+  }
+
+  if (scope === "role") {
+    return `Applies to contacts tagged ${label.replace(/^Role:\s*/i, "")}.`;
+  }
+
+  if (scope === "group") {
+    return `Applies only when sending into ${label.replace(/^Group:\s*/i, "")}.`;
+  }
+
+  return Helpers.string(
+    policy.boundary?.audience?.summary,
+    "Applies across every conversation unless a narrower boundary wins.",
+  );
+}
+
+function compareBoundaryPolicies(left, right) {
+  const leftLifecycle =
+    left.boundary?.lifecycle || buildBoundaryLifecycle(left);
+  const rightLifecycle =
+    right.boundary?.lifecycle || buildBoundaryLifecycle(right);
+  const activeDelta =
+    Number(rightLifecycle.isActive) - Number(leftLifecycle.isActive);
+  if (activeDelta !== 0) {
+    return activeDelta;
+  }
+
+  const effectDelta =
+    (BOUNDARY_EFFECT_ORDER[left.effect] ?? Number.MAX_SAFE_INTEGER) -
+    (BOUNDARY_EFFECT_ORDER[right.effect] ?? Number.MAX_SAFE_INTEGER);
+  if (effectDelta !== 0) {
+    return effectDelta;
+  }
+
+  const priorityDelta = (right.priority || 0) - (left.priority || 0);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  const selectorDelta = Helpers.string(
+    left.boundary?.selector?.label,
+  ).localeCompare(Helpers.string(right.boundary?.selector?.label));
+  if (selectorDelta !== 0) {
+    return selectorDelta;
+  }
+
+  return (
+    Helpers.timestampValue(right.createdAt) -
+    Helpers.timestampValue(left.createdAt)
+  );
+}
+
 function buildBoundaryPresentation(policy) {
-  const category = inferBoundaryCategory(policy.resource, policy.action, policy.contentText);
-  const categoryMeta = BOUNDARY_CATEGORY_META[category] || BOUNDARY_CATEGORY_META.advanced;
-  const effectMeta = BOUNDARY_EFFECT_META[policy.effect] || BOUNDARY_EFFECT_META.deny;
-  const selector = buildBoundarySelector(category, policy.direction, policy.resource, policy.action);
+  const category = inferBoundaryCategory(
+    policy.resource,
+    policy.action,
+    policy.contentText,
+  );
+  const categoryMeta =
+    BOUNDARY_CATEGORY_META[category] || BOUNDARY_CATEGORY_META.advanced;
+  const effectMeta =
+    BOUNDARY_EFFECT_META[policy.effect] || BOUNDARY_EFFECT_META.deny;
+  const selector = buildBoundarySelector(
+    category,
+    policy.direction,
+    policy.resource,
+    policy.action,
+  );
   const audience = buildBoundaryAudience(policy.scope, policy.targetId);
+  const lifecycle = buildBoundaryLifecycle(policy);
   const advancedSummary =
-    categoryMeta.managementPath === 'advanced'
+    categoryMeta.managementPath === "advanced"
       ? `Custom selector combination (${selector.summary}). Keep it visible here and use the advanced path for selector-specific edits.`
       : null;
 
@@ -1258,6 +1572,7 @@ function buildBoundaryPresentation(policy) {
       value: policy.effect,
     },
     icon: categoryMeta.icon,
+    lifecycle,
     managementPath: categoryMeta.managementPath,
     selector,
   };
@@ -1275,9 +1590,13 @@ const Normalizers = {
     return {
       user_id: Helpers.string(record.user_id ?? record.id, username),
       username,
-      display_name: Helpers.nullableString(record.display_name ?? record.displayName),
+      display_name: Helpers.nullableString(
+        record.display_name ?? record.displayName,
+      ),
       created_at: Helpers.iso(record.created_at ?? record.createdAt),
-      registration_source: Helpers.nullableString(record.registration_source ?? record.registrationSource),
+      registration_source: Helpers.nullableString(
+        record.registration_source ?? record.registrationSource,
+      ),
       status: Helpers.nullableString(record.status),
       verified: Boolean(record.verified),
       verified_at: Helpers.iso(record.verified_at ?? record.verifiedAt),
@@ -1286,7 +1605,7 @@ const Normalizers = {
   },
 
   agents(value) {
-    return Helpers.collection(value, ['agents', 'connections', 'items'])
+    return Helpers.collection(value, ["agents", "connections", "items"])
       .map((entry) => this.agent(entry))
       .filter(Boolean);
   },
@@ -1306,14 +1625,21 @@ const Normalizers = {
     return {
       id,
       label: Helpers.string(record.label, id),
-      framework: Helpers.string(record.framework, 'unknown'),
+      framework: Helpers.string(record.framework, "unknown"),
       description: Helpers.nullableString(record.description),
       capabilities: Helpers.stringList(record.capabilities),
-      routingPriority: Helpers.number(record.routing_priority ?? record.routingPriority, 0),
-      callbackUrl: Helpers.nullableString(record.callback_url ?? record.callbackUrl),
+      routingPriority: Helpers.number(
+        record.routing_priority ?? record.routingPriority,
+        0,
+      ),
+      callbackUrl: Helpers.nullableString(
+        record.callback_url ?? record.callbackUrl,
+      ),
       publicKey: Helpers.nullableString(record.public_key ?? record.publicKey),
-      publicKeyAlg: Helpers.nullableString(record.public_key_alg ?? record.publicKeyAlg),
-      status: Helpers.string(record.status, 'unknown'),
+      publicKeyAlg: Helpers.nullableString(
+        record.public_key_alg ?? record.publicKeyAlg,
+      ),
+      status: Helpers.string(record.status, "unknown"),
       lastSeen: Helpers.iso(record.last_seen ?? record.lastSeen),
       createdAt: Helpers.iso(record.created_at ?? record.createdAt),
       raw: value,
@@ -1321,18 +1647,23 @@ const Normalizers = {
   },
 
   friends(value) {
-    return Helpers.collection(value, ['friends', 'items', 'results', 'data'])
+    return Helpers.collection(value, ["friends", "items", "results", "data"])
       .map((entry) => this.friend(entry))
       .filter(Boolean);
   },
 
   friendsModel(value) {
-    return Helpers.collectionModel(this.friends(value), (friend) => friend.friendshipId);
+    return Helpers.collectionModel(
+      this.friends(value),
+      (friend) => friend.friendshipId,
+    );
   },
 
   friend(value) {
     const record = Helpers.record(value);
-    const friendshipId = Helpers.nullableString(record.friendship_id ?? record.id);
+    const friendshipId = Helpers.nullableString(
+      record.friendship_id ?? record.id,
+    );
 
     if (!friendshipId) {
       return null;
@@ -1351,17 +1682,20 @@ const Normalizers = {
       displayName:
         Helpers.nullableString(record.display_name ?? record.displayName) ||
         username,
-      status: Helpers.string(record.status, 'pending'),
-      direction: Helpers.string(record.direction, 'received'),
+      status: Helpers.string(record.status, "pending"),
+      direction: Helpers.string(record.direction, "received"),
       since: Helpers.iso(record.since ?? record.created_at ?? record.createdAt),
       roles: Helpers.stringList(record.roles),
-      interactionCount: Helpers.number(record.interaction_count ?? record.interactionCount, 0),
+      interactionCount: Helpers.number(
+        record.interaction_count ?? record.interactionCount,
+        0,
+      ),
       raw: value,
     };
   },
 
   roles(value) {
-    return Helpers.collection(value, ['roles', 'items', 'results', 'data'])
+    return Helpers.collection(value, ["roles", "items", "results", "data"])
       .map((entry) => this.role(entry))
       .filter(Boolean);
   },
@@ -1388,7 +1722,7 @@ const Normalizers = {
   },
 
   groups(value) {
-    return Helpers.collection(value, ['groups', 'items', 'results', 'data'])
+    return Helpers.collection(value, ["groups", "items", "results", "data"])
       .map((entry) => this.group(entry))
       .filter(Boolean);
   },
@@ -1419,60 +1753,81 @@ const Normalizers = {
   },
 
   messages(value, options = {}) {
-    return Helpers.collection(value, ['messages', 'items', 'results', 'data'])
+    return Helpers.collection(value, ["messages", "items", "results", "data"])
       .map((entry) => this.message(entry, options))
       .filter(Boolean)
       .sort((left, right) => Helpers.compareByTimestampDesc(left, right));
   },
 
   messagesModel(value, options = {}) {
-    return Helpers.collectionModel(this.messages(value, options), (message) => message.id);
+    return Helpers.collectionModel(
+      this.messages(value, options),
+      (message) => message.id,
+    );
   },
 
   message(value, options = {}) {
     const record = Helpers.record(value);
     const timestamp =
-      Helpers.iso(record.created_at ?? record.timestamp ?? record.delivered_at ?? record.createdAt) ||
-      new Date().toISOString();
-    const transportDirection = Helpers.normalizeTransportDirection(record, options.currentUsername);
+      Helpers.iso(
+        record.created_at ??
+          record.timestamp ??
+          record.delivered_at ??
+          record.createdAt,
+      ) || new Date().toISOString();
+    const transportDirection = Helpers.normalizeTransportDirection(
+      record,
+      options.currentUsername,
+    );
     const sender =
       Helpers.participantLabel(record.sender) ||
-      (transportDirection === 'sent' ? options.currentUsername : null) ||
-      'Unknown sender';
+      (transportDirection === "sent" ? options.currentUsername : null) ||
+      "Unknown sender";
     const recipientType =
       Helpers.nullableString(record.recipient_type) ||
       Helpers.participantType(record.recipient) ||
-      'user';
+      "user";
     const recipient =
       Helpers.recipientLabel(record.recipient, recipientType) ||
-      (recipientType === 'group' ? 'Group conversation' : options.currentUsername) ||
-      'Unknown recipient';
+      (recipientType === "group"
+        ? "Group conversation"
+        : options.currentUsername) ||
+      "Unknown recipient";
     const id =
       Helpers.nullableString(record.id ?? record.message_id) ||
       `message_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const messageText = Helpers.contentText(
-      record.message ?? record.payload ?? record.message_preview ?? record.stored_payload_excerpt
+      record.message ??
+        record.payload ??
+        record.message_preview ??
+        record.stored_payload_excerpt,
     );
-    const counterpart = transportDirection === 'sent' ? recipient : sender;
-    const status = Helpers.string(record.status ?? record.delivery_status, 'pending');
+    const counterpart = transportDirection === "sent" ? recipient : sender;
+    const status = Helpers.string(
+      record.status ?? record.delivery_status,
+      "pending",
+    );
 
     return {
-      kind: 'message',
+      kind: "message",
       id,
       messageId: Helpers.string(record.message_id ?? record.id, id),
       senderId: Helpers.nullableString(
-        record.sender_user_id ?? record.sender?.user_id ?? record.sender?.id
+        record.sender_user_id ?? record.sender?.user_id ?? record.sender?.id,
       ),
       sender,
       recipientId: Helpers.nullableString(
-        record.recipient_id ?? record.recipient?.user_id ?? record.recipient?.id
+        record.recipient_id ??
+          record.recipient?.user_id ??
+          record.recipient?.id,
       ),
       recipient,
       recipientType,
       transportDirection,
-      isSent: transportDirection === 'sent',
+      isSent: transportDirection === "sent",
       counterpart,
-      counterpartLabel: counterpart || (transportDirection === 'sent' ? recipient : sender),
+      counterpartLabel:
+        counterpart || (transportDirection === "sent" ? recipient : sender),
       status,
       deliveryStatus: Helpers.string(record.delivery_status, status),
       timestamp,
@@ -1482,33 +1837,43 @@ const Normalizers = {
       previewText: Helpers.truncate(messageText, 120),
       context: Helpers.contentText(record.context ?? record.context_preview),
       senderAgent: Helpers.nullableString(
-        record.sender_agent ?? record.sender?.agent ?? record.sender?.label
+        record.sender_agent ?? record.sender?.agent ?? record.sender?.label,
       ),
       senderConnectionId: Helpers.nullableString(
-        record.sender_connection_id ?? record.sender?.connection_id ?? record.sender?.id
+        record.sender_connection_id ??
+          record.sender?.connection_id ??
+          record.sender?.id,
       ),
       recipientConnectionId: Helpers.nullableString(
-        record.recipient_connection_id ?? record.recipient?.connection_id ?? record.recipient?.id
+        record.recipient_connection_id ??
+          record.recipient?.connection_id ??
+          record.recipient?.id,
       ),
       correlationId: Helpers.nullableString(record.correlation_id),
       selectors: {
         direction: Helpers.nullableString(
-          record.direction ?? record.selectors?.direction ?? record.classified_direction
+          record.direction ??
+            record.selectors?.direction ??
+            record.classified_direction,
         ),
         resource: Helpers.nullableString(
-          record.resource ?? record.selectors?.resource ?? record.classified_resource
+          record.resource ??
+            record.selectors?.resource ??
+            record.classified_resource,
         ),
         action: Helpers.nullableString(
-          record.action ?? record.selectors?.action ?? record.classified_action
+          record.action ?? record.selectors?.action ?? record.classified_action,
         ),
       },
-      replyPolicies: Helpers.isObject(record.reply_policies) ? record.reply_policies : null,
+      replyPolicies: Helpers.isObject(record.reply_policies)
+        ? record.reply_policies
+        : null,
       raw: value,
     };
   },
 
   policies(value) {
-    return Helpers.collection(value, ['policies', 'items', 'results', 'data'])
+    return Helpers.collection(value, ["policies", "items", "results", "data"])
       .map((entry) => this.policy(entry))
       .filter(Boolean);
   },
@@ -1525,24 +1890,35 @@ const Normalizers = {
       return null;
     }
 
-    const evaluator = Helpers.string(record.evaluator ?? record.policy_type, 'llm');
+    const evaluator = Helpers.string(
+      record.evaluator ?? record.policy_type,
+      "llm",
+    );
 
     const policy = {
       id,
-      scope: Helpers.string(record.scope, 'global'),
+      scope: Helpers.string(record.scope, "global"),
       targetId: Helpers.nullableString(record.target_id),
-      direction: Helpers.string(record.direction, 'outbound'),
-      resource: Helpers.string(record.resource, 'message.general'),
-      action: Helpers.nullableString(record.action) || 'share',
-      effect: Helpers.string(record.effect, 'deny'),
+      direction: Helpers.string(record.direction, "outbound"),
+      resource: Helpers.string(record.resource, "message.general"),
+      action: Helpers.nullableString(record.action) || "share",
+      effect: Helpers.string(record.effect, "deny"),
       evaluator,
       policyType: evaluator,
       content: record.policy_content,
       contentText: Helpers.contentText(record.policy_content),
+      effectiveFrom: Helpers.iso(record.effective_from ?? record.effectiveFrom),
+      expiresAt: Helpers.iso(record.expires_at ?? record.expiresAt),
+      maxUses: record.max_uses ?? record.maxUses ?? null,
+      remainingUses: record.remaining_uses ?? record.remainingUses ?? null,
       priority: Helpers.number(record.priority, 0),
       enabled: record.enabled !== false,
       source: Helpers.nullableString(record.source),
+      derivedFromMessageId: Helpers.nullableString(
+        record.derived_from_message_id ?? record.derivedFromMessageId,
+      ),
       createdAt: Helpers.iso(record.created_at ?? record.createdAt),
+      updatedAt: Helpers.iso(record.updated_at ?? record.updatedAt),
       raw: value,
     };
 
@@ -1558,30 +1934,30 @@ const Normalizers = {
 
     return {
       preferredChannel: Helpers.nullableString(
-        record.preferred_channel ?? record.preferredChannel
+        record.preferred_channel ?? record.preferredChannel,
       ),
       urgentBehavior: Helpers.string(
         record.urgent_behavior ?? record.urgentBehavior,
-        'preferred_only'
+        "preferred_only",
       ),
       quietHours: {
         enabled: Boolean(quietHours.enabled),
-        start: Helpers.string(quietHours.start, '22:00'),
-        end: Helpers.string(quietHours.end, '07:00'),
-        timezone: Helpers.string(quietHours.timezone, 'UTC'),
+        start: Helpers.string(quietHours.start, "22:00"),
+        end: Helpers.string(quietHours.end, "07:00"),
+        timezone: Helpers.string(quietHours.timezone, "UTC"),
       },
       defaultLlmProvider: Helpers.nullableString(
-        record.default_llm_provider ?? record.defaultLlmProvider
+        record.default_llm_provider ?? record.defaultLlmProvider,
       ),
       defaultLlmModel: Helpers.nullableString(
-        record.default_llm_model ?? record.defaultLlmModel
+        record.default_llm_model ?? record.defaultLlmModel,
       ),
       raw: value,
     };
   },
 
   reviews(value) {
-    return Helpers.collection(value, ['reviews', 'items', 'results', 'data'])
+    return Helpers.collection(value, ["reviews", "items", "results", "data"])
       .map((entry) => this.review(entry))
       .filter(Boolean);
   },
@@ -1598,33 +1974,39 @@ const Normalizers = {
       return null;
     }
 
-    const queueDirection = Helpers.string(record.queue_direction, 'outbound');
-    const transportDirection = queueDirection === 'inbound' ? 'received' : 'sent';
+    const queueDirection = Helpers.string(record.queue_direction, "outbound");
+    const transportDirection =
+      queueDirection === "inbound" ? "received" : "sent";
 
     return {
-      kind: 'review',
+      kind: "review",
       id,
       reviewId: id,
       messageId: Helpers.nullableString(record.message_id) || id,
       queueDirection,
       transportDirection,
-      status: Helpers.string(record.status, 'approval_pending'),
-      decision: Helpers.string(record.decision, 'ask'),
+      status: Helpers.string(record.status, "approval_pending"),
+      decision: Helpers.string(record.decision, "ask"),
       deliveryMode: Helpers.nullableString(record.delivery_mode),
-      summary: Helpers.string(record.summary, 'Message requires review before delivery.'),
+      summary: Helpers.string(
+        record.summary,
+        "Message requires review before delivery.",
+      ),
       reasonCode: Helpers.nullableString(record.reason_code),
-      timestamp: Helpers.iso(record.created_at ?? record.timestamp) || new Date().toISOString(),
+      timestamp:
+        Helpers.iso(record.created_at ?? record.timestamp) ||
+        new Date().toISOString(),
       messagePreview: Helpers.contentText(record.message_preview),
       contextPreview: Helpers.contentText(record.context_preview),
-      sender: Helpers.participantLabel(record.sender) || 'Unknown sender',
+      sender: Helpers.participantLabel(record.sender) || "Unknown sender",
       recipient:
         Helpers.recipientLabel(
           record.recipient,
-          Helpers.participantType(record.recipient) || 'user'
+          Helpers.participantType(record.recipient) || "user",
         ) ||
-        (Helpers.participantType(record.recipient) === 'group'
-          ? 'Group conversation'
-          : 'Unknown recipient'),
+        (Helpers.participantType(record.recipient) === "group"
+          ? "Group conversation"
+          : "Unknown recipient"),
       selectors: {
         direction: Helpers.nullableString(record.selectors?.direction),
         resource: Helpers.nullableString(record.selectors?.resource),
@@ -1635,13 +2017,21 @@ const Normalizers = {
   },
 
   blockedEvents(value) {
-    return Helpers.collection(value, ['blocked_events', 'items', 'results', 'data'])
+    return Helpers.collection(value, [
+      "blocked_events",
+      "items",
+      "results",
+      "data",
+    ])
       .map((entry) => this.blockedEvent(entry))
       .filter(Boolean);
   },
 
   blockedEventsModel(value) {
-    return Helpers.collectionModel(this.blockedEvents(value), (blockedEvent) => blockedEvent.id);
+    return Helpers.collectionModel(
+      this.blockedEvents(value),
+      (blockedEvent) => blockedEvent.id,
+    );
   },
 
   blockedEventRetention(value) {
@@ -1649,10 +2039,16 @@ const Normalizers = {
 
     return {
       blockedEventLog: Helpers.nullableString(record.blocked_event_log),
-      payloadExcerptDefault: Helpers.nullableString(record.payload_excerpt_default),
+      payloadExcerptDefault: Helpers.nullableString(
+        record.payload_excerpt_default,
+      ),
       payloadExcerptIncluded: Boolean(record.payload_excerpt_included),
-      payloadHashAlgorithm: Helpers.nullableString(record.payload_hash_algorithm),
-      sourceMessagePayload: Helpers.nullableString(record.source_message_payload),
+      payloadHashAlgorithm: Helpers.nullableString(
+        record.payload_hash_algorithm,
+      ),
+      sourceMessagePayload: Helpers.nullableString(
+        record.source_message_payload,
+      ),
       raw: record,
     };
   },
@@ -1665,29 +2061,32 @@ const Normalizers = {
       return null;
     }
 
-    const queueDirection = Helpers.string(record.queue_direction, 'outbound');
-    const transportDirection = queueDirection === 'inbound' ? 'received' : 'sent';
+    const queueDirection = Helpers.string(record.queue_direction, "outbound");
+    const transportDirection =
+      queueDirection === "inbound" ? "received" : "sent";
 
     return {
-      kind: 'blocked',
+      kind: "blocked",
       id,
       blockedEventId: id,
       messageId: Helpers.nullableString(record.message_id) || id,
       queueDirection,
       transportDirection,
-      status: Helpers.string(record.status, 'rejected'),
-      reason: Helpers.string(record.reason, 'Message blocked by policy.'),
+      status: Helpers.string(record.status, "rejected"),
+      reason: Helpers.string(record.reason, "Message blocked by policy."),
       reasonCode: Helpers.nullableString(record.reason_code),
-      timestamp: Helpers.iso(record.timestamp ?? record.created_at) || new Date().toISOString(),
-      sender: Helpers.participantLabel(record.sender) || 'Unknown sender',
+      timestamp:
+        Helpers.iso(record.timestamp ?? record.created_at) ||
+        new Date().toISOString(),
+      sender: Helpers.participantLabel(record.sender) || "Unknown sender",
       recipient:
         Helpers.recipientLabel(
           record.recipient,
-          Helpers.participantType(record.recipient) || 'user'
+          Helpers.participantType(record.recipient) || "user",
         ) ||
-        (Helpers.participantType(record.recipient) === 'group'
-          ? 'Group conversation'
-          : 'Unknown recipient'),
+        (Helpers.participantType(record.recipient) === "group"
+          ? "Group conversation"
+          : "Unknown recipient"),
       storedPayloadExcerpt: Helpers.contentText(record.stored_payload_excerpt),
       payloadHash: Helpers.nullableString(record.payload_hash),
       selectors: {
@@ -1728,10 +2127,10 @@ const WebSocketManager = {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log("WebSocket connected");
         State.wsConnected = true;
         this.reconnectAttempts = 0;
-        UI.updateWSStatus('connected');
+        UI.updateWSStatus("connected");
         this.startPing();
       };
 
@@ -1740,25 +2139,25 @@ const WebSocketManager = {
           const data = JSON.parse(event.data);
           this.handleMessage(data);
         } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
+          console.error("Failed to parse WebSocket message:", e);
         }
       };
 
       this.ws.onclose = () => {
-        console.log('WebSocket closed');
+        console.log("WebSocket closed");
         State.wsConnected = false;
-        UI.updateWSStatus('disconnected');
+        UI.updateWSStatus("disconnected");
         this.stopPing();
         this.attemptReconnect();
       };
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        UI.updateWSStatus('error');
+        console.error("WebSocket error:", error);
+        UI.updateWSStatus("error");
       };
     } catch (error) {
-      console.error('Failed to connect WebSocket:', error);
-      UI.updateWSStatus('error');
+      console.error("Failed to connect WebSocket:", error);
+      UI.updateWSStatus("error");
     }
   },
 
@@ -1773,7 +2172,7 @@ const WebSocketManager = {
   startPing() {
     this.pingInterval = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
+        this.ws.send(JSON.stringify({ type: "ping" }));
       }
     }, CONFIG.PING_INTERVAL);
   },
@@ -1788,43 +2187,43 @@ const WebSocketManager = {
   attemptReconnect() {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      UI.updateWSStatus('connecting');
+      UI.updateWSStatus("connecting");
       setTimeout(() => this.connect(), 3000 * this.reconnectAttempts);
     }
   },
 
   handleMessage(data) {
-    console.log('WebSocket message:', data);
+    console.log("WebSocket message:", data);
 
     switch (data.type) {
-      case 'connection':
-        UI.showToast('Connected to real-time notifications', 'success');
+      case "connection":
+        UI.showToast("Connected to real-time notifications", "success");
         break;
 
-      case 'message_received':
+      case "message_received":
         this.handleNewMessage(data.data);
         break;
 
-      case 'delivery_status':
-        UI.showToast(`Message ${data.data.status}`, 'info');
+      case "delivery_status":
+        UI.showToast(`Message ${data.data.status}`, "info");
         break;
 
-      case 'friend_request':
-        UI.showToast('New friend request received!', 'info');
+      case "friend_request":
+        UI.showToast("New friend request received!", "info");
         DataLoader.loadFriends();
         break;
 
-      case 'group_invite':
-        UI.showToast(`Invited to group!`, 'info');
+      case "group_invite":
+        UI.showToast(`Invited to group!`, "info");
         DataLoader.loadGroups();
         break;
 
-      case 'pong':
+      case "pong":
         // Ping response, connection is alive
         break;
 
       default:
-        console.log('Unknown event type:', data.type);
+        console.log("Unknown event type:", data.type);
     }
   },
 
@@ -1840,26 +2239,32 @@ const WebSocketManager = {
     Helpers.upsertMessage(message);
 
     // Show notification
-    UI.showToast(`New message from ${message.counterpartLabel}`, 'info');
+    UI.showToast(`New message from ${message.counterpartLabel}`, "info");
 
     UI.renderOverviewMessages();
     UI.renderLogs();
     UI.renderConversations();
     UI.renderDevConversations();
 
-    if (State.currentView === 'messages' && State.selectedChat === message.counterpart) {
+    if (
+      State.currentView === "messages" &&
+      State.selectedChat === message.counterpart
+    ) {
       UI.renderChat(message.counterpart);
     }
 
-    if (State.currentView === 'developer' && State.selectedChat === message.counterpart) {
+    if (
+      State.currentView === "developer" &&
+      State.selectedChat === message.counterpart
+    ) {
       UI.renderDevChat(message.counterpart);
     }
 
     if (!State.selectedChat && message.counterpart) {
-      if (State.currentView === 'messages') {
+      if (State.currentView === "messages") {
         UI.selectChat(message.counterpart);
       }
-      if (State.currentView === 'developer') {
+      if (State.currentView === "developer") {
         UI.selectDevChat(message.counterpart);
       }
     }
@@ -1877,7 +2282,7 @@ const DataLoader = {
     const user = Normalizers.user(await API.auth.me());
 
     if (!user) {
-      throw new Error('Unable to load the current user');
+      throw new Error("Unable to load the current user");
     }
 
     State.user = user;
@@ -1910,21 +2315,21 @@ const DataLoader = {
   async loadAgents() {
     try {
       const agentsModel = Normalizers.agentsModel(await API.agents.list());
-      Helpers.applyCollectionState('agents', 'agentsById', agentsModel);
+      Helpers.applyCollectionState("agents", "agentsById", agentsModel);
       UI.updateAgentCount(State.agents.length);
       UI.renderAgents();
       UI.renderOverviewAgents();
     } catch (error) {
-      console.error('Failed to load agents:', error);
+      console.error("Failed to load agents:", error);
     }
   },
 
   async loadFriends() {
     try {
       const [accepted, pending, blocked] = await Promise.all([
-        API.friends.list('accepted'),
-        API.friends.list('pending'),
-        API.friends.list('blocked'),
+        API.friends.list("accepted"),
+        API.friends.list("pending"),
+        API.friends.list("blocked"),
       ]);
 
       const acceptedFriendsModel = Normalizers.friendsModel(accepted);
@@ -1932,18 +2337,14 @@ const DataLoader = {
       const blockedFriendsModel = Normalizers.friendsModel(blocked);
       const allFriendsModel = Helpers.mergeCollectionModels(
         [acceptedFriendsModel, pendingFriendsModel, blockedFriendsModel],
-        (friend) => friend.friendshipId
+        (friend) => friend.friendshipId,
       );
 
-      Helpers.applyCollectionState(
-        'friends',
-        'friendsById',
-        allFriendsModel
-      );
+      Helpers.applyCollectionState("friends", "friendsById", allFriendsModel);
       const activeFriendUsernames = new Set(
         allFriendsModel.items
           .map((friend) => Helpers.string(friend?.username).toLowerCase())
-          .filter(Boolean)
+          .filter(Boolean),
       );
 
       State.contactConnectionsByUsername.forEach((_value, username) => {
@@ -1952,7 +2353,10 @@ const DataLoader = {
         }
       });
 
-      if (State.selectedNetworkFriendId && !State.friendsById.has(State.selectedNetworkFriendId)) {
+      if (
+        State.selectedNetworkFriendId &&
+        !State.friendsById.has(State.selectedNetworkFriendId)
+      ) {
         State.selectedNetworkFriendId = null;
       }
 
@@ -1966,38 +2370,43 @@ const DataLoader = {
         UI.renderChat(State.selectedChat);
         UI.renderDevChat(State.selectedChat);
       }
-      if (State.currentView === 'boundaries') {
+      if (State.currentView === "boundaries") {
         UI.renderPolicies();
       }
     } catch (error) {
-      console.error('Failed to load friends:', error);
+      console.error("Failed to load friends:", error);
     }
   },
 
   async loadRoles() {
-    State.availableRolesStatus = 'loading';
+    State.availableRolesStatus = "loading";
     State.availableRolesError = null;
 
     try {
       const rolesModel = Normalizers.rolesModel(await API.roles.list());
-      Helpers.applyCollectionState('availableRoles', 'availableRolesByName', rolesModel);
-      State.availableRolesStatus = 'loaded';
+      Helpers.applyCollectionState(
+        "availableRoles",
+        "availableRolesByName",
+        rolesModel,
+      );
+      State.availableRolesStatus = "loaded";
       State.availableRolesError = null;
     } catch (error) {
       State.availableRoles = [];
       State.availableRolesByName = new Map();
-      State.availableRolesStatus = 'error';
-      State.availableRolesError = error.message || 'Failed to load available roles.';
-      console.error('Failed to load roles:', error);
+      State.availableRolesStatus = "error";
+      State.availableRolesError =
+        error.message || "Failed to load available roles.";
+      console.error("Failed to load roles:", error);
     }
 
     if (State.selectedNetworkFriendId) {
       UI.renderNetworkConnectionSpace(
-        State.friendsById.get(State.selectedNetworkFriendId) || null
+        State.friendsById.get(State.selectedNetworkFriendId) || null,
       );
     }
 
-    if (State.currentView === 'boundaries') {
+    if (State.currentView === "boundaries") {
       UI.renderPolicies();
     }
   },
@@ -2005,15 +2414,15 @@ const DataLoader = {
   async loadGroups() {
     try {
       const groupsModel = Normalizers.groupsModel(await API.groups.list());
-      Helpers.applyCollectionState('groups', 'groupsById', groupsModel);
+      Helpers.applyCollectionState("groups", "groupsById", groupsModel);
       UI.updateGroupCount(State.groups.length);
       UI.renderGroups();
       UI.renderOverviewGroups();
-      if (State.currentView === 'boundaries') {
+      if (State.currentView === "boundaries") {
         UI.renderPolicies();
       }
     } catch (error) {
-      console.error('Failed to load groups:', error);
+      console.error("Failed to load groups:", error);
     }
   },
 
@@ -2023,9 +2432,9 @@ const DataLoader = {
         await API.messages.list({ limit: 50 }),
         {
           currentUsername: State.user?.username,
-        }
+        },
       );
-      Helpers.applyCollectionState('messages', 'messagesById', messagesModel);
+      Helpers.applyCollectionState("messages", "messagesById", messagesModel);
       Helpers.rebuildConversations();
       UI.renderConversations();
       UI.renderDevConversations();
@@ -2036,17 +2445,19 @@ const DataLoader = {
       UI.renderOverviewMessages();
       UI.renderLogs();
     } catch (error) {
-      console.error('Failed to load messages:', error);
+      console.error("Failed to load messages:", error);
     }
   },
 
   async loadPolicies() {
     try {
-      const policiesModel = Normalizers.policiesModel(await API.policies.list());
-      Helpers.applyCollectionState('policies', 'policiesById', policiesModel);
+      const policiesModel = Normalizers.policiesModel(
+        await API.policies.list(),
+      );
+      Helpers.applyCollectionState("policies", "policiesById", policiesModel);
       UI.renderPolicies(State.boundaryScopeFilter);
     } catch (error) {
-      console.error('Failed to load policies:', error);
+      console.error("Failed to load policies:", error);
     }
   },
 
@@ -2056,7 +2467,7 @@ const DataLoader = {
       UI.renderSettings();
     } catch (error) {
       State.preferences = null;
-      console.error('Failed to load preferences:', error);
+      console.error("Failed to load preferences:", error);
     }
   },
 
@@ -2065,13 +2476,13 @@ const DataLoader = {
       const payload = await API.plugin.reviews({ limit: 25 });
       State.reviewQueue = Normalizers.reviewQueue(payload);
       const reviewsModel = Normalizers.reviewsModel(payload);
-      Helpers.applyCollectionState('reviews', 'reviewsById', reviewsModel);
+      Helpers.applyCollectionState("reviews", "reviewsById", reviewsModel);
       UI.renderLogs();
     } catch (error) {
       State.reviewQueue = null;
       State.reviews = [];
       State.reviewsById = new Map();
-      console.error('Failed to load review queue:', error);
+      console.error("Failed to load review queue:", error);
     }
   },
 
@@ -2081,16 +2492,16 @@ const DataLoader = {
       State.blockedEventRetention = Normalizers.blockedEventRetention(payload);
       const blockedEventsModel = Normalizers.blockedEventsModel(payload);
       Helpers.applyCollectionState(
-        'blockedEvents',
-        'blockedEventsById',
-        blockedEventsModel
+        "blockedEvents",
+        "blockedEventsById",
+        blockedEventsModel,
       );
       UI.renderLogs();
     } catch (error) {
       State.blockedEventRetention = null;
       State.blockedEvents = [];
       State.blockedEventsById = new Map();
-      console.error('Failed to load blocked events:', error);
+      console.error("Failed to load blocked events:", error);
     }
   },
 };
@@ -2112,10 +2523,10 @@ const UI = {
         await DataLoader.bootstrap();
         WebSocketManager.connect();
       } catch (error) {
-        console.error('Failed to resume dashboard session:', error);
+        console.error("Failed to resume dashboard session:", error);
         State.clear();
         this.showLanding();
-        this.showToast('Session expired. Please authenticate again.', 'error');
+        this.showToast("Session expired. Please authenticate again.", "error");
       }
     } else {
       this.showLanding();
@@ -2125,326 +2536,411 @@ const UI = {
   // Bind all event listeners
   bindEvents() {
     // Login form (may not exist if landing page replaced auth screen)
-    document.getElementById('login-form')?.addEventListener('submit', (e) => {
+    document.getElementById("login-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       this.handleLogin();
     });
 
     // Register form (may not exist if landing page replaced auth screen)
-    document.getElementById('register-form')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.handleRegister();
-    });
+    document
+      .getElementById("register-form")
+      ?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        this.handleRegister();
+      });
 
     // Toggle password
-    document.querySelector('.toggle-password')?.addEventListener('click', (e) => {
-      const input = document.getElementById('login-api-key');
-      input.type = input.type === 'password' ? 'text' : 'password';
-      e.target.textContent = input.type === 'password' ? '👁️' : '🙈';
-    });
+    document
+      .querySelector(".toggle-password")
+      ?.addEventListener("click", (e) => {
+        const input = document.getElementById("login-api-key");
+        input.type = input.type === "password" ? "text" : "password";
+        e.target.textContent = input.type === "password" ? "👁️" : "🙈";
+      });
 
     // Navigation
-    document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', (e) => {
+    document.querySelectorAll(".nav-item").forEach((item) => {
+      item.addEventListener("click", (e) => {
         const view = e.currentTarget.dataset.view;
         this.switchView(view);
       });
     });
 
     // User menu
-    document.getElementById('user-menu-btn').addEventListener('click', () => {
-      this.showModal('user-profile-modal');
+    document.getElementById("user-menu-btn").addEventListener("click", () => {
+      this.showModal("user-profile-modal");
       this.renderProfile();
     });
 
     // Modal close buttons
-    document.querySelectorAll('.modal-close, [data-close]').forEach(btn => {
-      btn.addEventListener('click', () => this.hideModals());
+    document.querySelectorAll(".modal-close, [data-close]").forEach((btn) => {
+      btn.addEventListener("click", () => this.hideModals());
     });
 
-    document.getElementById('modal-overlay').addEventListener('click', (e) => {
+    document.getElementById("modal-overlay").addEventListener("click", (e) => {
       if (e.target === e.currentTarget) this.hideModals();
     });
 
     // Add agent buttons
-    document.getElementById('add-agent-btn')?.addEventListener('click', () => {
-      this.showModal('add-agent-modal');
+    document.getElementById("add-agent-btn")?.addEventListener("click", () => {
+      this.showModal("add-agent-modal");
     });
 
-    document.getElementById('add-agent-quick')?.addEventListener('click', () => {
-      this.showModal('add-agent-modal');
-    });
+    document
+      .getElementById("add-agent-quick")
+      ?.addEventListener("click", () => {
+        this.showModal("add-agent-modal");
+      });
 
-    document.getElementById('add-first-agent')?.addEventListener('click', () => {
-      this.showModal('add-agent-modal');
-    });
+    document
+      .getElementById("add-first-agent")
+      ?.addEventListener("click", () => {
+        this.showModal("add-agent-modal");
+      });
 
     // Save agent
-    document.getElementById('save-agent-btn')?.addEventListener('click', () => {
+    document.getElementById("save-agent-btn")?.addEventListener("click", () => {
       this.handleSaveAgent();
     });
 
     // Find friends
-    document.getElementById('find-users-btn')?.addEventListener('click', () => {
+    document.getElementById("find-users-btn")?.addEventListener("click", () => {
       this.openAddFriendModal();
     });
 
-    document.getElementById('find-friends-quick')?.addEventListener('click', () => {
-      this.switchView('network');
-      this.openAddFriendModal();
-    });
+    document
+      .getElementById("find-friends-quick")
+      ?.addEventListener("click", () => {
+        this.switchView("network");
+        this.openAddFriendModal();
+      });
 
-    document.getElementById('add-friend-form')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.handleAddFriendRequest();
-    });
+    document
+      .getElementById("add-friend-form")
+      ?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        this.handleAddFriendRequest();
+      });
 
-    document.getElementById('send-friend-request-btn')?.addEventListener('click', () => {
-      this.handleAddFriendRequest();
-    });
+    document
+      .getElementById("send-friend-request-btn")
+      ?.addEventListener("click", () => {
+        this.handleAddFriendRequest();
+      });
 
-    document.getElementById('user-search')?.addEventListener('input', (e) => {
-      State.networkSearch = e.currentTarget.value || '';
+    document.getElementById("user-search")?.addEventListener("input", (e) => {
+      State.networkSearch = e.currentTarget.value || "";
       this.renderFriends();
     });
 
     // Create group
-    document.getElementById('create-group-btn')?.addEventListener('click', () => {
-      this.showModal('create-group-modal');
-    });
+    document
+      .getElementById("create-group-btn")
+      ?.addEventListener("click", () => {
+        this.showModal("create-group-modal");
+      });
 
-    document.getElementById('create-first-group')?.addEventListener('click', () => {
-      this.showModal('create-group-modal');
-    });
+    document
+      .getElementById("create-first-group")
+      ?.addEventListener("click", () => {
+        this.showModal("create-group-modal");
+      });
 
-    document.getElementById('save-group-btn')?.addEventListener('click', () => {
+    document.getElementById("save-group-btn")?.addEventListener("click", () => {
       this.handleCreateGroup();
     });
 
     // Create policy
-    document.getElementById('create-policy-btn')?.addEventListener('click', () => {
-      this.showModal('create-policy-modal');
-    });
+    document
+      .getElementById("create-policy-btn")
+      ?.addEventListener("click", () => {
+        this.showModal("create-policy-modal");
+      });
 
-    document.getElementById('create-first-policy')?.addEventListener('click', () => {
-      this.showModal('create-policy-modal');
-    });
+    document
+      .getElementById("create-first-policy")
+      ?.addEventListener("click", () => {
+        this.showModal("create-policy-modal");
+      });
 
-    document.getElementById('save-policy-btn')?.addEventListener('click', () => {
-      this.handleCreatePolicy();
-    });
+    document
+      .getElementById("save-policy-btn")
+      ?.addEventListener("click", () => {
+        this.handleCreatePolicy();
+      });
 
     // Policy scope change
-    document.getElementById('policy-scope')?.addEventListener('change', (e) => {
-      const targetGroup = document.getElementById('policy-target-group');
-      if (e.target.value === 'global') {
-        targetGroup.classList.add('hidden');
+    document.getElementById("policy-scope")?.addEventListener("change", (e) => {
+      const targetGroup = document.getElementById("policy-target-group");
+      if (e.target.value === "global") {
+        targetGroup.classList.add("hidden");
       } else {
-        targetGroup.classList.remove('hidden');
+        targetGroup.classList.remove("hidden");
         this.populatePolicyTargets(e.target.value);
       }
     });
 
     // Friend filters
-    document.querySelectorAll('.friends-filters .filter-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+    document.querySelectorAll(".friends-filters .filter-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
         const filterButton = e.currentTarget;
-        document.querySelectorAll('.friends-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        filterButton.classList.add('active');
-        State.networkFilter = filterButton.dataset.filter || 'all';
+        document
+          .querySelectorAll(".friends-filters .filter-btn")
+          .forEach((b) => b.classList.remove("active"));
+        filterButton.classList.add("active");
+        State.networkFilter = filterButton.dataset.filter || "all";
         this.renderFriends();
       });
     });
 
     // Policy filters
-    document.querySelectorAll('.policy-filters .filter-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+    document.querySelectorAll(".policy-filters .filter-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
         const filterButton = e.currentTarget;
-        document.querySelectorAll('.policy-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        filterButton.classList.add('active');
-        State.boundaryScopeFilter = filterButton.dataset.scope || 'all';
+        document
+          .querySelectorAll(".policy-filters .filter-btn")
+          .forEach((b) => b.classList.remove("active"));
+        filterButton.classList.add("active");
+        State.boundaryScopeFilter = filterButton.dataset.scope || "all";
         this.renderPolicies(State.boundaryScopeFilter);
       });
     });
 
+    document
+      .getElementById("boundary-category-filters")
+      ?.addEventListener("click", (e) => {
+        const button = e.target.closest(".boundary-category-filter");
+        if (!button) {
+          return;
+        }
+
+        State.boundaryCategoryFilter = button.dataset.category || "all";
+        this.renderPolicies(State.boundaryScopeFilter);
+      });
+
     // Refresh agents
-    document.getElementById('refresh-agents')?.addEventListener('click', () => {
+    document.getElementById("refresh-agents")?.addEventListener("click", () => {
       DataLoader.loadAgents();
-      this.showToast('Sender connections refreshed', 'success');
+      this.showToast("Sender connections refreshed", "success");
     });
 
     // View all messages (logs)
-    document.getElementById('view-all-messages')?.addEventListener('click', () => {
-      this.switchView('logs');
-    });
+    document
+      .getElementById("view-all-messages")
+      ?.addEventListener("click", () => {
+        this.switchView("logs");
+      });
 
     // Refresh logs
-    document.getElementById('refresh-logs-btn')?.addEventListener('click', () => {
-      DataLoader.loadLogFeed();
-      this.showToast('Delivery logs refreshed', 'success');
-    });
+    document
+      .getElementById("refresh-logs-btn")
+      ?.addEventListener("click", () => {
+        DataLoader.loadLogFeed();
+        this.showToast("Delivery logs refreshed", "success");
+      });
 
     // Logs filters
-    document.querySelectorAll('.logs-filters .filter-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        document.querySelectorAll('.logs-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
+    document.querySelectorAll(".logs-filters .filter-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        document
+          .querySelectorAll(".logs-filters .filter-btn")
+          .forEach((b) => b.classList.remove("active"));
+        e.target.classList.add("active");
         this.renderLogs(e.target.dataset.direction);
       });
     });
 
     // Logout
-    document.getElementById('logout-btn')?.addEventListener('click', () => {
+    document.getElementById("logout-btn")?.addEventListener("click", () => {
       this.handleLogout();
     });
 
     // Save preferences
-    document.getElementById('save-preferences-btn')?.addEventListener('click', () => {
-      this.handleSavePreferences();
-    });
+    document
+      .getElementById("save-preferences-btn")
+      ?.addEventListener("click", () => {
+        this.handleSavePreferences();
+      });
 
-    document.getElementById('notifications-btn')?.addEventListener('click', () => {
-      this.switchView('logs');
-      this.hideNotificationDot();
-    });
+    document
+      .getElementById("notifications-btn")
+      ?.addEventListener("click", () => {
+        this.switchView("logs");
+        this.hideNotificationDot();
+      });
 
     // Quiet hours toggle
-    document.getElementById('pref-quiet-enabled')?.addEventListener('change', (e) => {
-      const row = document.getElementById('quiet-hours-row');
-      row.classList.toggle('hidden', !e.target.checked);
-    });
+    document
+      .getElementById("pref-quiet-enabled")
+      ?.addEventListener("change", (e) => {
+        const row = document.getElementById("quiet-hours-row");
+        row.classList.toggle("hidden", !e.target.checked);
+      });
 
     // Rotate API key
-    document.getElementById('rotate-api-key-btn')?.addEventListener('click', () => {
-      this.handleRotateKey();
-    });
+    document
+      .getElementById("rotate-api-key-btn")
+      ?.addEventListener("click", () => {
+        this.handleRotateKey();
+      });
 
     // Copy buttons
-    document.getElementById('copy-api-key')?.addEventListener('click', () => {
-      this.copyToClipboard(document.getElementById('new-api-key').textContent);
+    document.getElementById("copy-api-key")?.addEventListener("click", () => {
+      this.copyToClipboard(document.getElementById("new-api-key").textContent);
     });
 
-    document.getElementById('copy-callback-secret')?.addEventListener('click', () => {
-      this.copyToClipboard(document.getElementById('new-callback-secret').textContent);
-    });
+    document
+      .getElementById("copy-callback-secret")
+      ?.addEventListener("click", () => {
+        this.copyToClipboard(
+          document.getElementById("new-callback-secret").textContent,
+        );
+      });
 
     // Send test message (developer)
-    document.getElementById('send-message-btn')?.addEventListener('click', () => {
-      this.handleSendMessage();
+    document
+      .getElementById("send-message-btn")
+      ?.addEventListener("click", () => {
+        this.handleSendMessage();
+      });
+
+    document.getElementById("chat-input")?.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") this.handleSendMessage();
     });
 
-    document.getElementById('chat-input')?.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') this.handleSendMessage();
-    });
+    document
+      .getElementById("dev-send-message-btn")
+      ?.addEventListener("click", () => {
+        this.handleSendTestMessage();
+      });
 
-    document.getElementById('dev-send-message-btn')?.addEventListener('click', () => {
-      this.handleSendTestMessage();
-    });
-
-    document.getElementById('dev-chat-input')?.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') this.handleSendTestMessage();
-    });
+    document
+      .getElementById("dev-chat-input")
+      ?.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") this.handleSendTestMessage();
+      });
 
     // Developer API key actions
-    document.getElementById('dev-copy-api-key')?.addEventListener('click', () => {
-      this.copyToClipboard(State.apiKey);
-    });
+    document
+      .getElementById("dev-copy-api-key")
+      ?.addEventListener("click", () => {
+        this.copyToClipboard(State.apiKey);
+      });
 
-    document.getElementById('dev-rotate-api-key')?.addEventListener('click', () => {
-      this.handleRotateKey();
-    });
+    document
+      .getElementById("dev-rotate-api-key")
+      ?.addEventListener("click", () => {
+        this.handleRotateKey();
+      });
 
     // Landing page: hamburger menu
-    document.getElementById('landing-hamburger')?.addEventListener('click', () => {
-      document.getElementById('landing-mobile-menu')?.classList.toggle('open');
-    });
+    document
+      .getElementById("landing-hamburger")
+      ?.addEventListener("click", () => {
+        document
+          .getElementById("landing-mobile-menu")
+          ?.classList.toggle("open");
+      });
 
     // Landing page: close mobile menu on link click
-    document.querySelectorAll('.landing-mobile-link').forEach(link => {
-      link.addEventListener('click', () => {
-        document.getElementById('landing-mobile-menu')?.classList.remove('open');
+    document.querySelectorAll(".landing-mobile-link").forEach((link) => {
+      link.addEventListener("click", () => {
+        document
+          .getElementById("landing-mobile-menu")
+          ?.classList.remove("open");
       });
     });
 
     // Landing page: waitlist form
-    document.getElementById('waitlist-form')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.handleWaitlistSubmit();
-    });
+    document
+      .getElementById("waitlist-form")
+      ?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        this.handleWaitlistSubmit();
+      });
 
     // Landing page: smooth scroll for nav links
-    document.querySelectorAll('.landing-nav a[href^="#"], .hero-cta[href^="#"]').forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const target = document.querySelector(link.getAttribute('href'));
-        if (target) target.scrollIntoView({ behavior: 'smooth' });
-        document.getElementById('landing-mobile-menu')?.classList.remove('open');
+    document
+      .querySelectorAll('.landing-nav a[href^="#"], .hero-cta[href^="#"]')
+      .forEach((link) => {
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          const target = document.querySelector(link.getAttribute("href"));
+          if (target) target.scrollIntoView({ behavior: "smooth" });
+          document
+            .getElementById("landing-mobile-menu")
+            ?.classList.remove("open");
+        });
       });
-    });
   },
 
   // Handle login
   async handleLogin() {
-    const apiKeyInput = document.getElementById('login-api-key');
+    const apiKeyInput = document.getElementById("login-api-key");
     if (!apiKeyInput) {
-      this.showToast('Dashboard login inputs are not available on this page.', 'error');
+      this.showToast(
+        "Dashboard login inputs are not available on this page.",
+        "error",
+      );
       return;
     }
 
     const apiKey = apiKeyInput.value.trim();
     if (!apiKey) {
-      this.showToast('Please enter your API key', 'error');
+      this.showToast("Please enter your API key", "error");
       return;
     }
 
     State.apiKey = apiKey;
-    
+
     try {
       const user = await API.auth.me();
       State.user = Normalizers.user(user);
       if (!State.user) {
-        throw new Error('Failed to load current user');
+        throw new Error("Failed to load current user");
       }
       State.save();
-      
+
       this.showDashboard();
       await DataLoader.loadAll();
       WebSocketManager.connect();
-      this.showToast('Welcome back!', 'success');
+      this.showToast("Welcome back!", "success");
     } catch (error) {
       State.apiKey = null;
       State.user = null;
-      this.showToast('Invalid API key', 'error');
+      this.showToast("Invalid API key", "error");
     }
   },
 
   async handleRegister() {
     this.showToast(
-      'Browser signup is not part of the active dashboard flow. Register through your agent with an invite token, then come back here.',
-      'info'
+      "Browser signup is not part of the active dashboard flow. Register through your agent with an invite token, then come back here.",
+      "info",
     );
   },
 
   // Handle save preferences
   async handleSavePreferences() {
     const prefs = {
-      preferred_channel: document.getElementById('pref-channel').value || null,
-      urgent_behavior: document.getElementById('pref-urgent').value,
+      preferred_channel: document.getElementById("pref-channel").value || null,
+      urgent_behavior: document.getElementById("pref-urgent").value,
       quiet_hours: {
-        enabled: document.getElementById('pref-quiet-enabled').checked,
-        start: document.getElementById('pref-quiet-start').value,
-        end: document.getElementById('pref-quiet-end').value,
-        timezone: document.getElementById('pref-quiet-timezone').value,
+        enabled: document.getElementById("pref-quiet-enabled").checked,
+        start: document.getElementById("pref-quiet-start").value,
+        end: document.getElementById("pref-quiet-end").value,
+        timezone: document.getElementById("pref-quiet-timezone").value,
       },
-      default_llm_provider: document.getElementById('pref-llm-provider').value || null,
-      default_llm_model: document.getElementById('pref-llm-model').value || null,
+      default_llm_provider:
+        document.getElementById("pref-llm-provider").value || null,
+      default_llm_model:
+        document.getElementById("pref-llm-model").value || null,
     };
 
     try {
       await API.preferences.update(prefs);
-      this.showToast('Settings saved successfully', 'success');
+      this.showToast("Settings saved successfully", "success");
     } catch (error) {
-      this.showToast(error.message || 'Failed to save settings', 'error');
+      this.showToast(error.message || "Failed to save settings", "error");
     }
   },
 
@@ -2454,43 +2950,48 @@ const UI = {
     State.clear();
     this.hideModals();
     this.showLanding();
-    this.showToast('Logged out successfully', 'success');
+    this.showToast("Logged out successfully", "success");
   },
 
   // Handle waitlist form submission
   async handleWaitlistSubmit() {
-    const emailInput = document.getElementById('waitlist-email');
-    const submitBtn = document.getElementById('waitlist-submit-btn');
-    const btnText = submitBtn.querySelector('.waitlist-btn-text');
-    const btnLoading = submitBtn.querySelector('.waitlist-btn-loading');
-    const btnSuccess = submitBtn.querySelector('.waitlist-btn-success');
+    const emailInput = document.getElementById("waitlist-email");
+    const submitBtn = document.getElementById("waitlist-submit-btn");
+    const btnText = submitBtn.querySelector(".waitlist-btn-text");
+    const btnLoading = submitBtn.querySelector(".waitlist-btn-loading");
+    const btnSuccess = submitBtn.querySelector(".waitlist-btn-success");
     const email = emailInput.value.trim();
 
     if (!email) return;
 
     // Show loading
-    btnText.classList.add('hidden');
-    btnLoading.classList.remove('hidden');
+    btnText.classList.add("hidden");
+    btnLoading.classList.remove("hidden");
     submitBtn.disabled = true;
 
     try {
       await API.waitlist.join(email);
 
       // Show success
-      btnLoading.classList.add('hidden');
-      btnSuccess.classList.remove('hidden');
+      btnLoading.classList.add("hidden");
+      btnSuccess.classList.remove("hidden");
 
       // Hide form, show confirmation
       setTimeout(() => {
-        document.getElementById('waitlist-form').classList.add('hidden');
-        document.getElementById('waitlist-confirmation').classList.remove('hidden');
+        document.getElementById("waitlist-form").classList.add("hidden");
+        document
+          .getElementById("waitlist-confirmation")
+          .classList.remove("hidden");
       }, 800);
     } catch (error) {
       // Reset button
-      btnLoading.classList.add('hidden');
-      btnText.classList.remove('hidden');
+      btnLoading.classList.add("hidden");
+      btnText.classList.remove("hidden");
       submitBtn.disabled = false;
-      this.showToast(error.message || 'Something went wrong. Try again.', 'error');
+      this.showToast(
+        error.message || "Something went wrong. Try again.",
+        "error",
+      );
     }
   },
 
@@ -2500,37 +3001,44 @@ const UI = {
       const result = await API.auth.rotateKey();
       State.apiKey = result.api_key;
       State.save();
-      
-      document.getElementById('new-api-key').textContent = result.api_key;
+
+      document.getElementById("new-api-key").textContent = result.api_key;
       this.hideModals();
-      this.showModal('api-key-modal');
-      
+      this.showModal("api-key-modal");
+
       // Reconnect WebSocket with new key
       WebSocketManager.disconnect();
       WebSocketManager.connect();
-      
-      this.showToast('API key rotated successfully', 'success');
+
+      this.showToast("API key rotated successfully", "success");
     } catch (error) {
-      this.showToast('Failed to rotate API key', 'error');
+      this.showToast("Failed to rotate API key", "error");
     }
   },
 
   // Handle save agent
   async handleSaveAgent() {
-    const framework = document.getElementById('agent-framework').value;
-    const label = document.getElementById('agent-label').value.trim();
-    const description = document.getElementById('agent-description').value.trim();
-    const callbackUrl = document.getElementById('agent-callback').value.trim();
-    const publicKey = document.getElementById('agent-public-key').value.trim();
-    const capabilitiesStr = document.getElementById('agent-capabilities').value.trim();
+    const framework = document.getElementById("agent-framework").value;
+    const label = document.getElementById("agent-label").value.trim();
+    const description = document
+      .getElementById("agent-description")
+      .value.trim();
+    const callbackUrl = document.getElementById("agent-callback").value.trim();
+    const publicKey = document.getElementById("agent-public-key").value.trim();
+    const capabilitiesStr = document
+      .getElementById("agent-capabilities")
+      .value.trim();
 
     if (!framework || !label || !callbackUrl) {
-      this.showToast('Please fill in all required fields', 'error');
+      this.showToast("Please fill in all required fields", "error");
       return;
     }
 
     const capabilities = capabilitiesStr
-      ? capabilitiesStr.split(',').map(c => c.trim()).filter(Boolean)
+      ? capabilitiesStr
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean)
       : [];
 
     try {
@@ -2540,43 +3048,49 @@ const UI = {
         description,
         callback_url: callbackUrl,
         public_key: publicKey || undefined,
-        public_key_alg: publicKey ? 'ed25519' : undefined,
+        public_key_alg: publicKey ? "ed25519" : undefined,
         capabilities,
       });
 
       this.hideModals();
-      
+
       // Show callback secret if new
       if (result.callback_secret) {
-        document.getElementById('new-callback-secret').textContent = result.callback_secret;
-        this.showModal('callback-secret-modal');
+        document.getElementById("new-callback-secret").textContent =
+          result.callback_secret;
+        this.showModal("callback-secret-modal");
       }
 
       // Reset form
-      document.getElementById('add-agent-form').reset();
-      
+      document.getElementById("add-agent-form").reset();
+
       // Reload agents
       await DataLoader.loadAgents();
-      
+
       this.showToast(
         result.updated
-          ? 'Connection updated successfully'
-          : 'Sender connection added successfully',
-        'success'
+          ? "Connection updated successfully"
+          : "Sender connection added successfully",
+        "success",
       );
     } catch (error) {
-      this.showToast(error.message || 'Failed to save sender connection', 'error');
+      this.showToast(
+        error.message || "Failed to save sender connection",
+        "error",
+      );
     }
   },
 
   // Handle create group
   async handleCreateGroup() {
-    const name = document.getElementById('group-name').value.trim();
-    const description = document.getElementById('group-description').value.trim();
-    const inviteOnly = document.getElementById('group-invite-only').checked;
+    const name = document.getElementById("group-name").value.trim();
+    const description = document
+      .getElementById("group-description")
+      .value.trim();
+    const inviteOnly = document.getElementById("group-invite-only").checked;
 
     if (!name) {
-      this.showToast('Please enter a group name', 'error');
+      this.showToast("Please enter a group name", "error");
       return;
     }
 
@@ -2588,40 +3102,41 @@ const UI = {
       });
 
       this.hideModals();
-      document.getElementById('create-group-form').reset();
+      document.getElementById("create-group-form").reset();
       await DataLoader.loadGroups();
-      this.showToast('Group created successfully', 'success');
+      this.showToast("Group created successfully", "success");
     } catch (error) {
-      this.showToast(error.message || 'Failed to create group', 'error');
+      this.showToast(error.message || "Failed to create group", "error");
     }
   },
 
   // Handle create policy
   async handleCreatePolicy() {
-    const scope = document.getElementById('policy-scope').value;
-    const targetId = document.getElementById('policy-target-id').value;
-    const policyType = document.getElementById('policy-type').value;
-    const content = document.getElementById('policy-content').value.trim();
-    const priority = parseInt(document.getElementById('policy-priority').value, 10);
+    const scope = document.getElementById("policy-scope").value;
+    const targetId = document.getElementById("policy-target-id").value;
+    const policyType = document.getElementById("policy-type").value;
+    const content = document.getElementById("policy-content").value.trim();
+    const priority = parseInt(
+      document.getElementById("policy-priority").value,
+      10,
+    );
 
     if (!content) {
-      this.showToast('Please enter boundary content', 'error');
+      this.showToast("Please enter boundary content", "error");
       return;
     }
 
     try {
       const parsedContent =
-        policyType === 'llm'
-          ? content
-          : JSON.parse(content);
+        policyType === "llm" ? content : JSON.parse(content);
 
       await API.policies.create({
         scope,
         target_id: targetId || undefined,
-        direction: 'outbound',
-        resource: 'message.general',
-        action: 'share',
-        effect: 'deny',
+        direction: "outbound",
+        resource: "message.general",
+        action: "share",
+        effect: "deny",
         evaluator: policyType,
         policy_type: policyType,
         policy_content: parsedContent,
@@ -2629,41 +3144,50 @@ const UI = {
       });
 
       this.hideModals();
-      document.getElementById('create-policy-form').reset();
+      document.getElementById("create-policy-form").reset();
       await DataLoader.loadPolicies();
-      this.showToast('Boundary created successfully', 'success');
+      this.showToast("Boundary created successfully", "success");
     } catch (error) {
       if (error instanceof SyntaxError) {
-        this.showToast('Structured and heuristic boundaries must use valid JSON', 'error');
+        this.showToast(
+          "Structured and heuristic boundaries must use valid JSON",
+          "error",
+        );
       } else {
-        this.showToast(error.message || 'Failed to create boundary', 'error');
+        this.showToast(error.message || "Failed to create boundary", "error");
       }
     }
   },
 
   openAddFriendModal() {
-    document.getElementById('add-friend-form')?.reset();
-    this.showModal('search-users-modal');
+    document.getElementById("add-friend-form")?.reset();
+    this.showModal("search-users-modal");
   },
 
   async handleAddFriendRequest() {
-    const usernameInput = document.getElementById('add-friend-username');
-    const submitButton = document.getElementById('send-friend-request-btn');
+    const usernameInput = document.getElementById("add-friend-username");
+    const submitButton = document.getElementById("send-friend-request-btn");
 
     if (!usernameInput) {
-      this.showToast('The add-by-username form is unavailable.', 'error');
+      this.showToast("The add-by-username form is unavailable.", "error");
       return;
     }
 
-    const username = usernameInput.value.trim().replace(/^@+/, '');
+    const username = usernameInput.value.trim().replace(/^@+/, "");
 
     if (!username || username.length < 3) {
-      this.showToast('Enter the exact Mahilo username you want to add.', 'error');
+      this.showToast(
+        "Enter the exact Mahilo username you want to add.",
+        "error",
+      );
       return;
     }
 
     if (State.user?.username?.toLowerCase() === username.toLowerCase()) {
-      this.showToast('You cannot send a request to your own username.', 'error');
+      this.showToast(
+        "You cannot send a request to your own username.",
+        "error",
+      );
       return;
     }
 
@@ -2682,21 +3206,22 @@ const UI = {
 
   // Handle send friend request
   async handleSendFriendRequest(username) {
-    const normalizedUsername = username.trim().replace(/^@+/, '');
+    const normalizedUsername = username.trim().replace(/^@+/, "");
 
     try {
       const result = await API.friends.request(normalizedUsername);
       this.hideModals();
-      document.getElementById('add-friend-form')?.reset();
+      document.getElementById("add-friend-form")?.reset();
       await DataLoader.loadFriends();
       this.showToast(
-        result.status === 'accepted'
-          ? result.message || `${normalizedUsername} is now part of your network`
+        result.status === "accepted"
+          ? result.message ||
+              `${normalizedUsername} is now part of your network`
           : `Friend request sent to ${normalizedUsername}`,
-        'success'
+        "success",
       );
     } catch (error) {
-      this.showToast(error.message || 'Failed to send friend request', 'error');
+      this.showToast(error.message || "Failed to send friend request", "error");
     }
   },
 
@@ -2705,9 +3230,9 @@ const UI = {
     try {
       await API.friends.accept(id);
       await DataLoader.loadFriends();
-      this.showToast('Friend request accepted', 'success');
+      this.showToast("Friend request accepted", "success");
     } catch (error) {
-      this.showToast('Failed to accept friend request', 'error');
+      this.showToast("Failed to accept friend request", "error");
     }
   },
 
@@ -2715,9 +3240,9 @@ const UI = {
     try {
       await API.friends.reject(id);
       await DataLoader.loadFriends();
-      this.showToast('Friend request rejected', 'success');
+      this.showToast("Friend request rejected", "success");
     } catch (error) {
-      this.showToast('Failed to reject friend request', 'error');
+      this.showToast("Failed to reject friend request", "error");
     }
   },
 
@@ -2725,9 +3250,9 @@ const UI = {
     try {
       await API.friends.block(id);
       await DataLoader.loadFriends();
-      this.showToast('User blocked', 'success');
+      this.showToast("User blocked", "success");
     } catch (error) {
-      this.showToast('Failed to block user', 'error');
+      this.showToast("Failed to block user", "error");
     }
   },
 
@@ -2735,20 +3260,20 @@ const UI = {
     try {
       await API.friends.unfriend(id);
       await DataLoader.loadFriends();
-      this.showToast('Friend removed', 'success');
+      this.showToast("Friend removed", "success");
     } catch (error) {
-      this.showToast('Failed to remove friend', 'error');
+      this.showToast("Failed to remove friend", "error");
     }
   },
 
   async refreshAvailableRoles() {
     try {
       await DataLoader.loadRoles();
-      if (State.availableRolesStatus === 'loaded') {
-        this.showToast('Available roles refreshed', 'success');
+      if (State.availableRolesStatus === "loaded") {
+        this.showToast("Available roles refreshed", "success");
       }
     } catch (error) {
-      this.showToast(error.message || 'Failed to refresh roles', 'error');
+      this.showToast(error.message || "Failed to refresh roles", "error");
     }
   },
 
@@ -2757,12 +3282,15 @@ const UI = {
     const normalizedRole = Helpers.string(roleName).trim();
 
     if (!friend || !normalizedRole) {
-      this.showToast('Select a valid contact role to assign.', 'error');
+      this.showToast("Select a valid contact role to assign.", "error");
       return;
     }
 
-    if (this.networkBucket(friend) !== 'accepted') {
-      this.showToast('Accept this relationship before assigning roles.', 'error');
+    if (this.networkBucket(friend) !== "accepted") {
+      this.showToast(
+        "Accept this relationship before assigning roles.",
+        "error",
+      );
       return;
     }
 
@@ -2770,11 +3298,11 @@ const UI = {
       await API.friends.addRole(friendshipId, normalizedRole);
       await DataLoader.loadFriends();
       this.showToast(
-        `${Helpers.titleizeToken(normalizedRole, 'Role')} added to ${friend.displayName || friend.username}`,
-        'success'
+        `${Helpers.titleizeToken(normalizedRole, "Role")} added to ${friend.displayName || friend.username}`,
+        "success",
       );
     } catch (error) {
-      this.showToast(error.message || 'Failed to add role', 'error');
+      this.showToast(error.message || "Failed to add role", "error");
     }
   },
 
@@ -2783,12 +3311,15 @@ const UI = {
     const normalizedRole = Helpers.string(roleName).trim();
 
     if (!friend || !normalizedRole) {
-      this.showToast('Select a valid contact role to remove.', 'error');
+      this.showToast("Select a valid contact role to remove.", "error");
       return;
     }
 
-    if (this.networkBucket(friend) !== 'accepted') {
-      this.showToast('Accept this relationship before removing roles.', 'error');
+    if (this.networkBucket(friend) !== "accepted") {
+      this.showToast(
+        "Accept this relationship before removing roles.",
+        "error",
+      );
       return;
     }
 
@@ -2796,109 +3327,118 @@ const UI = {
       await API.friends.removeRole(friendshipId, normalizedRole);
       await DataLoader.loadFriends();
       this.showToast(
-        `${Helpers.titleizeToken(normalizedRole, 'Role')} removed from ${friend.displayName || friend.username}`,
-        'success'
+        `${Helpers.titleizeToken(normalizedRole, "Role")} removed from ${friend.displayName || friend.username}`,
+        "success",
       );
     } catch (error) {
-      this.showToast(error.message || 'Failed to remove role', 'error');
+      this.showToast(error.message || "Failed to remove role", "error");
     }
   },
 
   // Handle send message (user-facing chat)
   async handleSendMessage() {
-    const input = document.getElementById('chat-input');
+    const input = document.getElementById("chat-input");
     const message = input.value.trim();
 
     if (!message || !State.selectedChat) return;
 
     const thread = State.conversations.get(State.selectedChat) || [];
     const latestMessage = thread[thread.length - 1] || null;
-    const latestRecord = latestMessage ? State.messagesById.get(latestMessage.id) : null;
-    const isGroupThread = latestMessage?.recipientType === 'group';
+    const latestRecord = latestMessage
+      ? State.messagesById.get(latestMessage.id)
+      : null;
+    const isGroupThread = latestMessage?.recipientType === "group";
 
     if (isGroupThread && !latestRecord?.recipientId) {
       this.showToast(
-        'Group replies are unavailable until the server includes a stable group identifier.',
-        'info'
+        "Group replies are unavailable until the server includes a stable group identifier.",
+        "info",
       );
       return;
     }
 
     const payload = {
       recipient: isGroupThread ? latestRecord.recipientId : State.selectedChat,
-      recipient_type: isGroupThread ? 'group' : 'user',
+      recipient_type: isGroupThread ? "group" : "user",
       message,
-      context: 'Sent from the Mahilo dashboard',
+      context: "Sent from the Mahilo dashboard",
     };
 
     try {
       const result = await API.messages.send(payload);
 
-      input.value = '';
+      input.value = "";
       await DataLoader.loadLogFeed();
-      this.showToast(`Message queued: ${result.status}`, 'success');
+      this.showToast(`Message queued: ${result.status}`, "success");
     } catch (error) {
-      this.showToast(error.message || 'Failed to send message', 'error');
+      this.showToast(error.message || "Failed to send message", "error");
     }
   },
 
   // Handle send test message (developer view)
   async handleSendTestMessage() {
-    const input = document.getElementById('dev-chat-input');
+    const input = document.getElementById("dev-chat-input");
     const message = input.value.trim();
-    
+
     if (!message || !State.selectedChat) return;
 
     try {
       const result = await API.messages.send({
         recipient: State.selectedChat,
         message,
-        context: 'Test message from Developer',
+        context: "Test message from Developer",
       });
 
-      input.value = '';
+      input.value = "";
       await DataLoader.loadLogFeed();
-      this.showToast(`Test message sent: ${result.status}`, 'success');
+      this.showToast(`Test message sent: ${result.status}`, "success");
     } catch (error) {
-      this.showToast(error.message || 'Failed to send test message', 'error');
+      this.showToast(error.message || "Failed to send test message", "error");
     }
   },
 
   // Handle delete agent
   async handleDeleteAgent(id) {
-    if (!confirm('Are you sure you want to delete this sender connection?')) return;
+    if (!confirm("Are you sure you want to delete this sender connection?"))
+      return;
 
     try {
       await API.agents.delete(id);
       await DataLoader.loadAgents();
       this.hideModals();
-      this.showToast('Connection deleted successfully', 'success');
+      this.showToast("Connection deleted successfully", "success");
     } catch (error) {
-      this.showToast('Failed to delete sender connection', 'error');
+      this.showToast("Failed to delete sender connection", "error");
     }
   },
 
   // Show agent details
   showAgentDetails(agent) {
-    document.getElementById('detail-agent-icon').textContent = '🤖';
-    document.getElementById('detail-agent-name').textContent = `${agent.label} (${agent.framework})`;
-    document.getElementById('detail-agent-framework').textContent = agent.framework;
-    document.getElementById('detail-agent-status').textContent = agent.status;
-    document.getElementById('detail-agent-status').className = `status-badge ${agent.status}`;
-    document.getElementById('detail-agent-id').textContent = agent.id;
-    document.getElementById('detail-agent-label').textContent = agent.label;
-    document.getElementById('detail-agent-callback').textContent = agent.callbackUrl || 'None';
-    document.getElementById('detail-agent-public-key').textContent =
-      agent.publicKey ? `${agent.publicKey.substring(0, 50)}...` : 'None';
-    document.getElementById('detail-agent-alg').textContent = agent.publicKeyAlg || 'None';
-    document.getElementById('detail-agent-priority').textContent = agent.routingPriority || 0;
+    document.getElementById("detail-agent-icon").textContent = "🤖";
+    document.getElementById("detail-agent-name").textContent =
+      `${agent.label} (${agent.framework})`;
+    document.getElementById("detail-agent-framework").textContent =
+      agent.framework;
+    document.getElementById("detail-agent-status").textContent = agent.status;
+    document.getElementById("detail-agent-status").className =
+      `status-badge ${agent.status}`;
+    document.getElementById("detail-agent-id").textContent = agent.id;
+    document.getElementById("detail-agent-label").textContent = agent.label;
+    document.getElementById("detail-agent-callback").textContent =
+      agent.callbackUrl || "None";
+    document.getElementById("detail-agent-public-key").textContent =
+      agent.publicKey ? `${agent.publicKey.substring(0, 50)}...` : "None";
+    document.getElementById("detail-agent-alg").textContent =
+      agent.publicKeyAlg || "None";
+    document.getElementById("detail-agent-priority").textContent =
+      agent.routingPriority || 0;
 
-    const capsContainer = document.getElementById('detail-agent-capabilities');
-    capsContainer.innerHTML = '';
+    const capsContainer = document.getElementById("detail-agent-capabilities");
+    capsContainer.innerHTML = "";
     if (agent.capabilities?.length) {
-      agent.capabilities.forEach(cap => {
-        const tag = document.createElement('span');
-        tag.className = 'capability-tag';
+      agent.capabilities.forEach((cap) => {
+        const tag = document.createElement("span");
+        tag.className = "capability-tag";
         tag.textContent = cap;
         capsContainer.appendChild(tag);
       });
@@ -2907,85 +3447,89 @@ const UI = {
     }
 
     // Bind delete button
-    const deleteBtn = document.getElementById('delete-agent-btn');
+    const deleteBtn = document.getElementById("delete-agent-btn");
     deleteBtn.onclick = () => this.handleDeleteAgent(agent.id);
 
-    this.showModal('agent-details-modal');
+    this.showModal("agent-details-modal");
   },
 
   // Populate policy targets
   populatePolicyTargets(scope) {
-    const select = document.getElementById('policy-target-id');
+    const select = document.getElementById("policy-target-id");
     select.innerHTML = '<option value="">Select...</option>';
 
-    if (scope === 'user') {
+    if (scope === "user") {
       State.friends
-        .filter(f => f.status === 'accepted')
-        .forEach(friend => {
-          const option = document.createElement('option');
-          option.value = friend.userId;  // Use the actual user ID, not friendship ID
+        .filter((f) => f.status === "accepted")
+        .forEach((friend) => {
+          const option = document.createElement("option");
+          option.value = friend.userId; // Use the actual user ID, not friendship ID
           option.textContent = friend.displayName || friend.username;
           select.appendChild(option);
         });
-    } else if (scope === 'role') {
-      State.availableRoles.forEach(role => {
-        const option = document.createElement('option');
+    } else if (scope === "role") {
+      State.availableRoles.forEach((role) => {
+        const option = document.createElement("option");
         option.value = role.name;
         option.textContent = Helpers.titleizeToken(role.name, role.name);
         select.appendChild(option);
       });
-    } else if (scope === 'group') {
-      State.groups.forEach(group => {
-          const option = document.createElement('option');
-          option.value = group.id;
-          option.textContent = group.name;
-          select.appendChild(option);
+    } else if (scope === "group") {
+      State.groups.forEach((group) => {
+        const option = document.createElement("option");
+        option.value = group.id;
+        option.textContent = group.name;
+        select.appendChild(option);
       });
     }
   },
 
   // Switch view
   switchView(view) {
-    const resolvedView = VIEW_ALIASES[view] || view || 'overview';
+    const resolvedView = VIEW_ALIASES[view] || view || "overview";
     State.currentView = resolvedView;
 
     // Update nav
-    document.querySelectorAll('.nav-item').forEach(item => {
-      item.classList.toggle('active', item.dataset.view === resolvedView);
+    document.querySelectorAll(".nav-item").forEach((item) => {
+      item.classList.toggle("active", item.dataset.view === resolvedView);
     });
 
     // Update page title
     const { title, subtitle } = VIEW_META[resolvedView] || VIEW_META.overview;
-    document.getElementById('page-title').textContent = title;
-    document.getElementById('page-subtitle').textContent = subtitle;
+    document.getElementById("page-title").textContent = title;
+    document.getElementById("page-subtitle").textContent = subtitle;
 
     // Show view
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document
+      .querySelectorAll(".view")
+      .forEach((v) => v.classList.remove("active"));
     const nextView = document.getElementById(`${resolvedView}-view`);
     if (!nextView) {
       console.warn(`View not found: ${resolvedView}`);
-      State.currentView = 'overview';
-      document.getElementById('page-title').textContent = VIEW_META.overview.title;
-      document.getElementById('page-subtitle').textContent = VIEW_META.overview.subtitle;
-      document.getElementById('overview-view')?.classList.add('active');
+      State.currentView = "overview";
+      document.getElementById("page-title").textContent =
+        VIEW_META.overview.title;
+      document.getElementById("page-subtitle").textContent =
+        VIEW_META.overview.subtitle;
+      document.getElementById("overview-view")?.classList.add("active");
       return;
     }
-    nextView.classList.add('active');
+    nextView.classList.add("active");
 
     // Load data if needed
-    if (resolvedView === 'messages') {
+    if (resolvedView === "messages") {
       this.renderConversations();
       if (State.selectedChat) {
         this.renderChat(State.selectedChat);
       }
-    } else if (resolvedView === 'logs') {
+    } else if (resolvedView === "logs") {
       this.hideNotificationDot();
       this.renderLogs();
-    } else if (resolvedView === 'boundaries') {
+    } else if (resolvedView === "boundaries") {
       this.renderPolicies(State.boundaryScopeFilter);
-    } else if (resolvedView === 'settings') {
+    } else if (resolvedView === "settings") {
       DataLoader.loadPreferences();
-    } else if (resolvedView === 'developer') {
+    } else if (resolvedView === "developer") {
       this.renderDevConversations();
       this.renderDevApiKey();
     }
@@ -2993,119 +3537,140 @@ const UI = {
 
   // Show landing page
   showLanding() {
-    document.getElementById('landing-page').classList.remove('hidden');
-    document.getElementById('dashboard-screen').classList.add('hidden');
-    document.getElementById('ws-status').style.display = 'none';
+    document.getElementById("landing-page").classList.remove("hidden");
+    document.getElementById("dashboard-screen").classList.add("hidden");
+    document.getElementById("ws-status").style.display = "none";
     this.initLandingAnimations();
   },
 
   // Initialize landing page animations
   initLandingAnimations() {
     // Scroll reveal observer
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('revealed');
-        }
-      });
-    }, { threshold: 0.1 });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("revealed");
+          }
+        });
+      },
+      { threshold: 0.1 },
+    );
 
-    document.querySelectorAll('.reveal-on-scroll').forEach(el => observer.observe(el));
+    document
+      .querySelectorAll(".reveal-on-scroll")
+      .forEach((el) => observer.observe(el));
 
     // Nav scroll effect
     const handleScroll = () => {
-      const nav = document.querySelector('.landing-nav');
-      if (nav) nav.classList.toggle('scrolled', window.scrollY > 50);
+      const nav = document.querySelector(".landing-nav");
+      if (nav) nav.classList.toggle("scrolled", window.scrollY > 50);
     };
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
     handleScroll();
 
     // Typewriter effect for solution demo
-    const demoText = '"Hey, ask my contacts if anyone knows a good dentist in SF."';
-    const demoEl = document.getElementById('demo-prompt-text');
-    const demoSection = document.getElementById('solution-section');
+    const demoText =
+      '"Hey, ask my contacts if anyone knows a good dentist in SF."';
+    const demoEl = document.getElementById("demo-prompt-text");
+    const demoSection = document.getElementById("solution-section");
 
     if (demoEl && demoSection) {
       let typed = false;
-      const typeObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting && !typed) {
-            typed = true;
-            let i = 0;
-            demoEl.textContent = '';
-            const cursor = demoEl.previousElementSibling;
-            const interval = setInterval(() => {
-              demoEl.textContent += demoText[i];
-              i++;
-              if (i >= demoText.length) {
-                clearInterval(interval);
-                if (cursor) cursor.style.display = 'none';
-                // Show response cards after typing finishes
-                setTimeout(() => {
-                  document.querySelectorAll('.demo-response').forEach((card, idx) => {
-                    setTimeout(() => {
-                      card.style.opacity = '1';
-                      card.style.transform = 'translateY(0)';
-                    }, idx * 400);
-                  });
-                }, 300);
-              }
-            }, 35);
-          }
-        });
-      }, { threshold: 0.3 });
+      const typeObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && !typed) {
+              typed = true;
+              let i = 0;
+              demoEl.textContent = "";
+              const cursor = demoEl.previousElementSibling;
+              const interval = setInterval(() => {
+                demoEl.textContent += demoText[i];
+                i++;
+                if (i >= demoText.length) {
+                  clearInterval(interval);
+                  if (cursor) cursor.style.display = "none";
+                  // Show response cards after typing finishes
+                  setTimeout(() => {
+                    document
+                      .querySelectorAll(".demo-response")
+                      .forEach((card, idx) => {
+                        setTimeout(() => {
+                          card.style.opacity = "1";
+                          card.style.transform = "translateY(0)";
+                        }, idx * 400);
+                      });
+                  }, 300);
+                }
+              }, 35);
+            }
+          });
+        },
+        { threshold: 0.3 },
+      );
       typeObserver.observe(demoSection);
     }
   },
 
   // Show dashboard
   showDashboard() {
-    document.getElementById('landing-page').classList.add('hidden');
-    document.getElementById('dashboard-screen').classList.remove('hidden');
-    document.getElementById('ws-status').style.display = 'flex';
-    
+    document.getElementById("landing-page").classList.add("hidden");
+    document.getElementById("dashboard-screen").classList.remove("hidden");
+    document.getElementById("ws-status").style.display = "flex";
+
     // Update sidebar
-    document.getElementById('sidebar-username').textContent = State.user?.username || 'User';
-    document.getElementById('user-avatar-initial').textContent = 
-      (State.user?.display_name?.[0] || State.user?.username?.[0] || 'U').toUpperCase();
-    document.getElementById('welcome-name').textContent =
-      State.user?.display_name || State.user?.username || 'Friend';
+    document.getElementById("sidebar-username").textContent =
+      State.user?.username || "User";
+    document.getElementById("user-avatar-initial").textContent = (
+      State.user?.display_name?.[0] ||
+      State.user?.username?.[0] ||
+      "U"
+    ).toUpperCase();
+    document.getElementById("welcome-name").textContent =
+      State.user?.display_name || State.user?.username || "Friend";
   },
 
   // Show modal
   showModal(id) {
-    document.getElementById('modal-overlay').classList.remove('hidden');
-    document.getElementById(id).classList.remove('hidden');
+    document.getElementById("modal-overlay").classList.remove("hidden");
+    document.getElementById(id).classList.remove("hidden");
   },
 
   // Hide all modals
   hideModals() {
-    document.getElementById('modal-overlay').classList.add('hidden');
-    document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+    document.getElementById("modal-overlay").classList.add("hidden");
+    document
+      .querySelectorAll(".modal")
+      .forEach((m) => m.classList.add("hidden"));
   },
 
   // Update counts
   updateAgentCount(count) {
-    document.getElementById('agent-count').textContent = count;
-    document.getElementById('agent-count').classList.toggle('hidden', count === 0);
-    document.getElementById('overview-agent-count').textContent = count;
+    document.getElementById("agent-count").textContent = count;
+    document
+      .getElementById("agent-count")
+      .classList.toggle("hidden", count === 0);
+    document.getElementById("overview-agent-count").textContent = count;
   },
 
   updateFriendCount(count) {
-    document.getElementById('friend-count').textContent = count;
-    document.getElementById('friend-count').classList.toggle('hidden', count === 0);
-    document.getElementById('overview-friend-count').textContent = count;
-    document.getElementById('profile-friend-count').textContent = count;
+    document.getElementById("friend-count").textContent = count;
+    document
+      .getElementById("friend-count")
+      .classList.toggle("hidden", count === 0);
+    document.getElementById("overview-friend-count").textContent = count;
+    document.getElementById("profile-friend-count").textContent = count;
   },
 
   updateNetworkRelationshipCounts(friends = State.friends) {
     const counts = this.getNetworkRelationshipCounts(friends);
     const badges = {
-      'all-network-count': counts.all,
-      'accepted-count': counts.accepted,
-      'incoming-count': counts.incoming,
-      'outgoing-count': counts.outgoing,
-      'blocked-count': counts.blocked,
+      "all-network-count": counts.all,
+      "accepted-count": counts.accepted,
+      "incoming-count": counts.incoming,
+      "outgoing-count": counts.outgoing,
+      "blocked-count": counts.blocked,
     };
 
     Object.entries(badges).forEach(([id, count]) => {
@@ -3115,42 +3680,46 @@ const UI = {
       }
 
       badge.textContent = String(count);
-      badge.classList.toggle('hidden', count === 0);
+      badge.classList.toggle("hidden", count === 0);
     });
   },
 
   updateGroupCount(count) {
-    document.getElementById('group-count').textContent = count;
-    document.getElementById('group-count').classList.toggle('hidden', count === 0);
-    document.getElementById('overview-group-count').textContent = count;
-    document.getElementById('profile-group-count').textContent = count;
+    document.getElementById("group-count").textContent = count;
+    document
+      .getElementById("group-count")
+      .classList.toggle("hidden", count === 0);
+    document.getElementById("overview-group-count").textContent = count;
+    document.getElementById("profile-group-count").textContent = count;
   },
 
   normalizeNetworkFilter(filter = State.networkFilter) {
     const aliases = {
-      pending: 'incoming',
-      sent: 'outgoing',
+      pending: "incoming",
+      sent: "outgoing",
     };
-    const normalized = aliases[filter] || filter || 'all';
-    return ['all', 'accepted', 'incoming', 'outgoing', 'blocked'].includes(normalized)
+    const normalized = aliases[filter] || filter || "all";
+    return ["all", "accepted", "incoming", "outgoing", "blocked"].includes(
+      normalized,
+    )
       ? normalized
-      : 'all';
+      : "all";
   },
 
   networkBucket(friend) {
-    if (friend?.status === 'blocked') {
-      return 'blocked';
+    if (friend?.status === "blocked") {
+      return "blocked";
     }
 
-    if (friend?.status === 'accepted') {
-      return 'accepted';
+    if (friend?.status === "accepted") {
+      return "accepted";
     }
 
-    if (friend?.status === 'pending' && friend?.direction === 'received') {
-      return 'incoming';
+    if (friend?.status === "pending" && friend?.direction === "received") {
+      return "incoming";
     }
 
-    return 'outgoing';
+    return "outgoing";
   },
 
   getNetworkRelationshipCounts(friends = State.friends) {
@@ -3167,44 +3736,59 @@ const UI = {
         incoming: 0,
         outgoing: 0,
         blocked: 0,
-      }
+      },
     );
   },
 
   networkFilterMeta(filter = State.networkFilter, visibleCount = 0) {
     const searchTerm = Helpers.string(State.networkSearch).trim();
-    const matchesLabel = Helpers.pluralize(visibleCount, 'match');
+    const matchesLabel = Helpers.pluralize(visibleCount, "match");
 
     switch (filter) {
-      case 'accepted':
+      case "accepted":
         return {
-          title: 'Accepted contacts',
-          description: 'These people are already in your trusted Mahilo circle and ready for direct asks, messages, and role-based boundaries.',
-          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'accepted contact'),
+          title: "Accepted contacts",
+          description:
+            "These people are already in your trusted Mahilo circle and ready for direct asks, messages, and role-based boundaries.",
+          total: searchTerm
+            ? matchesLabel
+            : Helpers.pluralize(visibleCount, "accepted contact"),
         };
-      case 'incoming':
+      case "incoming":
         return {
-          title: 'Incoming requests',
-          description: 'These people are waiting on you to accept, reject, or block their request before they can join your useful circle.',
-          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'incoming request'),
+          title: "Incoming requests",
+          description:
+            "These people are waiting on you to accept, reject, or block their request before they can join your useful circle.",
+          total: searchTerm
+            ? matchesLabel
+            : Helpers.pluralize(visibleCount, "incoming request"),
         };
-      case 'outgoing':
+      case "outgoing":
         return {
-          title: 'Outgoing requests',
-          description: 'These requests are waiting on the other person before their agent can participate in your network.',
-          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'outgoing request'),
+          title: "Outgoing requests",
+          description:
+            "These requests are waiting on the other person before their agent can participate in your network.",
+          total: searchTerm
+            ? matchesLabel
+            : Helpers.pluralize(visibleCount, "outgoing request"),
         };
-      case 'blocked':
+      case "blocked":
         return {
-          title: 'Blocked relationships',
-          description: 'Blocked contacts stay out of ask-around, direct delivery, and future trust-circle decisions until you remove the record.',
-          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'blocked relationship'),
+          title: "Blocked relationships",
+          description:
+            "Blocked contacts stay out of ask-around, direct delivery, and future trust-circle decisions until you remove the record.",
+          total: searchTerm
+            ? matchesLabel
+            : Helpers.pluralize(visibleCount, "blocked relationship"),
         };
       default:
         return {
-          title: 'All relationships',
-          description: 'Accepted contacts, pending requests, and blocked relationships powered by the real Mahilo friendship model.',
-          total: searchTerm ? matchesLabel : Helpers.pluralize(visibleCount, 'relationship'),
+          title: "All relationships",
+          description:
+            "Accepted contacts, pending requests, and blocked relationships powered by the real Mahilo friendship model.",
+          total: searchTerm
+            ? matchesLabel
+            : Helpers.pluralize(visibleCount, "relationship"),
         };
     }
   },
@@ -3213,29 +3797,31 @@ const UI = {
     const bucket = this.networkBucket(friend);
 
     switch (bucket) {
-      case 'accepted':
-        return 'Accepted';
-      case 'incoming':
-        return 'Pending incoming';
-      case 'outgoing':
-        return 'Pending outgoing';
-      case 'blocked':
-        return 'Blocked';
+      case "accepted":
+        return "Accepted";
+      case "incoming":
+        return "Pending incoming";
+      case "outgoing":
+        return "Pending outgoing";
+      case "blocked":
+        return "Blocked";
       default:
-        return 'Relationship';
+        return "Relationship";
     }
   },
 
   networkRequestDirectionLabel(friend) {
-    return friend?.direction === 'sent' ? 'You initiated' : 'They initiated';
+    return friend?.direction === "sent" ? "You initiated" : "They initiated";
   },
 
   networkRolesLabel(friend) {
     if (!Array.isArray(friend?.roles) || friend.roles.length === 0) {
-      return 'No roles yet';
+      return "No roles yet";
     }
 
-    return friend.roles.map((role) => Helpers.titleizeToken(role, '')).join(', ');
+    return friend.roles
+      .map((role) => Helpers.titleizeToken(role, ""))
+      .join(", ");
   },
 
   networkRoleDescription(role) {
@@ -3246,39 +3832,42 @@ const UI = {
     }
 
     return role?.isSystem
-      ? 'System role available across every Mahilo account.'
-      : 'Custom role available only in your account.';
+      ? "System role available across every Mahilo account."
+      : "Custom role available only in your account.";
   },
 
   networkAgeLabel(friend) {
     const labelByBucket = {
-      accepted: 'Connected',
-      incoming: 'Requested',
-      outgoing: 'Requested',
-      blocked: 'Recorded',
+      accepted: "Connected",
+      incoming: "Requested",
+      outgoing: "Requested",
+      blocked: "Recorded",
     };
     const bucket = this.networkBucket(friend);
-    return `${labelByBucket[bucket] || 'Started'} ${Helpers.formatShortDate(friend?.since, 'date pending')}`;
+    return `${labelByBucket[bucket] || "Started"} ${Helpers.formatShortDate(friend?.since, "date pending")}`;
   },
 
   networkSummaryCopy(friend) {
     const bucket = this.networkBucket(friend);
 
     switch (bucket) {
-      case 'accepted':
-        return 'Ready for direct asks, conversation history, and role-based sharing boundaries.';
-      case 'incoming':
-        return 'Review this request before the person can join your ask-around circle.';
-      case 'outgoing':
-        return 'Waiting on the other person before their agent can participate in your network.';
-      case 'blocked':
-        return 'Blocked contacts stay outside your trust circle until you remove the relationship.';
+      case "accepted":
+        return "Ready for direct asks, conversation history, and role-based sharing boundaries.";
+      case "incoming":
+        return "Review this request before the person can join your ask-around circle.";
+      case "outgoing":
+        return "Waiting on the other person before their agent can participate in your network.";
+      case "blocked":
+        return "Blocked contacts stay outside your trust circle until you remove the relationship.";
       default:
-        return 'Relationship details from the current Mahilo friendship model.';
+        return "Relationship details from the current Mahilo friendship model.";
     }
   },
 
-  networkMatchesSearch(friend, searchTerm = Helpers.string(State.networkSearch).trim()) {
+  networkMatchesSearch(
+    friend,
+    searchTerm = Helpers.string(State.networkSearch).trim(),
+  ) {
     const query = Helpers.string(searchTerm).trim().toLowerCase();
     if (!query) {
       return true;
@@ -3291,11 +3880,11 @@ const UI = {
       this.networkRequestDirectionLabel(friend),
       ...(Array.isArray(friend?.roles) ? friend.roles : []),
       ...(Array.isArray(friend?.roles)
-        ? friend.roles.map((role) => Helpers.titleizeToken(role, ''))
+        ? friend.roles.map((role) => Helpers.titleizeToken(role, ""))
         : []),
     ]
       .filter(Boolean)
-      .join(' ')
+      .join(" ")
       .toLowerCase();
 
     return haystack.includes(query);
@@ -3313,7 +3902,7 @@ const UI = {
     return State.friends
       .filter((friend) => {
         const bucket = this.networkBucket(friend);
-        return normalizedFilter === 'all' || bucket === normalizedFilter;
+        return normalizedFilter === "all" || bucket === normalizedFilter;
       })
       .filter((friend) => this.networkMatchesSearch(friend))
       .slice()
@@ -3326,31 +3915,44 @@ const UI = {
           return bucketDelta;
         }
 
-        const interactionDelta = (right?.interactionCount || 0) - (left?.interactionCount || 0);
+        const interactionDelta =
+          (right?.interactionCount || 0) - (left?.interactionCount || 0);
         if (interactionDelta !== 0) {
           return interactionDelta;
         }
 
-        const sinceDelta = Helpers.timestampValue(right?.since) - Helpers.timestampValue(left?.since);
+        const sinceDelta =
+          Helpers.timestampValue(right?.since) -
+          Helpers.timestampValue(left?.since);
         if (sinceDelta !== 0) {
           return sinceDelta;
         }
 
-        return Helpers.string(left?.displayName || left?.username).localeCompare(
-          Helpers.string(right?.displayName || right?.username)
-        );
+        return Helpers.string(
+          left?.displayName || left?.username,
+        ).localeCompare(Helpers.string(right?.displayName || right?.username));
       });
   },
 
-  renderNetworkHeader(filter, visibleFriends, counts = this.getNetworkRelationshipCounts()) {
-    const summaryTitle = document.getElementById('network-list-title');
-    const summaryDescription = document.getElementById('network-list-description');
-    const totalChip = document.getElementById('network-list-total');
-    const summaryStrip = document.getElementById('network-summary-strip');
+  renderNetworkHeader(
+    filter,
+    visibleFriends,
+    counts = this.getNetworkRelationshipCounts(),
+  ) {
+    const summaryTitle = document.getElementById("network-list-title");
+    const summaryDescription = document.getElementById(
+      "network-list-description",
+    );
+    const totalChip = document.getElementById("network-list-total");
+    const summaryStrip = document.getElementById("network-summary-strip");
     const meta = this.networkFilterMeta(filter, visibleFriends.length);
     const totalInteractions = State.friends.reduce(
-      (sum, friend) => sum + (Number.isFinite(friend?.interactionCount) ? friend.interactionCount : 0),
-      0
+      (sum, friend) =>
+        sum +
+        (Number.isFinite(friend?.interactionCount)
+          ? friend.interactionCount
+          : 0),
+      0,
     );
 
     if (summaryTitle) {
@@ -3368,29 +3970,29 @@ const UI = {
     if (summaryStrip) {
       const summaryCards = [
         {
-          label: 'Accepted',
+          label: "Accepted",
           value: counts.accepted,
-          copy: 'Ready now',
+          copy: "Ready now",
         },
         {
-          label: 'Incoming',
+          label: "Incoming",
           value: counts.incoming,
-          copy: 'Waiting on you',
+          copy: "Waiting on you",
         },
         {
-          label: 'Outgoing',
+          label: "Outgoing",
           value: counts.outgoing,
-          copy: 'Waiting on them',
+          copy: "Waiting on them",
         },
         {
-          label: 'Blocked',
+          label: "Blocked",
           value: counts.blocked,
-          copy: 'Held outside',
+          copy: "Held outside",
         },
         {
-          label: 'Interactions',
+          label: "Interactions",
           value: totalInteractions,
-          copy: 'Across your network',
+          copy: "Across your network",
         },
       ];
 
@@ -3402,9 +4004,9 @@ const UI = {
               <span class="network-summary-value">${card.value}</span>
               <span class="network-summary-copy">${card.copy}</span>
             </div>
-          `
+          `,
         )
-        .join('');
+        .join("");
     }
   },
 
@@ -3423,32 +4025,32 @@ const UI = {
 
     const emptyStates = {
       all: {
-        icon: '🤝',
-        title: 'Your trust circle starts with a few real people',
-        copy: 'Add the people whose agents you actually want to ask for recommendations, availability, and lived experience.',
+        icon: "🤝",
+        title: "Your trust circle starts with a few real people",
+        copy: "Add the people whose agents you actually want to ask for recommendations, availability, and lived experience.",
         action: true,
       },
       accepted: {
-        icon: '✅',
-        title: 'No accepted contacts yet',
-        copy: 'Accepted relationships are what turn a request list into a useful Mahilo circle.',
+        icon: "✅",
+        title: "No accepted contacts yet",
+        copy: "Accepted relationships are what turn a request list into a useful Mahilo circle.",
         action: true,
       },
       incoming: {
-        icon: '📥',
-        title: 'No incoming requests right now',
-        copy: 'When someone asks to join your network, the request will show up here for review.',
+        icon: "📥",
+        title: "No incoming requests right now",
+        copy: "When someone asks to join your network, the request will show up here for review.",
       },
       outgoing: {
-        icon: '📤',
-        title: 'No outgoing requests yet',
-        copy: 'Reach out to a few trusted people by username so your ask-around circle can start taking shape.',
+        icon: "📤",
+        title: "No outgoing requests yet",
+        copy: "Reach out to a few trusted people by username so your ask-around circle can start taking shape.",
         action: true,
       },
       blocked: {
-        icon: '🚫',
-        title: 'No blocked relationships',
-        copy: 'Use blocking when someone should stay out of your trust circle entirely. Those records will stay visible here.',
+        icon: "🚫",
+        title: "No blocked relationships",
+        copy: "Use blocking when someone should stay out of your trust circle entirely. Those records will stay visible here.",
       },
     };
     const state = emptyStates[filter] || emptyStates.all;
@@ -3465,7 +4067,7 @@ const UI = {
                 <span>@</span> Add by Username
               </button>
             `
-            : ''
+            : ""
         }
       </div>
     `;
@@ -3474,23 +4076,25 @@ const UI = {
   renderNetworkActions(friend, options = {}) {
     const friendshipId = Helpers.string(friend?.friendshipId);
     const bucket = this.networkBucket(friend);
-    const actionPrefix = options.stopPropagation ? 'event.stopPropagation(); ' : '';
+    const actionPrefix = options.stopPropagation
+      ? "event.stopPropagation(); "
+      : "";
 
-    if (bucket === 'incoming') {
+    if (bucket === "incoming") {
       return `
         <button class="squishy-btn btn-primary btn-small" onclick="${actionPrefix}UI.handleAcceptFriend('${friendshipId}')">Accept</button>
         <button class="squishy-btn btn-secondary btn-small" onclick="${actionPrefix}UI.handleRejectFriend('${friendshipId}')">Reject</button>
       `;
     }
 
-    if (bucket === 'accepted') {
+    if (bucket === "accepted") {
       return `
         <button class="squishy-btn btn-secondary btn-small" onclick="${actionPrefix}UI.handleBlockFriend('${friendshipId}')">Block</button>
         <button class="squishy-btn btn-danger btn-small" onclick="${actionPrefix}UI.handleUnfriend('${friendshipId}')">Unfriend</button>
       `;
     }
 
-    if (bucket === 'blocked') {
+    if (bucket === "blocked") {
       return `
         <button class="squishy-btn btn-secondary btn-small" onclick="${actionPrefix}UI.handleUnfriend('${friendshipId}')">Remove</button>
       `;
@@ -3510,9 +4114,11 @@ const UI = {
           <div class="empty-icon">🏷️</div>
           <p>No trust roles assigned to this contact yet.</p>
           <p class="hint">
-            ${editable
-              ? 'Add a role from the catalog below to make role-scoped boundaries usable.'
-              : 'Accept this relationship before you start assigning trust roles.'}
+            ${
+              editable
+                ? "Add a role from the catalog below to make role-scoped boundaries usable."
+                : "Accept this relationship before you start assigning trust roles."
+            }
           </p>
         </div>
       `;
@@ -3539,12 +4145,12 @@ const UI = {
                         Remove
                       </button>
                     `
-                    : ''
+                    : ""
                 }
               </div>
-            `
+            `,
           )
-          .join('')}
+          .join("")}
       </div>
     `;
   },
@@ -3559,11 +4165,11 @@ const UI = {
       `;
     }
 
-    if (State.availableRolesStatus === 'error') {
+    if (State.availableRolesStatus === "error") {
       return `
         <div class="network-detail-empty">
           <div class="empty-icon">⚠️</div>
-          <p>${Helpers.escapeHtml(State.availableRolesError || 'Failed to load available roles.')}</p>
+          <p>${Helpers.escapeHtml(State.availableRolesError || "Failed to load available roles.")}</p>
           <button class="squishy-btn btn-secondary btn-small network-inline-action" onclick="UI.refreshAvailableRoles()">
             Retry
           </button>
@@ -3571,7 +4177,7 @@ const UI = {
       `;
     }
 
-    if (State.availableRolesStatus !== 'loaded') {
+    if (State.availableRolesStatus !== "loaded") {
       return `
         <div class="network-loading-row">
           <span class="network-loading-dot"></span>
@@ -3589,7 +4195,9 @@ const UI = {
       `;
     }
 
-    const assignedRoles = new Set(Array.isArray(friend?.roles) ? friend.roles : []);
+    const assignedRoles = new Set(
+      Array.isArray(friend?.roles) ? friend.roles : [],
+    );
 
     return `
       <div class="network-role-library">
@@ -3598,11 +4206,11 @@ const UI = {
             const roleName = Helpers.string(role?.name);
             const isAssigned = assignedRoles.has(roleName);
             return `
-              <article class="network-role-option ${isAssigned ? 'assigned' : ''}">
+              <article class="network-role-option ${isAssigned ? "assigned" : ""}">
                 <div class="network-role-option-copy">
                   <div class="network-role-option-title-row">
                     <h5>${Helpers.escapeHtml(Helpers.titleizeToken(roleName, roleName))}</h5>
-                    <span class="network-role-type">${role?.isSystem ? 'System' : 'Custom'}</span>
+                    <span class="network-role-type">${role?.isSystem ? "System" : "Custom"}</span>
                   </div>
                   <p>${Helpers.escapeHtml(this.networkRoleDescription(role))}</p>
                   <span class="network-role-token">${Helpers.escapeHtml(roleName)}</span>
@@ -3622,13 +4230,13 @@ const UI = {
               </article>
             `;
           })
-          .join('')}
+          .join("")}
       </div>
     `;
   },
 
   renderNetworkRoleSection(friend) {
-    const editable = this.networkBucket(friend) === 'accepted';
+    const editable = this.networkBucket(friend) === "accepted";
 
     return `
       <div class="network-role-stack">
@@ -3648,34 +4256,36 @@ const UI = {
     const bucket = this.networkBucket(friend);
     const friendshipId = Helpers.string(friend?.friendshipId);
     const isSelected = State.selectedNetworkFriendId === friendshipId;
-    const displayName = Helpers.escapeHtml(friend?.displayName || friend?.username || 'Unknown');
-    const username = Helpers.escapeHtml(friend?.username || 'unknown');
+    const displayName = Helpers.escapeHtml(
+      friend?.displayName || friend?.username || "Unknown",
+    );
+    const username = Helpers.escapeHtml(friend?.username || "unknown");
     const summary = Helpers.escapeHtml(this.networkSummaryCopy(friend));
     const metaChips = [
       `Request: ${this.networkRequestDirectionLabel(friend)}`,
       `Roles: ${this.networkRolesLabel(friend)}`,
-      `Interactions: ${Helpers.pluralize(friend?.interactionCount || 0, 'interaction')}`,
+      `Interactions: ${Helpers.pluralize(friend?.interactionCount || 0, "interaction")}`,
       this.networkAgeLabel(friend),
     ]
       .map(
         (chip) => `
           <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
-        `
+        `,
       )
-      .join('');
+      .join("");
 
     return `
       <div
-        class="friend-item ${bucket} ${isSelected ? 'selected' : ''}"
+        class="friend-item ${bucket} ${isSelected ? "selected" : ""}"
         role="button"
         tabindex="0"
-        aria-pressed="${isSelected ? 'true' : 'false'}"
+        aria-pressed="${isSelected ? "true" : "false"}"
         onclick="UI.selectNetworkFriend('${friendshipId}')"
         onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); UI.selectNetworkFriend('${friendshipId}'); }"
       >
         <div class="friend-primary">
           <div class="friend-avatar">
-            ${(friend?.displayName?.[0] || friend?.username?.[0] || '?').toUpperCase()}
+            ${(friend?.displayName?.[0] || friend?.username?.[0] || "?").toUpperCase()}
           </div>
           <div class="friend-main">
             <div class="friend-header">
@@ -3704,14 +4314,14 @@ const UI = {
 
   getNetworkConnectionState(friendOrUsername) {
     const username =
-      typeof friendOrUsername === 'string'
+      typeof friendOrUsername === "string"
         ? friendOrUsername
         : friendOrUsername?.username;
     const key = this.networkConnectionCacheKey(username);
 
     if (!key) {
       return {
-        status: 'idle',
+        status: "idle",
         items: [],
         error: null,
         loadedAt: null,
@@ -3720,7 +4330,7 @@ const UI = {
 
     return (
       State.contactConnectionsByUsername.get(key) || {
-        status: 'idle',
+        status: "idle",
         items: [],
         error: null,
         loadedAt: null,
@@ -3729,17 +4339,25 @@ const UI = {
   },
 
   preferredNetworkFriend(friends = []) {
-    return friends.find((friend) => this.networkBucket(friend) === 'accepted') || friends[0] || null;
+    return (
+      friends.find((friend) => this.networkBucket(friend) === "accepted") ||
+      friends[0] ||
+      null
+    );
   },
 
-  syncSelectedNetworkFriend(visibleFriends = this.getVisibleNetworkFriends(State.networkFilter)) {
+  syncSelectedNetworkFriend(
+    visibleFriends = this.getVisibleNetworkFriends(State.networkFilter),
+  ) {
     const currentFriend = State.selectedNetworkFriendId
       ? State.friendsById.get(State.selectedNetworkFriendId)
       : null;
 
     if (
       currentFriend &&
-      visibleFriends.some((friend) => friend.friendshipId === currentFriend.friendshipId)
+      visibleFriends.some(
+        (friend) => friend.friendshipId === currentFriend.friendshipId,
+      )
     ) {
       return currentFriend;
     }
@@ -3771,7 +4389,7 @@ const UI = {
   },
 
   async ensureNetworkConnectionData(friend, options = {}) {
-    if (!friend || this.networkBucket(friend) !== 'accepted') {
+    if (!friend || this.networkBucket(friend) !== "accepted") {
       return;
     }
 
@@ -3785,13 +4403,13 @@ const UI = {
 
     if (
       !options.force &&
-      ['loading', 'loaded'].includes(existingState.status)
+      ["loading", "loaded"].includes(existingState.status)
     ) {
       return;
     }
 
     State.contactConnectionsByUsername.set(key, {
-      status: 'loading',
+      status: "loading",
       items: Array.isArray(existingState.items) ? existingState.items : [],
       error: null,
       loadedAt: existingState.loadedAt || null,
@@ -3803,20 +4421,20 @@ const UI = {
 
     try {
       const connectionsModel = Normalizers.agentsModel(
-        await API.contacts.connections(friend.username)
+        await API.contacts.connections(friend.username),
       );
 
       State.contactConnectionsByUsername.set(key, {
-        status: 'loaded',
+        status: "loaded",
         items: connectionsModel.items,
         error: null,
         loadedAt: new Date().toISOString(),
       });
     } catch (error) {
       State.contactConnectionsByUsername.set(key, {
-        status: 'error',
+        status: "error",
         items: [],
-        error: error.message || 'Failed to load active contact connections.',
+        error: error.message || "Failed to load active contact connections.",
         loadedAt: null,
       });
     }
@@ -3826,117 +4444,121 @@ const UI = {
     }
   },
 
-  networkReadinessState(friend, connectionState = this.getNetworkConnectionState(friend)) {
+  networkReadinessState(
+    friend,
+    connectionState = this.getNetworkConnectionState(friend),
+  ) {
     if (!friend) {
       return null;
     }
 
     const bucket = this.networkBucket(friend);
-    const connections = Array.isArray(connectionState?.items) ? connectionState.items : [];
-    const status = connectionState?.status || 'idle';
+    const connections = Array.isArray(connectionState?.items)
+      ? connectionState.items
+      : [];
+    const status = connectionState?.status || "idle";
 
-    if (bucket !== 'accepted') {
+    if (bucket !== "accepted") {
       const pendingMeta = {
         incoming: {
-          title: 'Waiting on your decision',
+          title: "Waiting on your decision",
           summary:
-            'Accept this request before Mahilo can inspect the contact connection space or include this person in ask-around.',
-          direct:
-            'Direct send is blocked until you accept the relationship.',
+            "Accept this request before Mahilo can inspect the contact connection space or include this person in ask-around.",
+          direct: "Direct send is blocked until you accept the relationship.",
           askAround:
-            'Pending contacts do not participate in ask-around until the relationship is accepted.',
+            "Pending contacts do not participate in ask-around until the relationship is accepted.",
         },
         outgoing: {
-          title: 'Waiting on their acceptance',
+          title: "Waiting on their acceptance",
           summary:
-            'Connection readiness becomes available after the other person accepts your request.',
+            "Connection readiness becomes available after the other person accepts your request.",
           direct:
-            'Mahilo will not attempt direct delivery until the relationship is accepted.',
+            "Mahilo will not attempt direct delivery until the relationship is accepted.",
           askAround:
-            'Outgoing requests stay outside ask-around participation until acceptance completes.',
+            "Outgoing requests stay outside ask-around participation until acceptance completes.",
         },
         blocked: {
-          title: 'Blocked from Mahilo participation',
+          title: "Blocked from Mahilo participation",
           summary:
-            'Blocked contacts stay outside direct delivery and ask-around until the relationship record is removed.',
+            "Blocked contacts stay outside direct delivery and ask-around until the relationship record is removed.",
           direct:
-            'Blocked relationships are not eligible for direct send routing.',
+            "Blocked relationships are not eligible for direct send routing.",
           askAround:
-            'Blocked relationships are excluded from ask-around participation.',
+            "Blocked relationships are excluded from ask-around participation.",
         },
       };
       const meta = pendingMeta[bucket] || pendingMeta.outgoing;
 
       return {
-        tone: 'not-ready',
+        tone: "not-ready",
         summaryTitle: meta.title,
         summaryCopy: meta.summary,
         directSend: {
-          label: 'Not ready',
-          tone: 'not-ready',
+          label: "Not ready",
+          tone: "not-ready",
           copy: meta.direct,
         },
         askAround: {
-          label: 'Not ready',
-          tone: 'not-ready',
+          label: "Not ready",
+          tone: "not-ready",
           copy: meta.askAround,
         },
       };
     }
 
-    if (status === 'error') {
+    if (status === "error") {
       return {
-        tone: 'warning',
-        summaryTitle: 'Unable to verify connection readiness',
+        tone: "warning",
+        summaryTitle: "Unable to verify connection readiness",
         summaryCopy:
-          'Mahilo could not load this contact’s active connections just now. Retry to confirm direct-send and ask-around readiness.',
+          "Mahilo could not load this contact’s active connections just now. Retry to confirm direct-send and ask-around readiness.",
         directSend: {
-          label: 'Check failed',
-          tone: 'warning',
-          copy: 'Mahilo could not confirm an active direct-delivery route from the contact connections API.',
+          label: "Check failed",
+          tone: "warning",
+          copy: "Mahilo could not confirm an active direct-delivery route from the contact connections API.",
         },
         askAround: {
-          label: 'Check failed',
-          tone: 'warning',
-          copy: 'Retry the contact connection lookup to confirm whether this person can participate in ask-around.',
+          label: "Check failed",
+          tone: "warning",
+          copy: "Retry the contact connection lookup to confirm whether this person can participate in ask-around.",
         },
       };
     }
 
-    if (status !== 'loaded') {
+    if (status !== "loaded") {
       return {
-        tone: 'pending',
-        summaryTitle: 'Checking active Mahilo connections',
+        tone: "pending",
+        summaryTitle: "Checking active Mahilo connections",
         summaryCopy:
-          'Mahilo is loading this contact’s live connection space to determine direct-send and ask-around readiness.',
+          "Mahilo is loading this contact’s live connection space to determine direct-send and ask-around readiness.",
         directSend: {
-          label: 'Checking',
-          tone: 'pending',
-          copy: 'Loading active contact connections for direct delivery readiness.',
+          label: "Checking",
+          tone: "pending",
+          copy: "Loading active contact connections for direct delivery readiness.",
         },
         askAround: {
-          label: 'Checking',
-          tone: 'pending',
-          copy: 'Loading active contact connections for ask-around readiness.',
+          label: "Checking",
+          tone: "pending",
+          copy: "Loading active contact connections for ask-around readiness.",
         },
       };
     }
 
     if (!connections.length) {
       return {
-        tone: 'not-ready',
-        summaryTitle: 'No active Mahilo connections right now',
+        tone: "not-ready",
+        summaryTitle: "No active Mahilo connections right now",
         summaryCopy:
-          'This accepted contact is in your network, but they are not ready for direct send or ask-around until an active connection comes online.',
+          "This accepted contact is in your network, but they are not ready for direct send or ask-around until an active connection comes online.",
         directSend: {
-          label: 'Not ready',
-          tone: 'not-ready',
-          copy: 'Direct send would fail right now because Mahilo has no active recipient connection to route to.',
+          label: "Not ready",
+          tone: "not-ready",
+          copy: "Direct send would fail right now because Mahilo has no active recipient connection to route to.",
         },
         askAround: {
-          label: 'Not ready',
-          tone: 'not-ready',
-          copy: 'Without an active connection, this contact cannot participate in ask-around results.',
+          label: "Not ready",
+          tone: "not-ready",
+          copy: "Without an active connection, this contact cannot participate in ask-around results.",
         },
       };
     }
@@ -3944,26 +4566,28 @@ const UI = {
     const frameworks = Array.from(
       new Set(
         connections
-          .map((connection) => Helpers.titleizeToken(connection.framework, 'Unknown'))
-          .filter(Boolean)
-      )
+          .map((connection) =>
+            Helpers.titleizeToken(connection.framework, "Unknown"),
+          )
+          .filter(Boolean),
+      ),
     );
 
     return {
-      tone: 'ready',
-      summaryTitle: 'Ready for direct send and ask-around',
-      summaryCopy: `${Helpers.pluralize(connections.length, 'active connection')} live${
-        frameworks.length ? ` across ${frameworks.join(', ')}` : ''
+      tone: "ready",
+      summaryTitle: "Ready for direct send and ask-around",
+      summaryCopy: `${Helpers.pluralize(connections.length, "active connection")} live${
+        frameworks.length ? ` across ${frameworks.join(", ")}` : ""
       }.`,
       directSend: {
-        label: 'Ready',
-        tone: 'ready',
-        copy: 'Mahilo can route a direct send to one of this contact’s active connections.',
+        label: "Ready",
+        tone: "ready",
+        copy: "Mahilo can route a direct send to one of this contact’s active connections.",
       },
       askAround: {
-        label: 'Ready',
-        tone: 'ready',
-        copy: 'This contact can participate when your agent asks the network for answers.',
+        label: "Ready",
+        tone: "ready",
+        copy: "This contact can participate when your agent asks the network for answers.",
       },
     };
   },
@@ -3973,31 +4597,37 @@ const UI = {
       <div class="network-readiness-card">
         <div class="network-readiness-card-header">
           <span class="network-readiness-label">${Helpers.escapeHtml(title)}</span>
-          <span class="network-readiness-status ${Helpers.escapeHtml(readiness?.tone || 'pending')}">
-            ${Helpers.escapeHtml(readiness?.label || 'Checking')}
+          <span class="network-readiness-status ${Helpers.escapeHtml(readiness?.tone || "pending")}">
+            ${Helpers.escapeHtml(readiness?.label || "Checking")}
           </span>
         </div>
-        <p>${Helpers.escapeHtml(readiness?.copy || '')}</p>
+        <p>${Helpers.escapeHtml(readiness?.copy || "")}</p>
       </div>
     `;
   },
 
   renderContactConnectionCard(connection) {
-    const framework = Helpers.titleizeToken(connection?.framework, 'Unknown framework');
-    const label = Helpers.string(connection?.label, connection?.id || 'Unnamed connection');
+    const framework = Helpers.titleizeToken(
+      connection?.framework,
+      "Unknown framework",
+    );
+    const label = Helpers.string(
+      connection?.label,
+      connection?.id || "Unnamed connection",
+    );
     const description = Helpers.nullableString(connection?.description);
     const metaChips = [
       `Framework: ${framework}`,
       `Label: ${label}`,
-      `Status: ${Helpers.titleizeToken(connection?.status, 'Unknown')}`,
+      `Status: ${Helpers.titleizeToken(connection?.status, "Unknown")}`,
       `Priority: ${Helpers.number(connection?.routingPriority, 0)}`,
     ]
       .map(
         (chip) => `
           <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
-        `
+        `,
       )
-      .join('');
+      .join("");
     const capabilities = Array.isArray(connection?.capabilities)
       ? connection.capabilities
       : [];
@@ -4009,14 +4639,14 @@ const UI = {
             <h5>${Helpers.escapeHtml(label)}</h5>
             <p>${Helpers.escapeHtml(framework)}</p>
           </div>
-          <span class="status-badge ${Helpers.escapeHtml(connection?.status || 'active')}">
-            ${Helpers.escapeHtml(Helpers.titleizeToken(connection?.status, 'Active'))}
+          <span class="status-badge ${Helpers.escapeHtml(connection?.status || "active")}">
+            ${Helpers.escapeHtml(Helpers.titleizeToken(connection?.status, "Active"))}
           </span>
         </div>
         ${
           description
             ? `<p class="contact-connection-description">${Helpers.escapeHtml(description)}</p>`
-            : ''
+            : ""
         }
         <div class="contact-connection-meta">${metaChips}</div>
         <div class="contact-connection-capabilities">
@@ -4026,9 +4656,9 @@ const UI = {
                   .map(
                     (capability) => `
                       <span class="capability-tag">${Helpers.escapeHtml(capability)}</span>
-                    `
+                    `,
                   )
-                  .join('')
+                  .join("")
               : '<span class="capability-tag">No capabilities declared</span>'
           }
         </div>
@@ -4048,7 +4678,7 @@ const UI = {
 
     const bucket = this.networkBucket(friend);
 
-    if (bucket !== 'accepted') {
+    if (bucket !== "accepted") {
       return `
         <div class="network-detail-empty">
           <div class="empty-icon">🪢</div>
@@ -4057,11 +4687,11 @@ const UI = {
       `;
     }
 
-    if (connectionState.status === 'error') {
+    if (connectionState.status === "error") {
       return `
         <div class="network-detail-empty">
           <div class="empty-icon">⚠️</div>
-          <p>${Helpers.escapeHtml(connectionState.error || 'Failed to load active contact connections.')}</p>
+          <p>${Helpers.escapeHtml(connectionState.error || "Failed to load active contact connections.")}</p>
           <button class="squishy-btn btn-secondary btn-small network-inline-action" onclick="UI.refreshSelectedNetworkConnections()">
             Retry
           </button>
@@ -4069,7 +4699,7 @@ const UI = {
       `;
     }
 
-    if (connectionState.status !== 'loaded') {
+    if (connectionState.status !== "loaded") {
       return `
         <div class="network-loading-row">
           <span class="network-loading-dot"></span>
@@ -4092,13 +4722,13 @@ const UI = {
       <div class="contact-connection-list">
         ${connectionState.items
           .map((connection) => this.renderContactConnectionCard(connection))
-          .join('')}
+          .join("")}
       </div>
     `;
   },
 
   renderNetworkConnectionSpace(friend = null) {
-    const panel = document.getElementById('network-detail-panel');
+    const panel = document.getElementById("network-detail-panel");
 
     if (!panel) {
       return;
@@ -4120,28 +4750,30 @@ const UI = {
     const connectionState = this.getNetworkConnectionState(friend);
     const readiness = this.networkReadinessState(friend, connectionState);
     const bucket = this.networkBucket(friend);
-    const displayName = Helpers.escapeHtml(friend.displayName || friend.username || 'Unknown');
-    const username = Helpers.escapeHtml(friend.username || 'unknown');
+    const displayName = Helpers.escapeHtml(
+      friend.displayName || friend.username || "Unknown",
+    );
+    const username = Helpers.escapeHtml(friend.username || "unknown");
     const relationshipMeta = [
       `Relationship: ${this.networkStatusLabel(friend)}`,
       `Request: ${this.networkRequestDirectionLabel(friend)}`,
       `Roles: ${this.networkRolesLabel(friend)}`,
-      `Interactions: ${Helpers.pluralize(friend?.interactionCount || 0, 'interaction')}`,
+      `Interactions: ${Helpers.pluralize(friend?.interactionCount || 0, "interaction")}`,
       this.networkAgeLabel(friend),
     ]
       .map(
         (chip) => `
           <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
-        `
+        `,
       )
-      .join('');
-    const canRefreshConnections = bucket === 'accepted';
+      .join("");
+    const canRefreshConnections = bucket === "accepted";
 
     panel.innerHTML = `
       <div class="network-detail-panel">
         <div class="network-detail-header">
           <div class="network-detail-avatar">
-            ${(friend?.displayName?.[0] || friend?.username?.[0] || '?').toUpperCase()}
+            ${(friend?.displayName?.[0] || friend?.username?.[0] || "?").toUpperCase()}
           </div>
           <div class="network-detail-copy">
             <p class="network-detail-eyebrow">Connection space</p>
@@ -4157,24 +4789,24 @@ const UI = {
                 <button
                   class="squishy-btn btn-secondary btn-small"
                   onclick="UI.refreshSelectedNetworkConnections()"
-                  ${connectionState.status === 'loading' ? 'disabled' : ''}
+                  ${connectionState.status === "loading" ? "disabled" : ""}
                 >
-                  ${connectionState.status === 'loading' ? 'Refreshing...' : 'Refresh'}
+                  ${connectionState.status === "loading" ? "Refreshing..." : "Refresh"}
                 </button>
               `
-              : ''
+              : ""
           }
         </div>
 
-        <div class="network-readiness-banner ${Helpers.escapeHtml(readiness?.tone || 'pending')}">
+        <div class="network-readiness-banner ${Helpers.escapeHtml(readiness?.tone || "pending")}">
           <span class="network-readiness-label">Mahilo readiness</span>
-          <strong>${Helpers.escapeHtml(readiness?.summaryTitle || 'Checking')}</strong>
-          <p>${Helpers.escapeHtml(readiness?.summaryCopy || '')}</p>
+          <strong>${Helpers.escapeHtml(readiness?.summaryTitle || "Checking")}</strong>
+          <p>${Helpers.escapeHtml(readiness?.summaryCopy || "")}</p>
         </div>
 
         <div class="network-readiness-grid">
-          ${this.renderNetworkReadinessCard('Direct send', readiness?.directSend)}
-          ${this.renderNetworkReadinessCard('Ask-around', readiness?.askAround)}
+          ${this.renderNetworkReadinessCard("Direct send", readiness?.directSend)}
+          ${this.renderNetworkReadinessCard("Ask-around", readiness?.askAround)}
         </div>
 
         <div class="network-detail-section">
@@ -4200,13 +4832,13 @@ const UI = {
               </p>
             </div>
             ${
-              bucket === 'accepted' && connectionState.status === 'loaded'
+              bucket === "accepted" && connectionState.status === "loaded"
                 ? `
                   <div class="friends-total-chip">
-                    ${Helpers.pluralize(connectionState.items.length, 'active connection')}
+                    ${Helpers.pluralize(connectionState.items.length, "active connection")}
                   </div>
                 `
-                : ''
+                : ""
             }
           </div>
           ${this.renderNetworkConnectionSection(friend, connectionState)}
@@ -4243,8 +4875,8 @@ const UI = {
 
   // Render functions
   renderAgents() {
-    const grid = document.getElementById('agents-grid');
-    
+    const grid = document.getElementById("agents-grid");
+
     if (!State.agents.length) {
       grid.innerHTML = `
         <div class="empty-state">
@@ -4256,14 +4888,18 @@ const UI = {
           </button>
         </div>
       `;
-      document.getElementById('add-first-agent')?.addEventListener('click', () => {
-        this.showModal('add-agent-modal');
-      });
+      document
+        .getElementById("add-first-agent")
+        ?.addEventListener("click", () => {
+          this.showModal("add-agent-modal");
+        });
       return;
     }
 
-    grid.innerHTML = State.agents.map(agent => `
-      <div class="agent-card" onclick="UI.showAgentDetails(${JSON.stringify(agent).replace(/"/g, '&quot;')})">
+    grid.innerHTML = State.agents
+      .map(
+        (agent) => `
+      <div class="agent-card" onclick="UI.showAgentDetails(${JSON.stringify(agent).replace(/"/g, "&quot;")})">
         <div class="agent-card-header">
           <div class="agent-avatar">🤖</div>
           <div class="agent-info">
@@ -4276,13 +4912,13 @@ const UI = {
           </span>
         </div>
         <div class="agent-card-body">
-          <div class="agent-description">${agent.description || 'No description'}</div>
+          <div class="agent-description">${agent.description || "No description"}</div>
           <div class="agent-capabilities">
-            ${agent.capabilities.map(c => `<span class="capability-tag">${c}</span>`).join('') || '<span class="capability-tag">No capabilities</span>'}
+            ${agent.capabilities.map((c) => `<span class="capability-tag">${c}</span>`).join("") || '<span class="capability-tag">No capabilities</span>'}
           </div>
         </div>
         <div class="agent-card-footer">
-          <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.showAgentDetails(${JSON.stringify(agent).replace(/"/g, '&quot;')})">
+          <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.showAgentDetails(${JSON.stringify(agent).replace(/"/g, "&quot;")})">
             Details
           </button>
           <button class="squishy-btn btn-primary btn-small" onclick="event.stopPropagation(); UI.handlePingAgent('${agent.id}')">
@@ -4290,38 +4926,48 @@ const UI = {
           </button>
         </div>
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
   },
 
   async handlePingAgent(id) {
     try {
       const result = await API.agents.ping(id);
       if (result.success) {
-        this.showToast(`Connection responded in ${result.latency_ms}ms`, 'success');
+        this.showToast(
+          `Connection responded in ${result.latency_ms}ms`,
+          "success",
+        );
       } else {
-        this.showToast(`Connection ping failed: ${result.error}`, 'error');
+        this.showToast(`Connection ping failed: ${result.error}`, "error");
       }
     } catch (error) {
-      this.showToast('Failed to ping sender connection', 'error');
+      this.showToast("Failed to ping sender connection", "error");
     }
   },
 
   renderFriends(filter = State.networkFilter) {
-    const list = document.getElementById('friends-list');
+    const list = document.getElementById("friends-list");
     if (!list) {
       return;
     }
 
     State.networkFilter = this.normalizeNetworkFilter(filter);
 
-    const searchInput = document.getElementById('user-search');
+    const searchInput = document.getElementById("user-search");
     if (searchInput && searchInput.value !== State.networkSearch) {
       searchInput.value = State.networkSearch;
     }
 
-    document.querySelectorAll('.friends-filters .filter-btn').forEach((button) => {
-      button.classList.toggle('active', button.dataset.filter === State.networkFilter);
-    });
+    document
+      .querySelectorAll(".friends-filters .filter-btn")
+      .forEach((button) => {
+        button.classList.toggle(
+          "active",
+          button.dataset.filter === State.networkFilter,
+        );
+      });
 
     const counts = this.getNetworkRelationshipCounts();
     const friends = this.getVisibleNetworkFriends(State.networkFilter);
@@ -4334,14 +4980,16 @@ const UI = {
       return;
     }
 
-    list.innerHTML = friends.map((friend) => this.renderFriendCard(friend)).join('');
+    list.innerHTML = friends
+      .map((friend) => this.renderFriendCard(friend))
+      .join("");
     this.renderNetworkConnectionSpace(selectedFriend);
     void this.ensureNetworkConnectionData(selectedFriend);
   },
 
   renderGroups() {
-    const grid = document.getElementById('groups-grid');
-    
+    const grid = document.getElementById("groups-grid");
+
     if (!State.groups.length) {
       grid.innerHTML = `
         <div class="empty-state">
@@ -4353,62 +5001,74 @@ const UI = {
           </button>
         </div>
       `;
-      document.getElementById('create-first-group')?.addEventListener('click', () => {
-        this.showModal('create-group-modal');
-      });
+      document
+        .getElementById("create-first-group")
+        ?.addEventListener("click", () => {
+          this.showModal("create-group-modal");
+        });
       return;
     }
 
-    grid.innerHTML = State.groups.map(group => `
+    grid.innerHTML = State.groups
+      .map(
+        (group) => `
       <div class="group-card">
         <div class="group-icon">🏘️</div>
         <div class="group-name">${group.name}</div>
-        <div class="group-description">${group.description || 'No description'}</div>
+        <div class="group-description">${group.description || "No description"}</div>
         <div class="group-meta">
           <span>👥 ${group.memberCount || 0} members</span>
-          <span>${group.inviteOnly ? '🔒 Invite only' : '🌐 Public'}</span>
-          <span>${group.status === 'invited' ? '✉️ Invited' : `Role: ${group.role || 'member'}`}</span>
+          <span>${group.inviteOnly ? "🔒 Invite only" : "🌐 Public"}</span>
+          <span>${group.status === "invited" ? "✉️ Invited" : `Role: ${group.role || "member"}`}</span>
         </div>
-        ${group.status === 'invited' ? `
+        ${
+          group.status === "invited"
+            ? `
           <div class="group-card-actions">
             <button class="squishy-btn btn-primary btn-small" onclick="UI.handleJoinGroup('${group.id}')">Join Invite</button>
           </div>
-        ` : group.status === 'active' && group.role !== 'owner' ? `
+        `
+            : group.status === "active" && group.role !== "owner"
+              ? `
           <div class="group-card-actions">
             <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleLeaveGroup('${group.id}')">Leave Group</button>
           </div>
-        ` : ''}
+        `
+              : ""
+        }
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
   },
 
   async handleJoinGroup(groupId) {
     const group = State.groups.find((entry) => entry.id === groupId);
 
     if (!group) {
-      this.showToast('Group not found', 'error');
+      this.showToast("Group not found", "error");
       return;
     }
 
-    if (group.status === 'invited') {
+    if (group.status === "invited") {
       try {
         await API.groups.join(groupId);
         await DataLoader.loadGroups();
-        this.showToast(`Joined ${group.name}`, 'success');
+        this.showToast(`Joined ${group.name}`, "success");
       } catch (error) {
-        this.showToast(error.message || 'Failed to join group', 'error');
+        this.showToast(error.message || "Failed to join group", "error");
       }
       return;
     }
 
-    this.showToast('Only invited groups can be joined from this view.', 'info');
+    this.showToast("Only invited groups can be joined from this view.", "info");
   },
 
   async handleLeaveGroup(groupId) {
     const group = State.groups.find((entry) => entry.id === groupId);
 
     if (!group) {
-      this.showToast('Group not found', 'error');
+      this.showToast("Group not found", "error");
       return;
     }
 
@@ -4419,27 +5079,251 @@ const UI = {
     try {
       await API.groups.leave(groupId);
       await DataLoader.loadGroups();
-      this.showToast(`Left ${group.name}`, 'success');
+      this.showToast(`Left ${group.name}`, "success");
     } catch (error) {
-      this.showToast(error.message || 'Failed to leave group', 'error');
+      this.showToast(error.message || "Failed to leave group", "error");
     }
   },
 
-  renderPolicies(scope = State.boundaryScopeFilter || 'all') {
-    const list = document.getElementById('policies-list');
-    const activeScope = scope || 'all';
-    State.boundaryScopeFilter = activeScope;
+  updateBoundaryScopeCounts(policies = State.policies) {
+    const counts = {
+      all: policies.length,
+      global: 0,
+      user: 0,
+      role: 0,
+      group: 0,
+    };
 
-    document.querySelectorAll('.policy-filters .filter-btn').forEach((button) => {
-      button.classList.toggle('active', button.dataset.scope === activeScope);
+    policies.forEach((policy) => {
+      if (Object.prototype.hasOwnProperty.call(counts, policy.scope)) {
+        counts[policy.scope] += 1;
+      }
     });
 
-    let policies = State.policies;
-    if (activeScope !== 'all') {
-      policies = policies.filter(p => p.scope === activeScope);
+    Object.entries(counts).forEach(([scope, count]) => {
+      const badge = document.getElementById(`boundary-count-${scope}`);
+      if (!badge) {
+        return;
+      }
+
+      badge.textContent = String(count);
+      badge.classList.toggle("hidden", count === 0);
+    });
+  },
+
+  renderBoundaryCategoryFilters(policies = State.policies) {
+    const container = document.getElementById("boundary-category-filters");
+    if (!container) {
+      return;
     }
 
-    if (!policies.length) {
+    const categoryCounts = new Map();
+    policies.forEach((policy) => {
+      const categoryKey = policy.boundary?.category || "advanced";
+      categoryCounts.set(
+        categoryKey,
+        (categoryCounts.get(categoryKey) || 0) + 1,
+      );
+    });
+
+    if (
+      State.boundaryCategoryFilter !== "all" &&
+      !categoryCounts.has(State.boundaryCategoryFilter)
+    ) {
+      State.boundaryCategoryFilter = "all";
+    }
+
+    const buttons = [
+      {
+        count: policies.length,
+        icon: "🧭",
+        key: "all",
+        label: "All categories",
+      },
+      ...BOUNDARY_CATEGORY_ORDER.filter((key) => categoryCounts.has(key)).map(
+        (key) => ({
+          count: categoryCounts.get(key) || 0,
+          icon: BOUNDARY_CATEGORY_META[key]?.icon || "🛡️",
+          key,
+          label:
+            BOUNDARY_CATEGORY_META[key]?.label ||
+            Helpers.titleizeToken(key, key),
+        }),
+      ),
+    ];
+
+    container.innerHTML = buttons
+      .map((button) => {
+        const isActive = button.key === (State.boundaryCategoryFilter || "all");
+        return `
+          <button class="filter-btn boundary-category-filter ${isActive ? "active" : ""}" data-category="${Helpers.escapeHtml(button.key)}">
+            <span class="boundary-category-filter-label">${Helpers.escapeHtml(`${button.icon} ${button.label}`)}</span>
+            <span class="filter-badge ${button.count ? "" : "hidden"}">${button.count}</span>
+          </button>
+        `;
+      })
+      .join("");
+  },
+
+  renderBoundarySummary(visiblePolicies = [], allPolicies = State.policies) {
+    const summary = document.getElementById("boundaries-summary-grid");
+    if (!summary) {
+      return;
+    }
+
+    if (!allPolicies.length) {
+      summary.innerHTML = "";
+      return;
+    }
+
+    const activePolicies = visiblePolicies.filter(
+      (policy) => policy.boundary?.lifecycle?.isActive,
+    );
+    const allowCount = activePolicies.filter(
+      (policy) => policy.effect === "allow",
+    ).length;
+    const askCount = activePolicies.filter(
+      (policy) => policy.effect === "ask",
+    ).length;
+    const denyCount = activePolicies.filter(
+      (policy) => policy.effect === "deny",
+    ).length;
+    const inactiveCount = visiblePolicies.length - activePolicies.length;
+
+    const cards = [
+      {
+        copy: !visiblePolicies.length
+          ? "No boundaries match the current audience/category filters."
+          : inactiveCount > 0
+            ? `${Helpers.pluralize(inactiveCount, "boundary", "boundaries")} in this view are not active right now.`
+            : "Every visible boundary is currently active.",
+        label: "Active now",
+        tone: "neutral",
+        value: activePolicies.length,
+      },
+      {
+        copy: "Matching content can move without stopping.",
+        label: "Share automatically",
+        tone: "allow",
+        value: allowCount,
+      },
+      {
+        copy: "Matching content pauses for review before send.",
+        label: "Hold for review",
+        tone: "ask",
+        value: askCount,
+      },
+      {
+        copy: "Matching content is blocked outright.",
+        label: "Block outright",
+        tone: "deny",
+        value: denyCount,
+      },
+    ];
+
+    summary.innerHTML = cards
+      .map(
+        (card) => `
+          <div class="boundary-summary-card ${Helpers.escapeHtml(card.tone)}">
+            <span class="boundary-summary-label">${Helpers.escapeHtml(card.label)}</span>
+            <span class="boundary-summary-value">${card.value}</span>
+            <p>${Helpers.escapeHtml(card.copy)}</p>
+          </div>
+        `,
+      )
+      .join("");
+  },
+
+  renderPolicies(scope = State.boundaryScopeFilter || "all") {
+    const list = document.getElementById("boundaries-groups");
+    const browserTitle = document.getElementById("boundaries-browser-title");
+    const browserDescription = document.getElementById(
+      "boundaries-browser-description",
+    );
+    const browserTotal = document.getElementById("boundaries-browser-total");
+    if (!list) {
+      return;
+    }
+
+    const activeScope = scope || "all";
+    State.boundaryScopeFilter = activeScope;
+
+    this.updateBoundaryScopeCounts(State.policies);
+
+    document
+      .querySelectorAll(".policy-filters .filter-btn")
+      .forEach((button) => {
+        button.classList.toggle("active", button.dataset.scope === activeScope);
+      });
+
+    const scopeFilteredPolicies =
+      activeScope === "all"
+        ? State.policies
+        : State.policies.filter((policy) => policy.scope === activeScope);
+
+    this.renderBoundaryCategoryFilters(scopeFilteredPolicies);
+
+    const activeCategory = State.boundaryCategoryFilter || "all";
+    let policies = scopeFilteredPolicies;
+    if (activeCategory !== "all") {
+      policies = policies.filter(
+        (policy) =>
+          (policy.boundary?.category || "advanced") === activeCategory,
+      );
+    }
+
+    this.renderBoundarySummary(policies, State.policies);
+
+    const scopeMeta =
+      activeScope === "all" ? null : BOUNDARY_SCOPE_META[activeScope] || null;
+    const categoryMeta =
+      activeCategory === "all"
+        ? null
+        : BOUNDARY_CATEGORY_META[activeCategory] || null;
+
+    if (browserTitle) {
+      if (scopeMeta && categoryMeta) {
+        browserTitle.textContent = `${scopeMeta.filterLabel} · ${categoryMeta.label}`;
+      } else if (scopeMeta) {
+        browserTitle.textContent = `${scopeMeta.filterLabel} boundaries`;
+      } else if (categoryMeta) {
+        browserTitle.textContent = categoryMeta.label;
+      } else {
+        browserTitle.textContent = "All boundaries";
+      }
+    }
+
+    if (browserDescription) {
+      const descriptionParts = [];
+      if (scopeMeta) {
+        descriptionParts.push(scopeMeta.summary);
+      } else {
+        descriptionParts.push("All audiences are included.");
+      }
+
+      if (categoryMeta) {
+        descriptionParts.push(
+          `Focused on ${categoryMeta.label.toLowerCase()}.`,
+        );
+      } else {
+        descriptionParts.push(
+          "Grouped by category, then audience, so your current sharing posture stays legible.",
+        );
+      }
+
+      browserDescription.textContent = descriptionParts.join(" ");
+    }
+
+    if (browserTotal) {
+      const audienceCount = new Set(
+        policies.map((policy) => `${policy.scope}:${policy.targetId || "all"}`),
+      ).size;
+      browserTotal.textContent = policies.length
+        ? `${Helpers.pluralize(policies.length, "boundary", "boundaries")} across ${Helpers.pluralize(audienceCount, "audience")}`
+        : "0 boundaries";
+    }
+
+    if (!State.policies.length) {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">🛡️</div>
@@ -4450,82 +5334,246 @@ const UI = {
           </button>
         </div>
       `;
-      document.getElementById('create-first-policy')?.addEventListener('click', () => {
-        this.showModal('create-policy-modal');
-      });
+      document
+        .getElementById("create-first-policy")
+        ?.addEventListener("click", () => {
+          this.showModal("create-policy-modal");
+        });
       return;
     }
 
-    list.innerHTML = policies.map(policy => {
-      const boundary = policy.boundary || {};
-      const audienceLabel = Helpers.policyAudienceDisplay(policy);
-      const audience = boundary.audience || {};
-      const effect = boundary.effect || {};
-      const selector = boundary.selector || {};
-      const sourceLabel = Helpers.policySourceLabel(policy.source);
-      const advancedNote = boundary.managementPath === 'advanced'
-        ? `
-          <div class="policy-advanced-note">
-            ${Helpers.escapeHtml(boundary.advancedSummary || 'This boundary uses a custom selector and stays on the advanced path.')}
-          </div>
-        `
-        : '';
-
-      return `
-        <div class="policy-card">
-          <div class="policy-header">
-            <div class="policy-header-main">
-              <span class="policy-title">${Helpers.escapeHtml(`${boundary.icon || '🛡️'} ${boundary.categoryLabel || 'Boundary'}`)}</span>
-              <p class="policy-subtitle">${Helpers.escapeHtml(audienceLabel)}</p>
-            </div>
-            <div class="policy-badges">
-              <span class="policy-badge ${Helpers.escapeHtml(policy.scope)}">${Helpers.escapeHtml(audience.filterLabel || Helpers.titleizeToken(policy.scope, policy.scope))}</span>
-              <span class="policy-badge effect-${Helpers.escapeHtml(effect.tone || policy.effect)}">${Helpers.escapeHtml(effect.badgeLabel || policy.effect)}</span>
-              ${boundary.managementPath === 'advanced' ? '<span class="policy-badge advanced">Advanced path</span>' : ''}
-              <span class="policy-badge ${policy.enabled ? 'enabled' : 'disabled'}">${policy.enabled ? 'enabled' : 'disabled'}</span>
-            </div>
-          </div>
-          <p class="policy-summary">${Helpers.escapeHtml(boundary.categoryDescription || effect.description || '')}</p>
-          <div class="log-details">
-            <span class="log-detail">Selector: ${Helpers.escapeHtml(selector.label || 'Custom selector')} (${Helpers.escapeHtml(selector.summary || `${policy.resource}${policy.action ? ` / ${policy.action}` : ''}`)})</span>
-            <span class="log-detail">Direction: ${Helpers.escapeHtml(selector.directionLabel || Helpers.titleizeToken(policy.direction, policy.direction))}</span>
-            <span class="log-detail">Source: ${Helpers.escapeHtml(sourceLabel)}</span>
-            <span class="log-detail">Evaluator: ${Helpers.escapeHtml(Helpers.titleizeToken(policy.evaluator, policy.evaluator))}</span>
-          </div>
-          ${advancedNote}
-          <div class="policy-content">${Helpers.escapeHtml(policy.contentText)}</div>
-          <div class="policy-actions">
-            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleTogglePolicy('${policy.id}', ${!policy.enabled})">
-              ${policy.enabled ? 'Disable' : 'Enable'}
-            </button>
-            <button class="squishy-btn btn-danger btn-small" onclick="UI.handleDeletePolicy('${policy.id}')">
-              Delete
-            </button>
-          </div>
+    if (!policies.length) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon-large">🧭</div>
+          <h3>No boundaries match this view</h3>
+          <p>Try a different audience or category filter to browse the rest of your current posture.</p>
+          <button class="squishy-btn btn-secondary" id="reset-boundary-filters">
+            <span>↺</span> Clear Filters
+          </button>
         </div>
       `;
-    }).join('');
+      document
+        .getElementById("reset-boundary-filters")
+        ?.addEventListener("click", () => {
+          State.boundaryScopeFilter = "all";
+          State.boundaryCategoryFilter = "all";
+          this.renderPolicies("all");
+        });
+      return;
+    }
+
+    const groupedPolicies = new Map();
+    policies
+      .slice()
+      .sort(compareBoundaryPolicies)
+      .forEach((policy) => {
+        const categoryKey = policy.boundary?.category || "advanced";
+        if (!groupedPolicies.has(categoryKey)) {
+          groupedPolicies.set(categoryKey, {
+            audiences: new Map(),
+            key: categoryKey,
+            policies: [],
+          });
+        }
+
+        const categoryGroup = groupedPolicies.get(categoryKey);
+        categoryGroup.policies.push(policy);
+
+        const audienceKey = `${policy.scope}:${policy.targetId || "all"}`;
+        if (!categoryGroup.audiences.has(audienceKey)) {
+          const audienceLabel = Helpers.policyAudienceDisplay(policy);
+          categoryGroup.audiences.set(audienceKey, {
+            key: audienceKey,
+            label: audienceLabel,
+            policies: [],
+            scope: policy.scope,
+            summary: buildBoundaryAudienceSummary(policy, audienceLabel),
+          });
+        }
+
+        categoryGroup.audiences.get(audienceKey).policies.push(policy);
+      });
+
+    list.innerHTML = Array.from(groupedPolicies.values())
+      .sort((left, right) => {
+        const leftIndex = BOUNDARY_CATEGORY_ORDER.indexOf(left.key);
+        const rightIndex = BOUNDARY_CATEGORY_ORDER.indexOf(right.key);
+        return (
+          (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+          (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
+        );
+      })
+      .map((categoryGroup) => {
+        const categoryKey = categoryGroup.key;
+        const categoryPresentation =
+          BOUNDARY_CATEGORY_META[categoryKey] ||
+          BOUNDARY_CATEGORY_META.advanced;
+        const activeCount = categoryGroup.policies.filter(
+          (policy) => policy.boundary?.lifecycle?.isActive,
+        ).length;
+        const askCount = categoryGroup.policies.filter(
+          (policy) =>
+            policy.effect === "ask" && policy.boundary?.lifecycle?.isActive,
+        ).length;
+        const denyCount = categoryGroup.policies.filter(
+          (policy) =>
+            policy.effect === "deny" && policy.boundary?.lifecycle?.isActive,
+        ).length;
+
+        const audienceCards = Array.from(categoryGroup.audiences.values())
+          .sort((left, right) => {
+            const scopeDelta =
+              (BOUNDARY_SCOPE_ORDER.indexOf(left.scope) === -1
+                ? Number.MAX_SAFE_INTEGER
+                : BOUNDARY_SCOPE_ORDER.indexOf(left.scope)) -
+              (BOUNDARY_SCOPE_ORDER.indexOf(right.scope) === -1
+                ? Number.MAX_SAFE_INTEGER
+                : BOUNDARY_SCOPE_ORDER.indexOf(right.scope));
+            if (scopeDelta !== 0) {
+              return scopeDelta;
+            }
+
+            return Helpers.string(left.label).localeCompare(
+              Helpers.string(right.label),
+            );
+          })
+          .map((audienceGroup) => {
+            const scopeLabel =
+              BOUNDARY_SCOPE_META[audienceGroup.scope]?.scopeLabel ||
+              Helpers.titleizeToken(audienceGroup.scope, audienceGroup.scope);
+
+            const rows = audienceGroup.policies
+              .slice()
+              .sort(compareBoundaryPolicies)
+              .map((policy) => {
+                const boundary = policy.boundary || {};
+                const audienceLabel = Helpers.policyAudienceDisplay(policy);
+                const effect = boundary.effect || {};
+                const selector = boundary.selector || {};
+                const lifecycle = boundary.lifecycle || {};
+                const sourceLabel = Helpers.policySourceLabel(policy.source);
+                const advancedNote =
+                  boundary.managementPath === "advanced"
+                    ? `
+                      <div class="policy-advanced-note">
+                        ${Helpers.escapeHtml(boundary.advancedSummary || "This boundary uses a custom selector and stays on the advanced path.")}
+                      </div>
+                    `
+                    : "";
+
+                return `
+                  <article class="boundary-row ${Helpers.escapeHtml(effect.tone || policy.effect)} ${lifecycle.isActive ? "is-active" : "is-inactive"}">
+                    <div class="boundary-row-main">
+                      <div class="boundary-row-top">
+                        <div class="boundary-row-copy">
+                          <div class="boundary-row-title-row">
+                            <span class="boundary-row-title">${Helpers.escapeHtml(selector.label || "Custom selector")}</span>
+                            ${boundary.managementPath === "advanced" ? '<span class="policy-badge advanced">Advanced path</span>' : ""}
+                          </div>
+                          <p class="boundary-row-summary">${Helpers.escapeHtml(buildBoundaryNarrative(policy, audienceLabel))}</p>
+                        </div>
+                        <div class="boundary-row-badges">
+                          <span class="policy-badge effect-${Helpers.escapeHtml(effect.tone || policy.effect)}">${Helpers.escapeHtml(effect.badgeLabel || policy.effect)}</span>
+                          <span class="boundary-activity-badge ${Helpers.escapeHtml(lifecycle.tone || "disabled")}">${Helpers.escapeHtml(lifecycle.badgeLabel || "Inactive")}</span>
+                        </div>
+                      </div>
+                      <div class="boundary-meta-list">
+                        <span class="boundary-meta-chip">
+                          <span class="boundary-meta-label">Audience</span>
+                          ${Helpers.escapeHtml(audienceLabel)}
+                        </span>
+                        <span class="boundary-meta-chip">
+                          <span class="boundary-meta-label">Source</span>
+                          ${Helpers.escapeHtml(sourceLabel)}
+                        </span>
+                        <span class="boundary-meta-chip">
+                          <span class="boundary-meta-label">Selector</span>
+                          ${Helpers.escapeHtml(selector.summary || `${policy.resource}${policy.action ? ` / ${policy.action}` : ""}`)}
+                        </span>
+                        <span class="boundary-meta-chip">
+                          <span class="boundary-meta-label">Direction</span>
+                          ${Helpers.escapeHtml(selector.directionLabel || Helpers.titleizeToken(policy.direction, policy.direction))}
+                        </span>
+                      </div>
+                      <p class="boundary-row-footnote">${Helpers.escapeHtml(lifecycle.summary || "Currently active and enforced.")}</p>
+                      ${advancedNote}
+                    </div>
+                    <div class="boundary-row-actions">
+                      <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleTogglePolicy('${policy.id}', ${!policy.enabled})">
+                        ${policy.enabled ? "Disable" : "Enable"}
+                      </button>
+                      <button class="squishy-btn btn-danger btn-small" onclick="UI.handleDeletePolicy('${policy.id}')">
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                `;
+              })
+              .join("");
+
+            return `
+              <article class="boundary-audience-card">
+                <div class="boundary-audience-header">
+                  <div class="boundary-audience-copy">
+                    <span class="boundary-audience-title">${Helpers.escapeHtml(audienceGroup.label)}</span>
+                    <p class="boundary-audience-description">${Helpers.escapeHtml(audienceGroup.summary)}</p>
+                  </div>
+                  <div class="boundary-audience-meta">
+                    <span class="policy-badge ${Helpers.escapeHtml(audienceGroup.scope)}">${Helpers.escapeHtml(scopeLabel)}</span>
+                    <span class="boundary-audience-count">${Helpers.escapeHtml(Helpers.pluralize(audienceGroup.policies.length, "boundary", "boundaries"))}</span>
+                  </div>
+                </div>
+                <div class="boundary-row-list">
+                  ${rows}
+                </div>
+              </article>
+            `;
+          })
+          .join("");
+
+        return `
+          <section class="boundary-category-section">
+            <div class="boundary-category-header">
+              <div class="boundary-category-copy">
+                <span class="boundary-category-title">${Helpers.escapeHtml(`${categoryPresentation.icon || "🛡️"} ${categoryPresentation.label || "Boundary"}`)}</span>
+                <p class="boundary-category-description">${Helpers.escapeHtml(categoryPresentation.description || "Boundaries for this category.")}</p>
+              </div>
+              <div class="boundary-category-stats">
+                <span class="boundary-category-stat">${Helpers.escapeHtml(Helpers.pluralize(categoryGroup.policies.length, "boundary", "boundaries"))}</span>
+                <span class="boundary-category-stat ${activeCount ? "active" : ""}">${Helpers.escapeHtml(`${activeCount} active`)}</span>
+                ${askCount ? `<span class="boundary-category-stat ask">${Helpers.escapeHtml(`${askCount} ask`)}</span>` : ""}
+                ${denyCount ? `<span class="boundary-category-stat deny">${Helpers.escapeHtml(`${denyCount} deny`)}</span>` : ""}
+              </div>
+            </div>
+            <div class="boundary-audience-grid">
+              ${audienceCards}
+            </div>
+          </section>
+        `;
+      })
+      .join("");
   },
 
   async handleTogglePolicy(id, enabled) {
     try {
       await API.policies.update(id, { enabled });
       await DataLoader.loadPolicies();
-      this.showToast(`Boundary ${enabled ? 'enabled' : 'disabled'}`, 'success');
+      this.showToast(`Boundary ${enabled ? "enabled" : "disabled"}`, "success");
     } catch (error) {
-      this.showToast('Failed to update boundary', 'error');
+      this.showToast("Failed to update boundary", "error");
     }
   },
 
   async handleDeletePolicy(id) {
-    if (!confirm('Are you sure you want to delete this boundary?')) return;
+    if (!confirm("Are you sure you want to delete this boundary?")) return;
 
     try {
       await API.policies.delete(id);
       await DataLoader.loadPolicies();
-      this.showToast('Boundary deleted', 'success');
+      this.showToast("Boundary deleted", "success");
     } catch (error) {
-      this.showToast('Failed to delete boundary', 'error');
+      this.showToast("Failed to delete boundary", "error");
     }
   },
 
@@ -4535,44 +5583,53 @@ const UI = {
 
     // Notification preferences
     if (prefs.preferredChannel !== undefined) {
-      document.getElementById('pref-channel').value = prefs.preferredChannel || '';
+      document.getElementById("pref-channel").value =
+        prefs.preferredChannel || "";
     }
     if (prefs.urgentBehavior) {
-      document.getElementById('pref-urgent').value = prefs.urgentBehavior;
+      document.getElementById("pref-urgent").value = prefs.urgentBehavior;
     }
 
     // Quiet hours
     if (prefs.quietHours) {
-      document.getElementById('pref-quiet-enabled').checked = prefs.quietHours.enabled;
-      document.getElementById('pref-quiet-start').value = prefs.quietHours.start || '22:00';
-      document.getElementById('pref-quiet-end').value = prefs.quietHours.end || '07:00';
-      document.getElementById('pref-quiet-timezone').value = prefs.quietHours.timezone || 'UTC';
-      
+      document.getElementById("pref-quiet-enabled").checked =
+        prefs.quietHours.enabled;
+      document.getElementById("pref-quiet-start").value =
+        prefs.quietHours.start || "22:00";
+      document.getElementById("pref-quiet-end").value =
+        prefs.quietHours.end || "07:00";
+      document.getElementById("pref-quiet-timezone").value =
+        prefs.quietHours.timezone || "UTC";
+
       // Show/hide quiet hours row
-      const row = document.getElementById('quiet-hours-row');
-      row.classList.toggle('hidden', !prefs.quietHours.enabled);
+      const row = document.getElementById("quiet-hours-row");
+      row.classList.toggle("hidden", !prefs.quietHours.enabled);
     }
 
     // LLM defaults
     if (prefs.defaultLlmProvider !== undefined) {
-      document.getElementById('pref-llm-provider').value = prefs.defaultLlmProvider || '';
+      document.getElementById("pref-llm-provider").value =
+        prefs.defaultLlmProvider || "";
     }
     if (prefs.defaultLlmModel !== undefined) {
-      document.getElementById('pref-llm-model').value = prefs.defaultLlmModel || '';
+      document.getElementById("pref-llm-model").value =
+        prefs.defaultLlmModel || "";
     }
   },
 
   renderConversations() {
-    const list = document.getElementById('conversations-list');
+    const list = document.getElementById("conversations-list");
     if (!list) {
       return;
     }
-    
+
     // Build conversations from loaded messages first so non-friend threads still show up.
     const conversations = new Map();
 
     State.conversations.forEach((messages, counterpart) => {
-      const friend = State.friends.find((entry) => entry.username === counterpart);
+      const friend = State.friends.find(
+        (entry) => entry.username === counterpart,
+      );
       const name =
         friend?.displayName ||
         messages[messages.length - 1]?.counterpartLabel ||
@@ -4585,17 +5642,19 @@ const UI = {
       });
     });
 
-    State.friends.filter(f => f.status === 'accepted').forEach(friend => {
-      if (conversations.has(friend.username)) {
-        return;
-      }
+    State.friends
+      .filter((f) => f.status === "accepted")
+      .forEach((friend) => {
+        if (conversations.has(friend.username)) {
+          return;
+        }
 
-      conversations.set(friend.username, {
-        name: friend.displayName || friend.username,
-        username: friend.username,
-        messages: [],
+        conversations.set(friend.username, {
+          name: friend.displayName || friend.username,
+          username: friend.username,
+          messages: [],
+        });
       });
-    });
 
     if (!conversations.size) {
       list.innerHTML = `
@@ -4613,105 +5672,116 @@ const UI = {
         const leftLast = left.messages[left.messages.length - 1];
         const rightLast = right.messages[right.messages.length - 1];
         return (
-          (Date.parse(rightLast?.timestamp || '') || 0) -
-          (Date.parse(leftLast?.timestamp || '') || 0)
+          (Date.parse(rightLast?.timestamp || "") || 0) -
+          (Date.parse(leftLast?.timestamp || "") || 0)
         );
       })
       .map(([username, conv]) => {
         const lastMessage = conv.messages[conv.messages.length - 1];
         return `
-          <div class="conversation-item ${State.selectedChat === username ? 'active' : ''}" onclick="UI.selectChat('${username}')">
+          <div class="conversation-item ${State.selectedChat === username ? "active" : ""}" onclick="UI.selectChat('${username}')">
             <div class="conversation-avatar">${conv.name[0].toUpperCase()}</div>
             <div class="conversation-info">
               <div class="conversation-name">${conv.name}</div>
-              <div class="conversation-preview">${lastMessage?.previewText || lastMessage?.message || 'No messages yet'}</div>
+              <div class="conversation-preview">${lastMessage?.previewText || lastMessage?.message || "No messages yet"}</div>
             </div>
             <div class="conversation-meta">
-              <div class="conversation-time">${lastMessage ? new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+              <div class="conversation-time">${lastMessage ? new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</div>
             </div>
           </div>
         `;
-      }).join('');
+      })
+      .join("");
   },
 
   selectChat(username) {
     State.selectedChat = username;
-    
-    const friend = State.friends.find(f => f.username === username);
-    const messages = State.conversations.get(username) || [];
-    const name = friend?.displayName || messages[messages.length - 1]?.counterpartLabel || username;
-    const isGroupThread = messages.some((entry) => entry.recipientType === 'group');
-    const latestMessage = messages[messages.length - 1] || null;
-    const latestRecord = latestMessage ? State.messagesById.get(latestMessage.id) : null;
-    const canSend =
-      !isGroupThread ||
-      Boolean(latestRecord?.recipientId);
 
-    const placeholder = document.getElementById('chat-placeholder');
-    const chatContainer = document.getElementById('chat-container');
-    const chatInput = document.getElementById('chat-input');
-    const sendButton = document.getElementById('send-message-btn');
+    const friend = State.friends.find((f) => f.username === username);
+    const messages = State.conversations.get(username) || [];
+    const name =
+      friend?.displayName ||
+      messages[messages.length - 1]?.counterpartLabel ||
+      username;
+    const isGroupThread = messages.some(
+      (entry) => entry.recipientType === "group",
+    );
+    const latestMessage = messages[messages.length - 1] || null;
+    const latestRecord = latestMessage
+      ? State.messagesById.get(latestMessage.id)
+      : null;
+    const canSend = !isGroupThread || Boolean(latestRecord?.recipientId);
+
+    const placeholder = document.getElementById("chat-placeholder");
+    const chatContainer = document.getElementById("chat-container");
+    const chatInput = document.getElementById("chat-input");
+    const sendButton = document.getElementById("send-message-btn");
     if (!placeholder || !chatContainer) {
       return;
     }
 
-    placeholder.classList.add('hidden');
-    chatContainer.classList.remove('hidden');
-    
-    document.getElementById('chat-recipient-avatar').textContent = name[0].toUpperCase();
-    document.getElementById('chat-recipient-name').textContent = name;
-    document.getElementById('chat-recipient-status').textContent = isGroupThread
-      ? 'Group thread'
+    placeholder.classList.add("hidden");
+    chatContainer.classList.remove("hidden");
+
+    document.getElementById("chat-recipient-avatar").textContent =
+      name[0].toUpperCase();
+    document.getElementById("chat-recipient-name").textContent = name;
+    document.getElementById("chat-recipient-status").textContent = isGroupThread
+      ? "Group thread"
       : friend
-        ? 'Online'
-        : 'Conversation';
+        ? "Online"
+        : "Conversation";
 
     if (chatInput) {
       chatInput.disabled = !canSend;
       chatInput.placeholder = canSend
-        ? 'Type a message...'
-        : 'Group replies need a stable group ID from the server';
+        ? "Type a message..."
+        : "Group replies need a stable group ID from the server";
     }
 
     if (sendButton) {
       sendButton.disabled = !canSend;
     }
-    
+
     this.renderConversations();
     this.renderChat(username);
   },
 
   renderChat(username) {
-    const container = document.getElementById('chat-messages');
+    const container = document.getElementById("chat-messages");
     if (!container) {
       return;
     }
     const messages = State.conversations.get(username) || [];
-    
-    container.innerHTML = messages.map(msg => `
-      <div class="message ${msg.sent ? 'sent' : 'received'}">
+
+    container.innerHTML = messages
+      .map(
+        (msg) => `
+      <div class="message ${msg.sent ? "sent" : "received"}">
         <div class="message-content">${msg.message}</div>
         <div class="message-time">
-          ${new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          ${msg.status && msg.status !== 'delivered' ? ` • ${msg.status}` : ''}
+          ${new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          ${msg.status && msg.status !== "delivered" ? ` • ${msg.status}` : ""}
         </div>
       </div>
-    `).join('');
-    
+    `,
+      )
+      .join("");
+
     container.scrollTop = container.scrollHeight;
   },
 
   renderLogSummary(items, threadSummary) {
-    const container = document.getElementById('logs-summary');
+    const container = document.getElementById("logs-summary");
     if (!container) {
       return;
     }
 
-    const messageCount = items.filter((item) => item.kind === 'message').length;
-    const reviewCount = items.filter((item) => item.kind === 'review').length;
-    const blockedCount = items.filter((item) => item.kind === 'blocked').length;
+    const messageCount = items.filter((item) => item.kind === "message").length;
+    const reviewCount = items.filter((item) => item.kind === "review").length;
+    const blockedCount = items.filter((item) => item.kind === "blocked").length;
     const approvalPendingCount = items.filter(
-      (item) => item.kind === 'review' && item.status === 'approval_pending'
+      (item) => item.kind === "review" && item.status === "approval_pending",
     ).length;
 
     container.innerHTML = `
@@ -4723,7 +5793,7 @@ const UI = {
       <div class="log-summary-card">
         <span class="log-summary-label">Review Queue</span>
         <span class="log-summary-value">${reviewCount}</span>
-        <p>${approvalPendingCount ? `${approvalPendingCount} waiting for approval.` : 'Review-required and approval-pending records.'}</p>
+        <p>${approvalPendingCount ? `${approvalPendingCount} waiting for approval.` : "Review-required and approval-pending records."}</p>
       </div>
       <div class="log-summary-card">
         <span class="log-summary-label">Blocked Events</span>
@@ -4738,16 +5808,16 @@ const UI = {
     `;
   },
 
-  renderLogs(direction = 'all') {
-    const list = document.getElementById('logs-list');
+  renderLogs(direction = "all") {
+    const list = document.getElementById("logs-list");
 
     const items = Helpers.logFeed(
       State.messages,
       State.reviews,
       State.blockedEvents,
-      direction
+      direction,
     );
-    const messageItems = items.filter((item) => item.kind === 'message');
+    const messageItems = items.filter((item) => item.kind === "message");
     const threadSummary = Helpers.askAroundThreadSummary(messageItems);
 
     this.renderLogSummary(items, threadSummary);
@@ -4763,18 +5833,19 @@ const UI = {
       return;
     }
 
-    list.innerHTML = items.map(item => {
-      if (item.kind === 'review') {
-        return `
+    list.innerHTML = items
+      .map((item) => {
+        if (item.kind === "review") {
+          return `
           <div class="log-item">
             <div class="log-header">
               <div class="log-direction">
                 <div class="log-direction-icon ${item.transportDirection}">
-                  ${item.transportDirection === 'sent' ? '⏸️' : '🧾'}
+                  ${item.transportDirection === "sent" ? "⏸️" : "🧾"}
                 </div>
                 <div>
                   <div class="log-participants">
-                    Review required: ${item.transportDirection === 'sent' ? `To: ${item.recipient}` : `From: ${item.sender}`}
+                    Review required: ${item.transportDirection === "sent" ? `To: ${item.recipient}` : `From: ${item.sender}`}
                   </div>
                   <div class="log-meta">
                     <span>${new Date(item.timestamp).toLocaleString()}</span>
@@ -4788,15 +5859,15 @@ const UI = {
             <div class="log-details">
               <span class="log-detail log-detail-highlight">Review queue</span>
               <span class="log-detail">Decision: ${item.decision}</span>
-              <span class="log-detail">Mode: ${item.deliveryMode || 'review_required'}</span>
-              <span class="log-detail">Selector: ${item.selectors.resource || 'message.general'}</span>
+              <span class="log-detail">Mode: ${item.deliveryMode || "review_required"}</span>
+              <span class="log-detail">Selector: ${item.selectors.resource || "message.general"}</span>
             </div>
           </div>
         `;
-      }
+        }
 
-      if (item.kind === 'blocked') {
-        return `
+        if (item.kind === "blocked") {
+          return `
           <div class="log-item">
             <div class="log-header">
               <div class="log-direction">
@@ -4805,7 +5876,7 @@ const UI = {
                 </div>
                 <div>
                   <div class="log-participants">
-                    Blocked event: ${item.transportDirection === 'sent' ? `To: ${item.recipient}` : `From: ${item.sender}`}
+                    Blocked event: ${item.transportDirection === "sent" ? `To: ${item.recipient}` : `From: ${item.sender}`}
                   </div>
                   <div class="log-meta">
                     <span>${new Date(item.timestamp).toLocaleString()}</span>
@@ -4818,25 +5889,25 @@ const UI = {
             <div class="log-content">${item.reason}</div>
             <div class="log-details">
               <span class="log-detail log-detail-highlight">Blocked</span>
-              <span class="log-detail">Selector: ${item.selectors.resource || 'message.general'}</span>
-              ${item.payloadHash ? `<span class="log-detail">Hash: ${item.payloadHash.substring(0, 16)}...</span>` : ''}
+              <span class="log-detail">Selector: ${item.selectors.resource || "message.general"}</span>
+              ${item.payloadHash ? `<span class="log-detail">Hash: ${item.payloadHash.substring(0, 16)}...</span>` : ""}
             </div>
           </div>
         `;
-      }
+        }
 
-      const askAroundTag = Helpers.askAroundTag(item, threadSummary);
+        const askAroundTag = Helpers.askAroundTag(item, threadSummary);
 
-      return `
+        return `
         <div class="log-item">
           <div class="log-header">
             <div class="log-direction">
               <div class="log-direction-icon ${item.transportDirection}">
-                ${item.transportDirection === 'sent' ? '📤' : '📥'}
+                ${item.transportDirection === "sent" ? "📤" : "📥"}
               </div>
               <div>
                 <div class="log-participants">
-                  ${item.transportDirection === 'sent' ? `To: ${item.recipient}` : `From: ${item.sender}`}
+                  ${item.transportDirection === "sent" ? `To: ${item.recipient}` : `From: ${item.sender}`}
                 </div>
                 <div class="log-meta">
                   <span>${new Date(item.timestamp).toLocaleString()}</span>
@@ -4846,22 +5917,25 @@ const UI = {
             </div>
             <span class="log-status ${item.status}">${item.status}</span>
           </div>
-          <div class="log-content">${item.messageText || '(no content)'}</div>
+          <div class="log-content">${item.messageText || "(no content)"}</div>
           <div class="log-details">
-            <span class="log-detail">🤖 ${item.senderAgent || 'unknown'}</span>
-            ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ''}
-            ${item.correlationId ? `<span class="log-detail">🔗 ${item.correlationId.substring(0, 8)}...</span>` : ''}
-            ${item.recipientType === 'group' ? '<span class="log-detail">👥 Group</span>' : ''}
+            <span class="log-detail">🤖 ${item.senderAgent || "unknown"}</span>
+            ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ""}
+            ${item.correlationId ? `<span class="log-detail">🔗 ${item.correlationId.substring(0, 8)}...</span>` : ""}
+            ${item.recipientType === "group" ? '<span class="log-detail">👥 Group</span>' : ""}
           </div>
         </div>
       `;
-    }).join('');
+      })
+      .join("");
   },
 
   renderDevConversations() {
-    const list = document.getElementById('dev-conversations-list');
-    
-    const acceptedFriends = State.friends.filter(f => f.status === 'accepted');
+    const list = document.getElementById("dev-conversations-list");
+
+    const acceptedFriends = State.friends.filter(
+      (f) => f.status === "accepted",
+    );
 
     if (!acceptedFriends.length) {
       list.innerHTML = `
@@ -4874,73 +5948,82 @@ const UI = {
       return;
     }
 
-    list.innerHTML = acceptedFriends.map(friend => {
-      const name = friend.displayName || friend.username;
-      const messages = State.conversations.get(friend.username) || [];
-      const lastMessage = messages[messages.length - 1];
-      
-      return `
-        <div class="conversation-item ${State.selectedChat === friend.username ? 'active' : ''}" 
+    list.innerHTML = acceptedFriends
+      .map((friend) => {
+        const name = friend.displayName || friend.username;
+        const messages = State.conversations.get(friend.username) || [];
+        const lastMessage = messages[messages.length - 1];
+
+        return `
+        <div class="conversation-item ${State.selectedChat === friend.username ? "active" : ""}" 
              onclick="UI.selectDevChat('${friend.username}')">
           <div class="conversation-avatar">${name[0].toUpperCase()}</div>
           <div class="conversation-info">
             <div class="conversation-name">${name}</div>
-            <div class="conversation-preview">${lastMessage?.previewText || 'Click to test messaging'}</div>
+            <div class="conversation-preview">${lastMessage?.previewText || "Click to test messaging"}</div>
           </div>
         </div>
       `;
-    }).join('');
+      })
+      .join("");
   },
 
   selectDevChat(username) {
     State.selectedChat = username;
-    
-    const friend = State.friends.find(f => f.username === username);
+
+    const friend = State.friends.find((f) => f.username === username);
     const name = friend?.displayName || username;
-    
-    document.getElementById('dev-chat-placeholder').classList.add('hidden');
-    document.getElementById('dev-chat-container').classList.remove('hidden');
-    
-    document.getElementById('dev-chat-recipient-avatar').textContent = name[0].toUpperCase();
-    document.getElementById('dev-chat-recipient-name').textContent = name;
-    document.getElementById('dev-chat-recipient-status').textContent = 'Test Mode';
-    
+
+    document.getElementById("dev-chat-placeholder").classList.add("hidden");
+    document.getElementById("dev-chat-container").classList.remove("hidden");
+
+    document.getElementById("dev-chat-recipient-avatar").textContent =
+      name[0].toUpperCase();
+    document.getElementById("dev-chat-recipient-name").textContent = name;
+    document.getElementById("dev-chat-recipient-status").textContent =
+      "Test Mode";
+
     this.renderDevConversations();
     this.renderDevChat(username);
   },
 
   renderDevChat(username) {
-    const container = document.getElementById('dev-chat-messages');
+    const container = document.getElementById("dev-chat-messages");
     const messages = State.conversations.get(username) || [];
-    
-    container.innerHTML = messages.map(msg => `
-      <div class="message ${msg.sent ? 'sent' : 'received'}">
+
+    container.innerHTML = messages
+      .map(
+        (msg) => `
+      <div class="message ${msg.sent ? "sent" : "received"}">
         <div class="message-content">${msg.message}</div>
         <div class="message-time">
-          ${new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          ${msg.status ? ` • ${msg.status}` : ''}
+          ${new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          ${msg.status ? ` • ${msg.status}` : ""}
         </div>
       </div>
-    `).join('');
-    
+    `,
+      )
+      .join("");
+
     container.scrollTop = container.scrollHeight;
   },
 
   renderDevApiKey() {
-    const display = document.getElementById('dev-api-key-display');
+    const display = document.getElementById("dev-api-key-display");
     if (display && State.apiKey) {
       // Show first 20 chars and last 10 chars, mask the middle
       const key = State.apiKey;
-      const masked = key.length > 30 
-        ? `${key.substring(0, 20)}...${key.substring(key.length - 10)}`
-        : key;
+      const masked =
+        key.length > 30
+          ? `${key.substring(0, 20)}...${key.substring(key.length - 10)}`
+          : key;
       display.textContent = masked;
     }
   },
 
   renderOverviewAgents() {
-    const list = document.getElementById('overview-agent-list');
-    
+    const list = document.getElementById("overview-agent-list");
+
     if (!State.agents.length) {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 30px 20px;">
@@ -4951,19 +6034,26 @@ const UI = {
       return;
     }
 
-    list.innerHTML = State.agents.slice(0, 3).map(agent => `
+    list.innerHTML = State.agents
+      .slice(0, 3)
+      .map(
+        (agent) => `
       <div class="agent-status-item">
         <span class="status-indicator ${agent.status}"></span>
         <span class="agent-status-name">${agent.label}</span>
         <span class="agent-status-framework">${agent.framework}</span>
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
   },
 
   renderOverviewFriends() {
-    const list = document.getElementById('overview-friend-list');
-    const acceptedFriends = State.friends.filter(f => f.status === 'accepted');
-    
+    const list = document.getElementById("overview-friend-list");
+    const acceptedFriends = State.friends.filter(
+      (f) => f.status === "accepted",
+    );
+
     if (!acceptedFriends.length) {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 30px 20px;">
@@ -4974,12 +6064,17 @@ const UI = {
       return;
     }
 
-    list.innerHTML = acceptedFriends.slice(0, 5).map(friend => `
+    list.innerHTML = acceptedFriends
+      .slice(0, 5)
+      .map(
+        (friend) => `
       <div class="friend-preview-item">
         <div class="friend-preview-avatar">${(friend.displayName?.[0] || friend.username?.[0]).toUpperCase()}</div>
         <span class="friend-preview-name">${friend.displayName || friend.username}</span>
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
   },
 
   renderOverviewGroups() {
@@ -4987,8 +6082,8 @@ const UI = {
   },
 
   renderOverviewMessages() {
-    const list = document.getElementById('overview-message-list');
-    
+    const list = document.getElementById("overview-message-list");
+
     if (!State.messages.length) {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 40px 20px;">
@@ -5000,37 +6095,47 @@ const UI = {
       return;
     }
 
-    list.innerHTML = State.messages.slice(0, 5).map(msg => `
+    list.innerHTML = State.messages
+      .slice(0, 5)
+      .map(
+        (msg) => `
       <div class="message-preview-item">
         <span class="message-preview-sender">${msg.counterpartLabel}</span>
         <span class="message-preview-text">${msg.previewText}</span>
         <span class="message-preview-time">${new Date(msg.timestamp).toLocaleDateString()}</span>
       </div>
-    `).join('');
+    `,
+      )
+      .join("");
   },
 
   renderProfile() {
     const user = State.user;
     if (!user) return;
 
-    document.getElementById('profile-avatar').textContent = 
-      (user.display_name?.[0] || user.username?.[0] || 'U').toUpperCase();
-    document.getElementById('profile-username').textContent = user.username;
-    document.getElementById('profile-display-name').textContent = user.display_name || user.username;
-    document.getElementById('profile-agent-count').textContent = State.agents.length;
+    document.getElementById("profile-avatar").textContent = (
+      user.display_name?.[0] ||
+      user.username?.[0] ||
+      "U"
+    ).toUpperCase();
+    document.getElementById("profile-username").textContent = user.username;
+    document.getElementById("profile-display-name").textContent =
+      user.display_name || user.username;
+    document.getElementById("profile-agent-count").textContent =
+      State.agents.length;
   },
 
   // Toast notifications
-  showToast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
+  showToast(message, type = "info") {
+    const container = document.getElementById("toast-container");
+    const toast = document.createElement("div");
     toast.className = `toast ${type}`;
-    
+
     const icons = {
-      success: '✅',
-      error: '❌',
-      warning: '⚠️',
-      info: 'ℹ️',
+      success: "✅",
+      error: "❌",
+      warning: "⚠️",
+      info: "ℹ️",
     };
 
     toast.innerHTML = `
@@ -5046,58 +6151,58 @@ const UI = {
 
     // Auto remove
     setTimeout(() => {
-      toast.classList.add('hiding');
+      toast.classList.add("hiding");
       setTimeout(() => toast.remove(), 300);
     }, 5000);
   },
 
   // Update WebSocket status
   updateWSStatus(status) {
-    const dot = document.getElementById('ws-dot');
-    const text = document.getElementById('ws-text');
-    
-    dot.className = 'ws-dot';
-    
+    const dot = document.getElementById("ws-dot");
+    const text = document.getElementById("ws-text");
+
+    dot.className = "ws-dot";
+
     switch (status) {
-      case 'connected':
-        dot.classList.add('connected');
-        text.textContent = 'Live';
+      case "connected":
+        dot.classList.add("connected");
+        text.textContent = "Live";
         break;
-      case 'connecting':
-        dot.classList.add('connecting');
-        text.textContent = 'Connecting...';
+      case "connecting":
+        dot.classList.add("connecting");
+        text.textContent = "Connecting...";
         break;
-      case 'error':
-      case 'disconnected':
-        dot.classList.add('error');
-        text.textContent = 'Offline';
+      case "error":
+      case "disconnected":
+        dot.classList.add("error");
+        text.textContent = "Offline";
         break;
     }
   },
 
   // Show notification dot
   showNotificationDot() {
-    document.getElementById('notification-dot').classList.remove('hidden');
+    document.getElementById("notification-dot").classList.remove("hidden");
   },
 
   hideNotificationDot() {
-    document.getElementById('notification-dot').classList.add('hidden');
+    document.getElementById("notification-dot").classList.add("hidden");
   },
 
   // Copy to clipboard
   async copyToClipboard(text) {
     try {
       await navigator.clipboard.writeText(text);
-      this.showToast('Copied to clipboard!', 'success');
+      this.showToast("Copied to clipboard!", "success");
     } catch (err) {
       // Fallback
-      const textarea = document.createElement('textarea');
+      const textarea = document.createElement("textarea");
       textarea.value = text;
       document.body.appendChild(textarea);
       textarea.select();
-      document.execCommand('copy');
+      document.execCommand("copy");
       document.body.removeChild(textarea);
-      this.showToast('Copied to clipboard!', 'success');
+      this.showToast("Copied to clipboard!", "success");
     }
   },
 };
@@ -5105,7 +6210,7 @@ const UI = {
 // ========================================
 // Initialize App
 // ========================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener("DOMContentLoaded", () => {
   UI.init();
 });
 
