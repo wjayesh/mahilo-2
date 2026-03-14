@@ -225,7 +225,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 3.1 Sender Connections Workspace
 - **ID**: `DASH-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-010`
 - **Description**:
@@ -237,6 +237,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] The dashboard indicates which active connection is the current default-sender candidate under existing backend rules
   - [ ] Ping/health check remains available and meaningful
 
+- **Notes**:
+  - 2026-03-14T15:22:13.823Z: DASH-030 completed via orchestrator integration.
 ### 3.2 Agent Add/Edit UX Aligned to the Current API
 - **ID**: `DASH-031`
 - **Status**: `pending`
