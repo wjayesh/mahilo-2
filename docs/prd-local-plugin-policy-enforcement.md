@@ -436,7 +436,7 @@ This project is done when all of the following are true:
   - 2026-03-14T14:37:34.148Z: LPE-021 completed via orchestrator integration.
 ### 2.3 Implement the Plugin OpenAI LLM Adapter
 - **ID**: `LPE-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-004`, `LPE-021`
 - **Description**:
@@ -449,6 +449,8 @@ This project is done when all of the following are true:
   - [ ] Transport errors and malformed responses are normalized for the resolver
   - [ ] Unit tests cover success, timeout, auth failure, rate limit, server error, and malformed output
 
+- **Notes**:
+  - 2026-03-14T14:48:46.551Z: LPE-022 completed via orchestrator integration.
 ### 2.4 Implement Fail-Safe Local LLM Semantics
 - **ID**: `LPE-023`
 - **Status**: `pending`
