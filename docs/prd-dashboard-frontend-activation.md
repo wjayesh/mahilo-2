@@ -102,7 +102,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 0.2 Remove or Replace Dead-End Dashboard Actions
 - **ID**: `DASH-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-001`
 - **Description**:
@@ -117,6 +117,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ---
 
+- **Notes**:
+  - 2026-03-14T12:57:57.540Z: DASH-002 completed via orchestrator integration.
 ## Phase 1: Reframe the Dashboard Around the Current Product
 
 ### 1.1 Product-Aligned Navigation and View Model
