@@ -369,7 +369,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T14:19:26.256Z: DASH-050 completed via orchestrator integration.
 ### 5.2 Review Queue and Blocked-Event UI Inside Delivery Logs
 - **ID**: `DASH-051`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-050`
 - **Description**:
@@ -381,6 +381,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Delivery Logs surfaces sender/recipient context without exposing more raw internals than needed
   - [ ] Review and blocked states are visible from Delivery Logs and compact overview cues
 
+- **Notes**:
+  - 2026-03-14T14:29:06.592Z: DASH-051 completed via orchestrator integration.
 ### 5.3 Ask-Around and Delivery Timeline Signals
 - **ID**: `DASH-052`
 - **Status**: `pending`
