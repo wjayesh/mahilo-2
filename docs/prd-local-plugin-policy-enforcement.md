@@ -655,7 +655,7 @@ This project is done when all of the following are true:
 
 ### 5.3 Add Plugin Config and Provider Adapter Tests
 - **ID**: `LPE-052`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-021`, `LPE-022`, `LPE-023`
 - **Description**:
@@ -667,6 +667,8 @@ This project is done when all of the following are true:
   - [ ] Missing credential for applicable LLM policies yields `ask`
   - [ ] Sensitive manifest fields are validated
 
+- **Notes**:
+  - 2026-03-14T16:23:30.258Z: LPE-052 completed via orchestrator integration.
 ### 5.4 Add Plugin `send_message` Local Enforcement Tests
 - **ID**: `LPE-053`
 - **Status**: `pending`
