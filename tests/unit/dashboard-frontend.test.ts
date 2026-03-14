@@ -63,6 +63,9 @@ type DashboardInternals = {
     handleAddFriendRequest: () => Promise<void>;
     handleAddFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
     handleBlockFriend: (id: string) => Promise<void>;
+    handleInviteToGroup: (groupId?: string) => Promise<void>;
+    handleJoinGroup: (groupId: string) => Promise<void>;
+    handleLeaveGroup: (groupId: string) => Promise<void>;
     handleRegister: () => Promise<void>;
     handleRejectFriend: (id: string) => Promise<void>;
     handleRemoveFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
@@ -689,6 +692,8 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
         "/api/v1/friends?status=blocked",
         "/api/v1/friends?status=pending",
         "/api/v1/groups",
+        `/api/v1/groups/${groupId}`,
+        `/api/v1/groups/${groupId}/members`,
         "/api/v1/messages?limit=50",
         "/api/v1/preferences",
         "/api/v1/plugin/events/blocked?limit=25&include_payload_excerpt=true",
@@ -845,7 +850,7 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
     );
   });
 
-  it("removes legacy message routing from friends and renders explicit group actions", async () => {
+  it("removes legacy message routing from friends and replaces static group cards with a workspace", async () => {
     const db = getTestDb();
     const { user: viewer, apiKey } = await createTestUser(
       "dashboard_cta_viewer",
@@ -938,12 +943,26 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
     expect(harness.getElement("friends-list").innerHTML).toContain(
       "handleBlockFriend",
     );
-    expect(harness.getElement("groups-grid").innerHTML).toContain("Join Invite");
-    expect(harness.getElement("groups-grid").innerHTML).toContain("Leave Group");
     expect(harness.getElement("groups-grid").innerHTML).not.toContain(
       '<div class="group-card" onclick=',
     );
+    expect(harness.getElement("groups-grid").innerHTML).not.toContain(
+      "Join Invite",
+    );
+    expect(harness.getElement("groups-grid").innerHTML).not.toContain(
+      "Leave Group",
+    );
     expect(harness.getElement("groups-grid").innerHTML).not.toContain("Tap to join");
+    expect(harness.fetchCalls).toContain(`/api/v1/groups/${activeGroupId}`);
+    expect(harness.fetchCalls).toContain(
+      `/api/v1/groups/${activeGroupId}/members`,
+    );
+    expect(harness.getElement("group-detail-panel").innerHTML).toContain(
+      "Invite and membership actions",
+    );
+    expect(harness.getElement("group-detail-panel").innerHTML).toContain(
+      "Leave group",
+    );
   });
 
   it("stops fabricating placeholder public keys in the primary agent flow", async () => {
@@ -2060,5 +2079,323 @@ describe("Dashboard relationship actions and role management (DASH-022)", () => 
     expect(
       harness.dashboard.State.friendsById.get(friendship.id)?.roles || [],
     ).not.toContain("close_friends");
+  });
+});
+
+describe("Dashboard group detail, members, and readiness (DASH-023)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("loads live group detail and members and separates active members from pending invites", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_group_detail_viewer",
+      "Viewer",
+    );
+    const { user: activePeer } = await createTestUser(
+      "dashboard_group_detail_active",
+      "Active Peer",
+    );
+    const { user: invitedPeer } = await createTestUser(
+      "dashboard_group_detail_invited",
+      "Invited Peer",
+    );
+
+    const groupId = nanoid();
+    await db.insert(schema.groups).values({
+      createdAt: new Date("2026-03-03T00:00:00.000Z"),
+      description: "Trusted travel planners",
+      id: groupId,
+      inviteOnly: true,
+      name: "travel_circle",
+      ownerUserId: viewer.id,
+      updatedAt: new Date("2026-03-03T00:00:00.000Z"),
+    });
+    await db.insert(schema.groupMemberships).values([
+      {
+        createdAt: new Date("2026-03-03T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: null,
+        role: "owner",
+        status: "active",
+        userId: viewer.id,
+      },
+      {
+        createdAt: new Date("2026-03-03T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: viewer.id,
+        role: "member",
+        status: "active",
+        userId: activePeer.id,
+      },
+      {
+        createdAt: new Date("2026-03-03T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: viewer.id,
+        role: "member",
+        status: "invited",
+        userId: invitedPeer.id,
+      },
+    ]);
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    expect(harness.dashboard.State.selectedGroupId).toBe(groupId);
+    expect(harness.fetchCalls).toContain(`/api/v1/groups/${groupId}`);
+    expect(harness.fetchCalls).toContain(`/api/v1/groups/${groupId}/members`);
+
+    const detailHtml = harness.getElement("group-detail-panel").innerHTML;
+    expect(detailHtml).toContain("Group detail");
+    expect(detailHtml).toContain("Useful for targeted ask-around");
+    expect(detailHtml).toContain("Targeted ask-around");
+    expect(detailHtml).toContain("Group boundaries");
+    expect(detailHtml).toContain("Active members");
+    expect(detailHtml).toContain("Pending invites");
+    expect(detailHtml).toContain(activePeer.username);
+    expect(detailHtml).toContain(invitedPeer.username);
+    expect(detailHtml).toContain("Invite member");
+    expect(detailHtml).toContain("Pending invites: 1");
+  });
+
+  it("uses the real invite and leave endpoints from the selected group workspace", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_group_action_viewer",
+      "Viewer",
+    );
+    const { user: owner } = await createTestUser(
+      "dashboard_group_action_owner",
+      "Owner",
+    );
+    const { user: invitee } = await createTestUser(
+      "dashboard_group_action_invitee",
+      "Invitee",
+    );
+
+    const groupId = nanoid();
+    await db.insert(schema.groups).values({
+      createdAt: new Date("2026-03-04T00:00:00.000Z"),
+      description: "Admin-managed travel group",
+      id: groupId,
+      inviteOnly: true,
+      name: "travel_admins",
+      ownerUserId: owner.id,
+      updatedAt: new Date("2026-03-04T00:00:00.000Z"),
+    });
+    await db.insert(schema.groupMemberships).values([
+      {
+        createdAt: new Date("2026-03-04T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: null,
+        role: "owner",
+        status: "active",
+        userId: owner.id,
+      },
+      {
+        createdAt: new Date("2026-03-04T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: owner.id,
+        role: "admin",
+        status: "active",
+        userId: viewer.id,
+      },
+    ]);
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    harness.getElement("group-invite-username").value = `@${invitee.username}`;
+
+    let initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleInviteToGroup(groupId);
+    await flushDashboardWork();
+
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/groups/${groupId}/invite`,
+        "/api/v1/groups",
+        `/api/v1/groups/${groupId}`,
+        `/api/v1/groups/${groupId}/members`,
+      ]),
+    );
+
+    const membershipsAfterInvite = await db
+      .select()
+      .from(schema.groupMemberships)
+      .where(eq(schema.groupMemberships.groupId, groupId));
+    expect(
+      membershipsAfterInvite.find((membership) => membership.userId === invitee.id),
+    ).toEqual(
+      expect.objectContaining({
+        status: "invited",
+      }),
+    );
+    expect(harness.getElement("group-detail-panel").innerHTML).toContain(
+      invitee.username,
+    );
+
+    initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleLeaveGroup(groupId);
+    await flushDashboardWork();
+
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/groups/${groupId}/leave`,
+        "/api/v1/groups",
+      ]),
+    );
+
+    const membershipsAfterLeave = await db
+      .select()
+      .from(schema.groupMemberships)
+      .where(eq(schema.groupMemberships.groupId, groupId));
+    expect(
+      membershipsAfterLeave.find((membership) => membership.userId === viewer.id),
+    ).toBeUndefined();
+    expect(harness.dashboard.State.groupsById.has(groupId)).toBe(false);
+  });
+
+  it("uses the real join endpoint when accepting a pending group invite", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_group_join_viewer",
+      "Viewer",
+    );
+    const { user: owner } = await createTestUser(
+      "dashboard_group_join_owner",
+      "Owner",
+    );
+    const { user: activePeer } = await createTestUser(
+      "dashboard_group_join_peer",
+      "Active Peer",
+    );
+
+    const groupId = nanoid();
+    await db.insert(schema.groups).values({
+      createdAt: new Date("2026-03-05T00:00:00.000Z"),
+      description: "Invite-only planning group",
+      id: groupId,
+      inviteOnly: true,
+      name: "planning_circle",
+      ownerUserId: owner.id,
+      updatedAt: new Date("2026-03-05T00:00:00.000Z"),
+    });
+    await db.insert(schema.groupMemberships).values([
+      {
+        createdAt: new Date("2026-03-05T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: null,
+        role: "owner",
+        status: "active",
+        userId: owner.id,
+      },
+      {
+        createdAt: new Date("2026-03-05T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: owner.id,
+        role: "member",
+        status: "active",
+        userId: activePeer.id,
+      },
+      {
+        createdAt: new Date("2026-03-05T00:00:00.000Z"),
+        groupId,
+        id: nanoid(),
+        invitedByUserId: owner.id,
+        role: "member",
+        status: "invited",
+        userId: viewer.id,
+      },
+    ]);
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    expect(harness.getElement("group-detail-panel").innerHTML).toContain(
+      "Accept invite",
+    );
+    expect(harness.getElement("group-detail-panel").innerHTML).toContain(
+      "Decline invite",
+    );
+
+    const initialCallCount = harness.fetchCalls.length;
+    await harness.dashboard.UI.handleJoinGroup(groupId);
+    await flushDashboardWork();
+
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        `/api/v1/groups/${groupId}/join`,
+        "/api/v1/groups",
+        `/api/v1/groups/${groupId}`,
+        `/api/v1/groups/${groupId}/members`,
+      ]),
+    );
+    expect(harness.dashboard.State.groupsById.get(groupId)).toEqual(
+      expect.objectContaining({
+        status: "active",
+      }),
+    );
+
+    const memberships = await db
+      .select()
+      .from(schema.groupMemberships)
+      .where(eq(schema.groupMemberships.groupId, groupId));
+    expect(
+      memberships.find((membership) => membership.userId === viewer.id),
+    ).toEqual(
+      expect.objectContaining({
+        status: "active",
+      }),
+    );
+
+    const detailHtml = harness.getElement("group-detail-panel").innerHTML;
+    expect(detailHtml).toContain("Useful for targeted ask-around");
+    expect(detailHtml).toContain("Active member");
   });
 });

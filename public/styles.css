@@ -2049,6 +2049,13 @@ body {
   margin-bottom: var(--space-md);
 }
 
+.group-sidebar-copy {
+  margin-top: var(--space-md);
+  color: var(--color-text-light);
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+
 .friends-filters {
   display: flex;
   flex-direction: column;
@@ -2245,7 +2252,15 @@ body {
   border-color: rgba(107, 203, 119, 0.24);
 }
 
+.friend-item.active {
+  border-color: rgba(107, 203, 119, 0.24);
+}
+
 .friend-item.incoming {
+  border-color: rgba(255, 217, 61, 0.32);
+}
+
+.friend-item.invited {
   border-color: rgba(255, 217, 61, 0.32);
 }
 
@@ -2353,8 +2368,18 @@ body {
   color: #2f8e45;
 }
 
+.friend-status.active {
+  background: rgba(107, 203, 119, 0.18);
+  color: #2f8e45;
+}
+
 .friend-status.pending,
 .friend-status.incoming {
+  background: rgba(255, 217, 61, 0.22);
+  color: #a97800;
+}
+
+.friend-status.invited {
   background: rgba(255, 217, 61, 0.22);
   color: #a97800;
 }
@@ -2838,76 +2863,119 @@ body {
 }
 
 /* ========================================
-   GROUPS GRID
+   GROUPS WORKSPACE
    ======================================== */
-.groups-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+.groups-list {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.group-invite-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.group-invite-row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.group-invite-row .squishy-input {
+  flex: 1;
+}
+
+.group-action-note {
+  color: var(--color-text-light);
+  line-height: 1.5;
+  font-size: 0.88rem;
+}
+
+.group-member-stack {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-lg);
 }
 
-.group-card {
-  background: var(--color-card);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  box-shadow: var(--shadow-md);
-  transition: all var(--transition-normal);
-  cursor: default;
-}
-
-.group-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: none;
-}
-
-.group-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(
-    135deg,
-    var(--color-secondary) 0%,
-    var(--color-secondary-light) 100%
-  );
+.group-member-list {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2rem;
-  margin-bottom: var(--space-md);
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.group-member-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 158, 107, 0.14);
+  background: var(--color-card);
   box-shadow: var(--shadow-sm);
 }
 
-.group-name {
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  font-size: 1.1rem;
-  margin-bottom: var(--space-xs);
+.group-member-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
 }
 
-.group-description {
-  color: var(--color-text-light);
-  font-size: 0.9rem;
-  margin-bottom: var(--space-md);
-}
-
-.group-meta {
+.group-member-name-row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-md);
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-}
-
-.group-meta span {
-  display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
-.group-card-actions {
+.group-member-name-row strong {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.group-member-username {
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+}
+
+.group-member-self-badge,
+.group-member-role-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+.group-member-self-badge {
+  background: rgba(135, 206, 235, 0.18);
+  color: var(--color-secondary-dark);
+}
+
+.group-member-role-badge {
+  background: rgba(255, 158, 107, 0.12);
+  border: 1px solid rgba(255, 158, 107, 0.18);
+  color: var(--color-primary-dark);
+}
+
+.group-member-meta {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-xs);
-  margin-top: var(--space-md);
+}
+
+.group-member-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: flex-end;
 }
 
 /* ========================================
@@ -5247,7 +5315,9 @@ body {
   .friend-header,
   .network-detail-header,
   .network-detail-section-header,
-  .network-role-option {
+  .network-role-option,
+  .group-member-row,
+  .group-invite-row {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -5257,6 +5327,11 @@ body {
   }
 
   .friend-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .group-member-badges {
     width: 100%;
     justify-content: flex-start;
   }

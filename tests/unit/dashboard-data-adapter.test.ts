@@ -153,6 +153,26 @@ describe("Dashboard Data Adapter", () => {
       },
     ]);
     Helpers.applyCollectionState("groups", "groupsById", groupsModel);
+    const groupMembersModel = Normalizers.groupMembersModel([
+      {
+        membership_id: "mem_owner",
+        user_id: "usr_bob",
+        username: "bob",
+        display_name: "Bob",
+        role: "owner",
+        status: "active",
+        joined_at: "2026-03-08T09:00:00.000Z",
+      },
+      {
+        membership_id: "mem_invited",
+        user_id: "usr_alice",
+        username: "alice",
+        display_name: "Alice",
+        role: "member",
+        status: "invited",
+        joined_at: "2026-03-08T09:30:00.000Z",
+      },
+    ]);
 
     const messagesModel = Normalizers.messagesModel(
       [
@@ -330,6 +350,12 @@ describe("Dashboard Data Adapter", () => {
       id: "grp_1",
       inviteOnly: true,
       memberCount: 4,
+    });
+    expect(groupMembersModel.byId.get("mem_invited")).toMatchObject({
+      membershipId: "mem_invited",
+      username: "alice",
+      status: "invited",
+      role: "member",
     });
 
     expect(State.messagesById.get("msg_sent")).toMatchObject({

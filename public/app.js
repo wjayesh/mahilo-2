@@ -86,6 +86,8 @@ const State = {
   friendsById: new Map(),
   groups: [],
   groupsById: new Map(),
+  groupDetailsById: new Map(),
+  groupMembersByGroupId: new Map(),
   messages: [],
   messagesById: new Map(),
   auditLog: [],
@@ -103,12 +105,14 @@ const State = {
   currentView: "overview",
   selectedChat: null,
   selectedNetworkFriendId: null,
+  selectedGroupId: null,
   wsConnected: false,
   notifications: [],
   logDirectionFilter: "all",
   logStateFilter: "all",
   networkFilter: "all",
   networkSearch: "",
+  groupSearch: "",
   boundaryScopeFilter: "all",
   boundaryCategoryFilter: "all",
   contactConnectionsByUsername: new Map(),
@@ -167,6 +171,8 @@ const State = {
     this.friendsById = new Map();
     this.groups = [];
     this.groupsById = new Map();
+    this.groupDetailsById = new Map();
+    this.groupMembersByGroupId = new Map();
     this.messages = [];
     this.messagesById = new Map();
     this.auditLog = [];
@@ -184,11 +190,13 @@ const State = {
     this.currentView = "overview";
     this.selectedChat = null;
     this.selectedNetworkFriendId = null;
+    this.selectedGroupId = null;
     this.wsConnected = false;
     this.logDirectionFilter = "all";
     this.logStateFilter = "all";
     this.networkFilter = "all";
     this.networkSearch = "";
+    this.groupSearch = "";
     this.boundaryScopeFilter = "all";
     this.boundaryCategoryFilter = "all";
     this.contactConnectionsByUsername = new Map();
@@ -2312,6 +2320,49 @@ const Normalizers = {
     };
   },
 
+  groupMembers(value) {
+    return Helpers.collection(value, ["members", "items", "results", "data"])
+      .map((entry) => this.groupMember(entry))
+      .filter(Boolean);
+  },
+
+  groupMembersModel(value) {
+    return Helpers.collectionModel(
+      this.groupMembers(value),
+      (member) => member.membershipId,
+    );
+  },
+
+  groupMember(value) {
+    const record = Helpers.record(value);
+    const membershipId = Helpers.nullableString(
+      record.membership_id ?? record.id,
+    );
+
+    if (!membershipId) {
+      return null;
+    }
+
+    const username =
+      Helpers.nullableString(record.username) ||
+      Helpers.nullableString(record.user_id) ||
+      membershipId;
+
+    return {
+      id: membershipId,
+      membershipId,
+      userId: Helpers.nullableString(record.user_id),
+      username,
+      displayName:
+        Helpers.nullableString(record.display_name ?? record.displayName) ||
+        username,
+      role: Helpers.nullableString(record.role),
+      status: Helpers.string(record.status, "active"),
+      joinedAt: Helpers.iso(record.joined_at ?? record.joinedAt),
+      raw: value,
+    };
+  },
+
   messages(value, options = {}) {
     return Helpers.collection(value, ["messages", "items", "results", "data"])
       .map((entry) => this.message(entry, options))
@@ -3041,6 +3092,22 @@ const DataLoader = {
     try {
       const groupsModel = Normalizers.groupsModel(await API.groups.list());
       Helpers.applyCollectionState("groups", "groupsById", groupsModel);
+      if (State.selectedGroupId && !State.groupsById.has(State.selectedGroupId)) {
+        State.selectedGroupId = null;
+      }
+
+      State.groupDetailsById.forEach((_value, groupId) => {
+        if (!State.groupsById.has(groupId)) {
+          State.groupDetailsById.delete(groupId);
+        }
+      });
+
+      State.groupMembersByGroupId.forEach((_value, groupId) => {
+        if (!State.groupsById.has(groupId)) {
+          State.groupMembersByGroupId.delete(groupId);
+        }
+      });
+
       UI.updateGroupCount(State.groups.length);
       UI.renderGroups();
       UI.renderOverviewGroups();
@@ -3277,14 +3344,13 @@ const UI = {
         this.showModal("create-group-modal");
       });
 
-    document
-      .getElementById("create-first-group")
-      ?.addEventListener("click", () => {
-        this.showModal("create-group-modal");
-      });
-
     document.getElementById("save-group-btn")?.addEventListener("click", () => {
       this.handleCreateGroup();
+    });
+
+    document.getElementById("group-search")?.addEventListener("input", (e) => {
+      State.groupSearch = e.currentTarget.value || "";
+      this.renderGroups();
     });
 
     // Create policy
@@ -3749,15 +3815,30 @@ const UI = {
     }
 
     try {
-      await API.groups.create({
-        name,
-        description,
-        invite_only: inviteOnly,
-      });
+      const createdGroup = Normalizers.group(
+        await API.groups.create({
+          name,
+          description,
+          invite_only: inviteOnly,
+        }),
+      );
+
+      if (createdGroup?.id) {
+        State.selectedGroupId = createdGroup.id;
+        State.groupDetailsById.delete(createdGroup.id);
+        State.groupMembersByGroupId.delete(createdGroup.id);
+      }
+
+      await DataLoader.loadGroups();
+      if (State.selectedGroupId && State.groupsById.has(State.selectedGroupId)) {
+        await this.ensureGroupWorkspaceData(
+          State.groupsById.get(State.selectedGroupId),
+          { force: true },
+        );
+      }
 
       this.hideModals();
       document.getElementById("create-group-form").reset();
-      await DataLoader.loadGroups();
       this.showToast("Group created successfully", "success");
     } catch (error) {
       this.showToast(error.message || "Failed to create group", "error");
@@ -4345,6 +4426,530 @@ const UI = {
       .classList.toggle("hidden", count === 0);
     document.getElementById("overview-group-count").textContent = count;
     document.getElementById("profile-group-count").textContent = count;
+  },
+
+  groupMembershipTone(group) {
+    if (group?.status === "active") {
+      return "active";
+    }
+
+    if (group?.status === "invited") {
+      return "invited";
+    }
+
+    return "pending";
+  },
+
+  groupMembershipStatusLabel(group) {
+    switch (group?.status) {
+      case "active":
+        return "Active member";
+      case "invited":
+        return "Invite pending";
+      default:
+        return Helpers.titleizeToken(group?.status, "Membership pending");
+    }
+  },
+
+  groupRoleLabel(group) {
+    return Helpers.titleizeToken(
+      Helpers.nullableString(group?.role) || "member",
+      "Member",
+    );
+  },
+
+  groupVisibilityLabel(group) {
+    return group?.inviteOnly ? "Invite only group" : "Public group";
+  },
+
+  groupSummaryCopy(group) {
+    if (!group) {
+      return "Group membership details appear here once you select a group.";
+    }
+
+    if (group.status === "invited") {
+      return "Invite pending. Accept it before this group can participate in targeted ask-around or group-scoped boundaries.";
+    }
+
+    if (group.role === "owner" || group.role === "admin") {
+      return "Manage invites, membership, and group-scoped boundaries for this trusted circle.";
+    }
+
+    return "Active membership ready for targeted ask-around and group-scoped boundaries.";
+  },
+
+  groupMatchesSearch(
+    group,
+    searchTerm = Helpers.string(State.groupSearch).trim(),
+  ) {
+    const query = Helpers.string(searchTerm).trim().toLowerCase();
+
+    if (!query) {
+      return true;
+    }
+
+    const haystack = [
+      group?.name,
+      group?.description,
+      this.groupVisibilityLabel(group),
+      this.groupMembershipStatusLabel(group),
+      this.groupRoleLabel(group),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(query);
+  },
+
+  getVisibleGroups() {
+    const statusOrder = {
+      active: 0,
+      invited: 1,
+    };
+
+    return State.groups
+      .filter((group) => this.groupMatchesSearch(group))
+      .slice()
+      .sort((left, right) => {
+        const statusDelta =
+          (statusOrder[left?.status] ?? 99) - (statusOrder[right?.status] ?? 99);
+
+        if (statusDelta !== 0) {
+          return statusDelta;
+        }
+
+        const memberDelta = (right?.memberCount || 0) - (left?.memberCount || 0);
+
+        if (memberDelta !== 0) {
+          return memberDelta;
+        }
+
+        const createdDelta =
+          Helpers.timestampValue(right?.createdAt) -
+          Helpers.timestampValue(left?.createdAt);
+
+        if (createdDelta !== 0) {
+          return createdDelta;
+        }
+
+        return Helpers.string(left?.name).localeCompare(Helpers.string(right?.name));
+      });
+  },
+
+  getGroupCounts(groups = State.groups) {
+    return groups.reduce(
+      (counts, group) => {
+        counts.all += 1;
+        counts.totalMembers += Number.isFinite(group?.memberCount)
+          ? group.memberCount
+          : 0;
+
+        if (group?.status === "active") {
+          counts.activeMemberships += 1;
+        }
+
+        if (group?.status === "invited") {
+          counts.invitedMemberships += 1;
+        }
+
+        if (group?.inviteOnly) {
+          counts.inviteOnly += 1;
+        }
+
+        return counts;
+      },
+      {
+        all: 0,
+        activeMemberships: 0,
+        invitedMemberships: 0,
+        totalMembers: 0,
+        inviteOnly: 0,
+      },
+    );
+  },
+
+  groupListMeta(visibleCount = 0) {
+    const searchTerm = Helpers.string(State.groupSearch).trim();
+    const matchesLabel = Helpers.pluralize(visibleCount, "match");
+
+    return {
+      title: "Working groups",
+      description:
+        "Use real group memberships to target ask-around circles, manage invites, and understand whether a group is actually useful yet.",
+      total: searchTerm
+        ? matchesLabel
+        : Helpers.pluralize(visibleCount, "group"),
+    };
+  },
+
+  renderGroupHeader(visibleGroups, counts = this.getGroupCounts()) {
+    const summaryTitle = document.getElementById("group-list-title");
+    const summaryDescription = document.getElementById("group-list-description");
+    const totalChip = document.getElementById("group-list-total");
+    const summaryStrip = document.getElementById("groups-summary-strip");
+    const meta = this.groupListMeta(visibleGroups.length);
+
+    if (summaryTitle) {
+      summaryTitle.textContent = meta.title;
+    }
+
+    if (summaryDescription) {
+      summaryDescription.textContent = meta.description;
+    }
+
+    if (totalChip) {
+      totalChip.textContent = meta.total;
+    }
+
+    if (summaryStrip) {
+      const summaryCards = [
+        {
+          label: "Active memberships",
+          value: counts.activeMemberships,
+          copy: "Ready right now",
+        },
+        {
+          label: "Pending invites",
+          value: counts.invitedMemberships,
+          copy: "Waiting on you",
+        },
+        {
+          label: "Active members",
+          value: counts.totalMembers,
+          copy: "Across your groups",
+        },
+        {
+          label: "Invite only",
+          value: counts.inviteOnly,
+          copy: "Boundary-friendly circles",
+        },
+      ];
+
+      summaryStrip.innerHTML = summaryCards
+        .map(
+          (card) => `
+            <div class="network-summary-card">
+              <span class="network-summary-label">${card.label}</span>
+              <span class="network-summary-value">${card.value}</span>
+              <span class="network-summary-copy">${card.copy}</span>
+            </div>
+          `,
+        )
+        .join("");
+    }
+  },
+
+  renderGroupsEmptyState() {
+    const searchTerm = Helpers.string(State.groupSearch).trim();
+
+    if (searchTerm) {
+      return `
+        <div class="empty-state">
+          <div class="empty-icon-large">🔎</div>
+          <h3>No group matches for "${Helpers.escapeHtml(searchTerm)}"</h3>
+          <p>Try a group name, description word, or a status like invite.</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="empty-state">
+        <div class="empty-icon-large">🏘️</div>
+        <h3>No groups yet</h3>
+        <p>Create a trusted circle you can actually target for ask-around and group-scoped boundaries.</p>
+        <button class="squishy-btn btn-primary" onclick="UI.showModal('create-group-modal')">
+          <span>🏘️</span> Create Your First Group
+        </button>
+      </div>
+    `;
+  },
+
+  preferredGroup(groups = []) {
+    return groups.find((group) => group?.status === "active") || groups[0] || null;
+  },
+
+  syncSelectedGroup(visibleGroups = this.getVisibleGroups()) {
+    const currentGroup = State.selectedGroupId
+      ? State.groupsById.get(State.selectedGroupId)
+      : null;
+
+    if (
+      currentGroup &&
+      visibleGroups.some((group) => group.id === currentGroup.id)
+    ) {
+      return currentGroup;
+    }
+
+    const nextGroup = this.preferredGroup(visibleGroups);
+    State.selectedGroupId = nextGroup?.id || null;
+    return nextGroup;
+  },
+
+  getGroupDetailState(groupOrId) {
+    const groupId = Helpers.string(
+      typeof groupOrId === "string" ? groupOrId : groupOrId?.id,
+    );
+
+    if (!groupId) {
+      return {
+        status: "idle",
+        item: null,
+        error: null,
+        loadedAt: null,
+      };
+    }
+
+    return (
+      State.groupDetailsById.get(groupId) || {
+        status: "idle",
+        item: null,
+        error: null,
+        loadedAt: null,
+      }
+    );
+  },
+
+  getGroupMembersState(groupOrId) {
+    const groupId = Helpers.string(
+      typeof groupOrId === "string" ? groupOrId : groupOrId?.id,
+    );
+
+    if (!groupId) {
+      return {
+        status: "idle",
+        items: [],
+        error: null,
+        loadedAt: null,
+      };
+    }
+
+    return (
+      State.groupMembersByGroupId.get(groupId) || {
+        status: "idle",
+        items: [],
+        error: null,
+        loadedAt: null,
+      }
+    );
+  },
+
+  compareGroupMembers(left, right) {
+    const statusOrder = {
+      active: 0,
+      invited: 1,
+    };
+    const roleOrder = {
+      owner: 0,
+      admin: 1,
+      member: 2,
+    };
+
+    const selfDelta =
+      Number(right?.userId === State.user?.user_id) -
+      Number(left?.userId === State.user?.user_id);
+
+    if (selfDelta !== 0) {
+      return selfDelta;
+    }
+
+    const statusDelta =
+      (statusOrder[left?.status] ?? 99) - (statusOrder[right?.status] ?? 99);
+
+    if (statusDelta !== 0) {
+      return statusDelta;
+    }
+
+    const roleDelta =
+      (roleOrder[left?.role] ?? 99) - (roleOrder[right?.role] ?? 99);
+
+    if (roleDelta !== 0) {
+      return roleDelta;
+    }
+
+    const joinedDelta =
+      Helpers.timestampValue(left?.joinedAt) - Helpers.timestampValue(right?.joinedAt);
+
+    if (joinedDelta !== 0) {
+      return joinedDelta;
+    }
+
+    return Helpers.string(left?.displayName || left?.username).localeCompare(
+      Helpers.string(right?.displayName || right?.username),
+    );
+  },
+
+  groupMembersByStatus(members = []) {
+    const active = [];
+    const invited = [];
+
+    members.forEach((member) => {
+      if (member?.status === "invited") {
+        invited.push(member);
+      } else {
+        active.push(member);
+      }
+    });
+
+    active.sort((left, right) => this.compareGroupMembers(left, right));
+    invited.sort((left, right) => this.compareGroupMembers(left, right));
+
+    return {
+      active,
+      invited,
+    };
+  },
+
+  async selectGroup(groupId) {
+    if (!groupId || !State.groupsById.has(groupId)) {
+      return;
+    }
+
+    State.selectedGroupId = groupId;
+    this.renderGroups();
+  },
+
+  async refreshSelectedGroupWorkspace() {
+    const group = State.selectedGroupId
+      ? State.groupsById.get(State.selectedGroupId)
+      : null;
+
+    if (!group) {
+      return;
+    }
+
+    await this.ensureGroupWorkspaceData(group, { force: true });
+  },
+
+  async ensureGroupWorkspaceData(group, options = {}) {
+    if (!group) {
+      return;
+    }
+
+    await Promise.all([
+      this.ensureGroupDetailData(group, options),
+      this.ensureGroupMembersData(group, options),
+    ]);
+  },
+
+  async ensureGroupDetailData(groupOrId, options = {}) {
+    const groupId = Helpers.string(
+      typeof groupOrId === "string" ? groupOrId : groupOrId?.id,
+    );
+
+    if (!groupId) {
+      return;
+    }
+
+    const existingState = this.getGroupDetailState(groupId);
+
+    if (
+      !options.force &&
+      ["loading", "loaded"].includes(existingState.status)
+    ) {
+      return;
+    }
+
+    State.groupDetailsById.set(groupId, {
+      status: "loading",
+      item: existingState.item || State.groupsById.get(groupId) || null,
+      error: null,
+      loadedAt: existingState.loadedAt || null,
+    });
+
+    if (State.selectedGroupId === groupId) {
+      this.renderGroupDetailPanel(State.groupsById.get(groupId) || null);
+    }
+
+    try {
+      const detail = Normalizers.group(await API.groups.get(groupId));
+      const mergedGroup = {
+        ...(State.groupsById.get(groupId) || {}),
+        ...(detail || {}),
+      };
+
+      if (detail) {
+        State.groupsById.set(groupId, mergedGroup);
+        State.groups = State.groups.map((group) =>
+          group.id === groupId ? mergedGroup : group,
+        );
+      }
+
+      State.groupDetailsById.set(groupId, {
+        status: "loaded",
+        item: detail,
+        error: null,
+        loadedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      State.groupDetailsById.set(groupId, {
+        status: "error",
+        item: existingState.item || State.groupsById.get(groupId) || null,
+        error: error.message || "Failed to load live group detail.",
+        loadedAt: null,
+      });
+    }
+
+    if (State.selectedGroupId === groupId) {
+      this.renderGroups();
+    }
+  },
+
+  async ensureGroupMembersData(groupOrId, options = {}) {
+    const groupId = Helpers.string(
+      typeof groupOrId === "string" ? groupOrId : groupOrId?.id,
+    );
+
+    if (!groupId) {
+      return;
+    }
+
+    const existingState = this.getGroupMembersState(groupId);
+
+    if (
+      !options.force &&
+      ["loading", "loaded"].includes(existingState.status)
+    ) {
+      return;
+    }
+
+    State.groupMembersByGroupId.set(groupId, {
+      status: "loading",
+      items: Array.isArray(existingState.items) ? existingState.items : [],
+      error: null,
+      loadedAt: existingState.loadedAt || null,
+    });
+
+    if (State.selectedGroupId === groupId) {
+      this.renderGroupDetailPanel(State.groupsById.get(groupId) || null);
+    }
+
+    try {
+      const membersModel = Normalizers.groupMembersModel(
+        await API.groups.members(groupId),
+      );
+      const members = membersModel.items
+        .slice()
+        .sort((left, right) => this.compareGroupMembers(left, right));
+
+      State.groupMembersByGroupId.set(groupId, {
+        status: "loaded",
+        items: members,
+        error: null,
+        loadedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      State.groupMembersByGroupId.set(groupId, {
+        status: "error",
+        items: [],
+        error: error.message || "Failed to load group members.",
+        loadedAt: null,
+      });
+    }
+
+    if (State.selectedGroupId === groupId) {
+      this.renderGroupDetailPanel(State.groupsById.get(groupId) || null);
+    }
   },
 
   normalizeNetworkFilter(filter = State.networkFilter) {
@@ -5641,63 +6246,646 @@ const UI = {
     void this.ensureNetworkConnectionData(selectedFriend);
   },
 
-  renderGroups() {
-    const grid = document.getElementById("groups-grid");
+  groupReadinessState(
+    group,
+    detailState = this.getGroupDetailState(group),
+    membersState = this.getGroupMembersState(group),
+  ) {
+    if (!group) {
+      return null;
+    }
 
-    if (!State.groups.length) {
-      grid.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon-large">🏘️</div>
-          <h3>No groups yet</h3>
-          <p>Create a group to ask around a specific circle</p>
-          <button class="squishy-btn btn-primary" id="create-first-group">
-            <span>🏘️</span> Create Your First Group
+    if (detailState.status === "error" || membersState.status === "error") {
+      return {
+        tone: "warning",
+        summaryTitle: "Unable to verify live group readiness",
+        summaryCopy:
+          "Mahilo could not load the latest group detail and member roster just now. Retry before relying on this group for targeting decisions.",
+        askAround: {
+          label: "Retry needed",
+          tone: "warning",
+          copy: "Refresh the group detail and members to confirm whether active members can answer ask-around requests.",
+        },
+        boundaries: {
+          label: "Retry needed",
+          tone: "warning",
+          copy: "Refresh this workspace before trusting group-scoped boundary readiness.",
+        },
+      };
+    }
+
+    if (detailState.status !== "loaded" || membersState.status !== "loaded") {
+      return {
+        tone: "pending",
+        summaryTitle: "Checking group detail and members",
+        summaryCopy:
+          "Loading live membership, invite, and roster data from the current groups API.",
+        askAround: {
+          label: "Checking",
+          tone: "pending",
+          copy: "Loading active versus invited members for targeted ask-around readiness.",
+        },
+        boundaries: {
+          label: "Checking",
+          tone: "pending",
+          copy: "Loading group detail before boundary-targeting guidance appears.",
+        },
+      };
+    }
+
+    const detail = detailState.item || group;
+    const members = Array.isArray(membersState.items) ? membersState.items : [];
+    const { active, invited } = this.groupMembersByStatus(members);
+    const activePeers = active.filter(
+      (member) => member.userId !== State.user?.user_id,
+    );
+
+    if (detail?.status === "invited") {
+      return {
+        tone: "pending",
+        summaryTitle: "Invite pending",
+        summaryCopy:
+          "Accept this invite before the group can participate in targeted ask-around or group-scoped boundaries.",
+        askAround: {
+          label: "Invite pending",
+          tone: "pending",
+          copy: "Ask-around only becomes useful after you accept the invite and at least one active peer remains in the group.",
+        },
+        boundaries: {
+          label: "Invite pending",
+          tone: "pending",
+          copy: "Group-scoped boundaries stay dormant for you until your membership becomes active.",
+        },
+      };
+    }
+
+    if (activePeers.length > 0) {
+      return {
+        tone: "ready",
+        summaryTitle: "Useful for targeted ask-around",
+        summaryCopy: `${Helpers.pluralize(activePeers.length, "other active member")} can contribute when you target this group.${
+          invited.length
+            ? ` ${Helpers.pluralize(invited.length, "invite")} is still pending.`
+            : ""
+        }`,
+        askAround: {
+          label: "Ready",
+          tone: "ready",
+          copy: "This group has active members besides you, so targeted ask-around can produce real answers.",
+        },
+        boundaries: {
+          label: "Ready",
+          tone: "ready",
+          copy: "Group-scoped boundaries can target this circle with a live active roster.",
+        },
+      };
+    }
+
+    if (invited.length > 0) {
+      return {
+        tone: "pending",
+        summaryTitle: "Waiting on more active members",
+        summaryCopy:
+          "You are active here, but nobody else is active yet. This group becomes useful once one of the pending invites turns into an active member.",
+        askAround: {
+          label: "Waiting",
+          tone: "pending",
+          copy: "Ask-around stays thin until at least one invited member becomes active.",
+        },
+        boundaries: {
+          label: "Limited",
+          tone: "warning",
+          copy: "You can target the group, but the circle is still too small to be a strong boundary overlay.",
+        },
+      };
+    }
+
+    return {
+      tone: "not-ready",
+      summaryTitle: "Too thin for ask-around",
+      summaryCopy:
+        "You are the only active member in this group right now. It can exist as a label, but it is not yet a useful ask-around circle.",
+      askAround: {
+        label: "Not ready",
+        tone: "not-ready",
+        copy: "Ask-around needs at least one other active member in the group to be useful.",
+      },
+      boundaries: {
+        label: "Limited",
+        tone: "warning",
+        copy: "Group-scoped boundaries can target this group, but they currently apply only to you.",
+      },
+    };
+  },
+
+  renderGroupCard(group) {
+    const tone = this.groupMembershipTone(group);
+    const isSelected = State.selectedGroupId === group?.id;
+    const name = Helpers.escapeHtml(group?.name || "Untitled group");
+    const summary = Helpers.escapeHtml(
+      group?.description || this.groupSummaryCopy(group),
+    );
+    const visibility = Helpers.escapeHtml(this.groupVisibilityLabel(group));
+    const metaChips = [
+      `Active members: ${Helpers.number(group?.memberCount, 0)}`,
+      `Role: ${this.groupRoleLabel(group)}`,
+      `Membership: ${this.groupMembershipStatusLabel(group)}`,
+      `Created ${Helpers.formatShortDate(group?.createdAt, "date pending")}`,
+    ]
+      .map(
+        (chip) => `
+          <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
+        `,
+      )
+      .join("");
+
+    return `
+      <div
+        class="friend-item ${tone} ${isSelected ? "selected" : ""}"
+        role="button"
+        tabindex="0"
+        aria-pressed="${isSelected ? "true" : "false"}"
+        onclick="UI.selectGroup('${Helpers.string(group?.id)}')"
+        onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); UI.selectGroup('${Helpers.string(group?.id)}'); }"
+      >
+        <div class="friend-primary">
+          <div class="friend-avatar">🏘️</div>
+          <div class="friend-main">
+            <div class="friend-header">
+              <div class="friend-heading">
+                <div class="friend-name-row">
+                  <div class="friend-name">${name}</div>
+                  <div class="friend-username">${visibility}</div>
+                </div>
+                <div class="friend-summary">${summary}</div>
+              </div>
+              <span class="friend-status ${tone}">
+                ${Helpers.escapeHtml(this.groupMembershipStatusLabel(group))}
+              </span>
+            </div>
+            <div class="friend-meta-list">${metaChips}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  renderGroupMemberCard(member) {
+    const isSelf = member?.userId === State.user?.user_id;
+    const tone = member?.status === "invited" ? "invited" : "active";
+    const displayName = Helpers.escapeHtml(
+      member?.displayName || member?.username || "Unknown",
+    );
+    const username = Helpers.escapeHtml(member?.username || "unknown");
+    const joinedLabel =
+      member?.status === "invited"
+        ? `Invited ${Helpers.formatShortDate(member?.joinedAt, "recently")}`
+        : `Joined ${Helpers.formatShortDate(member?.joinedAt, "recently")}`;
+
+    return `
+      <article class="group-member-row">
+        <div class="group-member-copy">
+          <div class="group-member-name-row">
+            <strong>${displayName}</strong>
+            <span class="group-member-username">@${username}</span>
+            ${
+              isSelf
+                ? '<span class="group-member-self-badge">You</span>'
+                : ""
+            }
+          </div>
+          <div class="group-member-meta">
+            <span class="friend-meta-chip">${Helpers.escapeHtml(
+              `Role: ${Helpers.titleizeToken(member?.role, "Member")}`,
+            )}</span>
+            <span class="friend-meta-chip">${Helpers.escapeHtml(joinedLabel)}</span>
+          </div>
+        </div>
+        <div class="group-member-badges">
+          <span class="friend-status ${tone}">
+            ${Helpers.escapeHtml(
+              member?.status === "invited" ? "Invited" : "Active",
+            )}
+          </span>
+          <span class="group-member-role-badge">
+            ${Helpers.escapeHtml(Helpers.titleizeToken(member?.role, "Member"))}
+          </span>
+        </div>
+      </article>
+    `;
+  },
+
+  renderGroupMemberCollection(members, emptyState) {
+    if (!members.length) {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">${emptyState.icon}</div>
+          <p>${Helpers.escapeHtml(emptyState.copy)}</p>
+          ${
+            emptyState.hint
+              ? `<p class="hint">${Helpers.escapeHtml(emptyState.hint)}</p>`
+              : ""
+          }
+        </div>
+      `;
+    }
+
+    return `
+      <div class="group-member-list">
+        ${members.map((member) => this.renderGroupMemberCard(member)).join("")}
+      </div>
+    `;
+  },
+
+  renderGroupMembersSection(group, membersState) {
+    if (membersState.status === "error") {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">⚠️</div>
+          <p>${Helpers.escapeHtml(
+            membersState.error || "Failed to load group members.",
+          )}</p>
+          <button class="squishy-btn btn-secondary btn-small network-inline-action" onclick="UI.refreshSelectedGroupWorkspace()">
+            Retry
           </button>
         </div>
       `;
-      document
-        .getElementById("create-first-group")
-        ?.addEventListener("click", () => {
-          this.showModal("create-group-modal");
-        });
+    }
+
+    if (membersState.status !== "loaded") {
+      return `
+        <div class="network-loading-row">
+          <span class="network-loading-dot"></span>
+          <p>Loading active members and pending invites from the live groups API...</p>
+        </div>
+      `;
+    }
+
+    const { active, invited } = this.groupMembersByStatus(membersState.items);
+
+    return `
+      <div class="group-member-stack">
+        <div>
+          <span class="network-role-subheading">Active members</span>
+          ${this.renderGroupMemberCollection(active, {
+            icon: "👥",
+            copy: "No active members are visible in this group yet.",
+            hint: "Ask-around stays unusable until someone is active here.",
+          })}
+        </div>
+        <div>
+          <span class="network-role-subheading">Pending invites</span>
+          ${this.renderGroupMemberCollection(invited, {
+            icon: "✉️",
+            copy: "No pending invites right now.",
+            hint:
+              group?.status === "invited"
+                ? "You can accept or decline the invite from the actions section above."
+                : "Invite more people from the actions section if you want a larger circle.",
+          })}
+        </div>
+      </div>
+    `;
+  },
+
+  renderGroupActionSection(group, detailState, membersState) {
+    if (detailState.status === "error") {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">⚠️</div>
+          <p>${Helpers.escapeHtml(
+            detailState.error || "Failed to load live group detail.",
+          )}</p>
+          <button class="squishy-btn btn-secondary btn-small network-inline-action" onclick="UI.refreshSelectedGroupWorkspace()">
+            Retry
+          </button>
+        </div>
+      `;
+    }
+
+    if (detailState.status !== "loaded") {
+      return `
+        <div class="network-loading-row">
+          <span class="network-loading-dot"></span>
+          <p>Loading live group status so invite and leave actions stay aligned with the backend.</p>
+        </div>
+      `;
+    }
+
+    const detail = detailState.item || group;
+    const membersLoaded = membersState.status === "loaded";
+    const { active } = membersLoaded
+      ? this.groupMembersByStatus(membersState.items)
+      : { active: [] };
+    const activePeerCount = membersLoaded
+      ? active.filter((member) => member.userId !== State.user?.user_id).length
+      : Math.max((detail?.memberCount || 1) - 1, 0);
+    const canInvite =
+      detail?.status === "active" &&
+      ["owner", "admin"].includes(Helpers.string(detail?.role));
+    let actionButtons = "";
+    let note = "";
+
+    if (detail?.status === "invited") {
+      actionButtons = `
+        <button class="squishy-btn btn-primary btn-small" onclick="UI.handleJoinGroup('${Helpers.string(detail?.id)}')">
+          Accept invite
+        </button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleLeaveGroup('${Helpers.string(detail?.id)}')">
+          Decline invite
+        </button>
+      `;
+      note =
+        "These actions use the live join and leave endpoints for your current membership record.";
+    } else if (detail?.status === "active" && detail?.role !== "owner") {
+      actionButtons = `
+        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleLeaveGroup('${Helpers.string(detail?.id)}')">
+          Leave group
+        </button>
+      `;
+      note =
+        "Leaving removes this group from your targeted ask-around circles and future group-specific boundary targeting.";
+    } else if (detail?.status === "active" && detail?.role === "owner") {
+      if (activePeerCount === 0) {
+        actionButtons = `
+          <button class="squishy-btn btn-danger btn-small" onclick="UI.handleLeaveGroup('${Helpers.string(detail?.id)}')">
+            Delete empty group
+          </button>
+        `;
+        note =
+          "Because you are the last active member, the leave endpoint will delete this group.";
+      } else {
+        note =
+          "Owners can invite people here, but leaving is blocked until ownership is transferred or you are the last active member.";
+      }
+    }
+
+    return `
+      <div class="network-detail-actions">
+        ${actionButtons || '<span class="friend-meta-chip">No membership action required right now.</span>'}
+      </div>
+      ${
+        note
+          ? `<p class="group-action-note">${Helpers.escapeHtml(note)}</p>`
+          : ""
+      }
+      ${
+        canInvite
+          ? `
+            <div class="group-invite-form">
+              <div class="group-invite-row">
+                <input
+                  type="text"
+                  id="group-invite-username"
+                  class="squishy-input"
+                  placeholder="@username"
+                />
+                <button
+                  class="squishy-btn btn-primary btn-small"
+                  id="group-invite-submit"
+                  onclick="UI.handleInviteToGroup('${Helpers.string(detail?.id)}')"
+                >
+                  Invite member
+                </button>
+              </div>
+              <p class="group-action-note">
+                Invite by exact Mahilo username. Pending invites stay visible in the member roster below until they accept.
+              </p>
+            </div>
+          `
+          : ""
+      }
+    `;
+  },
+
+  renderGroupDetailPanel(group = null) {
+    const panel = document.getElementById("group-detail-panel");
+
+    if (!panel) {
       return;
     }
 
-    grid.innerHTML = State.groups
-      .map(
-        (group) => `
-      <div class="group-card">
-        <div class="group-icon">🏘️</div>
-        <div class="group-name">${group.name}</div>
-        <div class="group-description">${group.description || "No description"}</div>
-        <div class="group-meta">
-          <span>👥 ${group.memberCount || 0} members</span>
-          <span>${group.inviteOnly ? "🔒 Invite only" : "🌐 Public"}</span>
-          <span>${group.status === "invited" ? "✉️ Invited" : `Role: ${group.role || "member"}`}</span>
+    if (!group) {
+      panel.innerHTML = `
+        <div class="network-detail-panel">
+          <div class="network-detail-placeholder">
+            <div class="empty-icon-large">🧭</div>
+            <h3>Open a group workspace</h3>
+            <p>Select a group to load its live detail, member roster, invite state, and ask-around readiness.</p>
+          </div>
         </div>
-        ${
-          group.status === "invited"
-            ? `
-          <div class="group-card-actions">
-            <button class="squishy-btn btn-primary btn-small" onclick="UI.handleJoinGroup('${group.id}')">Join Invite</button>
-          </div>
-        `
-            : group.status === "active" && group.role !== "owner"
-              ? `
-          <div class="group-card-actions">
-            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleLeaveGroup('${group.id}')">Leave Group</button>
-          </div>
-        `
-              : ""
-        }
-      </div>
-    `,
+      `;
+      return;
+    }
+
+    const detailState = this.getGroupDetailState(group);
+    const membersState = this.getGroupMembersState(group);
+    const detail = detailState.item || group;
+    const readiness = this.groupReadinessState(group, detailState, membersState);
+    const isRefreshing =
+      detailState.status === "loading" || membersState.status === "loading";
+    const memberBuckets =
+      membersState.status === "loaded"
+        ? this.groupMembersByStatus(membersState.items)
+        : { active: [], invited: [] };
+    const metaChips = [
+      `Membership: ${this.groupMembershipStatusLabel(detail)}`,
+      `Your role: ${this.groupRoleLabel(detail)}`,
+      `Visibility: ${this.groupVisibilityLabel(detail)}`,
+      `Active members: ${
+        membersState.status === "loaded"
+          ? memberBuckets.active.length
+          : Helpers.number(detail?.memberCount, 0)
+      }`,
+      membersState.status === "loaded"
+        ? `Pending invites: ${memberBuckets.invited.length}`
+        : "Pending invites: checking",
+      `Created ${Helpers.formatShortDate(detail?.createdAt, "date pending")}`,
+    ]
+      .map(
+        (chip) => `
+          <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
+        `,
       )
       .join("");
+
+    panel.innerHTML = `
+      <div class="network-detail-panel">
+        <div class="network-detail-header">
+          <div class="network-detail-avatar">🏘️</div>
+          <div class="network-detail-copy">
+            <p class="network-detail-eyebrow">Group detail</p>
+            <h3>${Helpers.escapeHtml(detail?.name || "Untitled group")}</h3>
+            <p class="network-detail-username">${Helpers.escapeHtml(
+              detail?.description || "No description provided yet.",
+            )}</p>
+            <div class="network-detail-status-row">
+              <span class="friend-status ${Helpers.escapeHtml(this.groupMembershipTone(detail))}">
+                ${Helpers.escapeHtml(this.groupMembershipStatusLabel(detail))}
+              </span>
+            </div>
+          </div>
+          <button
+            class="squishy-btn btn-secondary btn-small"
+            onclick="UI.refreshSelectedGroupWorkspace()"
+            ${isRefreshing ? "disabled" : ""}
+          >
+            ${isRefreshing ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        <div class="network-readiness-banner ${Helpers.escapeHtml(readiness?.tone || "pending")}">
+          <span class="network-readiness-label">Group readiness</span>
+          <strong>${Helpers.escapeHtml(
+            readiness?.summaryTitle || "Checking",
+          )}</strong>
+          <p>${Helpers.escapeHtml(readiness?.summaryCopy || "")}</p>
+        </div>
+
+        <div class="network-readiness-grid">
+          ${this.renderNetworkReadinessCard(
+            "Targeted ask-around",
+            readiness?.askAround,
+          )}
+          ${this.renderNetworkReadinessCard(
+            "Group boundaries",
+            readiness?.boundaries,
+          )}
+        </div>
+
+        <div class="network-detail-section">
+          <div class="network-detail-section-header">
+            <div>
+              <h4>Membership snapshot</h4>
+              <p class="network-detail-section-copy">
+                Live group detail from the current groups API, including your role, status, and whether this circle is ready to use.
+              </p>
+            </div>
+          </div>
+          <div class="network-detail-meta">
+            ${metaChips}
+          </div>
+        </div>
+
+        <div class="network-detail-section">
+          <div class="network-detail-section-header">
+            <div>
+              <h4>Invite and membership actions</h4>
+              <p class="network-detail-section-copy">
+                Use the current invite, join, and leave flows without leaving the dashboard.
+              </p>
+            </div>
+          </div>
+          ${this.renderGroupActionSection(group, detailState, membersState)}
+        </div>
+
+        <div class="network-detail-section">
+          <div class="network-detail-section-header">
+            <div>
+              <h4>Members and invite state</h4>
+              <p class="network-detail-section-copy">
+                Active members and pending invites from <code>/api/v1/groups/:id/members</code>.
+              </p>
+            </div>
+            ${
+              membersState.status === "loaded"
+                ? `
+                  <div class="friends-total-chip">
+                    ${Helpers.pluralize(membersState.items.length, "membership")}
+                  </div>
+                `
+                : ""
+            }
+          </div>
+          ${this.renderGroupMembersSection(group, membersState)}
+        </div>
+      </div>
+    `;
+  },
+
+  renderGroups() {
+    const list = document.getElementById("groups-grid");
+
+    if (!list) {
+      return;
+    }
+
+    const searchInput = document.getElementById("group-search");
+    if (searchInput && searchInput.value !== State.groupSearch) {
+      searchInput.value = State.groupSearch;
+    }
+
+    const counts = this.getGroupCounts();
+    const groups = this.getVisibleGroups();
+    const selectedGroup = this.syncSelectedGroup(groups);
+    this.renderGroupHeader(groups, counts);
+
+    if (!groups.length) {
+      list.innerHTML = this.renderGroupsEmptyState();
+      this.renderGroupDetailPanel(null);
+      return;
+    }
+
+    list.innerHTML = groups.map((group) => this.renderGroupCard(group)).join("");
+    this.renderGroupDetailPanel(selectedGroup);
+    void this.ensureGroupWorkspaceData(selectedGroup);
+  },
+
+  async handleInviteToGroup(groupId = State.selectedGroupId) {
+    const resolvedGroupId = Helpers.string(groupId);
+    const group =
+      State.groupsById.get(resolvedGroupId) ||
+      this.getGroupDetailState(resolvedGroupId).item;
+    const usernameInput = document.getElementById("group-invite-username");
+    const inviteButton = document.getElementById("group-invite-submit");
+
+    if (!resolvedGroupId || !group) {
+      this.showToast("Group not found", "error");
+      return;
+    }
+
+    if (!usernameInput) {
+      this.showToast("The invite form is unavailable right now.", "error");
+      return;
+    }
+
+    const username = Helpers.string(usernameInput.value).trim().replace(/^@+/, "");
+
+    if (!username || username.length < 3) {
+      this.showToast("Enter the exact Mahilo username you want to invite.", "error");
+      return;
+    }
+
+    if (State.user?.username?.toLowerCase() === username.toLowerCase()) {
+      this.showToast("You cannot invite your own username.", "error");
+      return;
+    }
+
+    if (inviteButton) {
+      inviteButton.disabled = true;
+    }
+
+    try {
+      await API.groups.invite(resolvedGroupId, username);
+      usernameInput.value = "";
+      State.groupDetailsById.delete(resolvedGroupId);
+      State.groupMembersByGroupId.delete(resolvedGroupId);
+      await DataLoader.loadGroups();
+      this.showToast(`Invited ${username} to ${group.name}`, "success");
+    } catch (error) {
+      this.showToast(error.message || "Failed to invite group member", "error");
+    } finally {
+      if (inviteButton) {
+        inviteButton.disabled = false;
+      }
+    }
   },
 
   async handleJoinGroup(groupId) {
-    const group = State.groups.find((entry) => entry.id === groupId);
+    const resolvedGroupId = Helpers.string(groupId || State.selectedGroupId);
+    const group =
+      State.groupsById.get(resolvedGroupId) ||
+      this.getGroupDetailState(resolvedGroupId).item;
 
     if (!group) {
       this.showToast("Group not found", "error");
@@ -5706,7 +6894,9 @@ const UI = {
 
     if (group.status === "invited") {
       try {
-        await API.groups.join(groupId);
+        await API.groups.join(resolvedGroupId);
+        State.groupDetailsById.delete(resolvedGroupId);
+        State.groupMembersByGroupId.delete(resolvedGroupId);
         await DataLoader.loadGroups();
         this.showToast(`Joined ${group.name}`, "success");
       } catch (error) {
@@ -5719,21 +6909,40 @@ const UI = {
   },
 
   async handleLeaveGroup(groupId) {
-    const group = State.groups.find((entry) => entry.id === groupId);
+    const resolvedGroupId = Helpers.string(groupId || State.selectedGroupId);
+    const group =
+      State.groupsById.get(resolvedGroupId) ||
+      this.getGroupDetailState(resolvedGroupId).item;
 
     if (!group) {
       this.showToast("Group not found", "error");
       return;
     }
 
-    if (!confirm(`Leave ${group.name}?`)) {
+    const confirmCopy =
+      group.status === "invited"
+        ? `Decline the invite to ${group.name}?`
+        : group.role === "owner" && Helpers.number(group.memberCount, 0) <= 1
+          ? `Delete ${group.name}?`
+          : `Leave ${group.name}?`;
+
+    if (!confirm(confirmCopy)) {
       return;
     }
 
     try {
-      await API.groups.leave(groupId);
+      await API.groups.leave(resolvedGroupId);
+      State.groupDetailsById.delete(resolvedGroupId);
+      State.groupMembersByGroupId.delete(resolvedGroupId);
       await DataLoader.loadGroups();
-      this.showToast(`Left ${group.name}`, "success");
+      this.showToast(
+        group.status === "invited"
+          ? `Declined invite to ${group.name}`
+          : group.role === "owner" && Helpers.number(group.memberCount, 0) <= 1
+            ? `${group.name} removed`
+            : `Left ${group.name}`,
+        "success",
+      );
     } catch (error) {
       this.showToast(error.message || "Failed to leave group", "error");
     }

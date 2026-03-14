@@ -1022,31 +1022,74 @@
 
             <!-- Groups View -->
             <div id="groups-view" class="view">
-              <div class="view-toolbar">
-                <div class="search-box">
-                  <span class="search-icon">🔍</span>
-                  <input
-                    type="text"
-                    placeholder="Filter groups..."
-                    class="squishy-input"
-                    id="group-search"
-                  />
-                </div>
-                <button class="squishy-btn btn-primary" id="create-group-btn">
-                  <span>+</span> Create Group
-                </button>
-              </div>
-              <div class="groups-grid" id="groups-grid">
-                <div class="empty-state">
-                  <div class="empty-icon-large">🏘️</div>
-                  <h3>No groups yet</h3>
-                  <p>Create a group to ask around a specific circle</p>
+              <div class="friends-layout">
+                <div class="friends-sidebar">
+                  <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input
+                      type="text"
+                      placeholder="Search groups..."
+                      class="squishy-input"
+                      id="group-search"
+                    />
+                  </div>
                   <button
-                    class="squishy-btn btn-primary"
-                    id="create-first-group"
+                    class="squishy-btn btn-primary btn-full"
+                    id="create-group-btn"
                   >
-                    <span>🏘️</span> Create Your First Group
+                    <span>+</span> Create Group
                   </button>
+                  <p class="group-sidebar-copy">
+                    Build circles that are actually useful for targeted
+                    ask-around and group-scoped boundaries.
+                  </p>
+                </div>
+                <div class="friends-content">
+                  <div class="friends-content-header">
+                    <div>
+                      <p class="friends-eyebrow">Live group memberships</p>
+                      <h3 id="group-list-title">Working groups</h3>
+                      <p
+                        class="friends-content-copy"
+                        id="group-list-description"
+                      >
+                        Use real group memberships to manage invites, inspect
+                        members, and understand whether a circle is ready to
+                        target.
+                      </p>
+                    </div>
+                    <div class="friends-total-chip" id="group-list-total">
+                      0 groups
+                    </div>
+                  </div>
+                  <div
+                    class="network-summary-strip"
+                    id="groups-summary-strip"
+                  ></div>
+                  <div class="network-body">
+                    <div class="groups-list" id="groups-grid">
+                      <div class="empty-state">
+                        <div class="empty-icon-large">🏘️</div>
+                        <h3>No groups yet</h3>
+                        <p>
+                          Create a trusted circle you can actually target for
+                          ask-around and group boundaries.
+                        </p>
+                      </div>
+                    </div>
+                    <div id="group-detail-panel">
+                      <div class="network-detail-panel">
+                        <div class="network-detail-placeholder">
+                          <div class="empty-icon-large">🧭</div>
+                          <h3>Open a group workspace</h3>
+                          <p>
+                            Select a group to load its live detail, member
+                            roster, invite state, and readiness.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
