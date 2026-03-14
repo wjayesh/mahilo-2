@@ -520,7 +520,7 @@ This project is done when all of the following are true:
   - 2026-03-14T15:36:53.245Z: LPE-031 completed via orchestrator integration.
 ### 3.3 Gate `ask_network` Group Ask
 - **ID**: `LPE-032`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-011`, `LPE-030`
 - **Description**:
@@ -532,6 +532,8 @@ This project is done when all of the following are true:
   - [ ] Aggregate and recipient-level results match trusted behavior expectations
   - [ ] Tests cover group allow, group hold, group block, and partial fanout
 
+- **Notes**:
+  - 2026-03-14T15:55:09.555Z: LPE-032 completed via orchestrator integration.
 ### 3.4 Preserve Tool UX and Post-Send Hooks
 - **ID**: `LPE-033`
 - **Status**: `pending`
