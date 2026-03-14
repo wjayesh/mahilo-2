@@ -357,7 +357,7 @@ This project is done when all of the following are true:
   - 2026-03-14T14:13:22.485Z: LPE-012 completed via orchestrator integration.
 ### 1.4 Surface Provider and Model Defaults for Local LLM Evaluation
 - **ID**: `LPE-013`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: `LPE-010`
 - **Description**:
@@ -370,6 +370,8 @@ This project is done when all of the following are true:
   - [ ] Missing defaults do not break deterministic-only policy evaluation
   - [ ] Tests cover preference readout and backward compatibility
 
+- **Notes**:
+  - 2026-03-14T16:29:51.055Z: LPE-013 completed via orchestrator integration.
 ### 1.5 Update Contract Documentation for Local Enforcement
 - **ID**: `LPE-014`
 - **Status**: `pending`
