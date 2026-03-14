@@ -116,6 +116,7 @@ Verification requirements by route:
 - `POST /api/v1/plugin/context`: authenticated user required, Twitter verification not required.
 - `POST /api/v1/plugin/bundles/direct-send`: authenticated + verified user required.
 - `POST /api/v1/plugin/bundles/group-fanout`: authenticated + verified user required.
+- `POST /api/v1/plugin/local-decisions/commit`: authenticated + verified user required.
 - `POST /api/v1/plugin/resolve`: authenticated + verified user required.
 - `POST /api/v1/plugin/outcomes`: authenticated + verified user required.
 - `POST /api/v1/plugin/overrides`: authenticated + verified user required.
@@ -126,6 +127,7 @@ Verification requirements by route:
 Idempotency:
 
 - `POST /api/v1/messages/send`: `idempotency_key` in body.
+- `POST /api/v1/plugin/local-decisions/commit`: authoritative commit key is `resolution_id`; `idempotency_key` in body or `Idempotency-Key` header may additionally deduplicate retries for the same committed artifact.
 - `POST /api/v1/plugin/outcomes`: `idempotency_key` in body or `Idempotency-Key` header.
 
 ---
@@ -441,6 +443,101 @@ Response example:
 }
 ```
 
+### 2b) Commit Local Decision
+
+Endpoint:
+
+```http
+POST /api/v1/plugin/local-decisions/commit
+```
+
+Request body:
+
+```json
+{
+  "sender_connection_id": "conn_sender",
+  "recipient": "alice",
+  "recipient_type": "user",
+  "message": "Alice is at home right now.",
+  "declared_selectors": {
+    "direction": "outbound",
+    "resource": "location.current",
+    "action": "share"
+  },
+  "resolution_id": "res_123",
+  "idempotency_key": "idem_local_commit_1",
+  "local_decision": {
+    "decision": "ask",
+    "delivery_mode": "review_required",
+    "reason": "Local review is required before sharing current location.",
+    "reason_code": "policy.ask.user.structured",
+    "winning_policy_id": "pol_user_1"
+  }
+}
+```
+
+Request notes:
+
+- Mahilo uses a dedicated commit endpoint for plugin-local decisions. `/api/v1/plugin/outcomes` remains the post-send and post-review outcome-reporting channel.
+- `resolution_id` is the authoritative local-evaluation attempt key. Retries with the same `resolution_id` deduplicate and return the existing artifact.
+- `idempotency_key` in the body or `Idempotency-Key` header may also be supplied. Reusing that key for a different `resolution_id` is rejected.
+- Current implementation accepts direct user-send commits (`recipient_type=user`).
+- On the first successful commit, the server performs authoritative winning-policy lifecycle mutation and persists a message artifact even when transport never starts.
+- `allow` commits create a pending message artifact. Later `POST /api/v1/messages/send` must reuse the same `resolution_id` so transport binds to that committed local decision.
+
+Success response example:
+
+```json
+{
+  "recorded": true,
+  "committed": true,
+  "message_id": "msg_123",
+  "status": "review_required",
+  "resolution": {
+    "resolution_id": "res_123",
+    "decision": "ask",
+    "delivery_mode": "review_required",
+    "summary": "Local review is required before sharing current location.",
+    "reason_code": "policy.ask.user.structured"
+  },
+  "recipient_results": [
+    {
+      "recipient": "alice",
+      "decision": "ask",
+      "delivery_mode": "review_required",
+      "delivery_status": "review_required"
+    }
+  ]
+}
+```
+
+Deduplicated retry example:
+
+```json
+{
+  "recorded": true,
+  "committed": true,
+  "deduplicated": true,
+  "message_id": "msg_123",
+  "status": "review_required",
+  "resolution": {
+    "resolution_id": "res_123",
+    "decision": "ask",
+    "delivery_mode": "review_required",
+    "summary": "Local review is required before sharing current location.",
+    "reason_code": "policy.ask.user.structured"
+  },
+  "recipient_results": [
+    {
+      "recipient": "alice",
+      "decision": "ask",
+      "delivery_mode": "review_required",
+      "delivery_status": "review_required"
+    }
+  ]
+}
+```
+
 ### 3) Resolve Draft (Preflight)
 
 Endpoint:
@@ -542,6 +639,8 @@ POST /api/v1/messages/send
 
 This endpoint is not under `/plugin`, but plugin clients use it for final delivery after preflight.
 Policy enforcement follows the same trusted-mode/plaintext condition as `/api/v1/plugin/resolve`.
+
+When a local `allow` was already committed through `POST /api/v1/plugin/local-decisions/commit`, plugin clients must send the same `resolution_id` here. The server reuses that committed message artifact and audit trail instead of creating a second message or re-consuming one-time/limited override lifecycle.
 
 Plugin-relevant request fragment:
 
@@ -968,7 +1067,10 @@ Common machine codes relevant to plugin integration:
 - `NO_CONNECTIONS`
 - `INVALID_SELECTOR`
 - `INVALID_OVERRIDE`
+- `INVALID_LOCAL_DECISION`
 - `INVALID_ROLE`
+- `LOCAL_DECISION_CONFLICT`
+- `LOCAL_DECISION_STALE`
 - `MESSAGE_NOT_FOUND`
 - `MESSAGE_SENDER_MISMATCH`
 - `SOURCE_MESSAGE_NOT_FOUND`

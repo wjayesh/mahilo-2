@@ -120,6 +120,7 @@ export const messages = sqliteTable(
   "messages",
   {
     id: text("id").primaryKey(),
+    resolutionId: text("resolution_id"),
     correlationId: text("correlation_id"),
     direction: text("direction").notNull().default("outbound"),
     resource: text("resource").notNull().default("message.general"),
@@ -163,6 +164,7 @@ export const messages = sqliteTable(
     index("idx_messages_recipient").on(table.recipientType, table.recipientId),
     index("idx_messages_connection").on(table.recipientConnectionId),
     index("idx_messages_status").on(table.status),
+    index("idx_messages_resolution").on(table.resolutionId),
     index("idx_messages_correlation").on(table.correlationId),
     index("idx_messages_selectors").on(
       table.direction,
@@ -178,6 +180,10 @@ export const messages = sqliteTable(
     unique("idx_messages_idempotency_sender").on(
       table.senderUserId,
       table.idempotencyKey,
+    ),
+    unique("idx_messages_resolution_sender").on(
+      table.senderUserId,
+      table.resolutionId,
     ),
   ],
 );
@@ -399,7 +405,9 @@ export const friendRoles = sqliteTable(
 
 // Waitlist emails table
 export const waitlistEmails = sqliteTable("waitlist_emails", {
-  id: text("id").primaryKey().$defaultFn(() => nanoid()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => nanoid()),
   email: text("email").notNull().unique(),
   source: text("source").notNull().default("landing"),
   createdAt: integer("created_at", { mode: "timestamp" })

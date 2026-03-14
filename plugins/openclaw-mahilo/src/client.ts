@@ -218,6 +218,17 @@ export class MahiloContractClient {
     return this.postJson(CONTRACT_ENDPOINTS.resolve, payload, idempotencyKey);
   }
 
+  async commitLocalDecision(
+    payload: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) {
+    return this.postJson(
+      CONTRACT_ENDPOINTS.localDecisionCommit,
+      payload,
+      idempotencyKey,
+    );
+  }
+
   async sendMessage(payload: Record<string, unknown>, idempotencyKey?: string) {
     return this.postJson(
       CONTRACT_ENDPOINTS.sendMessage,

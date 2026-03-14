@@ -31,6 +31,7 @@ import { config } from "../config";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { detectPromotionSuggestions } from "../services/promotionSuggestions";
 import {
+  consumeWinningPolicyUse,
   evaluateGroupPolicies,
   evaluateInboundPolicies,
   evaluatePolicies,
@@ -110,11 +111,10 @@ const pluginSendSelectorRequestSchema = z.object({
 });
 
 const pluginDirectSendBundleRequestSchema = pluginSendSelectorRequestSchema;
-const pluginGroupFanoutBundleRequestSchema = pluginSendSelectorRequestSchema.extend(
-  {
+const pluginGroupFanoutBundleRequestSchema =
+  pluginSendSelectorRequestSchema.extend({
     recipient_type: z.enum(["group"]).optional().default("group"),
-  },
-);
+  });
 
 const pluginResolveRequestSchema = pluginSendSelectorRequestSchema.extend({
   recipient_connection_id: z.string().optional(),
@@ -130,6 +130,47 @@ const pluginResolveRequestSchema = pluginSendSelectorRequestSchema.extend({
   correlation_id: z.string().optional(),
   idempotency_key: z.string().optional(),
 });
+
+const localDecisionAuditPolicySchema = z.record(z.unknown());
+
+const pluginLocalDecisionCommitRequestSchema =
+  pluginSendSelectorRequestSchema.extend({
+    sender_connection_id: z.string().min(1),
+    recipient_type: z.enum(["user"]).optional().default("user"),
+    message: z.string().min(1),
+    context: z.string().optional(),
+    payload_type: z.string().optional().default("text/plain"),
+    correlation_id: z.string().optional(),
+    in_response_to: z.string().optional(),
+    resolution_id: z.string().min(1).max(120),
+    idempotency_key: z.string().min(1).max(255).optional(),
+    local_decision: z.object({
+      decision: z.enum(["allow", "ask", "deny"]),
+      delivery_mode: z.enum([
+        "full_send",
+        "review_required",
+        "hold_for_approval",
+        "blocked",
+      ]),
+      summary: z.string().min(1).max(2000).optional(),
+      reason: z.string().min(1).max(2000).optional(),
+      reason_code: z.string().min(1).max(255).optional(),
+      resolution_explanation: z.string().min(1).max(4000).optional(),
+      resolver_layer: z
+        .enum(["platform_guardrails", "user_policies"])
+        .optional(),
+      guardrail_id: z.string().min(1).max(255).optional(),
+      winning_policy_id: z.string().min(1).max(255).optional(),
+      matched_policy_ids: z
+        .array(z.string().min(1).max(255))
+        .max(100)
+        .optional(),
+      evaluated_policies: z
+        .array(localDecisionAuditPolicySchema)
+        .max(100)
+        .optional(),
+    }),
+  });
 
 const pluginOutcomeValues = [
   "sent",
@@ -191,9 +232,14 @@ const pluginOverrideRequestSchema = z.object({
 
 type PluginContextRequest = z.infer<typeof pluginContextRequestSchema>;
 type PluginResolveRequest = z.infer<typeof pluginResolveRequestSchema>;
+type PluginLocalDecisionCommitRequest = z.infer<
+  typeof pluginLocalDecisionCommitRequestSchema
+>;
 type PluginOutcomeRequest = z.infer<typeof pluginOutcomeRequestSchema>;
 type PluginOverrideRequest = z.infer<typeof pluginOverrideRequestSchema>;
-type PluginSendSelectorRequest = z.infer<typeof pluginSendSelectorRequestSchema>;
+type PluginSendSelectorRequest = z.infer<
+  typeof pluginSendSelectorRequestSchema
+>;
 type PluginReportedOutcome = (typeof pluginOutcomeValues)[number];
 type PluginOverrideKind = (typeof pluginOverrideKinds)[number];
 type ContextDecision = "allow" | "ask" | "deny";
@@ -776,7 +822,10 @@ async function loadGroupFanoutMembers(
       username: schema.users.username,
     })
     .from(schema.groupMemberships)
-    .innerJoin(schema.users, eq(schema.groupMemberships.userId, schema.users.id))
+    .innerJoin(
+      schema.users,
+      eq(schema.groupMemberships.userId, schema.users.id),
+    )
     .where(
       and(
         eq(schema.groupMemberships.groupId, groupId),
@@ -857,8 +906,8 @@ function findOutcomeEventByIdempotency(
   return typeof existing?.event_id === "string" ? existing.event_id : null;
 }
 
-function resolveOutcomeIdempotencyKey(
-  data: PluginOutcomeRequest,
+function resolveRequestIdempotencyKey(
+  data: { idempotency_key?: string },
   idempotencyHeader: string | undefined,
 ): string | null {
   const source = data.idempotency_key || idempotencyHeader;
@@ -930,11 +979,364 @@ function parseReasonCode(value: unknown): string | null {
   return value;
 }
 
+function normalizeOptionalText(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return value;
+}
+
 function parseStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function assertLocalDecisionDeliveryMode(
+  decision: ContextDecision,
+  deliveryMode: DeliveryMode,
+) {
+  if (decision === "allow" && deliveryMode === "full_send") {
+    return;
+  }
+
+  if (decision === "deny" && deliveryMode === "blocked") {
+    return;
+  }
+
+  if (
+    decision === "ask" &&
+    (deliveryMode === "review_required" || deliveryMode === "hold_for_approval")
+  ) {
+    return;
+  }
+
+  throw new AppError(
+    "local_decision.delivery_mode is incompatible with local_decision.decision",
+    400,
+    "INVALID_LOCAL_DECISION",
+  );
+}
+
+function localDecisionMessageStatus(
+  decision: ContextDecision,
+  deliveryMode: DeliveryMode,
+): schema.Message["status"] {
+  if (decision === "allow") {
+    return "pending";
+  }
+
+  if (decision === "deny") {
+    return "rejected";
+  }
+
+  return deliveryMode === "hold_for_approval"
+    ? "approval_pending"
+    : "review_required";
+}
+
+function policyEvaluationPhaseForEvaluator(
+  evaluator: CanonicalPolicy["evaluator"],
+) {
+  return evaluator === "llm" ? "contextual_llm" : "deterministic";
+}
+
+function buildPolicyLifecycleAudit(policy: CanonicalPolicy, userId: string) {
+  return {
+    source: policy.source,
+    created_by_user_id: userId,
+    derived_from_message_id: policy.derived_from_message_id,
+    learning_provenance: policy.learning_provenance ?? null,
+    effective_from: policy.effective_from,
+    expires_at: policy.expires_at,
+    max_uses: policy.max_uses,
+    remaining_uses: policy.remaining_uses,
+    created_at: policy.created_at,
+  };
+}
+
+function buildWinningPolicyAudit(
+  policy: CanonicalPolicy,
+  userId: string,
+  reason: string | null,
+  reasonCode: string,
+) {
+  return {
+    policy_id: policy.id,
+    scope: policy.scope,
+    evaluator: policy.evaluator,
+    effect: policy.effect,
+    priority: policy.priority,
+    phase: policyEvaluationPhaseForEvaluator(policy.evaluator),
+    reason: reason || undefined,
+    reason_code: reasonCode,
+    ...buildPolicyLifecycleAudit(policy, userId),
+  };
+}
+
+function buildFallbackEvaluatedPolicyAudit(
+  policy: CanonicalPolicy,
+  userId: string,
+  matched: boolean,
+  reason: string | null,
+) {
+  return {
+    policy_id: policy.id,
+    scope: policy.scope,
+    evaluator: policy.evaluator,
+    effect: policy.effect,
+    priority: policy.priority,
+    phase: policyEvaluationPhaseForEvaluator(policy.evaluator),
+    matched,
+    ...(reason ? { reason } : {}),
+    ...buildPolicyLifecycleAudit(policy, userId),
+  };
+}
+
+function buildLocalDecisionPolicyEvaluation(args: {
+  userId: string;
+  senderConnectionId: string;
+  resolutionId: string;
+  committedAt: string;
+  selectors: { direction: PolicyDirection; resource: string; action: string };
+  decision: ContextDecision;
+  reason: string | null;
+  reasonCode: string;
+  summary: string;
+  resolutionExplanation: string;
+  resolverLayer: string | null;
+  guardrailId: string | null;
+  winningPolicy: CanonicalPolicy | null;
+  matchedPolicyIds: string[];
+  evaluatedPolicies: Record<string, unknown>[];
+}) {
+  return JSON.stringify({
+    authenticated_identity: {
+      sender_user_id: args.userId,
+      sender_connection_id: args.senderConnectionId,
+    },
+    effect: args.decision,
+    reason: args.reason,
+    reason_code: args.reasonCode,
+    resolution_explanation: args.resolutionExplanation,
+    resolver_layer: args.resolverLayer,
+    guardrail_id: args.guardrailId,
+    winning_policy_id: args.winningPolicy?.id ?? null,
+    winning_policy: args.winningPolicy
+      ? buildWinningPolicyAudit(
+          args.winningPolicy,
+          args.userId,
+          args.reason,
+          args.reasonCode,
+        )
+      : null,
+    matched_policy_ids: args.matchedPolicyIds,
+    evaluated_policies: args.evaluatedPolicies,
+    policy_owner_user_id: args.userId,
+    policy_evaluation_mode: "plugin_local_pre_delivery",
+    selector_context: args.selectors,
+    local_decision_commit: {
+      source: "plugin.local_decisions.commit",
+      resolution_id: args.resolutionId,
+      committed_at: args.committedAt,
+      summary: args.summary,
+    },
+  });
+}
+
+function buildCommittedMessageResolution(message: {
+  id: string;
+  resolutionId: string | null;
+  direction: string;
+  status: string;
+  outcome: string | null;
+  policiesEvaluated: string | null;
+}) {
+  const evaluation = parseJsonObject(message.policiesEvaluated);
+  const decision =
+    parseDecision(evaluation?.effect) ||
+    parseDecision(message.outcome) ||
+    (message.status === "rejected"
+      ? "deny"
+      : message.status === "review_required" ||
+          message.status === "approval_pending"
+        ? "ask"
+        : "allow");
+  const direction = parseDirectionCandidate(message.direction);
+  const deliveryMode =
+    message.status === "review_required"
+      ? "review_required"
+      : message.status === "approval_pending"
+        ? "hold_for_approval"
+        : resolveDeliveryMode(decision, direction);
+
+  return {
+    resolution_id: message.resolutionId || `res_${message.id}`,
+    decision,
+    delivery_mode: deliveryMode,
+    summary:
+      parseStringValue(evaluation?.reason) ||
+      parseStringValue(evaluation?.resolution_explanation) ||
+      buildAgentResolutionSummary(decision, deliveryMode),
+    reason_code:
+      parseReasonCode(evaluation?.reason_code) || defaultReasonCode(decision),
+  };
+}
+
+function buildCommittedMessageResponse(
+  message: {
+    id: string;
+    resolutionId: string | null;
+    direction: string;
+    status: string;
+    outcome: string | null;
+    policiesEvaluated: string | null;
+  },
+  recipient: string,
+) {
+  const resolution = buildCommittedMessageResolution(message);
+  return {
+    message_id: message.id,
+    status: message.status,
+    resolution,
+    recipient_results: [
+      {
+        recipient,
+        decision: resolution.decision,
+        delivery_mode: resolution.delivery_mode,
+        delivery_status: message.status,
+      },
+    ],
+  };
+}
+
+function buildLocalDecisionCommitResponse(
+  message: {
+    id: string;
+    resolutionId: string | null;
+    direction: string;
+    status: string;
+    outcome: string | null;
+    policiesEvaluated: string | null;
+  },
+  recipient: string,
+  deduplicated = false,
+) {
+  return {
+    committed: true,
+    ...(deduplicated ? { deduplicated: true } : {}),
+    ...buildCommittedMessageResponse(message, recipient),
+  };
+}
+
+function assertCommittedMessageMatchesLocalDecision(
+  message: {
+    direction: string;
+    id: string;
+    outcome: string | null;
+    payload: string;
+    payloadType: string;
+    policiesEvaluated: string | null;
+    recipientId: string;
+    recipientType: string;
+    resolutionId: string | null;
+    senderConnectionId: string | null;
+    status: string;
+    context: string | null;
+    resource: string;
+    action: string;
+  },
+  input: {
+    senderConnectionId: string;
+    resolutionId: string;
+    recipientId: string;
+    recipientType: PluginLocalDecisionCommitRequest["recipient_type"];
+    selectors: ReturnType<typeof resolveDraftSelectors>;
+    payload: string;
+    payloadType: string;
+    context: string | null;
+    decision: ContextDecision;
+    deliveryMode: DeliveryMode;
+  },
+) {
+  if (message.resolutionId && message.resolutionId !== input.resolutionId) {
+    throw new AppError(
+      "idempotency_key is already bound to a different resolution_id",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.senderConnectionId &&
+    message.senderConnectionId !== input.senderConnectionId
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to a different sender connection",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.recipientType !== input.recipientType ||
+    message.recipientId !== input.recipientId
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to a different recipient",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.direction !== input.selectors.direction ||
+    message.resource !== input.selectors.resource ||
+    message.action !== input.selectors.action
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to different selectors",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.payload !== input.payload ||
+    message.payloadType !== input.payloadType
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to different payload content",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    normalizeOptionalText(message.context) !==
+    normalizeOptionalText(input.context)
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to different context",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  const existingResolution = buildCommittedMessageResolution(message);
+  if (
+    existingResolution.decision !== input.decision ||
+    existingResolution.delivery_mode !== input.deliveryMode
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to a different local decision",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
 }
 
 function parsePositiveLimit(
@@ -1861,9 +2263,7 @@ pluginRoutes.post(
         bundle_id: `bundle_${nanoid(18)}`,
         resolution_id: `res_${nanoid(18)}`,
         issued_at: issuedAt.toISOString(),
-        expires_at: new Date(
-          issuedAt.getTime() + 5 * 60 * 1000,
-        ).toISOString(),
+        expires_at: new Date(issuedAt.getTime() + 5 * 60 * 1000).toISOString(),
       },
       authenticated_identity: {
         sender_user_id: user.id,
@@ -1939,9 +2339,8 @@ pluginRoutes.post(
           },
           roles,
           resolution_id: `${resolutionId}_${member.userId}`,
-          member_applicable_policies: memberApplicablePolicies.map(
-            toBundlePolicy,
-          ),
+          member_applicable_policies:
+            memberApplicablePolicies.map(toBundlePolicy),
           llm: buildBundleLLMContext(applicablePolicies, member.username),
         };
       }),
@@ -1954,9 +2353,7 @@ pluginRoutes.post(
         bundle_id: `bundle_${nanoid(18)}`,
         resolution_id: resolutionId,
         issued_at: issuedAt.toISOString(),
-        expires_at: new Date(
-          issuedAt.getTime() + 5 * 60 * 1000,
-        ).toISOString(),
+        expires_at: new Date(issuedAt.getTime() + 5 * 60 * 1000).toISOString(),
       },
       authenticated_identity: {
         sender_user_id: user.id,
@@ -2103,6 +2500,258 @@ pluginRoutes.post(
         },
       ],
       expires_at: expiresAt,
+    });
+  },
+);
+
+pluginRoutes.post(
+  "/local-decisions/commit",
+  requireActive(),
+  zValidator("json", pluginLocalDecisionCommitRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+    const db = getDb();
+
+    const sizeValidation = validatePayloadSize(data.message);
+    if (!sizeValidation.valid) {
+      throw new AppError(sizeValidation.error!, 400, "PAYLOAD_TOO_LARGE");
+    }
+
+    const selectors = resolveDraftSelectors(data);
+    const direction = parseDirectionCandidate(selectors.direction);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
+    const { recipient } = await loadDirectUserRecipientAccess(
+      user.id,
+      data.recipient,
+    );
+    const decision = data.local_decision.decision as ContextDecision;
+    const deliveryMode = data.local_decision.delivery_mode as DeliveryMode;
+
+    assertLocalDecisionDeliveryMode(decision, deliveryMode);
+    const idempotencyKey = resolveRequestIdempotencyKey(
+      data,
+      c.req.header("Idempotency-Key"),
+    );
+    const roles = await getRolesForFriend(user.id, recipient.id);
+    const applicablePolicies = await loadContextPolicies(
+      user.id,
+      recipient.id,
+      roles,
+      {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+    );
+
+    const [existingByResolution] = await db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.senderUserId, user.id),
+          eq(schema.messages.resolutionId, data.resolution_id),
+        ),
+      )
+      .limit(1);
+
+    const [existingByIdempotency] = idempotencyKey
+      ? await db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.senderUserId, user.id),
+              eq(schema.messages.idempotencyKey, idempotencyKey),
+            ),
+          )
+          .limit(1)
+      : [];
+
+    if (
+      existingByResolution &&
+      existingByIdempotency &&
+      existingByResolution.id !== existingByIdempotency.id
+    ) {
+      throw new AppError(
+        "idempotency_key is already bound to a different resolution_id",
+        409,
+        "LOCAL_DECISION_CONFLICT",
+      );
+    }
+
+    const existingMessage = existingByResolution || existingByIdempotency;
+    if (existingMessage) {
+      assertCommittedMessageMatchesLocalDecision(existingMessage, {
+        senderConnectionId: senderConnection.id,
+        resolutionId: data.resolution_id,
+        recipientId: recipient.id,
+        recipientType: "user",
+        selectors,
+        payload: data.message,
+        payloadType: data.payload_type,
+        context: data.context ?? null,
+        decision,
+        deliveryMode,
+      });
+
+      return c.json({
+        recorded: true,
+        ...buildLocalDecisionCommitResponse(
+          existingMessage,
+          recipient.username,
+          true,
+        ),
+      });
+    }
+
+    let winningPolicy: CanonicalPolicy | null = null;
+    if (data.local_decision.winning_policy_id) {
+      winningPolicy =
+        applicablePolicies.find(
+          (policy) => policy.id === data.local_decision.winning_policy_id,
+        ) || null;
+
+      if (!winningPolicy) {
+        throw new AppError(
+          "Winning policy is no longer eligible for this local decision commit",
+          409,
+          "LOCAL_DECISION_STALE",
+        );
+      }
+
+      if (winningPolicy.effect !== decision) {
+        throw new AppError(
+          "winning_policy_id effect does not match local_decision.decision",
+          400,
+          "INVALID_LOCAL_DECISION",
+        );
+      }
+    }
+
+    const summary =
+      data.local_decision.summary ||
+      data.local_decision.reason ||
+      buildAgentResolutionSummary(decision, deliveryMode);
+    const reason = data.local_decision.reason || null;
+    const reasonCode =
+      data.local_decision.reason_code || defaultReasonCode(decision);
+    const resolutionExplanation =
+      data.local_decision.resolution_explanation || summary;
+    const matchedPolicyIds = [
+      ...new Set(
+        data.local_decision.matched_policy_ids ||
+          (winningPolicy ? [winningPolicy.id] : []),
+      ),
+    ];
+    const evaluatedPolicies =
+      data.local_decision.evaluated_policies ||
+      applicablePolicies.map((policy) =>
+        buildFallbackEvaluatedPolicyAudit(
+          policy,
+          user.id,
+          matchedPolicyIds.includes(policy.id),
+          policy.id === winningPolicy?.id ? reason || summary : null,
+        ),
+      );
+
+    if (winningPolicy) {
+      await consumeWinningPolicyUse(user.id, {
+        allowed: decision === "allow",
+        effect: decision,
+        reason: reason || undefined,
+        reason_code: reasonCode,
+        resolution_explanation: resolutionExplanation,
+        authenticated_identity: {
+          sender_user_id: user.id,
+          sender_connection_id: senderConnection.id,
+        },
+        resolver_layer: "user_policies",
+        guardrail_id: data.local_decision.guardrail_id,
+        winning_policy_id: winningPolicy.id,
+        winning_policy: {
+          policy_id: winningPolicy.id,
+          scope: winningPolicy.scope,
+          evaluator: winningPolicy.evaluator,
+          effect: winningPolicy.effect,
+          priority: winningPolicy.priority,
+          phase: policyEvaluationPhaseForEvaluator(winningPolicy.evaluator),
+          reason: reason || summary,
+          reason_code: reasonCode,
+          ...buildPolicyLifecycleAudit(winningPolicy, user.id),
+        },
+        matched_policy_ids: matchedPolicyIds,
+        evaluated_policies: [],
+      });
+    }
+
+    const committedAt = new Date().toISOString();
+    const messageId = nanoid();
+    const status = localDecisionMessageStatus(decision, deliveryMode);
+    const policyEvaluation = buildLocalDecisionPolicyEvaluation({
+      userId: user.id,
+      senderConnectionId: senderConnection.id,
+      resolutionId: data.resolution_id,
+      committedAt,
+      selectors: {
+        direction,
+        resource: selectors.resource,
+        action: selectors.action,
+      },
+      decision,
+      reason,
+      reasonCode,
+      summary,
+      resolutionExplanation,
+      resolverLayer: data.local_decision.resolver_layer || "user_policies",
+      guardrailId: data.local_decision.guardrail_id || null,
+      winningPolicy,
+      matchedPolicyIds,
+      evaluatedPolicies,
+    });
+
+    await db.insert(schema.messages).values({
+      id: messageId,
+      resolutionId: data.resolution_id,
+      correlationId: data.correlation_id,
+      direction,
+      resource: selectors.resource,
+      action: selectors.action,
+      inResponseTo: data.in_response_to || null,
+      outcome: decision,
+      outcomeDetails: reason || summary,
+      policiesEvaluated: policyEvaluation,
+      senderUserId: user.id,
+      senderConnectionId: senderConnection.id,
+      senderAgent: senderConnection.framework,
+      recipientType: "user",
+      recipientId: recipient.id,
+      recipientConnectionId: null,
+      payload: data.message,
+      payloadType: data.payload_type,
+      context: data.context,
+      status,
+      rejectionReason: decision === "deny" ? reason || summary : null,
+      idempotencyKey,
+    });
+
+    return c.json({
+      recorded: true,
+      ...buildLocalDecisionCommitResponse(
+        {
+          id: messageId,
+          resolutionId: data.resolution_id,
+          direction,
+          status,
+          outcome: decision,
+          policiesEvaluated: policyEvaluation,
+        },
+        recipient.username,
+      ),
     });
   },
 );
@@ -2281,6 +2930,7 @@ pluginRoutes.post(
         id: schema.messages.id,
         inResponseTo: schema.messages.inResponseTo,
         outcomeDetails: schema.messages.outcomeDetails,
+        resolutionId: schema.messages.resolutionId,
         resource: schema.messages.resource,
         senderConnectionId: schema.messages.senderConnectionId,
       })
@@ -2308,7 +2958,7 @@ pluginRoutes.post(
       );
     }
 
-    const idempotencyKey = resolveOutcomeIdempotencyKey(
+    const idempotencyKey = resolveRequestIdempotencyKey(
       data,
       c.req.header("Idempotency-Key"),
     );
@@ -2331,7 +2981,8 @@ pluginRoutes.post(
     const auditEntry: PluginOutcomeAuditEntry = {
       event_id: eventId,
       message_id: message.id,
-      resolution_id: data.resolution_id || `res_${message.id}`,
+      resolution_id:
+        data.resolution_id || message.resolutionId || `res_${message.id}`,
       outcome: data.outcome,
       user_action: data.user_action || null,
       notes: data.notes || null,

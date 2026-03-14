@@ -101,6 +101,7 @@ export async function setupTestDatabase() {
 
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
+      resolution_id TEXT,
       correlation_id TEXT,
       direction TEXT NOT NULL DEFAULT 'outbound',
       resource TEXT NOT NULL DEFAULT 'message.general',
@@ -137,8 +138,10 @@ export async function setupTestDatabase() {
     CREATE INDEX IF NOT EXISTS idx_messages_in_response_to ON messages(in_response_to);
     CREATE INDEX IF NOT EXISTS idx_messages_resource_sender ON messages(resource, sender_user_id);
     CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
+    CREATE INDEX IF NOT EXISTS idx_messages_resolution ON messages(resolution_id);
     CREATE INDEX IF NOT EXISTS idx_messages_idempotency ON messages(idempotency_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_idempotency_sender ON messages(sender_user_id, idempotency_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_resolution_sender ON messages(sender_user_id, resolution_id);
 
     CREATE TABLE IF NOT EXISTS message_deliveries (
       id TEXT PRIMARY KEY,
