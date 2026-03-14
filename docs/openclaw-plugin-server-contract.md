@@ -46,6 +46,7 @@ The goal is to let plugin and server teams integrate without guessing payloads.
    - Bundle responses may return provider/model defaults only when an applicable LLM policy exists.
    - Mahilo never returns provider secrets or host credentials.
    - Missing or failed local LLM evaluation must degrade to `ask`, not fail open.
+   - Trusted-vs-local LLM parity is expected only when both evaluators return a normal `PASS` or `FAIL`. Provider-failure handling intentionally differs today: local evaluation must degrade to `ask`, while trusted server evaluation may fail open on provider errors.
 
 7. **Group fanout is per-recipient**.
    - Group bundles carry group overlays plus member-specific inputs and per-member `resolution_id` values.
