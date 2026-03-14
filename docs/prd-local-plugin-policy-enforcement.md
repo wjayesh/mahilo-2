@@ -504,7 +504,7 @@ This project is done when all of the following are true:
   - 2026-03-14T15:15:59.541Z: LPE-030 completed via orchestrator integration.
 ### 3.2 Gate `ask_network` Contact Fanout
 - **ID**: `LPE-031`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-030`
 - **Description**:
@@ -516,6 +516,8 @@ This project is done when all of the following are true:
   - [ ] Replies are only expected/routed for recipients whose ask actually went out
   - [ ] Fanout tests cover mixed outcomes and partial-send reporting
 
+- **Notes**:
+  - 2026-03-14T15:36:53.245Z: LPE-031 completed via orchestrator integration.
 ### 3.3 Gate `ask_network` Group Ask
 - **ID**: `LPE-032`
 - **Status**: `pending`
