@@ -400,7 +400,19 @@ export function areAllTasksComplete(tasks: Task[]): boolean {
 export function loadWorkflow(repoRoot: string, workflowFile = "WORKFLOW.md"): WorkflowConfig {
   const workflowPath = resolvePath(repoRoot, workflowFile);
   const content = readFileSync(workflowPath, "utf8");
-  return parseWorkflowFile(content, relative(repoRoot, workflowPath) || workflowFile);
+  const workflow = parseWorkflowFile(content, relative(repoRoot, workflowPath) || workflowFile);
+
+  if (workflow.requiredBranch?.trim().toLowerCase() === "current") {
+    const currentBranch = getCurrentBranch(repoRoot);
+    if (!currentBranch) {
+      throw new Error(
+        `Workflow ${workflow.workflowPath} uses required_branch: current, but the repo is not on a named branch.`,
+      );
+    }
+    workflow.requiredBranch = currentBranch;
+  }
+
+  return workflow;
 }
 
 export function ensureDirectory(path: string) {
@@ -547,8 +559,13 @@ export function removeWorkspace(repoRoot: string, config: WorkflowConfig, task: 
   }
 }
 
-export function buildTaskPrompt(config: WorkflowConfig, task: Task, workspacePath: string): string {
-  const instructionList = config.instructionFiles.map((file) => `- ${file}`).join("\n");
+export function buildTaskPrompt(
+  config: WorkflowConfig,
+  task: Task,
+  workspacePath: string,
+  instructionFiles: string[] = config.instructionFiles,
+): string {
+  const instructionList = instructionFiles.map((file) => `- ${file}`).join("\n");
   const workspaceNote = workspacePath === process.cwd() ? "shared repo workspace" : workspacePath;
 
   return [
@@ -561,7 +578,7 @@ export function buildTaskPrompt(config: WorkflowConfig, task: Task, workspacePat
     "",
     config.workflowBody,
     "",
-    "Instruction files to read first:",
+    "Instruction files to read first from the assigned workspace:",
     instructionList,
     "",
     "Task section to implement:",

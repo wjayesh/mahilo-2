@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   appendProgress,
   areAllTasksComplete,
@@ -23,6 +23,7 @@ import {
   removeWorkspace,
   resolvePath,
   runAgentForTask,
+  runGit,
   saveState,
   selectNextTask,
   type OrchestratorState,
@@ -78,12 +79,19 @@ type TaskFailureResult = {
 const REPO_LOCK_NAME = "repo.lock";
 const LOCK_POLL_MS = 1000;
 const STALE_LOCK_MS = 60_000;
+export const WORKSPACE_CONTEXT_DIR = ".orchestrator-context";
 
 type RepoLockOwner = {
   pid: number | null;
   workflow: string;
   taskId: string;
   acquiredAt: string;
+};
+
+type PreparedWorkspace = {
+  workspace: WorkspaceHandle;
+  note: string | null;
+  instructionFiles: string[];
 };
 
 function parseArgs(argv: string[]): CliOptions {
@@ -465,12 +473,105 @@ function isCherryPickContentConflict(reason: string): boolean {
   return /could not apply|CONFLICT \(|merge conflict|cherry-pick failed/i.test(reason);
 }
 
+function getWorkspaceContextRelativePath(repoRoot: string, sourcePath: string): string {
+  const sourceAbsolutePath = resolvePath(repoRoot, sourcePath);
+  const repoRelativePath = relative(repoRoot, sourceAbsolutePath);
+  if (!repoRelativePath || repoRelativePath.startsWith("..")) {
+    throw new Error(
+      `Cannot mirror ${sourcePath} into ${WORKSPACE_CONTEXT_DIR} because it is outside ${repoRoot}.`,
+    );
+  }
+  return join(WORKSPACE_CONTEXT_DIR, repoRelativePath);
+}
+
+function listWorkspaceContextSources(workflow: WorkflowConfig): string[] {
+  return Array.from(
+    new Set([
+      workflow.workflowPath,
+      ...workflow.taskSources,
+      ...workflow.dependencySources,
+      ...workflow.instructionFiles,
+    ]),
+  );
+}
+
+export function getWorkspaceContextInstructionFiles(
+  repoRoot: string,
+  workflow: WorkflowConfig,
+): string[] {
+  return workflow.instructionFiles.map((file) => getWorkspaceContextRelativePath(repoRoot, file));
+}
+
+export function ensureWorkspaceContextIgnore(workspacePath: string) {
+  const excludeResult = runGit(["rev-parse", "--git-path", "info/exclude"], workspacePath);
+  if (excludeResult.status !== 0) {
+    throw new Error(`Failed to locate git exclude file for ${workspacePath}.`);
+  }
+
+  const excludePath = resolve(workspacePath, excludeResult.stdout.trim());
+  ensureDirectory(dirname(excludePath));
+  const pattern = `${WORKSPACE_CONTEXT_DIR}/`;
+  const existing = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
+  const lines = existing.split(/\r?\n/);
+  if (lines.includes(pattern)) {
+    return;
+  }
+
+  const prefix = existing.length === 0 || existing.endsWith("\n") ? existing : `${existing}\n`;
+  writeFileSync(excludePath, `${prefix}${pattern}\n`);
+}
+
+export function syncWorkspaceContextFiles(
+  repoRoot: string,
+  workflow: WorkflowConfig,
+  workspacePath: string,
+) {
+  ensureWorkspaceContextIgnore(workspacePath);
+
+  for (const sourcePath of listWorkspaceContextSources(workflow)) {
+    const sourceAbsolutePath = resolvePath(repoRoot, sourcePath);
+    if (!existsSync(sourceAbsolutePath)) {
+      continue;
+    }
+
+    const mirroredPath = resolve(
+      workspacePath,
+      getWorkspaceContextRelativePath(repoRoot, sourcePath),
+    );
+    ensureDirectory(dirname(mirroredPath));
+    writeFileSync(mirroredPath, readFileSync(sourceAbsolutePath));
+  }
+}
+
+function finalizePreparedWorkspace(
+  repoRoot: string,
+  workflow: WorkflowConfig,
+  workspace: WorkspaceHandle,
+  note: string | null,
+): PreparedWorkspace {
+  if (workspace.kind !== "git_worktree") {
+    return {
+      workspace,
+      note,
+      instructionFiles: workflow.instructionFiles,
+    };
+  }
+
+  // Keep root-owned workflow/task docs available in stale task worktrees without polluting task commits.
+  syncWorkspaceContextFiles(repoRoot, workflow, workspace.path);
+  return {
+    workspace,
+    note,
+    instructionFiles: getWorkspaceContextInstructionFiles(repoRoot, workflow),
+  };
+}
+
 function prepareWorkspaceForTask(params: {
   repoRoot: string;
   workflow: WorkflowConfig;
   task: Task;
   state: OrchestratorState;
-}): { workspace: WorkspaceHandle; note: string | null } {
+}): PreparedWorkspace {
   const { repoRoot, workflow, task, state } = params;
   const refreshReason = state.taskWorkspaceRefreshReasons[task.id];
 
@@ -478,26 +579,28 @@ function prepareWorkspaceForTask(params: {
     removeWorkspace(repoRoot, workflow, task);
     clearTaskWorkspaceRefreshState(state, task.id);
     const workspace = ensureWorkspace(repoRoot, workflow, task);
-    return {
+    return finalizePreparedWorkspace(
+      repoRoot,
+      workflow,
       workspace,
-      note: `Refreshed ${task.id} workspace from latest integration after conflict: ${refreshReason}`,
-    };
+      `Refreshed ${task.id} workspace from latest integration after conflict: ${refreshReason}`,
+    );
   }
 
   const workspace = ensureWorkspace(repoRoot, workflow, task);
   if (workspace.kind !== "git_worktree") {
-    return { workspace, note: null };
+    return finalizePreparedWorkspace(repoRoot, workflow, workspace, null);
   }
 
   const integrationBranch = workflow.requiredBranch ?? getCurrentBranch(repoRoot);
   if (!integrationBranch) {
-    return { workspace, note: null };
+    return finalizePreparedWorkspace(repoRoot, workflow, workspace, null);
   }
 
   const integrationHead = getHeadCommit(repoRoot);
   const workspaceHead = getHeadCommit(workspace.path);
   if (!integrationHead || !workspaceHead || integrationHead === workspaceHead) {
-    return { workspace, note: null };
+    return finalizePreparedWorkspace(repoRoot, workflow, workspace, null);
   }
 
   let uniqueCommits: string[] = [];
@@ -506,19 +609,21 @@ function prepareWorkspaceForTask(params: {
     uniqueCommits = listUniqueCommits(workspace.path, integrationBranch);
     pendingChanges = getPendingChanges(workspace.path);
   } catch {
-    return { workspace, note: null };
+    return finalizePreparedWorkspace(repoRoot, workflow, workspace, null);
   }
 
   if (uniqueCommits.length > 0 || pendingChanges.length > 0) {
-    return { workspace, note: null };
+    return finalizePreparedWorkspace(repoRoot, workflow, workspace, null);
   }
 
   removeWorkspace(repoRoot, workflow, task);
   const refreshedWorkspace = ensureWorkspace(repoRoot, workflow, task);
-  return {
-    workspace: refreshedWorkspace,
-    note: `Refreshed idle ${task.id} workspace to latest integration ${integrationHead}.`,
-  };
+  return finalizePreparedWorkspace(
+    repoRoot,
+    workflow,
+    refreshedWorkspace,
+    `Refreshed idle ${task.id} workspace to latest integration ${integrationHead}.`,
+  );
 }
 
 function handleTaskFailure(params: {
@@ -883,13 +988,23 @@ async function main() {
         workflow,
         task,
         preparedWorkspace.workspace.path,
-        buildTaskPrompt(workflow, task, preparedWorkspace.workspace.path),
+        buildTaskPrompt(
+          workflow,
+          task,
+          preparedWorkspace.workspace.path,
+          preparedWorkspace.instructionFiles,
+        ),
       );
       runResultLastMessage = runResult.lastMessage;
       historyNote = `Agent exited with code ${runResult.exitCode}.`;
 
-      const workspaceActionableTasks = loadTasks(preparedWorkspace.workspace.path, workflow.taskSources);
-      const workspaceTask = findTaskById(workspaceActionableTasks, task.id) ?? task;
+      let workspaceTask = task;
+      try {
+        const workspaceActionableTasks = loadTasks(preparedWorkspace.workspace.path, workflow.taskSources);
+        workspaceTask = findTaskById(workspaceActionableTasks, task.id) ?? task;
+      } catch {
+        workspaceTask = task;
+      }
 
       if (runResult.exitCode !== 0) {
         const failure = handleTaskFailure({
@@ -1034,7 +1149,9 @@ async function main() {
   console.log(`Reached max iterations without seeing ${workflow.completionPhrase}.`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

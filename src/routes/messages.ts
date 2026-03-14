@@ -1564,6 +1564,20 @@ messageRoutes.get("/", async (c) => {
     .from(schema.users);
 
   const usersMap = new Map(users.map((u) => [u.id, u.username]));
+  const groupIds = [...new Set(messages
+    .filter((message) => message.recipientType === "group")
+    .map((message) => message.recipientId))];
+  const groupsMap =
+    groupIds.length > 0
+      ? new Map(
+          (
+            await db
+              .select({ id: schema.groups.id, name: schema.groups.name })
+              .from(schema.groups)
+              .where(inArray(schema.groups.id, groupIds))
+          ).map((group) => [group.id, group.name]),
+        )
+      : new Map<string, string>();
 
   // For received messages, include applicable policies for each sender
   // This helps the agent know what policies apply when replying
@@ -1640,15 +1654,22 @@ messageRoutes.get("/", async (c) => {
         outcome_details: parseOptionalJsonText(m.outcomeDetails),
         policies_evaluated: parseOptionalJsonText(m.policiesEvaluated),
         sender: usersMap.get(m.senderUserId),
+        sender_user_id: m.senderUserId,
         sender_connection_id: m.senderConnectionId,
         sender_agent: m.senderAgent,
-        recipient: usersMap.get(m.recipientId),
+        recipient:
+          m.recipientType === "group"
+            ? groupsMap.get(m.recipientId) ?? null
+            : usersMap.get(m.recipientId) ?? null,
+        recipient_id: m.recipientId,
         recipient_type: m.recipientType,
+        recipient_connection_id: m.recipientConnectionId,
         classified_direction: m.classifiedDirection,
         classified_resource: m.classifiedResource,
         classified_action: m.classifiedAction,
         message: m.payload,
         context: m.context,
+        payload_type: m.payloadType,
         status: m.status,
         created_at: m.createdAt?.toISOString(),
         delivered_at: m.deliveredAt?.toISOString(),

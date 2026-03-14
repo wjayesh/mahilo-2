@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { mergeTaskUniverses, parseTaskFile, parseWorkflowFile, selectNextTask } from "../../src/orchestrator";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import {
+  buildTaskPrompt,
+  mergeTaskUniverses,
+  parseTaskFile,
+  parseWorkflowFile,
+  loadWorkflow,
+  runGit,
+  selectNextTask,
+} from "../../src/orchestrator";
+import {
+  WORKSPACE_CONTEXT_DIR,
+  getWorkspaceContextInstructionFiles,
+  syncWorkspaceContextFiles,
+} from "../../scripts/orchestrator";
 
 describe("parseWorkflowFile", () => {
   it("parses front matter arrays and scalars", () => {
@@ -35,6 +51,31 @@ runtime_stall_timeout_seconds: 1200
     expect(workflow.taskFailureBackoffSeconds).toBe(45);
     expect(workflow.runtimeStallTimeoutSeconds).toBe(1200);
     expect(workflow.workflowBody).toContain("Body here");
+  });
+
+  it("pins required_branch: current to the branch active at workflow load time", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mahilo-orchestrator-"));
+
+    try {
+      writeFileSync(
+        join(repoRoot, "WORKFLOW.md"),
+        `---
+name: sample
+required_branch: current
+---
+# Workflow
+Body here.
+`,
+      );
+
+      expect(runGit(["init"], repoRoot).status).toBe(0);
+      expect(runGit(["checkout", "-b", "feature/orchestrator-branch-pin"], repoRoot).status).toBe(0);
+
+      const workflow = loadWorkflow(repoRoot, "WORKFLOW.md");
+      expect(workflow.requiredBranch).toBe("feature/orchestrator-branch-pin");
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -92,5 +133,130 @@ describe("task parsing and selection", () => {
     const serverTasks = parseTaskFile(`### Server Task\n- **ID**: \`SRV-001\`\n- **Status**: \`done\`\n- **Priority**: P0\n- **Depends on**: None\n`, "docs/server.md");
     const universe = mergeTaskUniverses(pluginTasks, serverTasks);
     expect(selectNextTask(pluginTasks, null, universe)?.id).toBe("PLG-001");
+  });
+});
+
+describe("workspace context sync", () => {
+  it("uses mirrored instruction file paths when a workspace override is provided", () => {
+    const workflow = parseWorkflowFile(`---
+name: sample
+instruction_files:
+  - docs/context.md
+---
+# Workflow
+Body here.
+`);
+    const [task] = parseTaskFile(
+      `### Example Task
+- **ID**: \`TASK-001\`
+- **Status**: \`pending\`
+- **Priority**: P0
+- **Depends on**: None
+`,
+      "docs/tasks.md",
+    );
+
+    const prompt = buildTaskPrompt(workflow, task, "/tmp/mahilo-workspace", [
+      `${WORKSPACE_CONTEXT_DIR}/docs/context.md`,
+    ]);
+
+    expect(prompt).toContain(`- ${WORKSPACE_CONTEXT_DIR}/docs/context.md`);
+    expect(prompt).toContain("Instruction files to read first from the assigned workspace:");
+  });
+
+  it("mirrors workflow docs into ignored workspace context files and picks up newly added docs", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mahilo-orchestrator-context-"));
+
+    try {
+      mkdirSync(join(repoRoot, "docs"), { recursive: true });
+      writeFileSync(
+        join(repoRoot, "WORKFLOW.md"),
+        `---
+name: sample
+task_sources:
+  - docs/tasks.md
+instruction_files:
+  - docs/context.md
+---
+# Workflow
+Body here.
+`,
+      );
+      writeFileSync(
+        join(repoRoot, "docs", "tasks.md"),
+        `### Example Task
+- **ID**: \`TASK-001\`
+- **Status**: \`pending\`
+- **Priority**: P0
+- **Depends on**: None
+`,
+      );
+      writeFileSync(join(repoRoot, "docs", "context.md"), "alpha\n");
+
+      expect(runGit(["init"], repoRoot).status).toBe(0);
+
+      const workflow = loadWorkflow(repoRoot, "WORKFLOW.md");
+      syncWorkspaceContextFiles(repoRoot, workflow, repoRoot);
+
+      const mirroredContextPath = join(repoRoot, WORKSPACE_CONTEXT_DIR, "docs", "context.md");
+      expect(readFileSync(mirroredContextPath, "utf8")).toBe("alpha\n");
+      expect(getWorkspaceContextInstructionFiles(repoRoot, workflow)).toEqual([
+        `${WORKSPACE_CONTEXT_DIR}/docs/context.md`,
+      ]);
+
+      const excludePath = resolve(
+        repoRoot,
+        runGit(["rev-parse", "--git-path", "info/exclude"], repoRoot).stdout.trim(),
+      );
+      expect(readFileSync(excludePath, "utf8")).toContain(`${WORKSPACE_CONTEXT_DIR}/`);
+
+      writeFileSync(
+        join(repoRoot, "WORKFLOW.md"),
+        `---
+name: sample
+task_sources:
+  - docs/tasks.md
+  - docs/new-tasks.md
+dependency_sources:
+  - docs/shared.md
+instruction_files:
+  - docs/context.md
+  - docs/new-context.md
+---
+# Workflow
+Body here.
+`,
+      );
+      writeFileSync(join(repoRoot, "docs", "context.md"), "beta\n");
+      writeFileSync(join(repoRoot, "docs", "new-context.md"), "gamma\n");
+      writeFileSync(
+        join(repoRoot, "docs", "new-tasks.md"),
+        `### New Task
+- **ID**: \`TASK-002\`
+- **Status**: \`pending\`
+- **Priority**: P1
+- **Depends on**: None
+`,
+      );
+      writeFileSync(join(repoRoot, "docs", "shared.md"), "shared\n");
+
+      const refreshedWorkflow = loadWorkflow(repoRoot, "WORKFLOW.md");
+      syncWorkspaceContextFiles(repoRoot, refreshedWorkflow, repoRoot);
+
+      expect(readFileSync(mirroredContextPath, "utf8")).toBe("beta\n");
+      expect(
+        existsSync(join(repoRoot, WORKSPACE_CONTEXT_DIR, "docs", "new-context.md")),
+      ).toBe(true);
+      expect(existsSync(join(repoRoot, WORKSPACE_CONTEXT_DIR, "docs", "new-tasks.md"))).toBe(
+        true,
+      );
+      expect(existsSync(join(repoRoot, WORKSPACE_CONTEXT_DIR, "docs", "shared.md"))).toBe(true);
+      expect(getWorkspaceContextInstructionFiles(repoRoot, refreshedWorkflow)).toEqual([
+        `${WORKSPACE_CONTEXT_DIR}/docs/context.md`,
+        `${WORKSPACE_CONTEXT_DIR}/docs/new-context.md`,
+      ]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });

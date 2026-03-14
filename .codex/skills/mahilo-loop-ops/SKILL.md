@@ -1,6 +1,6 @@
 ---
 name: mahilo-loop-ops
-description: Use this skill when asked to start, stop, restart, inspect, or troubleshoot the Mahilo autonomous orchestrator loops, including the server and plugin workflows, supervisor commands, `launchd` setup, workflow files, logs, progress files, and integration-branch safety checks.
+description: Use this skill when asked to start, stop, restart, inspect, or troubleshoot the Mahilo autonomous orchestrator loops, including the server and plugin workflows, supervisor commands, `launchd` setup, workflow files, logs, progress files, and branch-pinning safety checks.
 ---
 
 # Mahilo Loop Ops
@@ -12,11 +12,22 @@ Use this skill for operating the Mahilo autonomous development loops in this rep
 ## Preconditions
 
 - Run from the Mahilo repo root.
-- Confirm the current branch is `autonomous/server-integration` before starting any loop.
+- Confirm the current branch is the branch you want the loop to reconcile into before starting any loop.
 - Treat `WORKFLOW.md` as the server workflow and `WORKFLOW.plugin.md` as the plugin workflow.
-- Use the integration branch, not `main`, for autonomous work.
+- Use a dedicated integration or feature branch, not `main`, for autonomous work.
 
 ## Preferred Commands
+
+### Server loop
+
+- Dry run:
+  - `bun run orchestrate:dry-run`
+- Start under the supervisor:
+  - `bun run orchestrate:supervisor:start`
+- Check status:
+  - `bun run orchestrate:supervisor:status`
+- Stop:
+  - `bun run orchestrate:supervisor:stop`
 
 ### Plugin loop
 
@@ -31,6 +42,14 @@ Use this skill for operating the Mahilo autonomous development loops in this rep
 
 ### macOS `launchd`
 
+- Generate/install the server plist:
+  - `bun run scripts/install-launchd.ts --workflow WORKFLOW.md --name state`
+- Load it:
+  - `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.mahilo.orchestrator.state.plist`
+- Inspect it:
+  - `launchctl print gui/$(id -u)/ai.mahilo.orchestrator.state`
+- Unload it:
+  - `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.mahilo.orchestrator.state.plist`
 - Generate/install the plugin plist:
   - `bun run orchestrate:launchd:install:plugin`
 - Load it:
@@ -44,6 +63,16 @@ Use this skill for operating the Mahilo autonomous development loops in this rep
 
 Use these commands to confirm the loop is healthy:
 
+- Server supervisor status JSON:
+  - `bun run orchestrate:supervisor:status`
+- Server orchestrator heartbeat/runtime state:
+  - `cat .mahilo-orchestrator/runtime/state.runtime.json`
+- Server supervisor state:
+  - `cat .mahilo-orchestrator/supervisor/state.json`
+- Server progress:
+  - `tail -n 40 .mahilo-orchestrator/progress.md`
+- Server runtime log:
+  - `tail -n 80 .mahilo-orchestrator/state-loop.log`
 - Supervisor status JSON:
   - `bun run orchestrate:supervisor:status:plugin`
 - Orchestrator heartbeat/runtime state:
@@ -71,6 +100,19 @@ For a fully completed workflow, the expected terminal state is:
 
 Use this when the orchestrator, supervisor, or workflow files changed.
 
+Server loop:
+
+1. Stop the supervisor:
+   - `bun run orchestrate:supervisor:stop`
+2. Confirm status is stopped:
+   - `bun run orchestrate:supervisor:status`
+3. Re-run the dry-run command:
+   - `bun run orchestrate:dry-run`
+4. Start the supervisor again:
+   - `bun run orchestrate:supervisor:start`
+
+Plugin loop:
+
 1. Stop the supervisor:
    - `bun run orchestrate:supervisor:stop:plugin`
 2. Confirm status is stopped:
@@ -97,10 +139,14 @@ The hardened loop now:
 
 Use this only for temporary manual debugging.
 
+- Start server loop:
+  - `screen -dmS mahilo-state-loop zsh -lc 'cd /Users/wjayesh/apps/mahilo-2 && bun run orchestrate >> .mahilo-orchestrator/state-loop.log 2>&1'`
 - Start:
   - `screen -dmS mahilo-plugin-loop zsh -lc 'cd /Users/wjayesh/apps/mahilo-2 && bun run orchestrate:plugin >> .mahilo-orchestrator/plugin-loop.log 2>&1'`
 - List:
   - `screen -ls`
+- Stop server loop:
+  - `screen -S mahilo-state-loop -X quit`
 - Stop:
   - `screen -S mahilo-plugin-loop -X quit`
 
@@ -112,6 +158,10 @@ Use this only for temporary manual debugging.
 - Orchestrator supervisor: `scripts/orchestrator-supervisor.ts`
 - `launchd` installer: `scripts/install-launchd.ts`
 - Hardening decisions: `docs/orchestrator-hardening.md`
+- Server progress: `.mahilo-orchestrator/progress.md`
+- Server log: `.mahilo-orchestrator/state-loop.log`
+- Server runtime state: `.mahilo-orchestrator/runtime/state.runtime.json`
+- Server supervisor state: `.mahilo-orchestrator/supervisor/state.json`
 - Plugin progress: `.mahilo-orchestrator/plugin-progress.md`
 - Plugin log: `.mahilo-orchestrator/plugin-loop.log`
 - Orchestrator runtime state: `.mahilo-orchestrator/runtime/plugin-state.runtime.json`
@@ -124,5 +174,5 @@ Escalate when:
 - supervisor says stopped but `pgrep` still finds a raw `scripts/orchestrator.ts --workflow ...` worker
 - supervisor status shows repeated restart loops
 - heartbeat timestamps stop moving even though the supervisor is alive
-- the integration branch is wrong or dirty in a way that blocks safe restart
+- the active branch or shared repo checkout is wrong or dirty in a way that blocks safe restart or integration
 - the plugin loop needs a server or contract change instead of a plugin-only change

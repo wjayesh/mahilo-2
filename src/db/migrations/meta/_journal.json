@@ -85,6 +85,27 @@
       "when": 1773580800000,
       "tag": "0011_waitlist_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1773667200000,
+      "tag": "0012_browser_login_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1773859200000,
+      "tag": "0013_browser_login_denials",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1773892800000,
+      "tag": "0014_browser_login_hardening",
+      "breakpoints": true
     }
   ]
 }

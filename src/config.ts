@@ -22,6 +22,18 @@ export const config = {
     process.env.AUTH_REGISTER_RATE_LIMIT || "10",
     10,
   ),
+  authBrowserLoginStartRateLimitPerMinute: parseInt(
+    process.env.AUTH_BROWSER_LOGIN_START_RATE_LIMIT || "8",
+    10,
+  ),
+  authBrowserLoginApproveRateLimitPerMinute: parseInt(
+    process.env.AUTH_BROWSER_LOGIN_APPROVE_RATE_LIMIT || "10",
+    10,
+  ),
+  authBrowserLoginRedeemRateLimitPerMinute: parseInt(
+    process.env.AUTH_BROWSER_LOGIN_REDEEM_RATE_LIMIT || "10",
+    10,
+  ),
 
   // Message settings
   maxPayloadSize: parseInt(process.env.MAX_PAYLOAD_SIZE || "32768", 10), // 32KB

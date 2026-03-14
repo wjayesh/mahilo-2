@@ -17,6 +17,7 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 - `WORKFLOW.md` is the default **server** workflow
 - `WORKFLOW.plugin.md` is the separate plugin workflow
 - `docs/prd-server-policy-platform.md` is the current server task source
+- `docs/prd-dashboard-frontend-activation.md` is the current dashboard/frontend task source
 - `docs/prd-openclaw-plugin-migration.md` is the current plugin task source
 - `docs/openclaw-plugin-server-contract.md` is the shared server/plugin contract
 - `docs/orchestrator-hardening.md` explains the runtime hardening decisions
@@ -54,8 +55,8 @@ Mahilo now uses an in-repo autonomous development loop inspired by Symphony, but
 
 ## Safety and Git Behavior
 
-- Workflows are branch-guarded and currently require `autonomous/server-integration`.
-- The loop reconciles into the integration branch, never directly into `main`.
+- Workflows are branch-guarded. The default workflows use `required_branch: current`, which pins the loop to whichever named branch it starts on.
+- Start autonomous work from a dedicated integration or feature branch, not `main`.
 - Each completed or blocked terminal task is committed in its own task branch before integration.
 - The integration branch stays linear by cherry-picking task commits instead of merging task branches.
 - The loop auto-pushes after every 3 integrated task commits by default.

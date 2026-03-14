@@ -2,10 +2,12 @@
 name: mahilo-server-autonomous-development
 task_sources:
   - docs/prd-server-policy-platform.md
+  - docs/prd-dashboard-frontend-activation.md
 instruction_files:
   - CLAUDE.md
   - docs/openclaw-plugin-server-contract.md
   - docs/permission-system-design.md
+  - docs/prd-dashboard-frontend-activation.md
 progress_file: .mahilo-orchestrator/progress.md
 state_file: .mahilo-orchestrator/state.json
 workspace_root: .mahilo-orchestrator/workspaces
@@ -17,7 +19,7 @@ agent_args:
 max_iterations: 0
 poll_interval_seconds: 3
 completion_phrase: COMPLETE
-required_branch: autonomous/server-integration
+required_branch: current
 auto_commit_on_done: true
 auto_push_every_commits: 3
 task_failure_retry_limit: 3
@@ -26,9 +28,9 @@ runtime_stall_timeout_seconds: 1800
 ---
 # Mahilo Server Autonomous Workflow
 
-You are the implementation agent for Mahilo server work.
+You are the implementation agent for Mahilo server and dashboard work in this repo.
 
-Your job is to autonomously move the server task list forward using the task documents as the source of truth.
+Your job is to autonomously move the server/dashboard task list forward using the task documents as the source of truth.
 
 ## How to Work
 
