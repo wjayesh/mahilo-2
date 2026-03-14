@@ -22,6 +22,51 @@ const CONFIG = {
   PING_INTERVAL: 30000,
 };
 
+const VIEW_ALIASES = {
+  agents: 'connections',
+  friends: 'network',
+  policies: 'boundaries',
+};
+
+const VIEW_META = {
+  overview: {
+    title: 'Overview',
+    subtitle: 'Readiness across your Mahilo network',
+  },
+  network: {
+    title: 'Network',
+    subtitle: 'People, roles, and relationship state across your circle',
+  },
+  connections: {
+    title: 'Sender Connections',
+    subtitle: 'Manage the Mahilo connections that can send on your behalf',
+  },
+  groups: {
+    title: 'Groups',
+    subtitle: 'Coordinate trusted circles for targeted ask-around flows',
+  },
+  messages: {
+    title: 'Direct Messages',
+    subtitle: 'Inspect legacy one-to-one message threads and delivery history',
+  },
+  logs: {
+    title: 'Delivery Logs',
+    subtitle: 'Audit deliveries, reviews, blocked events, and ask-around threads',
+  },
+  boundaries: {
+    title: 'Boundaries',
+    subtitle: 'Control what Mahilo can share, hold for review, or block outright',
+  },
+  settings: {
+    title: 'Settings',
+    subtitle: 'Manage notifications, quiet hours, and your default dashboard behavior',
+  },
+  developer: {
+    title: 'Developer',
+    subtitle: 'Advanced API-key utilities, diagnostics, and test tooling',
+  },
+};
+
 // ========================================
 // State Management
 // ========================================
@@ -653,6 +698,59 @@ const Helpers = {
         return item.transportDirection === direction;
       })
       .sort((left, right) => this.compareByTimestampDesc(left, right));
+  },
+
+  askAroundThreadSummary(messages) {
+    const correlationCounts = new Map();
+    const threadIds = new Set();
+
+    messages
+      .filter((message) => message.kind === 'message')
+      .forEach((message) => {
+        if (message.correlationId) {
+          correlationCounts.set(
+            message.correlationId,
+            (correlationCounts.get(message.correlationId) || 0) + 1
+          );
+        }
+      });
+
+    messages
+      .filter((message) => message.kind === 'message')
+      .forEach((message) => {
+        if (message.recipientType === 'group') {
+          threadIds.add(message.correlationId || `group:${message.messageId}`);
+          return;
+        }
+
+        if (message.correlationId && (correlationCounts.get(message.correlationId) || 0) > 1) {
+          threadIds.add(message.correlationId);
+        }
+      });
+
+    return {
+      correlationCounts,
+      threadIds,
+    };
+  },
+
+  askAroundTag(message, threadSummary) {
+    if (!message || message.kind !== 'message') {
+      return null;
+    }
+
+    if (message.recipientType === 'group') {
+      return 'Ask-around group';
+    }
+
+    if (message.correlationId && threadSummary.threadIds.has(message.correlationId)) {
+      const threadSize = threadSummary.correlationCounts.get(message.correlationId) || 0;
+      return threadSize > 1
+        ? `Ask-around thread (${threadSize})`
+        : 'Ask-around thread';
+    }
+
+    return null;
   },
 };
 
@@ -1501,7 +1599,7 @@ const UI = {
     });
 
     document.getElementById('find-friends-quick')?.addEventListener('click', () => {
-      this.switchView('friends');
+      this.switchView('network');
       this.openAddFriendModal();
     });
 
@@ -1572,7 +1670,7 @@ const UI = {
     // Refresh agents
     document.getElementById('refresh-agents')?.addEventListener('click', () => {
       DataLoader.loadAgents();
-      this.showToast('Agents refreshed', 'success');
+      this.showToast('Sender connections refreshed', 'success');
     });
 
     // View all messages (logs)
@@ -1583,7 +1681,7 @@ const UI = {
     // Refresh logs
     document.getElementById('refresh-logs-btn')?.addEventListener('click', () => {
       DataLoader.loadLogFeed();
-      this.showToast('Logs refreshed', 'success');
+      this.showToast('Delivery logs refreshed', 'success');
     });
 
     // Logs filters
@@ -1861,11 +1959,13 @@ const UI = {
       await DataLoader.loadAgents();
       
       this.showToast(
-        result.updated ? 'Agent updated successfully' : 'Agent registered successfully',
+        result.updated
+          ? 'Connection updated successfully'
+          : 'Sender connection added successfully',
         'success'
       );
     } catch (error) {
-      this.showToast(error.message || 'Failed to save agent', 'error');
+      this.showToast(error.message || 'Failed to save sender connection', 'error');
     }
   },
 
@@ -1905,7 +2005,7 @@ const UI = {
     const priority = parseInt(document.getElementById('policy-priority').value, 10);
 
     if (!content) {
-      this.showToast('Please enter policy content', 'error');
+      this.showToast('Please enter boundary content', 'error');
       return;
     }
 
@@ -1931,12 +2031,12 @@ const UI = {
       this.hideModals();
       document.getElementById('create-policy-form').reset();
       await DataLoader.loadPolicies();
-      this.showToast('Policy created successfully', 'success');
+      this.showToast('Boundary created successfully', 'success');
     } catch (error) {
       if (error instanceof SyntaxError) {
-        this.showToast('Structured and heuristic policies must use valid JSON', 'error');
+        this.showToast('Structured and heuristic boundaries must use valid JSON', 'error');
       } else {
-        this.showToast(error.message || 'Failed to create policy', 'error');
+        this.showToast(error.message || 'Failed to create boundary', 'error');
       }
     }
   },
@@ -2090,7 +2190,7 @@ const UI = {
       const result = await API.messages.send({
         recipient: State.selectedChat,
         message,
-        context: 'Test message from Developer Console',
+        context: 'Test message from Developer',
       });
 
       input.value = '';
@@ -2103,15 +2203,15 @@ const UI = {
 
   // Handle delete agent
   async handleDeleteAgent(id) {
-    if (!confirm('Are you sure you want to delete this agent?')) return;
+    if (!confirm('Are you sure you want to delete this sender connection?')) return;
 
     try {
       await API.agents.delete(id);
       await DataLoader.loadAgents();
       this.hideModals();
-      this.showToast('Agent deleted successfully', 'success');
+      this.showToast('Connection deleted successfully', 'success');
     } catch (error) {
-      this.showToast('Failed to delete agent', 'error');
+      this.showToast('Failed to delete sender connection', 'error');
     }
   },
 
@@ -2176,53 +2276,44 @@ const UI = {
 
   // Switch view
   switchView(view) {
-    State.currentView = view;
+    const resolvedView = VIEW_ALIASES[view] || view || 'overview';
+    State.currentView = resolvedView;
 
     // Update nav
     document.querySelectorAll('.nav-item').forEach(item => {
-      item.classList.toggle('active', item.dataset.view === view);
+      item.classList.toggle('active', item.dataset.view === resolvedView);
     });
 
     // Update page title
-    const titles = {
-      overview: { title: 'Overview', subtitle: 'Your trust network at a glance' },
-      agents: { title: 'My Agents', subtitle: 'Manage your agent connections' },
-      friends: { title: 'Friends', subtitle: 'Connect with other users' },
-      groups: { title: 'Groups', subtitle: 'Collaborate with multiple friends' },
-      messages: { title: 'Messages', subtitle: 'Talk directly with your trusted network' },
-      logs: { title: 'Delivery Logs', subtitle: 'Monitor and audit message delivery' },
-      policies: { title: 'Policies', subtitle: 'Control what your agents can share' },
-      settings: { title: 'Settings', subtitle: 'Manage your preferences and notification settings' },
-      developer: { title: 'Developer Tools', subtitle: 'Debug and test messaging' },
-    };
-
-    const { title, subtitle } = titles[view] || titles.overview;
+    const { title, subtitle } = VIEW_META[resolvedView] || VIEW_META.overview;
     document.getElementById('page-title').textContent = title;
     document.getElementById('page-subtitle').textContent = subtitle;
 
     // Show view
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    const nextView = document.getElementById(`${view}-view`);
+    const nextView = document.getElementById(`${resolvedView}-view`);
     if (!nextView) {
-      console.warn(`View not found: ${view}`);
+      console.warn(`View not found: ${resolvedView}`);
       State.currentView = 'overview';
+      document.getElementById('page-title').textContent = VIEW_META.overview.title;
+      document.getElementById('page-subtitle').textContent = VIEW_META.overview.subtitle;
       document.getElementById('overview-view')?.classList.add('active');
       return;
     }
     nextView.classList.add('active');
 
     // Load data if needed
-    if (view === 'messages') {
+    if (resolvedView === 'messages') {
       this.renderConversations();
       if (State.selectedChat) {
         this.renderChat(State.selectedChat);
       }
-    } else if (view === 'logs') {
+    } else if (resolvedView === 'logs') {
       this.hideNotificationDot();
       this.renderLogs();
-    } else if (view === 'settings') {
+    } else if (resolvedView === 'settings') {
       DataLoader.loadPreferences();
-    } else if (view === 'developer') {
+    } else if (resolvedView === 'developer') {
       this.renderDevConversations();
       this.renderDevApiKey();
     }
@@ -2356,10 +2447,10 @@ const UI = {
       grid.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">🤖</div>
-          <h3>No agents yet</h3>
-          <p>Connect your first agent to join your trust network</p>
+          <h3>No sender connections yet</h3>
+          <p>Add a sender connection so Mahilo can deliver messages and ask around for you</p>
           <button class="squishy-btn btn-primary" id="add-first-agent">
-            <span>🚀</span> Connect Your First Agent
+            <span>🚀</span> Add Your First Connection
           </button>
         </div>
       `;
@@ -2404,17 +2495,23 @@ const UI = {
     try {
       const result = await API.agents.ping(id);
       if (result.success) {
-        this.showToast(`Agent responded in ${result.latency_ms}ms`, 'success');
+        this.showToast(`Connection responded in ${result.latency_ms}ms`, 'success');
       } else {
-        this.showToast(`Agent ping failed: ${result.error}`, 'error');
+        this.showToast(`Connection ping failed: ${result.error}`, 'error');
       }
     } catch (error) {
-      this.showToast('Failed to ping agent', 'error');
+      this.showToast('Failed to ping sender connection', 'error');
     }
   },
 
   renderFriends(filter = 'all') {
     const list = document.getElementById('friends-list');
+    const emptyLabels = {
+      all: 'network',
+      pending: 'pending requests',
+      sent: 'sent requests',
+      blocked: 'blocked contacts',
+    };
     
     let friends = State.friends;
     if (filter !== 'all') {
@@ -2425,8 +2522,8 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">👥</div>
-          <h3>No ${filter === 'all' ? 'friends' : filter + ' requests'} yet</h3>
-          <p>Add people you trust to start asking around</p>
+          <h3>No ${emptyLabels[filter] || 'network'} yet</h3>
+          <p>Build your circle to start asking around with people you trust</p>
         </div>
       `;
       return;
@@ -2559,10 +2656,10 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">🛡️</div>
-          <h3>No policies yet</h3>
-          <p>Create policies to control what your agents can share</p>
+          <h3>No boundaries yet</h3>
+          <p>Create boundaries to control what Mahilo can share or hold for review</p>
           <button class="squishy-btn btn-primary" id="create-first-policy">
-            <span>🛡️</span> Create Your First Policy
+            <span>🛡️</span> Create Your First Boundary
           </button>
         </div>
       `;
@@ -2575,7 +2672,7 @@ const UI = {
     list.innerHTML = policies.map(policy => `
       <div class="policy-card">
         <div class="policy-header">
-          <span class="policy-title">${policy.policyType === 'heuristic' ? '📋' : '🧠'} ${policy.effect} policy</span>
+          <span class="policy-title">${policy.policyType === 'heuristic' ? '📋' : '🧠'} ${policy.effect} boundary</span>
           <div class="policy-badges">
             <span class="policy-badge ${policy.scope}">${policy.scope}</span>
             <span class="policy-badge">${policy.direction}</span>
@@ -2603,21 +2700,21 @@ const UI = {
     try {
       await API.policies.update(id, { enabled });
       await DataLoader.loadPolicies();
-      this.showToast(`Policy ${enabled ? 'enabled' : 'disabled'}`, 'success');
+      this.showToast(`Boundary ${enabled ? 'enabled' : 'disabled'}`, 'success');
     } catch (error) {
-      this.showToast('Failed to update policy', 'error');
+      this.showToast('Failed to update boundary', 'error');
     }
   },
 
   async handleDeletePolicy(id) {
-    if (!confirm('Are you sure you want to delete this policy?')) return;
+    if (!confirm('Are you sure you want to delete this boundary?')) return;
 
     try {
       await API.policies.delete(id);
       await DataLoader.loadPolicies();
-      this.showToast('Policy deleted', 'success');
+      this.showToast('Boundary deleted', 'success');
     } catch (error) {
-      this.showToast('Failed to delete policy', 'error');
+      this.showToast('Failed to delete boundary', 'error');
     }
   },
 
@@ -2793,6 +2890,43 @@ const UI = {
     container.scrollTop = container.scrollHeight;
   },
 
+  renderLogSummary(items, threadSummary) {
+    const container = document.getElementById('logs-summary');
+    if (!container) {
+      return;
+    }
+
+    const messageCount = items.filter((item) => item.kind === 'message').length;
+    const reviewCount = items.filter((item) => item.kind === 'review').length;
+    const blockedCount = items.filter((item) => item.kind === 'blocked').length;
+    const approvalPendingCount = items.filter(
+      (item) => item.kind === 'review' && item.status === 'approval_pending'
+    ).length;
+
+    container.innerHTML = `
+      <div class="log-summary-card">
+        <span class="log-summary-label">Deliveries</span>
+        <span class="log-summary-value">${messageCount}</span>
+        <p>Sent or received messages in the current audit view.</p>
+      </div>
+      <div class="log-summary-card">
+        <span class="log-summary-label">Review Queue</span>
+        <span class="log-summary-value">${reviewCount}</span>
+        <p>${approvalPendingCount ? `${approvalPendingCount} waiting for approval.` : 'Review-required and approval-pending records.'}</p>
+      </div>
+      <div class="log-summary-card">
+        <span class="log-summary-label">Blocked Events</span>
+        <span class="log-summary-value">${blockedCount}</span>
+        <p>Boundary and policy denials captured for audit.</p>
+      </div>
+      <div class="log-summary-card">
+        <span class="log-summary-label">Ask-around Threads</span>
+        <span class="log-summary-value">${threadSummary.threadIds.size}</span>
+        <p>Detected fan-out or group delivery threads in this view.</p>
+      </div>
+    `;
+  },
+
   renderLogs(direction = 'all') {
     const list = document.getElementById('logs-list');
 
@@ -2802,13 +2936,17 @@ const UI = {
       State.blockedEvents,
       direction
     );
+    const messageItems = items.filter((item) => item.kind === 'message');
+    const threadSummary = Helpers.askAroundThreadSummary(messageItems);
+
+    this.renderLogSummary(items, threadSummary);
 
     if (!items.length) {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">📋</div>
           <h3>No delivery logs yet</h3>
-          <p>Message delivery history will appear here for monitoring and audit</p>
+          <p>Deliveries, reviews, blocked events, and ask-around threads will appear here for audit</p>
         </div>
       `;
       return;
@@ -2837,6 +2975,7 @@ const UI = {
             </div>
             <div class="log-content">${item.messagePreview || item.summary}</div>
             <div class="log-details">
+              <span class="log-detail log-detail-highlight">Review queue</span>
               <span class="log-detail">Decision: ${item.decision}</span>
               <span class="log-detail">Mode: ${item.deliveryMode || 'review_required'}</span>
               <span class="log-detail">Selector: ${item.selectors.resource || 'message.general'}</span>
@@ -2867,12 +3006,15 @@ const UI = {
             </div>
             <div class="log-content">${item.reason}</div>
             <div class="log-details">
+              <span class="log-detail log-detail-highlight">Blocked</span>
               <span class="log-detail">Selector: ${item.selectors.resource || 'message.general'}</span>
               ${item.payloadHash ? `<span class="log-detail">Hash: ${item.payloadHash.substring(0, 16)}...</span>` : ''}
             </div>
           </div>
         `;
       }
+
+      const askAroundTag = Helpers.askAroundTag(item, threadSummary);
 
       return `
         <div class="log-item">
@@ -2896,6 +3038,7 @@ const UI = {
           <div class="log-content">${item.messageText || '(no content)'}</div>
           <div class="log-details">
             <span class="log-detail">🤖 ${item.senderAgent || 'unknown'}</span>
+            ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ''}
             ${item.correlationId ? `<span class="log-detail">🔗 ${item.correlationId.substring(0, 8)}...</span>` : ''}
             ${item.recipientType === 'group' ? '<span class="log-detail">👥 Group</span>' : ''}
           </div>
@@ -2913,8 +3056,8 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 40px 20px;">
           <div class="empty-icon" style="font-size: 3rem; margin-bottom: 16px;">👥</div>
-          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No friends available</p>
-          <p class="hint" style="font-size: 0.9rem;">Add friends first to test messaging</p>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No network contacts available</p>
+          <p class="hint" style="font-size: 0.9rem;">Build your network first to test messaging</p>
         </div>
       `;
       return;
@@ -2991,7 +3134,7 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 30px 20px;">
           <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">🤖</div>
-          <p style="font-weight: 700; color: var(--color-text); font-size: 0.95rem;">No agents yet</p>
+          <p style="font-weight: 700; color: var(--color-text); font-size: 0.95rem;">No sender connections yet</p>
         </div>
       `;
       return;
@@ -3014,7 +3157,7 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 30px 20px;">
           <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">👋</div>
-          <p style="font-weight: 700; color: var(--color-text); font-size: 0.95rem;">No friends yet</p>
+          <p style="font-weight: 700; color: var(--color-text); font-size: 0.95rem;">No network yet</p>
         </div>
       `;
       return;
@@ -3039,8 +3182,8 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 40px 20px;">
           <div class="empty-icon" style="font-size: 3rem; margin-bottom: 16px;">📨</div>
-          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No messages yet</p>
-          <p class="hint" style="font-size: 0.9rem;">Start chatting with your friends!</p>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No delivery activity yet</p>
+          <p class="hint" style="font-size: 0.9rem;">Send a message or ask around to start your audit trail.</p>
         </div>
       `;
       return;

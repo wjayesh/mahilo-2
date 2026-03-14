@@ -33,6 +33,7 @@ type DashboardInternals = {
       byId: Map<string, unknown>;
       items: unknown[];
     };
+    blockedEvent: (value: unknown) => Record<string, unknown>;
     friendsModel: (value: unknown) => {
       ids: string[];
       byId: Map<string, unknown>;
@@ -53,14 +54,17 @@ type DashboardInternals = {
       byId: Map<string, unknown>;
       items: unknown[];
     };
+    review: (value: unknown) => Record<string, unknown>;
   };
   State: Record<string, any>;
   UI: {
     handleAddFriendRequest: () => Promise<void>;
     handleRegister: () => Promise<void>;
+    renderLogs: (direction?: string) => void;
     handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
     selectChat: (username: string) => void;
+    switchView: (view: string) => void;
   };
 };
 
@@ -988,5 +992,141 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
     );
     expect(registerPayload?.public_key).toBeUndefined();
     expect(registerPayload?.public_key_alg).toBeUndefined();
+  });
+});
+
+describe("Dashboard navigation and audit IA (DASH-010)", () => {
+  it("uses product-aligned navigation labels and titles while keeping legacy view aliases working", async () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const sidebarNav =
+      html.match(/<nav class="sidebar-nav">([\s\S]*?)<\/nav>/)?.[1] ?? "";
+
+    expect(sidebarNav).toContain('data-view="network"');
+    expect(sidebarNav).toContain(">Network<");
+    expect(sidebarNav).toContain('data-view="connections"');
+    expect(sidebarNav).toContain(">Sender Connections<");
+    expect(sidebarNav).toContain('data-view="boundaries"');
+    expect(sidebarNav).toContain(">Boundaries<");
+    expect(sidebarNav).not.toContain(">My Agents<");
+    expect(sidebarNav).not.toContain(">Friends<");
+    expect(sidebarNav).not.toContain(">Policies<");
+
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing view aliases: ${url}`);
+      },
+    });
+
+    await harness.boot();
+
+    harness.dashboard.UI.switchView("friends");
+    expect(harness.dashboard.State.currentView).toBe("network");
+    expect(harness.getElement("page-title").textContent).toBe("Network");
+
+    harness.dashboard.UI.switchView("agents");
+    expect(harness.dashboard.State.currentView).toBe("connections");
+    expect(harness.getElement("page-title").textContent).toBe(
+      "Sender Connections",
+    );
+
+    harness.dashboard.UI.switchView("policies");
+    expect(harness.dashboard.State.currentView).toBe("boundaries");
+    expect(harness.getElement("page-title").textContent).toBe("Boundaries");
+
+    harness.dashboard.UI.switchView("developer");
+    expect(harness.getElement("page-title").textContent).toBe("Developer");
+    expect(harness.getElement("page-subtitle").textContent).toContain("Advanced");
+  });
+
+  it("enriches delivery logs with review, blocked, and ask-around audit cues", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing log audit cues: ${url}`);
+      },
+    });
+
+    const { Helpers, Normalizers, UI } = harness.dashboard;
+
+    const askAroundMessages = [
+      Normalizers.message(
+        {
+          created_at: "2026-03-14T12:00:00.000Z",
+          id: "msg_ask_alice",
+          message: "Anyone know a dentist in SF?",
+          correlation_id: "corr_ask_around",
+          recipient: { type: "user", username: "alice" },
+          sender: { agent: "default", username: "viewer" },
+          status: "delivered",
+        },
+        { currentUsername: "viewer" },
+      ),
+      Normalizers.message(
+        {
+          created_at: "2026-03-14T12:01:00.000Z",
+          id: "msg_ask_bob",
+          message: "Anyone know a dentist in SF?",
+          correlation_id: "corr_ask_around",
+          recipient: { type: "user", username: "bob" },
+          sender: { agent: "default", username: "viewer" },
+          status: "delivered",
+        },
+        { currentUsername: "viewer" },
+      ),
+    ];
+
+    const review = Normalizers.review({
+      created_at: "2026-03-14T12:02:00.000Z",
+      decision: "ask",
+      delivery_mode: "review_required",
+      message_preview: "Share exact location",
+      queue_direction: "outbound",
+      recipient: { type: "user", username: "alice" },
+      review_id: "rev_boundary_1",
+      sender: { username: "viewer" },
+      selectors: { resource: "location.current" },
+      status: "approval_pending",
+      summary: "Needs approval before delivery.",
+    });
+
+    const blocked = Normalizers.blockedEvent({
+      created_at: "2026-03-14T12:03:00.000Z",
+      id: "blocked_boundary_1",
+      payload_hash: "abc123def456",
+      queue_direction: "outbound",
+      reason: "Blocked by boundary.",
+      recipient: { type: "user", username: "bob" },
+      resource: "location.current",
+      sender: { username: "viewer" },
+      status: "rejected",
+    });
+
+    Helpers.applyCollectionState(
+      "messages",
+      "messagesById",
+      Helpers.collectionModel(askAroundMessages),
+    );
+    Helpers.applyCollectionState(
+      "reviews",
+      "reviewsById",
+      Helpers.collectionModel([review]),
+    );
+    Helpers.applyCollectionState(
+      "blockedEvents",
+      "blockedEventsById",
+      Helpers.collectionModel([blocked]),
+    );
+
+    UI.renderLogs();
+
+    expect(harness.getElement("logs-summary").innerHTML).toContain("Review Queue");
+    expect(harness.getElement("logs-summary").innerHTML).toContain("Blocked Events");
+    expect(harness.getElement("logs-summary").innerHTML).toContain(
+      "Ask-around Threads",
+    );
+    expect(harness.getElement("logs-list").innerHTML).toContain("Review queue");
+    expect(harness.getElement("logs-list").innerHTML).toContain("Blocked");
+    expect(harness.getElement("logs-list").innerHTML).toContain(
+      "Ask-around thread (2)",
+    );
   });
 });

@@ -392,34 +392,35 @@
             <span class="nav-icon">🏠</span>
             <span class="nav-text">Overview</span>
           </button>
-          <button class="nav-item" data-view="agents">
-            <span class="nav-icon">🤖</span>
-            <span class="nav-text">My Agents</span>
-            <span class="nav-badge hidden" id="agent-count">0</span>
-          </button>
-          <button class="nav-item" data-view="friends">
+          <button class="nav-item" data-view="network">
             <span class="nav-icon">👥</span>
-            <span class="nav-text">Friends</span>
+            <span class="nav-text">Network</span>
             <span class="nav-badge hidden" id="friend-count">0</span>
+          </button>
+          <button class="nav-item" data-view="connections">
+            <span class="nav-icon">🤖</span>
+            <span class="nav-text">Sender Connections</span>
+            <span class="nav-badge hidden" id="agent-count">0</span>
           </button>
           <button class="nav-item" data-view="groups">
             <span class="nav-icon">🏘️</span>
             <span class="nav-text">Groups</span>
             <span class="nav-badge hidden" id="group-count">0</span>
           </button>
+          <button class="nav-item" data-view="boundaries">
+            <span class="nav-icon">🛡️</span>
+            <span class="nav-text">Boundaries</span>
+          </button>
           <button class="nav-item" data-view="logs">
             <span class="nav-icon">📋</span>
             <span class="nav-text">Delivery Logs</span>
-          </button>
-          <button class="nav-item" data-view="policies">
-            <span class="nav-icon">🛡️</span>
-            <span class="nav-text">Policies</span>
           </button>
           <button class="nav-item" data-view="settings">
             <span class="nav-icon">⚙️</span>
             <span class="nav-text">Settings</span>
           </button>
           <div class="nav-divider"></div>
+          <div class="nav-section-label">Advanced</div>
           <button class="nav-item nav-dev" data-view="developer">
             <span class="nav-icon">🛠️</span>
             <span class="nav-text">Developer</span>
@@ -445,7 +446,7 @@
         <header class="dashboard-header">
           <div class="header-left">
             <h1 class="page-title" id="page-title">Overview</h1>
-            <p class="page-subtitle" id="page-subtitle">Welcome back to your agent hub!</p>
+            <p class="page-subtitle" id="page-subtitle">Readiness across your Mahilo network.</p>
           </div>
           <div class="header-right">
             <button class="squishy-btn btn-secondary" id="notifications-btn">
@@ -473,12 +474,12 @@
                     <div class="stat-pill">
                       <span class="stat-icon">🤖</span>
                       <span class="stat-value" id="overview-agent-count">0</span>
-                      <span class="stat-label">Agents</span>
+                      <span class="stat-label">Connections</span>
                     </div>
                     <div class="stat-pill">
                       <span class="stat-icon">👥</span>
                       <span class="stat-value" id="overview-friend-count">0</span>
-                      <span class="stat-label">Friends</span>
+                      <span class="stat-label">Network</span>
                     </div>
                     <div class="stat-pill">
                       <span class="stat-icon">🏘️</span>
@@ -489,32 +490,32 @@
                 </div>
               </div>
 
-              <!-- Agent Status Card -->
+              <!-- Sender Connections Card -->
               <div class="card agent-status-card">
                 <div class="card-header">
-                  <h3>🤖 Agent Status</h3>
+                  <h3>🤖 Sender Connections</h3>
                   <button class="btn-icon-only" id="refresh-agents">🔄</button>
                 </div>
                 <div class="agent-status-list" id="overview-agent-list">
                   <div class="empty-state small">
                     <div class="empty-icon">🤖</div>
-                    <p>No agents connected yet</p>
+                    <p>No sender connections yet</p>
                   </div>
                 </div>
                 <button class="squishy-btn btn-primary btn-small" id="add-agent-quick">
-                  <span>+</span> Add Agent
+                  <span>+</span> Add Connection
                 </button>
               </div>
 
-              <!-- Friend Activity Card -->
+              <!-- Network Activity Card -->
               <div class="card friend-activity-card">
                 <div class="card-header">
-                  <h3>👥 Friend Activity</h3>
+                  <h3>👥 Network Activity</h3>
                 </div>
                 <div class="friend-preview-list" id="overview-friend-list">
                   <div class="empty-state small">
                     <div class="empty-icon">👋</div>
-                    <p>No friends yet</p>
+                    <p>No network yet</p>
                   </div>
                 </div>
                 <button class="squishy-btn btn-secondary btn-small" id="find-friends-quick">
@@ -526,7 +527,7 @@
               <div class="card card-wide recent-messages-card">
                 <div class="card-header">
                   <h3>📋 Recent Delivery Activity</h3>
-                  <button class="squishy-btn btn-ghost btn-small" id="view-all-messages">View Logs</button>
+                  <button class="squishy-btn btn-ghost btn-small" id="view-all-messages">Open Logs</button>
                 </div>
                 <div class="message-preview-list" id="overview-message-list">
                   <div class="empty-state small">
@@ -538,31 +539,31 @@
             </div>
           </div>
 
-          <!-- Agents View -->
-          <div id="agents-view" class="view">
+          <!-- Sender Connections View -->
+          <div id="connections-view" class="view">
             <div class="view-toolbar">
               <div class="search-box">
                 <span class="search-icon">🔍</span>
-                <input type="text" placeholder="Filter connections..." class="squishy-input" id="agent-search">
+                <input type="text" placeholder="Filter sender connections..." class="squishy-input" id="agent-search">
               </div>
               <button class="squishy-btn btn-primary" id="add-agent-btn">
-                <span>+</span> Add Agent
+                <span>+</span> Add Connection
               </button>
             </div>
             <div class="agents-grid" id="agents-grid">
               <div class="empty-state">
                 <div class="empty-icon-large">🤖</div>
-                <h3>No agents yet</h3>
-                <p>Connect your first agent to join your trust network</p>
+                <h3>No sender connections yet</h3>
+                <p>Add a sender connection so Mahilo can route messages on your behalf</p>
                 <button class="squishy-btn btn-primary" id="add-first-agent">
-                  <span>🚀</span> Connect Your First Agent
+                  <span>🚀</span> Add Your First Connection
                 </button>
               </div>
             </div>
           </div>
 
-          <!-- Friends View -->
-          <div id="friends-view" class="view">
+          <!-- Network View -->
+          <div id="network-view" class="view">
             <div class="friends-layout">
               <div class="friends-sidebar">
                 <div class="search-box">
@@ -573,7 +574,7 @@
                   <span>@</span> Add by Username
                 </button>
                 <div class="friends-filters">
-                  <button class="filter-btn active" data-filter="all">All Friends</button>
+                  <button class="filter-btn active" data-filter="all">All Network</button>
                   <button class="filter-btn" data-filter="pending">
                     Pending
                     <span class="filter-badge hidden" id="pending-count">0</span>
@@ -586,8 +587,8 @@
                 <div class="friends-list" id="friends-list">
                   <div class="empty-state">
                     <div class="empty-icon-large">👥</div>
-                    <h3>No friends yet</h3>
-                    <p>Add people you trust to start asking around</p>
+                    <h3>No network yet</h3>
+                    <p>Build your circle to start asking around</p>
                   </div>
                 </div>
               </div>
@@ -638,8 +639,8 @@
                   <div class="placeholder-content">
                     <div class="placeholder-icon">✉️</div>
                     <h3>Your network inbox</h3>
-                    <p>Select a friend to view history and send a message.</p>
-                    <p class="hint">Messages use your active Mahilo agent connection.</p>
+                    <p>Select a network contact to view history and send a message.</p>
+                    <p class="hint">Messages use your active Mahilo sender connection.</p>
                   </div>
                 </div>
                 <div class="chat-container hidden" id="chat-container">
@@ -678,22 +679,23 @@
                 <span>🔄</span> Refresh
               </button>
             </div>
+            <div class="logs-summary-grid" id="logs-summary"></div>
             <div class="logs-list" id="logs-list">
               <div class="empty-state">
                 <div class="empty-icon-large">📋</div>
                 <h3>No delivery logs yet</h3>
-                <p>Message delivery history will appear here for monitoring and audit</p>
+                <p>Deliveries, reviews, blocked events, and ask-around threads will appear here for audit</p>
               </div>
             </div>
           </div>
 
-          <!-- Developer View (Debug/Test Tools) -->
+          <!-- Developer View (Advanced/Test Tools) -->
           <div id="developer-view" class="view">
             <div class="dev-warning-card">
               <div class="dev-warning-icon">🛠️</div>
               <div class="dev-warning-content">
-                <h3>Developer Tools</h3>
-                <p>This section is for testing and debugging purposes only. Use the <code>talk_to_agent</code> tool in your agent framework for normal messaging.</p>
+                <h3>Advanced Setup and Diagnostics</h3>
+                <p>Developer keeps API-key utilities, diagnostics, and test flows available without crowding the primary product path. Use the <code>talk_to_agent</code> tool in your agent framework for normal messaging.</p>
               </div>
             </div>
             
@@ -716,13 +718,13 @@
               <div class="conversations-sidebar">
                 <div class="dev-sidebar-header">
                   <h4>🔧 Test Messaging</h4>
-                  <p>Select a friend to send test messages</p>
+                  <p>Select a network contact to send test messages</p>
                 </div>
                 <div class="conversations-list" id="dev-conversations-list">
                   <div class="empty-state small">
                     <div class="empty-icon">💬</div>
-                    <p>No friends available</p>
-                    <p class="hint">Add friends first to test messaging</p>
+                    <p>No network contacts available</p>
+                    <p class="hint">Build your network first to test messaging</p>
                   </div>
                 </div>
               </div>
@@ -731,7 +733,7 @@
                   <div class="placeholder-content">
                     <div class="placeholder-icon">🧪</div>
                     <h3>Debug Console</h3>
-                    <p>Select a friend to send test messages</p>
+                    <p>Select a network contact to send test messages</p>
                     <p class="hint">Messages sent here bypass normal agent flows</p>
                   </div>
                 </div>
@@ -759,26 +761,26 @@
             </div>
           </div>
 
-          <!-- Policies View -->
-          <div id="policies-view" class="view">
+          <!-- Boundaries View -->
+          <div id="boundaries-view" class="view">
             <div class="view-toolbar">
               <div class="policy-filters">
                 <button class="filter-btn active" data-scope="all">All</button>
                 <button class="filter-btn" data-scope="global">Global</button>
-                <button class="filter-btn" data-scope="user">Per-User</button>
+                <button class="filter-btn" data-scope="user">Contact</button>
                 <button class="filter-btn" data-scope="group">Group</button>
               </div>
               <button class="squishy-btn btn-primary" id="create-policy-btn">
-                <span>+</span> New Policy
+                <span>+</span> New Boundary
               </button>
             </div>
             <div class="policies-list" id="policies-list">
               <div class="empty-state">
                 <div class="empty-icon-large">🛡️</div>
-                <h3>No policies yet</h3>
-                <p>Create policies to control what your agents can share</p>
+                <h3>No boundaries yet</h3>
+                <p>Create boundaries to control what Mahilo can share or hold for review</p>
                 <button class="squishy-btn btn-primary" id="create-first-policy">
-                  <span>🛡️</span> Create Your First Policy
+                  <span>🛡️</span> Create Your First Boundary
                 </button>
               </div>
             </div>
@@ -898,7 +900,7 @@
       <!-- Add Agent Modal -->
       <div class="modal hidden" id="add-agent-modal">
         <div class="modal-header">
-          <h3>🤖 Add New Agent</h3>
+          <h3>🤖 Add Sender Connection</h3>
           <button class="modal-close">✕</button>
         </div>
         <div class="modal-body">
@@ -939,7 +941,7 @@
         <div class="modal-footer">
           <button class="squishy-btn btn-secondary" data-close>Cancel</button>
           <button class="squishy-btn btn-primary" id="save-agent-btn">
-            <span>💾</span> Save Agent
+            <span>💾</span> Save Connection
           </button>
         </div>
       </div>
@@ -1036,11 +1038,11 @@
           <div class="profile-stats">
             <div class="profile-stat">
               <span class="profile-stat-value" id="profile-agent-count">0</span>
-              <span class="profile-stat-label">Agents</span>
+              <span class="profile-stat-label">Connections</span>
             </div>
             <div class="profile-stat">
               <span class="profile-stat-value" id="profile-friend-count">0</span>
-              <span class="profile-stat-label">Friends</span>
+              <span class="profile-stat-label">Network</span>
             </div>
             <div class="profile-stat">
               <span class="profile-stat-value" id="profile-group-count">0</span>
@@ -1081,10 +1083,10 @@
         </div>
       </div>
 
-      <!-- Create Policy Modal -->
+      <!-- Create Boundary Modal -->
       <div class="modal hidden" id="create-policy-modal">
         <div class="modal-header">
-          <h3>🛡️ Create Policy</h3>
+          <h3>🛡️ Create Boundary</h3>
           <button class="modal-close">✕</button>
         </div>
         <div class="modal-body">
@@ -1092,8 +1094,8 @@
             <div class="input-group">
               <label class="input-label">Scope</label>
               <select class="squishy-input squishy-select" id="policy-scope" required>
-                <option value="global">Global (all messages)</option>
-                <option value="user">Per-User</option>
+                <option value="global">Global (all delivery activity)</option>
+                <option value="user">Contact</option>
                 <option value="group">Group</option>
               </select>
             </div>
@@ -1104,7 +1106,7 @@
               </select>
             </div>
             <div class="input-group">
-              <label class="input-label">Policy Type</label>
+              <label class="input-label">Boundary Type</label>
               <select class="squishy-input squishy-select" id="policy-type" required>
                 <option value="heuristic">Heuristic (rule-based)</option>
                 <option value="llm">LLM-evaluated</option>
@@ -1123,15 +1125,15 @@
         <div class="modal-footer">
           <button class="squishy-btn btn-secondary" data-close>Cancel</button>
           <button class="squishy-btn btn-primary" id="save-policy-btn">
-            <span>💾</span> Save Policy
+            <span>💾</span> Save Boundary
           </button>
         </div>
       </div>
 
-      <!-- Agent Details Modal -->
+      <!-- Connection Details Modal -->
       <div class="modal hidden" id="agent-details-modal">
         <div class="modal-header">
-          <h3>🤖 Agent Details</h3>
+          <h3>🤖 Connection Details</h3>
           <button class="modal-close">✕</button>
         </div>
         <div class="modal-body">

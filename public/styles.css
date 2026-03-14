@@ -1438,6 +1438,7 @@ body {
 
 .nav-text {
   flex: 1;
+  line-height: 1.2;
 }
 
 .nav-badge {
@@ -1459,6 +1460,16 @@ body {
   border-top: 2px dashed var(--color-card-border);
   margin: var(--space-md) 0;
   flex-shrink: 0;
+}
+
+.nav-section-label {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+  margin: 0 0 var(--space-xs);
+  padding: 0 var(--space-md);
+  text-transform: uppercase;
 }
 
 .nav-dev {
@@ -3339,6 +3350,43 @@ body {
   gap: var(--space-md);
 }
 
+.logs-summary-grid {
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: var(--space-lg);
+}
+
+.log-summary-card {
+  background: var(--color-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-lg);
+}
+
+.log-summary-label {
+  color: var(--color-text-light);
+  display: block;
+  font-size: 0.8rem;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-xs);
+  text-transform: uppercase;
+}
+
+.log-summary-value {
+  color: var(--color-text);
+  display: block;
+  font-size: 1.9rem;
+  font-weight: 900;
+  margin-bottom: var(--space-xs);
+}
+
+.log-summary-card p {
+  color: var(--color-text-light);
+  font-size: 0.88rem;
+}
+
 .log-item {
   background: var(--color-card);
   border-radius: var(--radius-lg);
@@ -3411,6 +3459,13 @@ body {
   color: #D4A017;
 }
 
+.log-status.review_required,
+.log-status.approval_pending {
+  background: rgba(255, 217, 61, 0.2);
+  color: #B58100;
+}
+
+.log-status.rejected,
 .log-status.failed {
   background: rgba(255, 107, 107, 0.2);
   color: var(--color-danger);
@@ -3433,6 +3488,21 @@ body {
   border-top: 1px dashed var(--color-card-border);
   font-size: 0.8rem;
   color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+.log-detail {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.log-detail-highlight {
+  background: rgba(255, 158, 107, 0.16);
+  border-radius: var(--radius-full);
+  color: var(--color-primary-dark);
+  font-weight: var(--font-weight-bold);
+  padding: 4px 10px;
 }
 
 .log-detail {
@@ -3630,6 +3700,7 @@ body {
   
   .sidebar-title,
   .nav-text,
+  .nav-section-label,
   .user-info {
     display: none;
   }
