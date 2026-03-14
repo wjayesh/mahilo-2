@@ -488,7 +488,7 @@ This project is done when all of the following are true:
 
 ### 3.1 Gate Direct `send_message` in the Shared Send Path
 - **ID**: `LPE-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-020`, `LPE-012`, `LPE-023`
 - **Description**:
@@ -500,6 +500,8 @@ This project is done when all of the following are true:
   - [ ] Tool response format remains backward compatible for callers
   - [ ] Direct send tests verify no transport call on block/hold
 
+- **Notes**:
+  - 2026-03-14T15:15:59.541Z: LPE-030 completed via orchestrator integration.
 ### 3.2 Gate `ask_network` Contact Fanout
 - **ID**: `LPE-031`
 - **Status**: `pending`
