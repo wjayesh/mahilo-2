@@ -615,7 +615,7 @@ This project is done when all of the following are true:
   - 2026-03-14T16:13:27.529Z: LPE-041 completed via orchestrator integration.
 ### 4.3 Add Observability for Local Policy Decisions
 - **ID**: `LPE-042`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: `LPE-030`, `LPE-040`
 - **Description**:
@@ -633,6 +633,8 @@ This project is done when all of the following are true:
 
 ---
 
+- **Notes**:
+  - 2026-03-14T17:58:31.285Z: LPE-042 completed via orchestrator integration.
 ## Phase 5: Test and Validation Coverage
 
 ### 5.1 Add Shared-Core Parity Tests
