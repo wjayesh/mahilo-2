@@ -676,6 +676,7 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
       [
         "/api/v1/agents",
         "/api/v1/auth/me",
+        `/api/v1/contacts/${peer.username}/connections`,
         "/api/v1/friends?status=accepted",
         "/api/v1/friends?status=blocked",
         "/api/v1/friends?status=pending",
@@ -1322,5 +1323,109 @@ describe("Dashboard network list (DASH-020)", () => {
     expect(harness.getElement("friends-list").innerHTML).toContain(
       "Add by Username",
     );
+  });
+});
+
+describe("Dashboard contact detail and connection space (DASH-021)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("shows active contact connections with framework, label, capabilities, and readiness", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_connection_viewer",
+      "Viewer",
+    );
+    const { user: peer } = await createTestUser(
+      "dashboard_connection_peer",
+      "Connection Peer",
+    );
+
+    const friendship = await createFriendship(viewer.id, peer.id, "accepted");
+    const peerConnection = await createAgentConnection(peer.id, {
+      framework: "openclaw",
+      label: "travel_helper",
+    });
+
+    await db
+      .update(schema.agentConnections)
+      .set({
+        capabilities: JSON.stringify(["ask-around", "calendar"]),
+        description: "Travel and availability specialist",
+        routingPriority: 4,
+      })
+      .where(eq(schema.agentConnections.id, peerConnection.id));
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    expect(harness.dashboard.State.selectedNetworkFriendId).toBe(friendship.id);
+    expect(harness.fetchCalls).toContain(
+      `/api/v1/contacts/${peer.username}/connections`,
+    );
+
+    const detailHtml = harness.getElement("network-detail-panel").innerHTML;
+    expect(detailHtml).toContain("Connection space");
+    expect(detailHtml).toContain("Ready for direct send and ask-around");
+    expect(detailHtml).toContain("Framework, label, capabilities, and live status");
+    expect(detailHtml).toContain("travel_helper");
+    expect(detailHtml).toContain("Openclaw");
+    expect(detailHtml).toContain("ask-around");
+    expect(detailHtml).toContain("calendar");
+    expect(detailHtml).toContain("Ready");
+    expect(detailHtml).toContain("1 active connection");
+  });
+
+  it("marks accepted contacts with no active connections as not ready for ask-around", async () => {
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_no_connection_viewer",
+      "Viewer",
+    );
+    const { user: peer } = await createTestUser(
+      "dashboard_no_connection_peer",
+      "No Connection Peer",
+    );
+
+    await createFriendship(viewer.id, peer.id, "accepted");
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    const detailHtml = harness.getElement("network-detail-panel").innerHTML;
+    expect(detailHtml).toContain("No active Mahilo connections right now");
+    expect(detailHtml).toContain(
+      "No active Mahilo connections are live for this contact.",
+    );
+    expect(detailHtml).toContain(
+      "Without an active connection, this contact cannot participate in ask-around results.",
+    );
+    expect(detailHtml).toContain("Not ready");
   });
 });

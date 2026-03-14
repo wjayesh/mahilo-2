@@ -94,10 +94,12 @@ const State = {
   conversations: new Map(),
   currentView: 'overview',
   selectedChat: null,
+  selectedNetworkFriendId: null,
   wsConnected: false,
   notifications: [],
   networkFilter: 'all',
   networkSearch: '',
+  contactConnectionsByUsername: new Map(),
 
   // Initialize state from localStorage
   init() {
@@ -160,9 +162,11 @@ const State = {
     this.conversations = new Map();
     this.currentView = 'overview';
     this.selectedChat = null;
+    this.selectedNetworkFriendId = null;
     this.wsConnected = false;
     this.networkFilter = 'all';
     this.networkSearch = '';
+    this.contactConnectionsByUsername = new Map();
     localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
 };
@@ -1442,6 +1446,22 @@ const DataLoader = {
         'friendsById',
         allFriendsModel
       );
+      const activeFriendUsernames = new Set(
+        allFriendsModel.items
+          .map((friend) => Helpers.string(friend?.username).toLowerCase())
+          .filter(Boolean)
+      );
+
+      State.contactConnectionsByUsername.forEach((_value, username) => {
+        if (!activeFriendUsernames.has(username)) {
+          State.contactConnectionsByUsername.delete(username);
+        }
+      });
+
+      if (State.selectedNetworkFriendId && !State.friendsById.has(State.selectedNetworkFriendId)) {
+        State.selectedNetworkFriendId = null;
+      }
+
       UI.updateFriendCount(acceptedFriendsModel.items.length);
       UI.updateNetworkRelationshipCounts(allFriendsModel.items);
       UI.renderFriends();
@@ -2843,31 +2863,33 @@ const UI = {
 
     if (bucket === 'incoming') {
       return `
-        <button class="squishy-btn btn-primary btn-small" onclick="UI.handleAcceptFriend('${friendshipId}')">Accept</button>
-        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleRejectFriend('${friendshipId}')">Reject</button>
+        <button class="squishy-btn btn-primary btn-small" onclick="event.stopPropagation(); UI.handleAcceptFriend('${friendshipId}')">Accept</button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleRejectFriend('${friendshipId}')">Reject</button>
       `;
     }
 
     if (bucket === 'accepted') {
       return `
-        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleBlockFriend('${friendshipId}')">Block</button>
-        <button class="squishy-btn btn-danger btn-small" onclick="UI.handleUnfriend('${friendshipId}')">Unfriend</button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleBlockFriend('${friendshipId}')">Block</button>
+        <button class="squishy-btn btn-danger btn-small" onclick="event.stopPropagation(); UI.handleUnfriend('${friendshipId}')">Unfriend</button>
       `;
     }
 
     if (bucket === 'blocked') {
       return `
-        <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friendshipId}')">Remove</button>
+        <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleUnfriend('${friendshipId}')">Remove</button>
       `;
     }
 
     return `
-      <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friendshipId}')">Cancel Request</button>
+      <button class="squishy-btn btn-secondary btn-small" onclick="event.stopPropagation(); UI.handleUnfriend('${friendshipId}')">Cancel Request</button>
     `;
   },
 
   renderFriendCard(friend) {
     const bucket = this.networkBucket(friend);
+    const friendshipId = Helpers.string(friend?.friendshipId);
+    const isSelected = State.selectedNetworkFriendId === friendshipId;
     const displayName = Helpers.escapeHtml(friend?.displayName || friend?.username || 'Unknown');
     const username = Helpers.escapeHtml(friend?.username || 'unknown');
     const summary = Helpers.escapeHtml(this.networkSummaryCopy(friend));
@@ -2885,7 +2907,14 @@ const UI = {
       .join('');
 
     return `
-      <div class="friend-item ${bucket}">
+      <div
+        class="friend-item ${bucket} ${isSelected ? 'selected' : ''}"
+        role="button"
+        tabindex="0"
+        aria-pressed="${isSelected ? 'true' : 'false'}"
+        onclick="UI.selectNetworkFriend('${friendshipId}')"
+        onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); UI.selectNetworkFriend('${friendshipId}'); }"
+      >
         <div class="friend-primary">
           <div class="friend-avatar">
             ${(friend?.displayName?.[0] || friend?.username?.[0] || '?').toUpperCase()}
@@ -2906,6 +2935,523 @@ const UI = {
         </div>
         <div class="friend-actions">
           ${this.renderNetworkActions(friend)}
+        </div>
+      </div>
+    `;
+  },
+
+  networkConnectionCacheKey(username) {
+    return Helpers.string(username).toLowerCase();
+  },
+
+  getNetworkConnectionState(friendOrUsername) {
+    const username =
+      typeof friendOrUsername === 'string'
+        ? friendOrUsername
+        : friendOrUsername?.username;
+    const key = this.networkConnectionCacheKey(username);
+
+    if (!key) {
+      return {
+        status: 'idle',
+        items: [],
+        error: null,
+        loadedAt: null,
+      };
+    }
+
+    return (
+      State.contactConnectionsByUsername.get(key) || {
+        status: 'idle',
+        items: [],
+        error: null,
+        loadedAt: null,
+      }
+    );
+  },
+
+  preferredNetworkFriend(friends = []) {
+    return friends.find((friend) => this.networkBucket(friend) === 'accepted') || friends[0] || null;
+  },
+
+  syncSelectedNetworkFriend(visibleFriends = this.getVisibleNetworkFriends(State.networkFilter)) {
+    const currentFriend = State.selectedNetworkFriendId
+      ? State.friendsById.get(State.selectedNetworkFriendId)
+      : null;
+
+    if (
+      currentFriend &&
+      visibleFriends.some((friend) => friend.friendshipId === currentFriend.friendshipId)
+    ) {
+      return currentFriend;
+    }
+
+    const nextFriend = this.preferredNetworkFriend(visibleFriends);
+    State.selectedNetworkFriendId = nextFriend?.friendshipId || null;
+    return nextFriend;
+  },
+
+  async selectNetworkFriend(friendshipId) {
+    if (!friendshipId || !State.friendsById.has(friendshipId)) {
+      return;
+    }
+
+    State.selectedNetworkFriendId = friendshipId;
+    this.renderFriends();
+  },
+
+  async refreshSelectedNetworkConnections() {
+    const friend = State.selectedNetworkFriendId
+      ? State.friendsById.get(State.selectedNetworkFriendId)
+      : null;
+
+    if (!friend) {
+      return;
+    }
+
+    await this.ensureNetworkConnectionData(friend, { force: true });
+  },
+
+  async ensureNetworkConnectionData(friend, options = {}) {
+    if (!friend || this.networkBucket(friend) !== 'accepted') {
+      return;
+    }
+
+    const key = this.networkConnectionCacheKey(friend.username);
+
+    if (!key) {
+      return;
+    }
+
+    const existingState = this.getNetworkConnectionState(friend);
+
+    if (
+      !options.force &&
+      ['loading', 'loaded'].includes(existingState.status)
+    ) {
+      return;
+    }
+
+    State.contactConnectionsByUsername.set(key, {
+      status: 'loading',
+      items: Array.isArray(existingState.items) ? existingState.items : [],
+      error: null,
+      loadedAt: existingState.loadedAt || null,
+    });
+
+    if (State.selectedNetworkFriendId === friend.friendshipId) {
+      this.renderNetworkConnectionSpace(friend);
+    }
+
+    try {
+      const connectionsModel = Normalizers.agentsModel(
+        await API.contacts.connections(friend.username)
+      );
+
+      State.contactConnectionsByUsername.set(key, {
+        status: 'loaded',
+        items: connectionsModel.items,
+        error: null,
+        loadedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      State.contactConnectionsByUsername.set(key, {
+        status: 'error',
+        items: [],
+        error: error.message || 'Failed to load active contact connections.',
+        loadedAt: null,
+      });
+    }
+
+    if (State.selectedNetworkFriendId === friend.friendshipId) {
+      this.renderNetworkConnectionSpace(friend);
+    }
+  },
+
+  networkReadinessState(friend, connectionState = this.getNetworkConnectionState(friend)) {
+    if (!friend) {
+      return null;
+    }
+
+    const bucket = this.networkBucket(friend);
+    const connections = Array.isArray(connectionState?.items) ? connectionState.items : [];
+    const status = connectionState?.status || 'idle';
+
+    if (bucket !== 'accepted') {
+      const pendingMeta = {
+        incoming: {
+          title: 'Waiting on your decision',
+          summary:
+            'Accept this request before Mahilo can inspect the contact connection space or include this person in ask-around.',
+          direct:
+            'Direct send is blocked until you accept the relationship.',
+          askAround:
+            'Pending contacts do not participate in ask-around until the relationship is accepted.',
+        },
+        outgoing: {
+          title: 'Waiting on their acceptance',
+          summary:
+            'Connection readiness becomes available after the other person accepts your request.',
+          direct:
+            'Mahilo will not attempt direct delivery until the relationship is accepted.',
+          askAround:
+            'Outgoing requests stay outside ask-around participation until acceptance completes.',
+        },
+        blocked: {
+          title: 'Blocked from Mahilo participation',
+          summary:
+            'Blocked contacts stay outside direct delivery and ask-around until the relationship record is removed.',
+          direct:
+            'Blocked relationships are not eligible for direct send routing.',
+          askAround:
+            'Blocked relationships are excluded from ask-around participation.',
+        },
+      };
+      const meta = pendingMeta[bucket] || pendingMeta.outgoing;
+
+      return {
+        tone: 'not-ready',
+        summaryTitle: meta.title,
+        summaryCopy: meta.summary,
+        directSend: {
+          label: 'Not ready',
+          tone: 'not-ready',
+          copy: meta.direct,
+        },
+        askAround: {
+          label: 'Not ready',
+          tone: 'not-ready',
+          copy: meta.askAround,
+        },
+      };
+    }
+
+    if (status === 'error') {
+      return {
+        tone: 'warning',
+        summaryTitle: 'Unable to verify connection readiness',
+        summaryCopy:
+          'Mahilo could not load this contact’s active connections just now. Retry to confirm direct-send and ask-around readiness.',
+        directSend: {
+          label: 'Check failed',
+          tone: 'warning',
+          copy: 'Mahilo could not confirm an active direct-delivery route from the contact connections API.',
+        },
+        askAround: {
+          label: 'Check failed',
+          tone: 'warning',
+          copy: 'Retry the contact connection lookup to confirm whether this person can participate in ask-around.',
+        },
+      };
+    }
+
+    if (status !== 'loaded') {
+      return {
+        tone: 'pending',
+        summaryTitle: 'Checking active Mahilo connections',
+        summaryCopy:
+          'Mahilo is loading this contact’s live connection space to determine direct-send and ask-around readiness.',
+        directSend: {
+          label: 'Checking',
+          tone: 'pending',
+          copy: 'Loading active contact connections for direct delivery readiness.',
+        },
+        askAround: {
+          label: 'Checking',
+          tone: 'pending',
+          copy: 'Loading active contact connections for ask-around readiness.',
+        },
+      };
+    }
+
+    if (!connections.length) {
+      return {
+        tone: 'not-ready',
+        summaryTitle: 'No active Mahilo connections right now',
+        summaryCopy:
+          'This accepted contact is in your network, but they are not ready for direct send or ask-around until an active connection comes online.',
+        directSend: {
+          label: 'Not ready',
+          tone: 'not-ready',
+          copy: 'Direct send would fail right now because Mahilo has no active recipient connection to route to.',
+        },
+        askAround: {
+          label: 'Not ready',
+          tone: 'not-ready',
+          copy: 'Without an active connection, this contact cannot participate in ask-around results.',
+        },
+      };
+    }
+
+    const frameworks = Array.from(
+      new Set(
+        connections
+          .map((connection) => Helpers.titleizeToken(connection.framework, 'Unknown'))
+          .filter(Boolean)
+      )
+    );
+
+    return {
+      tone: 'ready',
+      summaryTitle: 'Ready for direct send and ask-around',
+      summaryCopy: `${Helpers.pluralize(connections.length, 'active connection')} live${
+        frameworks.length ? ` across ${frameworks.join(', ')}` : ''
+      }.`,
+      directSend: {
+        label: 'Ready',
+        tone: 'ready',
+        copy: 'Mahilo can route a direct send to one of this contact’s active connections.',
+      },
+      askAround: {
+        label: 'Ready',
+        tone: 'ready',
+        copy: 'This contact can participate when your agent asks the network for answers.',
+      },
+    };
+  },
+
+  renderNetworkReadinessCard(title, readiness) {
+    return `
+      <div class="network-readiness-card">
+        <div class="network-readiness-card-header">
+          <span class="network-readiness-label">${Helpers.escapeHtml(title)}</span>
+          <span class="network-readiness-status ${Helpers.escapeHtml(readiness?.tone || 'pending')}">
+            ${Helpers.escapeHtml(readiness?.label || 'Checking')}
+          </span>
+        </div>
+        <p>${Helpers.escapeHtml(readiness?.copy || '')}</p>
+      </div>
+    `;
+  },
+
+  renderContactConnectionCard(connection) {
+    const framework = Helpers.titleizeToken(connection?.framework, 'Unknown framework');
+    const label = Helpers.string(connection?.label, connection?.id || 'Unnamed connection');
+    const description = Helpers.nullableString(connection?.description);
+    const metaChips = [
+      `Framework: ${framework}`,
+      `Label: ${label}`,
+      `Status: ${Helpers.titleizeToken(connection?.status, 'Unknown')}`,
+      `Priority: ${Helpers.number(connection?.routingPriority, 0)}`,
+    ]
+      .map(
+        (chip) => `
+          <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
+        `
+      )
+      .join('');
+    const capabilities = Array.isArray(connection?.capabilities)
+      ? connection.capabilities
+      : [];
+
+    return `
+      <article class="contact-connection-card">
+        <div class="contact-connection-header">
+          <div class="contact-connection-copy">
+            <h5>${Helpers.escapeHtml(label)}</h5>
+            <p>${Helpers.escapeHtml(framework)}</p>
+          </div>
+          <span class="status-badge ${Helpers.escapeHtml(connection?.status || 'active')}">
+            ${Helpers.escapeHtml(Helpers.titleizeToken(connection?.status, 'Active'))}
+          </span>
+        </div>
+        ${
+          description
+            ? `<p class="contact-connection-description">${Helpers.escapeHtml(description)}</p>`
+            : ''
+        }
+        <div class="contact-connection-meta">${metaChips}</div>
+        <div class="contact-connection-capabilities">
+          ${
+            capabilities.length
+              ? capabilities
+                  .map(
+                    (capability) => `
+                      <span class="capability-tag">${Helpers.escapeHtml(capability)}</span>
+                    `
+                  )
+                  .join('')
+              : '<span class="capability-tag">No capabilities declared</span>'
+          }
+        </div>
+      </article>
+    `;
+  },
+
+  renderNetworkConnectionSection(friend, connectionState) {
+    if (!friend) {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">🤝</div>
+          <p>Select a contact to open their connection space.</p>
+        </div>
+      `;
+    }
+
+    const bucket = this.networkBucket(friend);
+
+    if (bucket !== 'accepted') {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">🪢</div>
+          <p>Connection details become available after this relationship is accepted.</p>
+        </div>
+      `;
+    }
+
+    if (connectionState.status === 'error') {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">⚠️</div>
+          <p>${Helpers.escapeHtml(connectionState.error || 'Failed to load active contact connections.')}</p>
+          <button class="squishy-btn btn-secondary btn-small network-inline-action" onclick="UI.refreshSelectedNetworkConnections()">
+            Retry
+          </button>
+        </div>
+      `;
+    }
+
+    if (connectionState.status !== 'loaded') {
+      return `
+        <div class="network-loading-row">
+          <span class="network-loading-dot"></span>
+          <p>Checking active Mahilo connections for direct-send and ask-around readiness...</p>
+        </div>
+      `;
+    }
+
+    if (!connectionState.items.length) {
+      return `
+        <div class="network-detail-empty">
+          <div class="empty-icon">📭</div>
+          <p>No active Mahilo connections are live for this contact.</p>
+          <p class="hint">They are not ready for ask-around or direct send until one of their connections becomes active.</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="contact-connection-list">
+        ${connectionState.items
+          .map((connection) => this.renderContactConnectionCard(connection))
+          .join('')}
+      </div>
+    `;
+  },
+
+  renderNetworkConnectionSpace(friend = null) {
+    const panel = document.getElementById('network-detail-panel');
+
+    if (!panel) {
+      return;
+    }
+
+    if (!friend) {
+      panel.innerHTML = `
+        <div class="network-detail-panel">
+          <div class="network-detail-placeholder">
+            <div class="empty-icon-large">🧭</div>
+            <h3>Open a connection space</h3>
+            <p>Select someone from your network to see whether they have active Mahilo connections and whether they are ready for direct send or ask-around.</p>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const connectionState = this.getNetworkConnectionState(friend);
+    const readiness = this.networkReadinessState(friend, connectionState);
+    const bucket = this.networkBucket(friend);
+    const displayName = Helpers.escapeHtml(friend.displayName || friend.username || 'Unknown');
+    const username = Helpers.escapeHtml(friend.username || 'unknown');
+    const relationshipMeta = [
+      `Relationship: ${this.networkStatusLabel(friend)}`,
+      `Request: ${this.networkRequestDirectionLabel(friend)}`,
+      `Roles: ${this.networkRolesLabel(friend)}`,
+      `Interactions: ${Helpers.pluralize(friend?.interactionCount || 0, 'interaction')}`,
+      this.networkAgeLabel(friend),
+    ]
+      .map(
+        (chip) => `
+          <span class="friend-meta-chip">${Helpers.escapeHtml(chip)}</span>
+        `
+      )
+      .join('');
+    const canRefreshConnections = bucket === 'accepted';
+
+    panel.innerHTML = `
+      <div class="network-detail-panel">
+        <div class="network-detail-header">
+          <div class="network-detail-avatar">
+            ${(friend?.displayName?.[0] || friend?.username?.[0] || '?').toUpperCase()}
+          </div>
+          <div class="network-detail-copy">
+            <p class="network-detail-eyebrow">Connection space</p>
+            <h3>${displayName}</h3>
+            <p class="network-detail-username">@${username}</p>
+            <div class="network-detail-status-row">
+              <span class="friend-status ${bucket}">${this.networkStatusLabel(friend)}</span>
+            </div>
+          </div>
+          ${
+            canRefreshConnections
+              ? `
+                <button
+                  class="squishy-btn btn-secondary btn-small"
+                  onclick="UI.refreshSelectedNetworkConnections()"
+                  ${connectionState.status === 'loading' ? 'disabled' : ''}
+                >
+                  ${connectionState.status === 'loading' ? 'Refreshing...' : 'Refresh'}
+                </button>
+              `
+              : ''
+          }
+        </div>
+
+        <div class="network-readiness-banner ${Helpers.escapeHtml(readiness?.tone || 'pending')}">
+          <span class="network-readiness-label">Mahilo readiness</span>
+          <strong>${Helpers.escapeHtml(readiness?.summaryTitle || 'Checking')}</strong>
+          <p>${Helpers.escapeHtml(readiness?.summaryCopy || '')}</p>
+        </div>
+
+        <div class="network-readiness-grid">
+          ${this.renderNetworkReadinessCard('Direct send', readiness?.directSend)}
+          ${this.renderNetworkReadinessCard('Ask-around', readiness?.askAround)}
+        </div>
+
+        <div class="network-detail-section">
+          <div class="network-detail-section-header">
+            <div>
+              <h4>Active contact connections</h4>
+              <p class="network-detail-section-copy">
+                Framework, label, capabilities, and live status from the current contacts API.
+              </p>
+            </div>
+            ${
+              bucket === 'accepted' && connectionState.status === 'loaded'
+                ? `
+                  <div class="friends-total-chip">
+                    ${Helpers.pluralize(connectionState.items.length, 'active connection')}
+                  </div>
+                `
+                : ''
+            }
+          </div>
+          ${this.renderNetworkConnectionSection(friend, connectionState)}
+        </div>
+
+        <div class="network-detail-section">
+          <div class="network-detail-section-header">
+            <div>
+              <h4>Relationship context</h4>
+              <p class="network-detail-section-copy">
+                Network state from the friendship model that gates Mahilo participation.
+              </p>
+            </div>
+          </div>
+          <div class="network-detail-meta">
+            ${relationshipMeta}
+          </div>
         </div>
       </div>
     `;
@@ -2995,14 +3541,18 @@ const UI = {
 
     const counts = this.getNetworkRelationshipCounts();
     const friends = this.getVisibleNetworkFriends(State.networkFilter);
+    const selectedFriend = this.syncSelectedNetworkFriend(friends);
     this.renderNetworkHeader(State.networkFilter, friends, counts);
 
     if (!friends.length) {
       list.innerHTML = this.renderNetworkEmptyState(State.networkFilter);
+      this.renderNetworkConnectionSpace(null);
       return;
     }
 
     list.innerHTML = friends.map((friend) => this.renderFriendCard(friend)).join('');
+    this.renderNetworkConnectionSpace(selectedFriend);
+    void this.ensureNetworkConnectionData(selectedFriend);
   },
 
   renderGroups() {
