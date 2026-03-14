@@ -23,7 +23,7 @@ Useful variants:
 
 | Story ID | Launch story | What it proves |
 | --- | --- | --- |
-| `guided-first-run` | Guided first run | The single recommended first run after the build-your-circle checkpoint: setup, connected status, circle-ready check, ask-around, live reply handoff, review-required preview, and one explicit approval in one path. |
+| `guided-first-run` | Guided first run | The single recommended first run after the build-your-circle checkpoint: setup, connected status, circle-ready check, ask-around, live reply handoff, review-required live send, and one explicit approval in one path. |
 | `restaurant-question` | Restaurant question | Ask once, get attributed answers back in-thread, and keep `"I don't know"` explicit instead of fabricating advice. |
 | `weekend-plan-coordination` | Weekend plan / coordination | Fan out one coordination question to a role-filtered circle and keep partial progress useful even when someone stays silent. |
 | `boundaries-story` | Boundaries story | Start from conservative defaults, stop on review for a sensitive share, then apply a conversational temporary exception and retry cleanly. |

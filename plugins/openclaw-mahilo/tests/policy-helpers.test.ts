@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  applyLocalPolicyGuard,
   decisionBlocksSend,
   decisionNeedsReview,
   extractDecision,
@@ -262,46 +261,5 @@ describe("policy helpers", () => {
     expect(decisionNeedsReview("allow")).toBe(false);
     expect(decisionBlocksSend("deny")).toBe(true);
     expect(decisionBlocksSend("ask")).toBe(false);
-  });
-
-  it("applies local policy guard for risky sensitive messages", () => {
-    const result = applyLocalPolicyGuard({
-      message: "My SSN is 123-45-6789",
-      selectors: {
-        action: "share",
-        direction: "outbound",
-        resource: "location.current",
-      },
-    });
-
-    expect(result.decision).toBe("ask");
-    expect(result.reason).toContain("sensitive resource");
-  });
-
-  it("asks for review when message body is empty", () => {
-    const result = applyLocalPolicyGuard({
-      message: "   ",
-      selectors: {
-        action: "share",
-        direction: "outbound",
-        resource: "message.general",
-      },
-    });
-
-    expect(result.decision).toBe("ask");
-    expect(result.reason).toContain("empty");
-  });
-
-  it("allows safe messages through local policy guard", () => {
-    const result = applyLocalPolicyGuard({
-      message: "hello",
-      selectors: {
-        action: "share",
-        direction: "outbound",
-        resource: "message.general",
-      },
-    });
-
-    expect(result.decision).toBe("allow");
   });
 });

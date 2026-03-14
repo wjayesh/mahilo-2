@@ -13,6 +13,7 @@ describe("documentation surface", () => {
 
     expect(guidedFirstRun).toContain("single recommended quickstart path");
     expect(guidedFirstRun).toContain("Five-Minute");
+    expect(guidedFirstRun).toContain("optional dry-run surfaces");
     expect(guidedFirstRun).toContain("mahilo setup");
     expect(guidedFirstRun).toContain("mahilo status");
     expect(guidedFirstRun).toContain("mahilo network");
@@ -53,6 +54,7 @@ describe("documentation surface", () => {
     expect(demoStoryPack).toContain("bun run demo:stories");
     expect(demoStoryPack).toContain("guided-first-run");
     expect(demoStoryPack).toContain("build-your-circle checkpoint");
+    expect(demoStoryPack).toContain("review-required live send");
     expect(demoStoryPack).toContain("restaurant-question");
     expect(demoStoryPack).toContain("weekend-plan-coordination");
     expect(demoStoryPack).toContain("boundaries-story");
@@ -82,6 +84,7 @@ describe("documentation surface", () => {
 
     expect(operatorProof).toContain("skeptical operator or team lead");
     expect(operatorProof).toContain("Governance And Observability Proof Points");
+    expect(operatorProof).toContain("server-issued bundles");
     expect(operatorProof).toContain("mahilo status");
     expect(operatorProof).toContain("mahilo network");
     expect(operatorProof).toContain("mahilo review");

@@ -29,6 +29,7 @@ describe("README install docs", () => {
     expect(opening).toContain("Ask your contacts from OpenClaw");
     expect(opening).toContain("real answers from people you trust");
     expect(opening).toContain("trust and control layer behind the plugin");
+    expect(readme).toContain("server-issued policy bundles");
 
     expect(guidedFirstRunIndex).toBeGreaterThan(-1);
     expect(askYourContactsIndex).toBeGreaterThan(-1);
@@ -69,6 +70,9 @@ describe("README install docs", () => {
     expect(readme).toContain("send_message");
     expect(readme).toContain("manage_network");
     expect(readme).toContain("set_boundaries");
+    expect(readme).toContain("dry-run only, not live authorization");
+    expect(readme).toContain("advisory only");
+    expect(readme).toContain("evaluated locally before transport");
     expect(readme).toContain("opinions/recommendations");
     expect(readme).toContain("health, financial, and contact details");
     expect(readme).toContain("mahilo setup");

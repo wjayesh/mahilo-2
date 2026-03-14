@@ -4,6 +4,8 @@ This is the single recommended quickstart path for Mahilo inside OpenClaw.
 
 Use it when you want to prove the product in one OpenClaw session instead of stitching together setup, network, trust, and review docs by hand. The path is designed to show server connection, one meaningful orchestration event, a live handoff back into the same thread, and explicit human approval before a sensitive share goes out.
 
+Prompt guidance and preview are optional dry-run surfaces. The real enforcement proof in this flow comes from the live `send_message` path returning review-required before transport.
+
 The only operator-owned step that still happens outside OpenClaw is installing the plugin and, if you already have one, optionally saving a Mahilo API key once. Mahilo defaults to `https://mahilo.io`, and callback routing is auto-detected from OpenClaw before falling back to localhost for local-only testing.
 
 ## What This Proves

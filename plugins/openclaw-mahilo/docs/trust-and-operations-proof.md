@@ -6,7 +6,7 @@ Mahilo's user story is easy to like; this page covers the operational proof behi
 
 ## Operator Proof At A Glance
 
-- Mahilo server remains policy truth. The plugin can preview and explain decisions, but final `allow` / `ask` / `deny` still come from Mahilo at send time.
+- Mahilo server remains policy truth and audit authority. In non-trusted mode, the plugin evaluates server-issued bundles locally before transport, then commits the result back to Mahilo.
 - Sensitive shares stop in an explicit review path. `mahilo review`, ask-mode decisions, and `mahilo_boundaries` exceptions keep approvals visible instead of burying them in prompts.
 - Operators get first-party diagnostics inside OpenClaw. `mahilo status` shows connectivity probes, redacted config, callback path, reconnect history, and local runtime counters.
 - Network readiness is inspectable before rollout. `mahilo network` shows sender connections, contacts, pending requests, recent review/blocked activity, and lightweight seven-day product signals.
@@ -17,7 +17,7 @@ Mahilo's user story is easy to like; this page covers the operational proof behi
 
 | Concern | Proof point | How to inspect it |
 | --- | --- | --- |
-| Final authority | Mahilo is policy truth and final send-time enforcement. Plugin preflight is UX guidance, not a bypass. | Use the guided first run approval sequence and watch `mahilo_message` return `review_required` before any sensitive send. |
+| Final authority | Mahilo is policy truth. Non-trusted sends enforce locally from server-issued bundles, and preview/prompt guidance stay advisory. | Use the guided first run approval sequence and watch `send_message` return `review_required` before any sensitive transport. |
 | Approval surface | Review states stay visible as product states instead of disappearing into transport errors. | Run `mahilo review`, or trigger the `mahilo_boundaries` exception flow from the guided first run. |
 | Actor identity | Default sender resolution comes from Mahilo server state and stays deterministic. Explicit overrides remain available only for advanced routing. | Run `mahilo setup`, then `mahilo status` or `mahilo network` to inspect sender connections before the first ask. |
 | Connectivity and health | `mahilo status` probes the review queue and blocked-event surfaces, returns redacted config, callback path, reconnect history, and runtime counters. | Run `mahilo status` after setup and after any incident. |
@@ -52,7 +52,7 @@ What this proves: non-responses do not stall the thread, and Mahilo prefers expl
 - "We do not want a big-bang rollout."
   Start with one operator-configured OpenClaw runtime, one accepted contact, and the guided first run. Mahilo proves value with the one-contact loop before asking a larger team to onboard.
 - "We need to know who is making the decision."
-  Mahilo makes the final `allow` / `ask` / `deny` decision on the server, while the plugin exposes the result through preview, review, blocked-event, and boundary surfaces.
+  Mahilo owns the canonical policies and audits. In non-trusted mode, the plugin resolves server-issued bundles locally before transport, then commits the result so reviews, overrides, and blocked-event surfaces stay server-visible.
 - "We need something the on-call or operator can inspect quickly."
   `mahilo status` is the fast health snapshot. `mahilo network` is the fast readiness and recent-activity snapshot. `mahilo review` is the fast approval-queue snapshot.
 - "We need safe failure behavior, not dead ends."

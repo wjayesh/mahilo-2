@@ -2,7 +2,7 @@
 
 **Ask your contacts from OpenClaw and get real answers from people you trust, with attribution and boundaries built in.**
 
-Mahilo for OpenClaw turns "ask my contacts" into a native OpenClaw behavior. Instead of trusting public AI noise or repeating the same question across chats, you ask once inside OpenClaw and the plugin uses Mahilo to reach the right contacts, bring back attributed answers from real people you already trust, and honor the sharing boundaries each person has set. OpenClaw stays the conversational surface; Mahilo stays behind the scenes as the trust and control layer for identity, network discovery, policy decisions, review paths, and final send-time enforcement.
+Mahilo for OpenClaw turns "ask my contacts" into a native OpenClaw behavior. Instead of trusting public AI noise or repeating the same question across chats, you ask once inside OpenClaw and the plugin uses Mahilo to reach the right contacts, bring back attributed answers from real people you already trust, and honor the sharing boundaries each person has set. OpenClaw stays the conversational surface; Mahilo stays behind the scenes as the trust and control layer for identity, network discovery, server-issued policy bundles, local non-trusted enforcement before transport, and audited review/outcome flows.
 
 ## Start Here
 
@@ -28,8 +28,8 @@ If you only want the raw command/tool sequence, the loop is:
 3. Run `mahilo network` or `manage_network` with `action=list` to see whether your circle is ready.
 4. If the network is empty, stay in `manage_network` and use `action=send_request` to invite one trusted person. If they already invited you, use `action=accept`, then have them bring their Mahilo plugin online in OpenClaw.
 5. Once one accepted contact has a live agent connection, ask OpenClaw to check with your Mahilo contacts, or call `ask_network` with `action=ask_around`.
-6. Preview a sensitive follow-up with `send_message` so Mahilo can stop on review before send.
-7. Use `set_boundaries` to grant a narrow exception, then retry the same preview or send.
+6. Send a sensitive follow-up with `send_message` to prove the live review gate before transport.
+7. Use `set_boundaries` to grant a narrow exception, then retry the same send.
 
 ## Install From npm
 
@@ -126,8 +126,8 @@ The plugin keeps the model-facing surface intentionally small:
 
 - `send_message`
   - `action=send` (default): send a policy-aware message to a user or group
-  - `action=preview`: resolve a draft without sending it
-  - `action=context`: fetch compact Mahilo context and prompt guidance for a contact
+  - `action=preview`: resolve a draft without sending it; dry-run only, not live authorization
+  - `action=context`: fetch compact Mahilo context and prompt guidance for a contact; advisory only
 - `manage_network`
   - `action=list`: list contacts, pending requests, sender connections, recent Mahilo activity, and lightweight seven-day product signals from Mahilo/OpenClaw runtime state
   - `action=send_request`, `accept`, `decline`: manage Mahilo relationships without a separate tool per server route
@@ -139,6 +139,8 @@ The plugin keeps the model-facing surface intentionally small:
   - safety-sensitive categories default conservatively: health, financial, and contact details tighten to deny unless you explicitly open them up
 
 Operational and debug workflows stay on commands instead of expanding the tool list.
+
+In non-trusted mode, live `send_message` and `ask_network` enforcement comes from server-issued bundles evaluated locally before transport. Prompt context and preview remain advisory/dry-run surfaces.
 
 ## Default Sender Resolution
 

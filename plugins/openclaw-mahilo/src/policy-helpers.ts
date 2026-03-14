@@ -15,20 +15,13 @@ import {
 } from "@mahilo/policy-core";
 import type { ReviewMode } from "./config";
 
+// Utility helpers shared across prompt context, response/result shaping, and
+// the bundle-based local runtime. Live non-trusted enforcement happens in
+// local-policy-runtime.ts from server-issued policy bundles.
 export type PolicyDecision = PolicyEffect;
 export type SelectorDirection = PolicyDirection;
 
 export interface DeclaredSelectors extends ResolvedPolicySelectorContext {}
-
-export interface LocalPolicyGuardInput {
-  message: string;
-  selectors: DeclaredSelectors;
-}
-
-export interface LocalPolicyGuardResult {
-  decision: PolicyDecision;
-  reason?: string;
-}
 
 export interface SharedLocalPolicyResolverInput {
   policies: ReadonlyArray<CorePolicy>;
@@ -48,20 +41,6 @@ export interface SharedLocalPolicyResolverInput {
 const DECISIONS: PolicyDecision[] = ["allow", "ask", "deny"];
 const LOCAL_LLM_FAIL_SAFE_MODE: LLMEvaluationFallbackMode = "ask";
 const DEGRADED_LLM_REASON_CODE_PATTERN = /^policy\.ask\.llm\.[a-z0-9_]+$/u;
-
-const SENSITIVE_RESOURCES = [
-  "calendar.",
-  "contact.",
-  "financial.",
-  "health.",
-  "location.",
-];
-const SENSITIVE_MESSAGE_PATTERNS = [
-  /\b\d{3}-\d{2}-\d{4}\b/u,
-  /\baccount number\b/iu,
-  /\bpassword\b/iu,
-  /\bpin\b/iu,
-];
 
 export function normalizeDeclaredSelectors(
   selectors: Partial<DeclaredSelectors> | undefined,
@@ -208,38 +187,6 @@ export async function resolveLocalPolicySet(
     authenticatedIdentity: input.authenticatedIdentity,
     resolverLayer: input.resolverLayer ?? "user_policies",
   });
-}
-
-// Advisory-only heuristic retained for lightweight UX hints. Real plugin-local
-// enforcement now lives in local-policy-runtime.ts.
-export function applyLocalPolicyGuard(
-  input: LocalPolicyGuardInput,
-): LocalPolicyGuardResult {
-  const normalizedMessage = input.message.trim();
-  if (normalizedMessage.length === 0) {
-    return {
-      decision: "ask",
-      reason: "message body is empty",
-    };
-  }
-
-  const isSensitiveResource = SENSITIVE_RESOURCES.some((prefix) =>
-    input.selectors.resource.startsWith(prefix),
-  );
-  const hasSensitivePattern = SENSITIVE_MESSAGE_PATTERNS.some((pattern) =>
-    pattern.test(normalizedMessage),
-  );
-
-  if (isSensitiveResource && hasSensitivePattern) {
-    return {
-      decision: "ask",
-      reason: "sensitive resource with risky payload pattern",
-    };
-  }
-
-  return {
-    decision: "allow",
-  };
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {

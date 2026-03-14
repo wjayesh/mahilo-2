@@ -1,6 +1,6 @@
 import type { ReviewMode } from "./config";
 import type { MahiloContractClient } from "./client";
-import { type DeclaredSelectors, type LocalPolicyGuardResult, type PolicyDecision } from "./policy-helpers";
+import { type DeclaredSelectors, type PolicyDecision } from "./policy-helpers";
 import { type FetchMahiloPromptContextInput, type FetchMahiloPromptContextOptions, type FetchMahiloPromptContextResult } from "./prompt-context";
 export interface MahiloToolContext {
     agentSessionId?: string;
@@ -24,12 +24,10 @@ export interface TalkToGroupInput extends MahiloSendToolInput {
 export interface ToolExecutionOptions {
     reportOutcomes?: boolean;
     reviewMode?: ReviewMode;
-    skipLocalPolicyGuard?: boolean;
 }
 export interface MahiloToolResult {
     decision: PolicyDecision;
     deduplicated?: boolean;
-    localPolicyGuard?: LocalPolicyGuardResult;
     messageId?: string;
     reason?: string;
     resolutionId?: string;
