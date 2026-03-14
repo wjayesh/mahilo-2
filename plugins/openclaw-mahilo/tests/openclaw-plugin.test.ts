@@ -266,6 +266,61 @@ function buildDefaultGroupFanoutBundle(payload: Record<string, unknown>) {
   };
 }
 
+function buildPolicyDrivenGroupFanoutBundle(
+  payload: Record<string, unknown>,
+  members: Array<{
+    decision: "allow" | "ask" | "deny";
+    username: string;
+  }>,
+  options: {
+    resolutionId?: string;
+  } = {},
+) {
+  const base = buildDefaultGroupFanoutBundle(payload);
+  const resolutionId =
+    options.resolutionId ?? base.bundle_metadata.resolution_id;
+
+  return {
+    ...base,
+    bundle_metadata: {
+      ...base.bundle_metadata,
+      bundle_id: `bundle_${resolutionId}`,
+      resolution_id: resolutionId,
+    },
+    group: {
+      ...base.group,
+      member_count: members.length,
+    },
+    members: members.map(({ decision, username }) => ({
+      llm: {
+        provider_defaults: null,
+        subject: username,
+      },
+      member_applicable_policies:
+        decision === "allow"
+          ? []
+          : [
+              createPolicy({
+                effect: decision,
+                evaluator: "structured",
+                id: `pol_group_${decision}_${username}`,
+                policy_content:
+                  decision === "ask" ? { intent: "manual_review" } : {},
+                priority: 100,
+                scope: "user",
+              }),
+            ],
+      recipient: {
+        id: `usr_${username}`,
+        type: "user",
+        username,
+      },
+      resolution_id: `${resolutionId}_usr_${username}`,
+      roles: [],
+    })),
+  };
+}
+
 function buildDefaultLocalDecisionCommitResponse(payload: Record<string, unknown>) {
   const localDecision = payload.local_decision as Record<string, unknown> | undefined;
   const decision =
@@ -3651,6 +3706,333 @@ describe("createMahiloOpenClawPlugin", () => {
     ).toBeUndefined();
     expect(state.directSendBundleCalls).toHaveLength(1);
     expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("records local denied sends without calling transport", async () => {
+    const { client, state } = createMockContractClient({
+      directSendBundleResponse: (payload) => ({
+        ...buildDefaultDirectSendBundle(payload),
+        applicable_policies: [
+          createPolicy({
+            effect: "deny",
+            evaluator: "structured",
+            id: "pol_direct_block",
+            policy_content: {},
+            priority: 100,
+            scope: "user",
+          }),
+        ],
+        bundle_metadata: {
+          ...buildDefaultDirectSendBundle(payload).bundle_metadata,
+          resolution_id: "res_direct_block",
+        },
+      }),
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const result = await tool.execute("tool_call_local_block", {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current",
+      },
+      message: "share ssn",
+      recipient: "alice",
+      senderConnectionId: "conn_sender",
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("Mahilo blocked this person message."),
+        },
+      ],
+      details: {
+        decision: "deny",
+        reason: expect.any(String),
+        resolutionId: "res_direct_block",
+        status: "denied",
+      },
+    });
+    expect(
+      (result as { details?: { messageId?: string } }).details?.messageId,
+    ).toBeUndefined();
+    expect(state.directSendBundleCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("keeps mixed local group sends transport-compatible while only sending allowed members", async () => {
+    const groupBundle = buildPolicyDrivenGroupFanoutBundle(
+      {
+        declared_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current",
+        },
+        recipient: "grp_hiking",
+        sender_connection_id: "conn_sender",
+      },
+      [
+        { decision: "allow", username: "alice" },
+        { decision: "ask", username: "bob" },
+        { decision: "deny", username: "carol" },
+      ],
+      {
+        resolutionId: "res_group_local_partial",
+      },
+    );
+    const { client, state } = createMockContractClient({
+      groupFanoutBundleResponse: groupBundle,
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const result = await tool.execute("tool_call_group_local_partial", {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current",
+      },
+      idempotencyKey: "idem_group_local_partial",
+      message: "share the trailhead",
+      senderConnectionId: "conn_sender",
+      target: "grp_hiking",
+      targetType: "group",
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("Message sent through Mahilo."),
+        },
+      ],
+      details: {
+        decision: "allow",
+        reason:
+          "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed.",
+        resolutionId: "res_group_local_partial",
+        response: {
+          delivered: 1,
+          delivery_status: "delivered",
+          denied: 1,
+          recipient_results: [
+            expect.objectContaining({
+              decision: "allow",
+              delivery_status: "delivered",
+              message_id: "msg_123",
+              recipient: "alice",
+              resolution_id: "res_group_local_partial_usr_alice",
+            }),
+            expect.objectContaining({
+              decision: "ask",
+              delivery_status: "review_required",
+              recipient: "bob",
+              resolution_id: "res_group_local_partial_usr_bob",
+            }),
+            expect.objectContaining({
+              decision: "deny",
+              delivery_status: "rejected",
+              recipient: "carol",
+              resolution_id: "res_group_local_partial_usr_carol",
+            }),
+          ],
+          resolution: {
+            decision: "allow",
+            reason_code: "policy.partial.group_fanout",
+            resolution_id: "res_group_local_partial",
+            summary:
+              "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed.",
+          },
+          review_required: 1,
+          status: "delivered",
+        },
+        status: "sent",
+      },
+    });
+    expect(
+      (result as { details?: { messageId?: string } }).details?.messageId,
+    ).toBeUndefined();
+    expect(state.groupFanoutBundleCalls).toEqual([
+      expect.objectContaining({
+        recipient: "grp_hiking",
+        recipient_type: "group",
+        sender_connection_id: "conn_sender",
+      }),
+    ]);
+    expect(state.localDecisionCommitCalls).toHaveLength(3);
+    expect(
+      state.localDecisionCommitCalls.map((call) => call.idempotencyKey),
+    ).toEqual([
+      "idem_group_local_partial:alice",
+      "idem_group_local_partial:bob",
+      "idem_group_local_partial:carol",
+    ]);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]).toMatchObject({
+      idempotencyKey: "idem_group_local_partial:alice",
+      payload: {
+        recipient: "alice",
+        recipient_type: "user",
+        resolution_id: "res_group_local_partial_usr_alice",
+        sender_connection_id: "conn_sender",
+      },
+    });
+  });
+
+  it("returns review_required for group sends when local policy holds every member", async () => {
+    const { client, state } = createMockContractClient({
+      groupFanoutBundleResponse: buildPolicyDrivenGroupFanoutBundle(
+        {
+          recipient: "grp_hiking",
+          sender_connection_id: "conn_sender",
+        },
+        [
+          { decision: "ask", username: "alice" },
+          { decision: "ask", username: "bob" },
+        ],
+        {
+          resolutionId: "res_group_local_review",
+        },
+      ),
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const result = await tool.execute("tool_call_group_local_review", {
+      message: "share the route",
+      senderConnectionId: "conn_sender",
+      target: "grp_hiking",
+      targetType: "group",
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining(
+            "Mahilo needs review before sending this group message.",
+          ),
+        },
+      ],
+      details: {
+        decision: "ask",
+        reason: expect.stringContaining("Review required"),
+        resolutionId: "res_group_local_review",
+        response: {
+          delivery_status: "review_required",
+          recipient_results: [
+            expect.objectContaining({
+              delivery_status: "review_required",
+              recipient: "alice",
+            }),
+            expect.objectContaining({
+              delivery_status: "review_required",
+              recipient: "bob",
+            }),
+          ],
+          status: "review_required",
+        },
+        status: "review_required",
+      },
+    });
+    expect(state.groupFanoutBundleCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("returns denied for group sends when local policy blocks every member", async () => {
+    const { client, state } = createMockContractClient({
+      groupFanoutBundleResponse: buildPolicyDrivenGroupFanoutBundle(
+        {
+          recipient: "grp_hiking",
+          sender_connection_id: "conn_sender",
+        },
+        [
+          { decision: "deny", username: "alice" },
+          { decision: "deny", username: "bob" },
+        ],
+        {
+          resolutionId: "res_group_local_blocked",
+        },
+      ),
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const result = await tool.execute("tool_call_group_local_blocked", {
+      message: "share the vault code",
+      senderConnectionId: "conn_sender",
+      target: "grp_hiking",
+      targetType: "group",
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("Mahilo blocked this group message."),
+        },
+      ],
+      details: {
+        decision: "deny",
+        reason: expect.any(String),
+        resolutionId: "res_group_local_blocked",
+        response: {
+          delivery_status: "rejected",
+          recipient_results: [
+            expect.objectContaining({
+              delivery_status: "rejected",
+              recipient: "alice",
+            }),
+            expect.objectContaining({
+              delivery_status: "rejected",
+              recipient: "bob",
+            }),
+          ],
+          resolution: {
+            decision: "deny",
+            delivery_mode: "blocked",
+            reason_code: "policy.deny.user.structured",
+            resolution_id: "res_group_local_blocked",
+          },
+          status: "rejected",
+        },
+        status: "denied",
+      },
+    });
+    expect(state.groupFanoutBundleCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
     expect(state.sendCalls).toHaveLength(0);
   });
 
