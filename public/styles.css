@@ -3752,6 +3752,81 @@ body {
   white-space: nowrap;
 }
 
+.modal-title-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-title-stack p {
+  color: var(--color-text-light);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 44ch;
+}
+
+.boundary-editor-preview {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 248, 240, 0.94) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+  border: 1px solid rgba(255, 158, 107, 0.16);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding: var(--space-md);
+}
+
+.boundary-editor-preview.empty {
+  justify-content: center;
+  min-height: 120px;
+}
+
+.boundary-editor-preview p {
+  margin: 0;
+}
+
+.boundary-editor-preview-header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-md);
+  justify-content: space-between;
+}
+
+.boundary-editor-preview-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.boundary-editor-preview-title {
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: var(--font-weight-bold);
+}
+
+.boundary-editor-preview-summary {
+  color: var(--color-text-light);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.boundary-editor-note {
+  background: rgba(255, 217, 61, 0.12);
+  border: 1px dashed rgba(139, 107, 0, 0.28);
+  border-radius: var(--radius-md);
+  color: #7a6000;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+}
+
 /* ========================================
    MODALS
    ======================================== */
@@ -5277,7 +5352,8 @@ body {
   .boundary-category-header,
   .boundary-audience-header,
   .boundary-row,
-  .boundary-row-top {
+  .boundary-row-top,
+  .boundary-editor-preview-header {
     flex-direction: column;
     align-items: flex-start;
   }

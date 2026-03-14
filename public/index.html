@@ -1860,13 +1860,19 @@
         <!-- Create Boundary Modal -->
         <div class="modal hidden" id="create-policy-modal">
           <div class="modal-header">
-            <h3>🛡️ Create Boundary</h3>
+            <div class="modal-title-stack">
+              <h3 id="policy-modal-title">🛡️ Create Boundary</h3>
+              <p id="policy-modal-copy">
+                Set a common boundary by audience and category without editing
+                raw policy JSON.
+              </p>
+            </div>
             <button class="modal-close">✕</button>
           </div>
           <div class="modal-body">
             <form id="create-policy-form">
               <div class="input-group">
-                <label class="input-label">Scope</label>
+                <label class="input-label">Audience</label>
                 <select
                   class="squishy-input squishy-select"
                   id="policy-scope"
@@ -1877,6 +1883,9 @@
                   <option value="role">Role</option>
                   <option value="group">Group</option>
                 </select>
+                <span class="input-hint"
+                  >Choose who this common boundary should apply to.</span
+                >
               </div>
               <div class="input-group hidden" id="policy-target-group">
                 <label class="input-label">Target</label>
@@ -1886,45 +1895,75 @@
                 >
                   <option value="">Select...</option>
                 </select>
+                <span class="input-hint" id="policy-target-hint"
+                  >Choose the specific audience for this boundary.</span
+                >
+              </div>
+              <div class="input-group">
+                <label class="input-label">Category</label>
+                <select
+                  class="squishy-input squishy-select"
+                  id="policy-category"
+                  required
+                >
+                  <option value="opinions">Opinions and recommendations</option>
+                  <option value="availability">Availability and schedule</option>
+                  <option value="location">Location</option>
+                  <option value="health">Health details</option>
+                  <option value="financial">Financial details</option>
+                  <option value="contact">Contact details</option>
+                  <option value="generic">Generic messages</option>
+                </select>
+                <span class="input-hint" id="policy-category-hint"
+                  >Pick the category this common boundary should manage.</span
+                >
               </div>
               <div class="input-group">
                 <label class="input-label">Boundary Type</label>
                 <select
                   class="squishy-input squishy-select"
-                  id="policy-type"
+                  id="policy-preset"
                   required
                 >
-                  <option value="heuristic">Heuristic (rule-based)</option>
-                  <option value="llm">LLM-evaluated</option>
+                  <option value="generic_message">Generic messages</option>
                 </select>
+                <span class="input-hint" id="policy-preset-hint"
+                  >Choose the specific selector this boundary should cover.</span
+                >
               </div>
               <div class="input-group">
-                <label class="input-label">Content</label>
-                <textarea
-                  class="squishy-input squishy-textarea"
-                  id="policy-content"
-                  rows="5"
-                  placeholder='{"maxLength": 1000, "blockedPatterns": ["pattern"]}'
+                <label class="input-label">Mahilo Should</label>
+                <select
+                  class="squishy-input squishy-select"
+                  id="policy-effect"
                   required
-                ></textarea>
+                >
+                  <option value="allow">Share automatically</option>
+                  <option value="ask" selected>Ask before sharing</option>
+                  <option value="deny">Block outright</option>
+                </select>
+                <span class="input-hint" id="policy-direction-note"
+                  >New common boundaries apply to outbound sharing by
+                  default.</span
+                >
               </div>
-              <div class="input-group">
-                <label class="input-label">Priority (0-100)</label>
-                <input
-                  type="number"
-                  class="squishy-input"
-                  id="policy-priority"
-                  value="0"
-                  min="0"
-                  max="100"
-                />
+              <div class="boundary-editor-preview" id="policy-preview-card">
+                <p>
+                  Choose an audience and category to preview the selector and
+                  outcome.
+                </p>
+              </div>
+              <div class="boundary-editor-note">
+                Advanced or custom selector boundaries stay visible in
+                Boundaries, but the guided editor focuses on the common product
+                cases above.
               </div>
             </form>
           </div>
           <div class="modal-footer">
             <button class="squishy-btn btn-secondary" data-close>Cancel</button>
             <button class="squishy-btn btn-primary" id="save-policy-btn">
-              <span>💾</span> Save Boundary
+              <span>💾</span> <span id="save-policy-label">Save Boundary</span>
             </button>
           </div>
         </div>

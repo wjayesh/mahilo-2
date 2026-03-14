@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createApp } from "../../src/server";
 import * as schema from "../../src/db/schema";
+import { canonicalToStorage } from "../../src/services/policySchema";
 import {
   addRoleToFriendship,
   cleanupTestDatabase,
@@ -12,6 +13,7 @@ import {
   createFriendship,
   createTestUser,
   getTestDb,
+  seedTestSystemRoles,
   setupTestDatabase,
 } from "../helpers/setup";
 
@@ -63,12 +65,24 @@ type DashboardInternals = {
     handleAddFriendRequest: () => Promise<void>;
     handleAddFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
     handleBlockFriend: (id: string) => Promise<void>;
+    handleCreatePolicy: () => Promise<void>;
+    handleEditPolicy: (id: string) => void;
     handleInviteToGroup: (groupId?: string) => Promise<void>;
     handleJoinGroup: (groupId: string) => Promise<void>;
     handleLeaveGroup: (groupId: string) => Promise<void>;
     handleRegister: () => Promise<void>;
     handleRejectFriend: (id: string) => Promise<void>;
     handleRemoveFriendRole: (friendshipId: string, roleName: string) => Promise<void>;
+    openBoundaryEditor: (policy?: Record<string, unknown> | null) => void;
+    populateBoundaryPresetOptions: (
+      category: string,
+      selectedPresetId?: string | null,
+    ) => void;
+    populatePolicyTargets: (
+      scope: string,
+      selectedTargetId?: string | null,
+      config?: Record<string, unknown>,
+    ) => void;
     renderLogs: (direction?: string) => void;
     renderFriends: (filter?: string) => void;
     renderOverviewMessages: () => void;
@@ -1027,6 +1041,14 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
 });
 
 describe("Dashboard navigation and audit IA (DASH-010)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
   it("uses product-aligned navigation labels and titles while keeping legacy view aliases working", async () => {
     const html = readFileSync("public/index.html", "utf8");
     const sidebarNav =
@@ -1188,6 +1210,300 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     expect(html).toContain(">Deny<");
     expect(html).toContain("Advanced path");
     expect(html).toContain("Custom selector combination");
+    expect(html).toContain("handleEditPolicy('pol_global_opinion')");
+    expect(html).toContain("handleEditPolicy('pol_role_calendar')");
+    expect(html).not.toContain("handleEditPolicy('pol_custom')");
+  });
+
+  it("creates guided common boundaries for global, contact, role, and group scopes against the live policies API", async () => {
+    await seedTestSystemRoles();
+
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser("boundary_viewer");
+    const { user: alice } = await createTestUser("boundary_alice");
+    await createFriendship(viewer.id, alice.id, "accepted");
+
+    const groupId = nanoid();
+    await db.insert(schema.groups).values({
+      createdAt: new Date("2026-03-14T09:00:00.000Z"),
+      description: "Weekend coordination circle",
+      id: groupId,
+      inviteOnly: true,
+      name: "weekend-plan",
+      ownerUserId: viewer.id,
+      updatedAt: new Date("2026-03-14T09:00:00.000Z"),
+    });
+    await db.insert(schema.groupMemberships).values({
+      createdAt: new Date("2026-03-14T09:00:00.000Z"),
+      groupId,
+      id: nanoid(),
+      role: "owner",
+      status: "active",
+      userId: viewer.id,
+    });
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    const createBoundary = async ({
+      scope,
+      targetId = null,
+      category,
+      presetId,
+      effect,
+    }: {
+      scope: "global" | "user" | "role" | "group";
+      targetId?: string | null;
+      category: string;
+      presetId: string;
+      effect: "allow" | "ask" | "deny";
+    }) => {
+      harness.dashboard.UI.openBoundaryEditor();
+      harness.getElement("policy-scope").value = scope;
+      harness.dashboard.UI.populatePolicyTargets(scope, targetId);
+      harness.getElement("policy-target-id").value = targetId ?? "";
+      harness.getElement("policy-category").value = category;
+      harness.dashboard.UI.populateBoundaryPresetOptions(category, presetId);
+      harness.getElement("policy-preset").value = presetId;
+      harness.getElement("policy-effect").value = effect;
+
+      await harness.dashboard.UI.handleCreatePolicy();
+      await flushDashboardWork();
+    };
+
+    await createBoundary({
+      scope: "global",
+      category: "opinions",
+      presetId: "opinions_recommend",
+      effect: "allow",
+    });
+    await createBoundary({
+      scope: "user",
+      targetId: alice.id,
+      category: "location",
+      presetId: "location_current",
+      effect: "deny",
+    });
+    await createBoundary({
+      scope: "role",
+      targetId: "close_friends",
+      category: "availability",
+      presetId: "availability_event_details",
+      effect: "ask",
+    });
+    await createBoundary({
+      scope: "group",
+      targetId: groupId,
+      category: "financial",
+      presetId: "financial_transactions",
+      effect: "deny",
+    });
+
+    const policies = await db
+      .select()
+      .from(schema.policies)
+      .where(eq(schema.policies.userId, viewer.id));
+
+    expect(policies).toHaveLength(4);
+
+    const globalPolicy = policies.find((policy) => policy.scope === "global");
+    const userPolicy = policies.find(
+      (policy) => policy.scope === "user" && policy.targetId === alice.id,
+    );
+    const rolePolicy = policies.find(
+      (policy) =>
+        policy.scope === "role" && policy.targetId === "close_friends",
+    );
+    const groupPolicy = policies.find(
+      (policy) => policy.scope === "group" && policy.targetId === groupId,
+    );
+
+    expect(globalPolicy).toEqual(
+      expect.objectContaining({
+        action: "recommend",
+        direction: "outbound",
+        effect: "allow",
+        evaluator: "structured",
+        policyType: "structured",
+        resource: "message.general",
+      }),
+    );
+    expect(JSON.parse(globalPolicy!.policyContent)).toEqual(
+      expect.objectContaining({
+        action: "recommend",
+        direction: "outbound",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: {},
+        resource: "message.general",
+        schema_version: "canonical_policy_v1",
+      }),
+    );
+
+    expect(userPolicy).toEqual(
+      expect.objectContaining({
+        action: "share",
+        direction: "outbound",
+        effect: "deny",
+        evaluator: "structured",
+        policyType: "structured",
+        resource: "location.current",
+      }),
+    );
+    expect(rolePolicy).toEqual(
+      expect.objectContaining({
+        action: "read_details",
+        direction: "outbound",
+        effect: "ask",
+        evaluator: "structured",
+        policyType: "structured",
+        resource: "calendar.event",
+      }),
+    );
+    expect(groupPolicy).toEqual(
+      expect.objectContaining({
+        action: "share",
+        direction: "outbound",
+        effect: "deny",
+        evaluator: "structured",
+        policyType: "structured",
+        resource: "financial.transaction",
+      }),
+    );
+  });
+
+  it("opens guided edit mode for common boundaries and patches canonical selector fields without raw JSON", async () => {
+    await seedTestSystemRoles();
+
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser("edit_boundary_viewer");
+    const storage = canonicalToStorage({
+      scope: "role",
+      target_id: "close_friends",
+      direction: "response",
+      resource: "calendar.availability",
+      action: "share",
+      effect: "ask",
+      evaluator: "llm",
+      policy_content: "Pause for review before sharing schedule details.",
+      effective_from: null,
+      expires_at: null,
+      max_uses: null,
+      remaining_uses: null,
+      source: "user_created",
+      derived_from_message_id: null,
+      learning_provenance: null,
+      priority: 0,
+      enabled: true,
+    });
+    const policyId = nanoid();
+
+    await db.insert(schema.policies).values({
+      action: storage.action,
+      createdAt: new Date("2026-03-14T10:00:00.000Z"),
+      derivedFromMessageId: storage.derivedFromMessageId,
+      direction: storage.direction,
+      effect: storage.effect,
+      effectiveFrom: storage.effectiveFrom,
+      enabled: true,
+      evaluator: storage.evaluator,
+      expiresAt: storage.expiresAt,
+      id: policyId,
+      maxUses: storage.maxUses,
+      policyContent: storage.policyContent,
+      policyType: storage.policyType,
+      priority: 0,
+      remainingUses: storage.remainingUses,
+      resource: storage.resource,
+      scope: "role",
+      source: storage.source,
+      targetId: "close_friends",
+      userId: viewer.id,
+    });
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+    harness.dashboard.UI.renderPolicies("all");
+
+    expect(harness.getElement("policies-list").innerHTML).toContain(
+      `handleEditPolicy('${policyId}')`,
+    );
+
+    harness.dashboard.UI.handleEditPolicy(policyId);
+
+    expect(harness.getElement("policy-modal-title").textContent).toBe(
+      "✏️ Edit Boundary",
+    );
+    expect(harness.getElement("policy-scope").disabled).toBe(true);
+    expect(harness.getElement("policy-target-id").disabled).toBe(true);
+    expect(harness.getElement("policy-direction-note").textContent).toContain(
+      "response",
+    );
+
+    harness.getElement("policy-category").value = "location";
+    harness.dashboard.UI.populateBoundaryPresetOptions(
+      "location",
+      "location_current",
+    );
+    harness.getElement("policy-preset").value = "location_current";
+    harness.getElement("policy-effect").value = "deny";
+
+    await harness.dashboard.UI.handleCreatePolicy();
+    await flushDashboardWork();
+
+    expect(harness.fetchCalls).toContain(`/api/v1/policies/${policyId}`);
+
+    const [updatedPolicy] = await db
+      .select()
+      .from(schema.policies)
+      .where(eq(schema.policies.id, policyId))
+      .limit(1);
+
+    expect(updatedPolicy).toEqual(
+      expect.objectContaining({
+        action: "share",
+        direction: "response",
+        effect: "deny",
+        evaluator: "structured",
+        policyType: "structured",
+        resource: "location.current",
+        scope: "role",
+        targetId: "close_friends",
+      }),
+    );
+    expect(JSON.parse(updatedPolicy.policyContent)).toEqual(
+      expect.objectContaining({
+        action: "share",
+        direction: "response",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: {},
+        resource: "location.current",
+        schema_version: "canonical_policy_v1",
+      }),
+    );
   });
 
   it("enriches delivery logs with review, blocked, and ask-around audit cues", async () => {
