@@ -17,7 +17,7 @@ agent_args:
 max_iterations: 0
 poll_interval_seconds: 3
 completion_phrase: COMPLETE
-required_branch: feature/local-plugin-policy-enforcement-plan
+required_branch: feature/local-plugin-policy-enforcement-orchestrator
 auto_commit_on_done: true
 auto_push_every_commits: 3
 task_failure_retry_limit: 3
