@@ -251,7 +251,7 @@ This project is done when all of the following are true:
   - 2026-03-14T12:53:56.209Z: LPE-003 completed via orchestrator integration.
 ### 0.4 Extract a Provider-Neutral LLM Evaluator Contract
 - **ID**: `LPE-004`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-001`
 - **Description**:
@@ -264,6 +264,8 @@ This project is done when all of the following are true:
   - [ ] Server Anthropic path is refactored to use the new abstraction
   - [ ] Plugin can supply its own provider adapter later without changing policy semantics
 
+- **Notes**:
+  - 2026-03-14T13:02:27.758Z: LPE-004 completed via orchestrator integration.
 ### 0.5 Refactor Server Policy Adapters to Use the Shared Core
 - **ID**: `LPE-005`
 - **Status**: `pending`
