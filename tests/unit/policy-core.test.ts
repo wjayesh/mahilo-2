@@ -209,6 +209,67 @@ describe("policy core resolver", () => {
     expect(result.evaluated_policies[0]?.matched).toBe(true);
   });
 
+  it("maps normalized llm error kinds to explicit ask reason codes", async () => {
+    const evaluator: LLMPolicyEvaluator = async () => ({
+      status: "error",
+      error: "socket hang up",
+      error_kind: "network",
+    });
+
+    const result = await resolvePolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_llm",
+          scope: "global",
+          effect: "deny",
+          evaluator: "llm",
+          policy_content: "Never share secrets",
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "hello",
+      llmSubject: "alice",
+      llmEvaluator: evaluator,
+      llmErrorMode: "ask",
+    });
+
+    expect(result.effect).toBe("ask");
+    expect(result.reason_code).toBe("policy.ask.llm.network");
+    expect(result.winning_policy_id).toBe("pol_llm");
+    expect(result.winning_policy?.reason).toContain("socket hang up");
+  });
+
+  it("can degrade skipped llm evaluation to ask with an explicit skip code", async () => {
+    const evaluator: LLMPolicyEvaluator = async () => ({
+      status: "skip",
+      skip_reason: "Classifier confidence too low",
+    });
+
+    const result = await resolvePolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_llm",
+          scope: "global",
+          effect: "deny",
+          evaluator: "llm",
+          policy_content: "Never share secrets",
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "hello",
+      llmSubject: "alice",
+      llmEvaluator: evaluator,
+      llmSkipMode: "ask",
+    });
+
+    expect(result.effect).toBe("ask");
+    expect(result.reason_code).toBe("policy.ask.llm.skip");
+    expect(result.winning_policy_id).toBe("pol_llm");
+    expect(result.winning_policy?.reason).toContain(
+      "Classifier confidence too low",
+    );
+  });
+
   it("uses an injected llm evaluator when available", async () => {
     const evaluator: LLMPolicyEvaluator = async () => ({
       status: "match",

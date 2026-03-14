@@ -3,6 +3,7 @@ import {
   PHASE_PRECEDENCE,
   SPECIFICITY_ORDER,
   type EvaluatedPolicy,
+  type LLMPolicyEvaluationErrorKind,
   type MatchedPolicyResolution,
   type LLMEvaluationFallbackMode,
   type PolicyEffect,
@@ -244,18 +245,29 @@ function normalizeLLMPolicyContent(content: unknown): string {
   return typeof content === "string" ? content : JSON.stringify(content);
 }
 
+type LLMFallbackReasonKind = LLMPolicyEvaluationErrorKind | "skip";
+
+function buildLLMFallbackReasonCode(
+  effect: PolicyEffect,
+  kind: LLMFallbackReasonKind,
+): string {
+  return `policy.${effect}.llm.${reasonCodeToken(kind)}`;
+}
+
 function buildLLMFallbackResult(
   ownerUserId: string,
   policy: ResolvePolicySetOptions["policies"][number],
   mode: LLMEvaluationFallbackMode,
-  kind: "error" | "unavailable",
+  kind: LLMFallbackReasonKind,
   errorMessage?: string,
 ): PolicyEvaluationResult {
   const detail = errorMessage ? `: ${errorMessage}` : "";
   const fallbackReason =
     kind === "unavailable"
       ? `LLM evaluator unavailable for policy ${policy.id}${detail}`
-      : `LLM evaluation failed for policy ${policy.id}${detail}`;
+      : kind === "skip"
+        ? `LLM evaluation skipped for policy ${policy.id}${detail}`
+        : `LLM evaluation failed for policy ${policy.id}${detail}`;
 
   if (mode === "skip") {
     return {
@@ -290,7 +302,7 @@ function buildLLMFallbackResult(
       "contextual_llm",
       {
         effect: mode,
-        reason_code: `policy.${mode}.llm.${kind}`,
+        reason_code: buildLLMFallbackReasonCode(mode, kind),
       },
     ),
   };
@@ -305,6 +317,7 @@ async function evaluateContextualPolicyMatch(
   llmEvaluator: ResolvePolicySetOptions["llmEvaluator"],
   llmUnavailableMode: LLMEvaluationFallbackMode,
   llmErrorMode: LLMEvaluationFallbackMode,
+  llmSkipMode: LLMEvaluationFallbackMode,
 ): Promise<PolicyEvaluationResult> {
   if (!llmEvaluator) {
     return buildLLMFallbackResult(
@@ -361,27 +374,20 @@ async function evaluateContextualPolicyMatch(
     }
 
     if (llmResult.status === "skip") {
-      return {
-        evaluated_policy: buildEvaluatedPolicy(
-          policy,
-          ownerUserId,
-          "contextual_llm",
-          {
-            matched: false,
-            skipped: true,
-            skip_reason:
-              llmResult.skip_reason || "Contextual LLM evaluation skipped",
-          },
-        ),
-        match: null,
-      };
+      return buildLLMFallbackResult(
+        ownerUserId,
+        policy,
+        llmSkipMode,
+        "skip",
+        llmResult.skip_reason,
+      );
     }
 
     return buildLLMFallbackResult(
       ownerUserId,
       policy,
       llmErrorMode,
-      "error",
+      llmResult.error_kind ?? "unknown",
       llmResult.error || llmResult.reasoning,
     );
   } catch (error) {
@@ -389,7 +395,7 @@ async function evaluateContextualPolicyMatch(
       ownerUserId,
       policy,
       llmErrorMode,
-      "error",
+      "unknown",
       error instanceof Error ? error.message : undefined,
     );
   }
@@ -444,6 +450,7 @@ export async function resolvePolicySet(
       options.llmEvaluator,
       options.llmUnavailableMode ?? "skip",
       options.llmErrorMode ?? "skip",
+      options.llmSkipMode ?? "skip",
     );
     llmEvaluated.push(result.evaluated_policy);
     evaluatedPolicies.push(result.evaluated_policy);

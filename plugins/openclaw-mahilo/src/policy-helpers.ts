@@ -40,11 +40,14 @@ export interface SharedLocalPolicyResolverInput {
   llmEvaluator?: LLMPolicyEvaluator;
   llmUnavailableMode?: LLMEvaluationFallbackMode;
   llmErrorMode?: LLMEvaluationFallbackMode;
+  llmSkipMode?: LLMEvaluationFallbackMode;
   authenticatedIdentity?: AuthenticatedSenderIdentity;
   resolverLayer?: PolicyResolverLayer;
 }
 
 const DECISIONS: PolicyDecision[] = ["allow", "ask", "deny"];
+const LOCAL_LLM_FAIL_SAFE_MODE: LLMEvaluationFallbackMode = "ask";
+const DEGRADED_LLM_REASON_CODE_PATTERN = /^policy\.ask\.llm\.[a-z0-9_]+$/u;
 
 const SENSITIVE_RESOURCES = [
   "calendar.",
@@ -144,16 +147,26 @@ export function decisionBlocksSend(decision: PolicyDecision): boolean {
   return decision === "deny";
 }
 
+export function isDegradedLLMReasonCode(
+  reasonCode: string | undefined,
+): boolean {
+  return (
+    typeof reasonCode === "string" &&
+    DEGRADED_LLM_REASON_CODE_PATTERN.test(reasonCode)
+  );
+}
+
 export function shouldSendForDecision(
   decision: PolicyDecision,
   reviewMode: ReviewMode = "ask",
+  reasonCode?: string,
 ): boolean {
   if (decision === "deny") {
     return false;
   }
 
   if (decision === "ask") {
-    return reviewMode === "auto";
+    return reviewMode === "auto" && !isDegradedLLMReasonCode(reasonCode);
   }
 
   return true;
@@ -162,12 +175,16 @@ export function shouldSendForDecision(
 export function toToolStatus(
   decision: PolicyDecision,
   reviewMode: ReviewMode = "ask",
+  reasonCode?: string,
 ): "denied" | "review_required" | "sent" {
   if (decision === "deny") {
     return "denied";
   }
 
-  if (decision === "ask" && reviewMode !== "auto") {
+  if (
+    decision === "ask" &&
+    (reviewMode !== "auto" || isDegradedLLMReasonCode(reasonCode))
+  ) {
     return "review_required";
   }
 
@@ -185,8 +202,9 @@ export async function resolveLocalPolicySet(
     recipientUsername: input.recipientUsername,
     llmSubject: input.llmSubject ?? input.recipientUsername ?? "unknown",
     llmEvaluator: input.llmEvaluator,
-    llmUnavailableMode: input.llmUnavailableMode,
-    llmErrorMode: input.llmErrorMode,
+    llmUnavailableMode: input.llmUnavailableMode ?? LOCAL_LLM_FAIL_SAFE_MODE,
+    llmErrorMode: input.llmErrorMode ?? LOCAL_LLM_FAIL_SAFE_MODE,
+    llmSkipMode: input.llmSkipMode ?? LOCAL_LLM_FAIL_SAFE_MODE,
     authenticatedIdentity: input.authenticatedIdentity,
     resolverLayer: input.resolverLayer ?? "user_policies",
   });

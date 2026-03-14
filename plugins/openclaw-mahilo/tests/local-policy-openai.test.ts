@@ -33,8 +33,10 @@ function createPolicy(
   };
 }
 
-function createDirectBundle(): DirectSendPolicyBundle {
-  return {
+function createDirectBundle(
+  overrides: Partial<DirectSendPolicyBundle> = {},
+): DirectSendPolicyBundle {
+  const defaultBundle: DirectSendPolicyBundle = {
     contract_version: "1.0.0",
     bundle_type: "direct_send",
     bundle_metadata: {
@@ -73,6 +75,33 @@ function createDirectBundle(): DirectSendPolicyBundle {
         provider: "anthropic",
         model: "claude-3-haiku-20240307",
       },
+    },
+  };
+
+  return {
+    ...defaultBundle,
+    ...overrides,
+    bundle_metadata: {
+      ...defaultBundle.bundle_metadata,
+      ...overrides.bundle_metadata,
+    },
+    authenticated_identity: {
+      ...defaultBundle.authenticated_identity,
+      ...overrides.authenticated_identity,
+    },
+    selector_context: {
+      ...defaultBundle.selector_context,
+      ...overrides.selector_context,
+    },
+    recipient: {
+      ...defaultBundle.recipient,
+      ...overrides.recipient,
+    },
+    applicable_policies:
+      overrides.applicable_policies ?? defaultBundle.applicable_policies,
+    llm: {
+      ...defaultBundle.llm,
+      ...overrides.llm,
     },
   };
 }
@@ -122,9 +151,10 @@ describe("local policy OpenAI adapter", () => {
             fetch: (async (input, init) => {
               capturedUrl = String(input);
               capturedHeaders = new Headers(init?.headers);
-              capturedBody = JSON.parse(
-                String(init?.body ?? "{}"),
-              ) as Record<string, unknown>;
+              capturedBody = JSON.parse(String(init?.body ?? "{}")) as Record<
+                string,
+                unknown
+              >;
               signalSeen = init?.signal instanceof AbortSignal;
 
               return new Response(
@@ -216,6 +246,211 @@ describe("local policy OpenAI adapter", () => {
         },
       }),
     ).toBeUndefined();
+  });
+
+  it("fails closed when an applicable llm policy has no OpenAI credentials configured", async () => {
+    const runtimeConfig = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+    });
+
+    const result = await evaluateDirectSendBundleLocally(
+      createDirectBundle({
+        llm: {
+          subject: "alice",
+          provider_defaults: {
+            provider: "openai",
+            model: "gpt-4o-mini",
+          },
+        },
+      }),
+      {
+        message: "Alice is at home right now.",
+        context: "User asked for an exact location update.",
+      },
+      {
+        llmEvaluatorFactory: createOpenAILocalPolicyEvaluatorFactory(
+          runtimeConfig,
+          { env: {} },
+        ),
+      },
+    );
+
+    expect(result.local_decision).toMatchObject({
+      decision: "ask",
+      delivery_mode: "review_required",
+      reason_code: "policy.ask.llm.unavailable",
+    });
+    expect(result.local_decision.summary).toContain(
+      "policy.ask.llm.unavailable",
+    );
+    expect(result.recipient_results[0]).toMatchObject({
+      should_send: false,
+      transport_action: "hold",
+    });
+    expect(result.commit_payload.local_decision.reason_code).toBe(
+      "policy.ask.llm.unavailable",
+    );
+  });
+
+  it("fails closed on OpenAI transport errors and exposes degraded review details", async () => {
+    const runtimeConfig = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      localPolicyLLM: {
+        provider: "openai",
+        model: "gpt-4o-mini",
+        apiKey: "sk-local-policy-openai",
+      },
+    });
+
+    const result = await evaluateDirectSendBundleLocally(
+      createDirectBundle({
+        llm: {
+          subject: "alice",
+          provider_defaults: {
+            provider: "openai",
+            model: "gpt-4o-mini",
+          },
+        },
+      }),
+      {
+        message: "Alice is at home right now.",
+      },
+      {
+        llmEvaluatorFactory: createOpenAILocalPolicyEvaluatorFactory(
+          runtimeConfig,
+          {
+            fetch: (async () => {
+              throw new Error("socket hang up");
+            }) as typeof fetch,
+          },
+        ),
+      },
+    );
+
+    expect(result.local_decision).toMatchObject({
+      decision: "ask",
+      delivery_mode: "review_required",
+      reason_code: "policy.ask.llm.network",
+    });
+    expect(result.local_decision.summary).toContain("policy.ask.llm.network");
+    expect(result.local_decision.summary).toContain("socket hang up");
+    expect(result.recipient_results[0]).toMatchObject({
+      should_send: false,
+      transport_action: "hold",
+    });
+  });
+
+  it("fails closed on OpenAI provider failures", async () => {
+    const runtimeConfig = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      localPolicyLLM: {
+        provider: "openai",
+        model: "gpt-4o-mini",
+        apiKey: "sk-local-policy-openai",
+      },
+    });
+
+    const result = await evaluateDirectSendBundleLocally(
+      createDirectBundle({
+        llm: {
+          subject: "alice",
+          provider_defaults: {
+            provider: "openai",
+            model: "gpt-4o-mini",
+          },
+        },
+      }),
+      {
+        message: "Alice is at home right now.",
+      },
+      {
+        llmEvaluatorFactory: createOpenAILocalPolicyEvaluatorFactory(
+          runtimeConfig,
+          {
+            fetch: (async () =>
+              new Response("Invalid API key", {
+                status: 401,
+                statusText: "Unauthorized",
+              })) as typeof fetch,
+          },
+        ),
+      },
+    );
+
+    expect(result.local_decision).toMatchObject({
+      decision: "ask",
+      delivery_mode: "review_required",
+      reason_code: "policy.ask.llm.provider",
+    });
+    expect(result.local_decision.summary).toContain("policy.ask.llm.provider");
+    expect(result.local_decision.summary).toContain("401");
+    expect(result.recipient_results[0]).toMatchObject({
+      should_send: false,
+      transport_action: "hold",
+    });
+  });
+
+  it("fails closed on malformed OpenAI output", async () => {
+    const runtimeConfig = parseMahiloPluginConfig({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      localPolicyLLM: {
+        provider: "openai",
+        model: "gpt-4o-mini",
+        apiKey: "sk-local-policy-openai",
+      },
+    });
+
+    const result = await evaluateDirectSendBundleLocally(
+      createDirectBundle({
+        llm: {
+          subject: "alice",
+          provider_defaults: {
+            provider: "openai",
+            model: "gpt-4o-mini",
+          },
+        },
+      }),
+      {
+        message: "Alice is at home right now.",
+      },
+      {
+        llmEvaluatorFactory: createOpenAILocalPolicyEvaluatorFactory(
+          runtimeConfig,
+          {
+            fetch: (async () =>
+              new Response(
+                JSON.stringify({
+                  output: [
+                    {
+                      type: "message",
+                      content: [
+                        {
+                          type: "output_text",
+                        },
+                      ],
+                    },
+                  ],
+                }),
+                { status: 200 },
+              )) as typeof fetch,
+          },
+        ),
+      },
+    );
+
+    expect(result.local_decision).toMatchObject({
+      decision: "ask",
+      delivery_mode: "review_required",
+      reason_code: "policy.ask.llm.invalid_response",
+    });
+    expect(result.local_decision.summary).toContain(
+      "policy.ask.llm.invalid_response",
+    );
+    expect(result.local_decision.summary).toContain("Malformed response");
   });
 
   it("normalizes timeout failures", async () => {

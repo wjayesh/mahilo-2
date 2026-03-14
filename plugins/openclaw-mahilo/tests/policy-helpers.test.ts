@@ -6,6 +6,7 @@ import {
   decisionNeedsReview,
   extractDecision,
   extractResolutionId,
+  isDegradedLLMReasonCode,
   mergePolicyDecisions,
   normalizeDeclaredSelectors,
   resolveLocalPolicySet,
@@ -84,7 +85,27 @@ describe("policy helpers", () => {
     expect(shouldSendForDecision("allow", "ask")).toBe(true);
     expect(shouldSendForDecision("ask", "ask")).toBe(false);
     expect(shouldSendForDecision("ask", "auto")).toBe(true);
+    expect(shouldSendForDecision("ask", "auto", "policy.ask.user.llm")).toBe(
+      true,
+    );
+    expect(shouldSendForDecision("ask", "auto", "policy.ask.llm.network")).toBe(
+      false,
+    );
+    expect(toToolStatus("ask", "auto", "policy.ask.user.llm")).toBe("sent");
+    expect(toToolStatus("ask", "auto", "policy.ask.llm.skip")).toBe(
+      "review_required",
+    );
     expect(toToolStatus("deny", "auto")).toBe("denied");
+  });
+
+  it("recognizes degraded local llm review reason codes", () => {
+    expect(isDegradedLLMReasonCode("policy.ask.llm.network")).toBe(true);
+    expect(isDegradedLLMReasonCode("policy.ask.llm.invalid_response")).toBe(
+      true,
+    );
+    expect(isDegradedLLMReasonCode("policy.ask.llm.skip")).toBe(true);
+    expect(isDegradedLLMReasonCode("policy.ask.user.llm")).toBe(false);
+    expect(isDegradedLLMReasonCode("policy.deny.user.llm")).toBe(false);
   });
 
   it("can resolve a supplied policy set through the shared core", async () => {
@@ -142,6 +163,80 @@ describe("policy helpers", () => {
     expect(result.winning_policy?.reason).toBe(
       "Provider adapter flagged this message",
     );
+  });
+
+  it("fails closed when an applicable local llm policy has no evaluator", async () => {
+    const result = await resolveLocalPolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_llm_deny",
+          scope: "global",
+          effect: "deny",
+          evaluator: "llm",
+          policy_content: "Never share secrets",
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "The password is hunter2",
+      recipientUsername: "alice",
+      llmSubject: "alice",
+    });
+
+    expect(result.effect).toBe("ask");
+    expect(result.reason_code).toBe("policy.ask.llm.unavailable");
+    expect(result.winning_policy_id).toBe("pol_llm_deny");
+  });
+
+  it("fails closed when a local llm evaluator returns skip", async () => {
+    const llmEvaluator: LLMPolicyEvaluator = async () => ({
+      status: "skip",
+      skip_reason: "Model confidence too low",
+    });
+
+    const result = await resolveLocalPolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_llm_deny",
+          scope: "global",
+          effect: "deny",
+          evaluator: "llm",
+          policy_content: "Never share secrets",
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "The password is hunter2",
+      recipientUsername: "alice",
+      llmSubject: "alice",
+      llmEvaluator,
+    });
+
+    expect(result.effect).toBe("ask");
+    expect(result.reason_code).toBe("policy.ask.llm.skip");
+    expect(result.winning_policy_id).toBe("pol_llm_deny");
+  });
+
+  it("keeps deterministic-only evaluations unchanged when no llm policy applies", async () => {
+    const result = await resolveLocalPolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_max_length",
+          scope: "global",
+          effect: "deny",
+          evaluator: "structured",
+          policy_content: {
+            maxLength: 100,
+          },
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "hello",
+      recipientUsername: "alice",
+      llmSubject: "alice",
+    });
+
+    expect(result.effect).toBe("allow");
+    expect(result.reason_code).toBe("policy.allow.no_match");
+    expect(result.evaluated_policies[0]?.matched).toBe(false);
   });
 
   it("extracts policy decision from common response shapes", () => {

@@ -230,6 +230,7 @@ export interface ResolvePolicySetOptions {
   llmEvaluator?: LLMPolicyEvaluator;
   llmUnavailableMode?: LLMEvaluationFallbackMode;
   llmErrorMode?: LLMEvaluationFallbackMode;
+  llmSkipMode?: LLMEvaluationFallbackMode;
 }
 
 export interface ParsedLLMPolicyEvaluation extends LLMPolicyEvaluationResult {}

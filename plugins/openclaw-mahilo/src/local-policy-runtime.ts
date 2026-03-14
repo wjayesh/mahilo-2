@@ -14,6 +14,7 @@ import {
 } from "@mahilo/policy-core";
 import type { MahiloContractClient } from "./client";
 import {
+  isDegradedLLMReasonCode,
   normalizeDeclaredSelectors,
   resolveLocalPolicySet,
   type DeclaredSelectors,
@@ -122,10 +123,7 @@ export interface LocalPolicyLLMEvaluatorContext {
 
 export type LocalPolicyLLMEvaluatorFactory = (
   context: LocalPolicyLLMEvaluatorContext,
-) =>
-  | LLMPolicyEvaluator
-  | Promise<LLMPolicyEvaluator | undefined>
-  | undefined;
+) => LLMPolicyEvaluator | Promise<LLMPolicyEvaluator | undefined> | undefined;
 
 export interface LocalPolicyEvaluationOptions {
   llmErrorMode?: LLMEvaluationFallbackMode;
@@ -137,6 +135,7 @@ export interface LocalPolicyEvaluationOptions {
     error: LLMPolicyEvaluationError,
     input: LLMPolicyEvaluationInput,
   ) => LLMPolicyEvaluationResult | Promise<LLMPolicyEvaluationResult>;
+  llmSkipMode?: LLMEvaluationFallbackMode;
   llmUnavailableMode?: LLMEvaluationFallbackMode;
 }
 
@@ -248,8 +247,7 @@ export type MahiloPolicyBundleClient = Pick<
   "getDirectSendPolicyBundle" | "getGroupFanoutPolicyBundle"
 >;
 
-export interface MahiloLocalPolicyRuntimeOptions
-  extends LocalPolicyEvaluationOptions {
+export interface MahiloLocalPolicyRuntimeOptions extends LocalPolicyEvaluationOptions {
   client: MahiloPolicyBundleClient;
 }
 
@@ -266,6 +264,7 @@ export class MahiloLocalPolicyRuntime {
       llmProviderAdapter: options.llmProviderAdapter,
       normalizeLLMError: options.normalizeLLMError,
       onLLMError: options.onLLMError,
+      llmSkipMode: options.llmSkipMode,
       llmUnavailableMode: options.llmUnavailableMode,
     };
   }
@@ -341,8 +340,12 @@ export async function evaluateDirectSendBundleLocally(
     llmEvaluator,
     llmUnavailableMode: options.llmUnavailableMode,
     llmErrorMode: options.llmErrorMode,
+    llmSkipMode: options.llmSkipMode,
   });
-  const localDecision = toLocalDecision(policyResult, selectorContext.direction);
+  const localDecision = toLocalDecision(
+    policyResult,
+    selectorContext.direction,
+  );
   const recipientResult = buildRecipientResult(
     bundle.recipient,
     bundle.bundle_metadata.resolution_id,
@@ -406,6 +409,7 @@ export async function evaluateGroupFanoutBundleLocally(
         llmEvaluator,
         llmUnavailableMode: options.llmUnavailableMode,
         llmErrorMode: options.llmErrorMode,
+        llmSkipMode: options.llmSkipMode,
       });
       const localDecision = toLocalDecision(
         policyResult,
@@ -458,10 +462,11 @@ function toLocalDecision(
   return {
     decision: policyResult.effect,
     delivery_mode: deliveryMode,
-    summary: defaultDecisionSummary(
+    summary: buildLocalDecisionSummary(
       policyResult.effect,
       deliveryMode,
       policyResult.reason,
+      policyResult.reason_code,
     ),
     reason: policyResult.reason,
     reason_code: policyResult.reason_code,
@@ -553,22 +558,22 @@ function buildGroupAggregateResult(
       ? "allow"
       : distinctDecisions.size === 1
         ? recipientResults[0]!.local_decision.decision
-        : metadata.mixed_decision_priority.find((candidate) =>
+        : (metadata.mixed_decision_priority.find((candidate) =>
             distinctDecisions.has(candidate),
-          ) ?? "allow";
+          ) ?? "allow");
   const representative = recipientResults.find(
     (result) => result.local_decision.decision === aggregateDecision,
   );
   const reasonCode = partialDelivery
     ? metadata.partial_reason_code
-    : representative?.local_decision.reason_code ??
-      defaultReasonCode(aggregateDecision);
+    : (representative?.local_decision.reason_code ??
+      defaultReasonCode(aggregateDecision));
   const summary =
     recipientResults.length === 0
       ? metadata.empty_group_summary
       : partialDelivery
         ? formatAggregateSummary(metadata.partial_summary_template, counts)
-        : defaultDecisionSummary(
+        : buildLocalDecisionSummary(
             aggregateDecision,
             resolveDeliveryMode(aggregateDecision, direction),
           );
@@ -576,19 +581,26 @@ function buildGroupAggregateResult(
   return {
     counts,
     decision: aggregateDecision,
-    has_sendable_recipients: recipientResults.some((result) => result.should_send),
+    has_sendable_recipients: recipientResults.some(
+      (result) => result.should_send,
+    ),
     partial_delivery: partialDelivery,
     reason_code: reasonCode,
     summary,
   };
 }
 
-function defaultDecisionSummary(
+function buildLocalDecisionSummary(
   decision: PolicyDecision,
   deliveryMode: LocalDecisionDeliveryMode,
   reason?: string,
+  reasonCode?: string,
 ): string {
   if (reason) {
+    if (decision === "ask" && isDegradedLLMReasonCode(reasonCode)) {
+      return `Review required (${reasonCode}): ${stripReviewRequiredPrefix(reason)}`;
+    }
+
     return reason;
   }
 
@@ -603,6 +615,10 @@ function defaultDecisionSummary(
   return deliveryMode === "hold_for_approval"
     ? "Message requires approval before delivery."
     : "Message requires review before delivery.";
+}
+
+function stripReviewRequiredPrefix(reason: string): string {
+  return reason.replace(/^review required:\s*/iu, "");
 }
 
 function defaultReasonCode(decision: PolicyDecision): string {
@@ -713,7 +729,9 @@ function buildCommitPayload(
   };
 }
 
-function compactObject(value: Record<string, unknown>): Record<string, unknown> {
+function compactObject(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
   const compacted: Record<string, unknown> = {};
 
   for (const [key, candidate] of Object.entries(value)) {

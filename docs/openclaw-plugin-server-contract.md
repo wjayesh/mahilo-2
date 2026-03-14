@@ -484,6 +484,8 @@ Request notes:
 - Current implementation accepts direct user-send commits (`recipient_type=user`).
 - On the first successful commit, the server performs authoritative winning-policy lifecycle mutation and persists a message artifact even when transport never starts.
 - `allow` commits create a pending message artifact. Later `POST /api/v1/messages/send` must reuse the same `resolution_id` so transport binds to that committed local decision.
+- Degraded local LLM review outcomes use explicit reason codes under `policy.ask.llm.<kind>`. Current kinds include `unavailable`, normalized transport/provider/parser kinds such as `network`, `provider`, `invalid_response`, `timeout`, `unknown`, and `skip`.
+- Plugin clients must treat those degraded-review codes as review-required even when local UX is configured with `reviewMode=auto`; evaluator uncertainty must not silently auto-send.
 
 Success response example:
 
