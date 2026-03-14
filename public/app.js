@@ -99,6 +99,7 @@ const State = {
   notifications: [],
   networkFilter: 'all',
   networkSearch: '',
+  boundaryScopeFilter: 'all',
   contactConnectionsByUsername: new Map(),
   availableRoles: [],
   availableRolesByName: new Map(),
@@ -170,6 +171,7 @@ const State = {
     this.wsConnected = false;
     this.networkFilter = 'all';
     this.networkSearch = '';
+    this.boundaryScopeFilter = 'all';
     this.contactConnectionsByUsername = new Map();
     this.availableRoles = [];
     this.availableRolesByName = new Map();
@@ -684,6 +686,85 @@ const Helpers = {
     State[indexKey] = model?.byId instanceof Map ? model.byId : new Map();
   },
 
+  isInternalIdentifier(value) {
+    return /^(usr|grp|fr|pol|msg|conn|rev)_[a-z0-9]/i.test(this.string(value).trim());
+  },
+
+  policySourceLabel(value) {
+    const source = this.string(value).toLowerCase();
+
+    switch (source) {
+      case 'default':
+        return 'Default';
+      case 'learned':
+        return 'Learned';
+      case 'user_confirmed':
+        return 'User confirmed';
+      case 'override':
+        return 'Override';
+      case 'user_created':
+        return 'User created';
+      case 'legacy_migrated':
+        return 'Legacy import';
+      default:
+        return this.titleizeToken(value, 'Unknown source');
+    }
+  },
+
+  resolvePolicyTargetLabel(policy) {
+    const scope = this.string(policy?.scope, 'global');
+    const targetId = this.nullableString(policy?.targetId);
+
+    if (!targetId) {
+      return null;
+    }
+
+    if (scope === 'user') {
+      const match = State.friends.find((friend) => {
+        return friend?.userId === targetId || friend?.username === targetId || friend?.friendshipId === targetId;
+      });
+      return match?.displayName || match?.username || null;
+    }
+
+    if (scope === 'group') {
+      const target = this.string(targetId).toLowerCase();
+      const match = State.groups.find((group) => {
+        return group?.id === targetId || this.string(group?.name).toLowerCase() === target;
+      });
+      return match?.name || null;
+    }
+
+    if (scope === 'role') {
+      return this.titleizeToken(targetId, targetId);
+    }
+
+    return null;
+  },
+
+  policyAudienceDisplay(policy) {
+    const scope = this.string(policy?.scope, 'global');
+    const audience = policy?.boundary?.audience || {};
+    const resolvedTargetLabel = this.resolvePolicyTargetLabel(policy) || audience.targetLabel;
+
+    if (scope === 'global') {
+      return audience.displayLabel || 'Anyone on Mahilo';
+    }
+
+    if (scope === 'user') {
+      return resolvedTargetLabel ? `Contact: ${resolvedTargetLabel}` : audience.displayLabel || 'Specific contact';
+    }
+
+    if (scope === 'role') {
+      return resolvedTargetLabel ? `Role: ${resolvedTargetLabel}` : audience.displayLabel || 'Trust role';
+    }
+
+    if (scope === 'group') {
+      return resolvedTargetLabel ? `Group: ${resolvedTargetLabel}` : audience.displayLabel || 'Group conversation';
+    }
+
+    return audience.displayLabel || this.titleizeToken(scope, 'Audience');
+  },
+
   normalizeTransportDirection(record, currentUsername) {
     const sender = this.participantLabel(record.sender);
     const recipient = this.participantLabel(record.recipient);
@@ -834,6 +915,353 @@ const Helpers = {
     return null;
   },
 };
+
+const BOUNDARY_EFFECT_META = {
+  allow: {
+    badgeLabel: 'Allow',
+    label: 'Allow sharing',
+    description: 'Mahilo can send matching content without stopping.',
+    tone: 'allow',
+  },
+  ask: {
+    badgeLabel: 'Ask',
+    label: 'Ask before sharing',
+    description: 'Mahilo should pause matching content for review before sending.',
+    tone: 'ask',
+  },
+  deny: {
+    badgeLabel: 'Deny',
+    label: 'Block sharing',
+    description: 'Mahilo should stop matching content from being sent.',
+    tone: 'deny',
+  },
+};
+
+const BOUNDARY_SCOPE_META = {
+  global: {
+    filterLabel: 'Global',
+    scopeLabel: 'Global',
+    summary: 'Applies across every conversation unless a narrower rule wins.',
+    defaultDisplayLabel: 'Anyone on Mahilo',
+  },
+  user: {
+    filterLabel: 'Contact',
+    scopeLabel: 'Contact',
+    summary: 'Applies only to one specific contact.',
+    defaultDisplayLabel: 'Specific contact',
+  },
+  role: {
+    filterLabel: 'Role',
+    scopeLabel: 'Role',
+    summary: 'Applies to contacts with a specific trust role.',
+    defaultDisplayLabel: 'Trust role',
+  },
+  group: {
+    filterLabel: 'Group',
+    scopeLabel: 'Group',
+    summary: 'Applies only when sending into a specific group.',
+    defaultDisplayLabel: 'Group conversation',
+  },
+};
+
+const BOUNDARY_CATEGORY_META = {
+  opinions: {
+    description: 'Recommendations, reviews, and other lived experience.',
+    icon: '💬',
+    label: 'Opinions and recommendations',
+    managementPath: 'guided',
+  },
+  availability: {
+    description: 'Availability, event details, and schedule coordination.',
+    icon: '🗓️',
+    label: 'Availability and schedule',
+    managementPath: 'guided',
+  },
+  location: {
+    description: 'Current location, whereabouts, and location history.',
+    icon: '📍',
+    label: 'Location',
+    managementPath: 'guided',
+  },
+  health: {
+    description: 'Health summaries, wellness context, and medical details.',
+    icon: '🩺',
+    label: 'Health details',
+    managementPath: 'guided',
+  },
+  financial: {
+    description: 'Balances, transactions, and other money-related details.',
+    icon: '💳',
+    label: 'Financial details',
+    managementPath: 'guided',
+  },
+  contact: {
+    description: 'Email, phone, profile, and direct contact details.',
+    icon: '📇',
+    label: 'Contact details',
+    managementPath: 'guided',
+  },
+  generic: {
+    description: 'General messages that do not map to a more specific boundary.',
+    icon: '✉️',
+    label: 'Generic messages',
+    managementPath: 'guided',
+  },
+  advanced: {
+    description: 'Custom selector combinations stay visible here but use the advanced path.',
+    icon: '🧩',
+    label: 'Advanced/custom boundary',
+    managementPath: 'advanced',
+  },
+};
+
+const BOUNDARY_OPINION_PATTERN = /\b(recommend|recommendation|opinion|opinions|review|reviews|advice|suggest|suggestion|taste|experience)\b/;
+const BOUNDARY_AVAILABILITY_PATTERN = /\b(availability|available|free\/busy|free busy|calendar|schedule|meeting|event|appointment|time slot|busy)\b/;
+const BOUNDARY_LOCATION_PATTERN = /\b(location|whereabouts|address|gps|coordinates?|latitude|longitude|home|nearby|city)\b/;
+const BOUNDARY_HEALTH_PATTERN = /\b(health|medical|doctor|wellness|heart rate|blood pressure|sleep|bmi|symptom)\b/;
+const BOUNDARY_FINANCIAL_PATTERN = /\b(financial|finance|money|balance|transaction|payment|invoice|charge|bank|credit|debit)\b/;
+const BOUNDARY_CONTACT_PATTERN = /\b(contact|email|phone|sms|call|number|profile)\b/;
+
+function normalizeBoundaryValue(value) {
+  return Helpers.string(value).toLowerCase();
+}
+
+function formatBoundaryTargetLabel(scope, targetId) {
+  const normalizedTargetId = Helpers.nullableString(targetId);
+  if (!normalizedTargetId) {
+    return null;
+  }
+
+  if (scope === 'role') {
+    return Helpers.titleizeToken(normalizedTargetId, normalizedTargetId);
+  }
+
+  if (Helpers.isInternalIdentifier(normalizedTargetId)) {
+    return null;
+  }
+
+  if (scope === 'group') {
+    return Helpers.titleizeToken(normalizedTargetId, normalizedTargetId);
+  }
+
+  return normalizedTargetId;
+}
+
+function inferBoundaryCategoryFromContent(content) {
+  const normalizedContent = normalizeBoundaryValue(content);
+
+  if (BOUNDARY_OPINION_PATTERN.test(normalizedContent)) {
+    return 'opinions';
+  }
+
+  if (BOUNDARY_AVAILABILITY_PATTERN.test(normalizedContent)) {
+    return 'availability';
+  }
+
+  if (BOUNDARY_LOCATION_PATTERN.test(normalizedContent)) {
+    return 'location';
+  }
+
+  if (BOUNDARY_HEALTH_PATTERN.test(normalizedContent)) {
+    return 'health';
+  }
+
+  if (BOUNDARY_FINANCIAL_PATTERN.test(normalizedContent)) {
+    return 'financial';
+  }
+
+  if (BOUNDARY_CONTACT_PATTERN.test(normalizedContent)) {
+    return 'contact';
+  }
+
+  return null;
+}
+
+function inferBoundaryCategory(resource, action, contentText) {
+  const normalizedResource = normalizeBoundaryValue(resource);
+  const normalizedAction = normalizeBoundaryValue(action) || 'share';
+
+  if (normalizedResource === 'calendar' || normalizedResource.startsWith('calendar.')) {
+    return 'availability';
+  }
+
+  if (normalizedResource === 'location' || normalizedResource.startsWith('location.')) {
+    return 'location';
+  }
+
+  if (normalizedResource === 'health' || normalizedResource.startsWith('health.')) {
+    return 'health';
+  }
+
+  if (normalizedResource === 'financial' || normalizedResource.startsWith('financial.')) {
+    return 'financial';
+  }
+
+  if (
+    normalizedResource === 'contact' ||
+    normalizedResource.startsWith('contact.') ||
+    normalizedResource === 'profile.basic'
+  ) {
+    return 'contact';
+  }
+
+  if (normalizedResource === 'message.general' && BOUNDARY_OPINION_PATTERN.test(normalizedAction)) {
+    return 'opinions';
+  }
+
+  if (normalizedResource === 'message.general') {
+    return inferBoundaryCategoryFromContent(contentText) || 'generic';
+  }
+
+  return 'advanced';
+}
+
+function boundaryDirectionLabel(direction) {
+  const normalizedDirection = normalizeBoundaryValue(direction);
+
+  switch (normalizedDirection) {
+    case 'outbound':
+      return 'Outbound';
+    case 'inbound':
+      return 'Inbound';
+    case 'request':
+      return 'Request';
+    case 'response':
+      return 'Response';
+    case 'notification':
+      return 'Notification';
+    case 'error':
+      return 'Error';
+    default:
+      return Helpers.titleizeToken(direction, 'Outbound');
+  }
+}
+
+function boundarySelectorLabel(category, resource, action) {
+  const normalizedResource = normalizeBoundaryValue(resource);
+  const normalizedAction = normalizeBoundaryValue(action) || 'share';
+
+  if (category === 'opinions') {
+    return normalizedAction === 'recommend' ? 'Recommendations' : 'Opinion sharing';
+  }
+
+  if (category === 'availability') {
+    if (normalizedResource === 'calendar.availability' || normalizedAction === 'read_availability') {
+      return 'Availability windows';
+    }
+
+    if (normalizedResource === 'calendar.event' || normalizedAction === 'read_details') {
+      return 'Event details';
+    }
+
+    return 'Schedule details';
+  }
+
+  if (category === 'location') {
+    return normalizedResource === 'location.history' ? 'Location history' : 'Current location';
+  }
+
+  if (category === 'health') {
+    return normalizedResource === 'health.summary' ? 'Health summaries' : 'Health metrics';
+  }
+
+  if (category === 'financial') {
+    return normalizedResource === 'financial.transaction' ? 'Transactions' : 'Balances';
+  }
+
+  if (category === 'contact') {
+    if (normalizedResource === 'contact.email') {
+      return 'Email address';
+    }
+
+    if (normalizedResource === 'contact.phone') {
+      return 'Phone number';
+    }
+
+    return 'Contact profile';
+  }
+
+  if (category === 'generic') {
+    return 'General messages';
+  }
+
+  return Helpers.titleizeToken(
+    normalizedResource.replace(/[._-]+/g, '_'),
+    'Custom selector'
+  );
+}
+
+function buildBoundaryAudience(scope, targetId) {
+  const normalizedScope = Helpers.string(scope, 'global');
+  const scopeMeta = BOUNDARY_SCOPE_META[normalizedScope] || BOUNDARY_SCOPE_META.global;
+  const targetLabel = formatBoundaryTargetLabel(normalizedScope, targetId);
+  let displayLabel = scopeMeta.defaultDisplayLabel;
+  let summary = scopeMeta.summary;
+
+  if (normalizedScope === 'role' && targetLabel) {
+    displayLabel = `Role: ${targetLabel}`;
+    summary = `Applies to contacts tagged ${targetLabel}.`;
+  } else if (normalizedScope === 'group' && targetLabel) {
+    displayLabel = `Group: ${targetLabel}`;
+    summary = `Applies only when sending into ${targetLabel}.`;
+  } else if (normalizedScope === 'user' && targetLabel) {
+    displayLabel = `Contact: ${targetLabel}`;
+    summary = `Applies only to ${targetLabel}.`;
+  }
+
+  return {
+    scope: normalizedScope,
+    filterLabel: scopeMeta.filterLabel,
+    scopeLabel: scopeMeta.scopeLabel,
+    targetId: Helpers.nullableString(targetId),
+    targetLabel,
+    displayLabel,
+    summary,
+  };
+}
+
+function buildBoundarySelector(category, direction, resource, action) {
+  const normalizedAction = Helpers.nullableString(action) || 'share';
+
+  return {
+    action: normalizedAction,
+    direction: Helpers.string(direction, 'outbound'),
+    directionLabel: boundaryDirectionLabel(direction),
+    label: boundarySelectorLabel(category, resource, normalizedAction),
+    resource: Helpers.string(resource, 'message.general'),
+    summary: `${Helpers.string(resource, 'message.general')}${normalizedAction ? ` / ${normalizedAction}` : ''}`,
+  };
+}
+
+function buildBoundaryPresentation(policy) {
+  const category = inferBoundaryCategory(policy.resource, policy.action, policy.contentText);
+  const categoryMeta = BOUNDARY_CATEGORY_META[category] || BOUNDARY_CATEGORY_META.advanced;
+  const effectMeta = BOUNDARY_EFFECT_META[policy.effect] || BOUNDARY_EFFECT_META.deny;
+  const selector = buildBoundarySelector(category, policy.direction, policy.resource, policy.action);
+  const audience = buildBoundaryAudience(policy.scope, policy.targetId);
+  const advancedSummary =
+    categoryMeta.managementPath === 'advanced'
+      ? `Custom selector combination (${selector.summary}). Keep it visible here and use the advanced path for selector-specific edits.`
+      : null;
+
+  return {
+    advancedSummary,
+    audience,
+    category,
+    categoryDescription: categoryMeta.description,
+    categoryLabel: categoryMeta.label,
+    effect: {
+      badgeLabel: effectMeta.badgeLabel,
+      description: effectMeta.description,
+      label: effectMeta.label,
+      tone: effectMeta.tone,
+      value: policy.effect,
+    },
+    icon: categoryMeta.icon,
+    managementPath: categoryMeta.managementPath,
+    selector,
+  };
+}
 
 const Normalizers = {
   user(value) {
@@ -1099,7 +1527,7 @@ const Normalizers = {
 
     const evaluator = Helpers.string(record.evaluator ?? record.policy_type, 'llm');
 
-    return {
+    const policy = {
       id,
       scope: Helpers.string(record.scope, 'global'),
       targetId: Helpers.nullableString(record.target_id),
@@ -1116,6 +1544,11 @@ const Normalizers = {
       source: Helpers.nullableString(record.source),
       createdAt: Helpers.iso(record.created_at ?? record.createdAt),
       raw: value,
+    };
+
+    return {
+      ...policy,
+      boundary: buildBoundaryPresentation(policy),
     };
   },
 
@@ -1533,6 +1966,9 @@ const DataLoader = {
         UI.renderChat(State.selectedChat);
         UI.renderDevChat(State.selectedChat);
       }
+      if (State.currentView === 'boundaries') {
+        UI.renderPolicies();
+      }
     } catch (error) {
       console.error('Failed to load friends:', error);
     }
@@ -1560,6 +1996,10 @@ const DataLoader = {
         State.friendsById.get(State.selectedNetworkFriendId) || null
       );
     }
+
+    if (State.currentView === 'boundaries') {
+      UI.renderPolicies();
+    }
   },
 
   async loadGroups() {
@@ -1569,6 +2009,9 @@ const DataLoader = {
       UI.updateGroupCount(State.groups.length);
       UI.renderGroups();
       UI.renderOverviewGroups();
+      if (State.currentView === 'boundaries') {
+        UI.renderPolicies();
+      }
     } catch (error) {
       console.error('Failed to load groups:', error);
     }
@@ -1601,7 +2044,7 @@ const DataLoader = {
     try {
       const policiesModel = Normalizers.policiesModel(await API.policies.list());
       Helpers.applyCollectionState('policies', 'policiesById', policiesModel);
-      UI.renderPolicies();
+      UI.renderPolicies(State.boundaryScopeFilter);
     } catch (error) {
       console.error('Failed to load policies:', error);
     }
@@ -1816,9 +2259,11 @@ const UI = {
     // Policy filters
     document.querySelectorAll('.policy-filters .filter-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        const filterButton = e.currentTarget;
         document.querySelectorAll('.policy-filters .filter-btn').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        this.renderPolicies(e.target.dataset.scope);
+        filterButton.classList.add('active');
+        State.boundaryScopeFilter = filterButton.dataset.scope || 'all';
+        this.renderPolicies(State.boundaryScopeFilter);
       });
     });
 
@@ -2482,6 +2927,13 @@ const UI = {
           option.textContent = friend.displayName || friend.username;
           select.appendChild(option);
         });
+    } else if (scope === 'role') {
+      State.availableRoles.forEach(role => {
+        const option = document.createElement('option');
+        option.value = role.name;
+        option.textContent = Helpers.titleizeToken(role.name, role.name);
+        select.appendChild(option);
+      });
     } else if (scope === 'group') {
       State.groups.forEach(group => {
           const option = document.createElement('option');
@@ -2529,6 +2981,8 @@ const UI = {
     } else if (resolvedView === 'logs') {
       this.hideNotificationDot();
       this.renderLogs();
+    } else if (resolvedView === 'boundaries') {
+      this.renderPolicies(State.boundaryScopeFilter);
     } else if (resolvedView === 'settings') {
       DataLoader.loadPreferences();
     } else if (resolvedView === 'developer') {
@@ -3971,12 +4425,18 @@ const UI = {
     }
   },
 
-  renderPolicies(scope = 'all') {
+  renderPolicies(scope = State.boundaryScopeFilter || 'all') {
     const list = document.getElementById('policies-list');
-    
+    const activeScope = scope || 'all';
+    State.boundaryScopeFilter = activeScope;
+
+    document.querySelectorAll('.policy-filters .filter-btn').forEach((button) => {
+      button.classList.toggle('active', button.dataset.scope === activeScope);
+    });
+
     let policies = State.policies;
-    if (scope !== 'all') {
-      policies = policies.filter(p => p.scope === scope);
+    if (activeScope !== 'all') {
+      policies = policies.filter(p => p.scope === activeScope);
     }
 
     if (!policies.length) {
@@ -3996,31 +4456,55 @@ const UI = {
       return;
     }
 
-    list.innerHTML = policies.map(policy => `
-      <div class="policy-card">
-        <div class="policy-header">
-          <span class="policy-title">${policy.policyType === 'heuristic' ? '📋' : '🧠'} ${policy.effect} boundary</span>
-          <div class="policy-badges">
-            <span class="policy-badge ${policy.scope}">${policy.scope}</span>
-            <span class="policy-badge">${policy.direction}</span>
-            <span class="policy-badge ${policy.enabled ? 'enabled' : 'disabled'}">${policy.enabled ? 'enabled' : 'disabled'}</span>
+    list.innerHTML = policies.map(policy => {
+      const boundary = policy.boundary || {};
+      const audienceLabel = Helpers.policyAudienceDisplay(policy);
+      const audience = boundary.audience || {};
+      const effect = boundary.effect || {};
+      const selector = boundary.selector || {};
+      const sourceLabel = Helpers.policySourceLabel(policy.source);
+      const advancedNote = boundary.managementPath === 'advanced'
+        ? `
+          <div class="policy-advanced-note">
+            ${Helpers.escapeHtml(boundary.advancedSummary || 'This boundary uses a custom selector and stays on the advanced path.')}
+          </div>
+        `
+        : '';
+
+      return `
+        <div class="policy-card">
+          <div class="policy-header">
+            <div class="policy-header-main">
+              <span class="policy-title">${Helpers.escapeHtml(`${boundary.icon || '🛡️'} ${boundary.categoryLabel || 'Boundary'}`)}</span>
+              <p class="policy-subtitle">${Helpers.escapeHtml(audienceLabel)}</p>
+            </div>
+            <div class="policy-badges">
+              <span class="policy-badge ${Helpers.escapeHtml(policy.scope)}">${Helpers.escapeHtml(audience.filterLabel || Helpers.titleizeToken(policy.scope, policy.scope))}</span>
+              <span class="policy-badge effect-${Helpers.escapeHtml(effect.tone || policy.effect)}">${Helpers.escapeHtml(effect.badgeLabel || policy.effect)}</span>
+              ${boundary.managementPath === 'advanced' ? '<span class="policy-badge advanced">Advanced path</span>' : ''}
+              <span class="policy-badge ${policy.enabled ? 'enabled' : 'disabled'}">${policy.enabled ? 'enabled' : 'disabled'}</span>
+            </div>
+          </div>
+          <p class="policy-summary">${Helpers.escapeHtml(boundary.categoryDescription || effect.description || '')}</p>
+          <div class="log-details">
+            <span class="log-detail">Selector: ${Helpers.escapeHtml(selector.label || 'Custom selector')} (${Helpers.escapeHtml(selector.summary || `${policy.resource}${policy.action ? ` / ${policy.action}` : ''}`)})</span>
+            <span class="log-detail">Direction: ${Helpers.escapeHtml(selector.directionLabel || Helpers.titleizeToken(policy.direction, policy.direction))}</span>
+            <span class="log-detail">Source: ${Helpers.escapeHtml(sourceLabel)}</span>
+            <span class="log-detail">Evaluator: ${Helpers.escapeHtml(Helpers.titleizeToken(policy.evaluator, policy.evaluator))}</span>
+          </div>
+          ${advancedNote}
+          <div class="policy-content">${Helpers.escapeHtml(policy.contentText)}</div>
+          <div class="policy-actions">
+            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleTogglePolicy('${policy.id}', ${!policy.enabled})">
+              ${policy.enabled ? 'Disable' : 'Enable'}
+            </button>
+            <button class="squishy-btn btn-danger btn-small" onclick="UI.handleDeletePolicy('${policy.id}')">
+              Delete
+            </button>
           </div>
         </div>
-        <div class="policy-content">${policy.contentText}</div>
-        <div class="log-details">
-          <span class="log-detail">Selector: ${policy.resource}${policy.action ? ` / ${policy.action}` : ''}</span>
-          <span class="log-detail">Evaluator: ${policy.evaluator}</span>
-        </div>
-        <div class="policy-actions">
-          <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleTogglePolicy('${policy.id}', ${!policy.enabled})">
-            ${policy.enabled ? 'Disable' : 'Enable'}
-          </button>
-          <button class="squishy-btn btn-danger btn-small" onclick="UI.handleDeletePolicy('${policy.id}')">
-            Delete
-          </button>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   },
 
   async handleTogglePolicy(id, enabled) {

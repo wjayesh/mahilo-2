@@ -71,6 +71,7 @@ type DashboardInternals = {
     handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
     handleUnfriend: (id: string) => Promise<void>;
+    renderPolicies: (scope?: string) => void;
     selectChat: (username: string) => void;
     switchView: (view: string) => void;
   };
@@ -1046,6 +1047,127 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
     harness.dashboard.UI.switchView("developer");
     expect(harness.getElement("page-title").textContent).toBe("Developer");
     expect(harness.getElement("page-subtitle").textContent).toContain("Advanced");
+  });
+
+  it("renders boundary taxonomy cards with user-facing audience labels and an explicit advanced fallback", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing boundary taxonomy rendering: ${url}`);
+      },
+    });
+
+    await harness.boot();
+
+    const { Helpers, Normalizers, State, UI } = harness.dashboard;
+
+    State.friends = [
+      {
+        displayName: "Alice",
+        friendshipId: "fr_alice",
+        status: "accepted",
+        userId: "usr_alice",
+        username: "alice",
+      },
+    ];
+    State.groups = [
+      {
+        id: "grp_weekend_plan",
+        name: "weekend-plan",
+      },
+    ];
+    State.availableRoles = [
+      {
+        name: "close_friends",
+      },
+    ];
+    State.availableRolesByName = new Map([
+      [
+        "close_friends",
+        {
+          name: "close_friends",
+        },
+      ],
+    ]);
+
+    const policiesModel = Normalizers.policiesModel([
+      {
+        id: "pol_global_opinion",
+        scope: "global",
+        direction: "outbound",
+        resource: "message.general",
+        action: "recommend",
+        effect: "allow",
+        evaluator: "structured",
+        policy_content: "Share restaurant recommendations freely.",
+        enabled: true,
+      },
+      {
+        id: "pol_role_calendar",
+        scope: "role",
+        target_id: "close_friends",
+        direction: "response",
+        resource: "calendar.availability",
+        action: "share",
+        effect: "ask",
+        evaluator: "llm",
+        policy_content: "Pause for review before sharing schedule details.",
+        enabled: true,
+      },
+      {
+        id: "pol_user_location",
+        scope: "user",
+        target_id: "usr_alice",
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+        effect: "deny",
+        evaluator: "llm",
+        policy_content: "Never share exact location with Alice.",
+        enabled: true,
+      },
+      {
+        id: "pol_group_finance",
+        scope: "group",
+        target_id: "grp_weekend_plan",
+        direction: "outbound",
+        resource: "financial.transaction",
+        action: "share",
+        effect: "deny",
+        evaluator: "structured",
+        policy_content: { blockedPatterns: ["invoice"] },
+        enabled: true,
+      },
+      {
+        id: "pol_custom",
+        scope: "global",
+        direction: "notification",
+        resource: "custom.preference",
+        action: "share",
+        effect: "ask",
+        evaluator: "structured",
+        policy_content: { custom: true },
+        enabled: true,
+      },
+    ]);
+
+    Helpers.applyCollectionState("policies", "policiesById", policiesModel);
+    UI.renderPolicies("all");
+
+    const html = harness.getElement("policies-list").innerHTML;
+
+    expect(html).toContain("Opinions and recommendations");
+    expect(html).toContain("Availability and schedule");
+    expect(html).toContain("Location");
+    expect(html).toContain("Financial details");
+    expect(html).toContain("Anyone on Mahilo");
+    expect(html).toContain("Role: Close Friends");
+    expect(html).toContain("Contact: Alice");
+    expect(html).toContain("Group: weekend-plan");
+    expect(html).toContain(">Allow<");
+    expect(html).toContain(">Ask<");
+    expect(html).toContain(">Deny<");
+    expect(html).toContain("Advanced path");
+    expect(html).toContain("Custom selector combination");
   });
 
   it("enriches delivery logs with review, blocked, and ask-around audit cues", async () => {

@@ -388,4 +388,167 @@ describe("Dashboard Data Adapter", () => {
     expect(State.conversations.get("alice")).toHaveLength(1);
     expect(State.conversations.get("weekend-plan")).toHaveLength(1);
   });
+
+  it("maps canonical policy records into boundary categories, effects, audiences, and advanced fallbacks", () => {
+    const { Normalizers } = loadDashboardData();
+
+    const opinionBoundary = Normalizers.policy({
+      id: "pol_opinion",
+      scope: "global",
+      direction: "outbound",
+      resource: "message.general",
+      action: "recommend",
+      effect: "allow",
+      evaluator: "structured",
+      policy_content: "Restaurant recommendations are okay to share.",
+    });
+
+    const availabilityBoundary = Normalizers.policy({
+      id: "pol_availability",
+      scope: "role",
+      target_id: "close_friends",
+      direction: "response",
+      resource: "calendar.event",
+      action: "read_details",
+      effect: "ask",
+      evaluator: "llm",
+      policy_content: "Ask before sharing calendar details with close friends.",
+    });
+
+    const locationBoundary = Normalizers.policy({
+      id: "pol_location",
+      scope: "user",
+      target_id: "usr_alice",
+      direction: "outbound",
+      resource: "location.current",
+      action: "share",
+      effect: "deny",
+      evaluator: "llm",
+      policy_content: "Never share exact location.",
+    });
+
+    const healthBoundary = Normalizers.policy({
+      id: "pol_health",
+      scope: "group",
+      target_id: "grp_care_circle",
+      direction: "outbound",
+      resource: "health.summary",
+      action: "share",
+      effect: "ask",
+      evaluator: "structured",
+      policy_content: { allowedSummaries: ["wellness check-ins"] },
+    });
+
+    const financialBoundary = Normalizers.policy({
+      id: "pol_financial",
+      scope: "global",
+      direction: "outbound",
+      resource: "financial.transaction",
+      action: "share",
+      effect: "deny",
+      evaluator: "llm",
+      policy_content: "Do not share payment history.",
+    });
+
+    const contactBoundary = Normalizers.policy({
+      id: "pol_contact",
+      scope: "role",
+      target_id: "work_contacts",
+      direction: "outbound",
+      resource: "contact.email",
+      action: "share",
+      effect: "deny",
+      evaluator: "structured",
+      policy_content: { blockedPatterns: ["@"] },
+    });
+
+    const genericBoundary = Normalizers.policy({
+      id: "pol_generic",
+      scope: "global",
+      direction: "outbound",
+      resource: "message.general",
+      action: "share",
+      effect: "allow",
+      evaluator: "llm",
+      policy_content: "General status updates are fine.",
+    });
+
+    const advancedBoundary = Normalizers.policy({
+      id: "pol_advanced",
+      scope: "group",
+      target_id: "grp_lab",
+      direction: "notification",
+      resource: "custom.preference",
+      action: "share",
+      effect: "ask",
+      evaluator: "structured",
+      policy_content: { custom: true },
+    });
+
+    expect(opinionBoundary.boundary).toMatchObject({
+      category: "opinions",
+      categoryLabel: "Opinions and recommendations",
+      effect: {
+        value: "allow",
+        badgeLabel: "Allow",
+      },
+      audience: {
+        scope: "global",
+        scopeLabel: "Global",
+        displayLabel: "Anyone on Mahilo",
+      },
+      managementPath: "guided",
+    });
+
+    expect(availabilityBoundary.boundary).toMatchObject({
+      category: "availability",
+      effect: {
+        value: "ask",
+        badgeLabel: "Ask",
+      },
+      audience: {
+        scope: "role",
+        scopeLabel: "Role",
+        targetLabel: "Close Friends",
+        displayLabel: "Role: Close Friends",
+      },
+      selector: {
+        label: "Event details",
+        directionLabel: "Response",
+      },
+    });
+
+    expect(locationBoundary.boundary).toMatchObject({
+      category: "location",
+      effect: {
+        value: "deny",
+        badgeLabel: "Deny",
+      },
+      audience: {
+        scope: "user",
+        scopeLabel: "Contact",
+        displayLabel: "Specific contact",
+      },
+    });
+
+    expect(healthBoundary.boundary.category).toBe("health");
+    expect(financialBoundary.boundary.category).toBe("financial");
+    expect(contactBoundary.boundary.category).toBe("contact");
+    expect(genericBoundary.boundary.category).toBe("generic");
+
+    expect(advancedBoundary.boundary).toMatchObject({
+      category: "advanced",
+      managementPath: "advanced",
+      audience: {
+        scope: "group",
+        scopeLabel: "Group",
+        displayLabel: "Group conversation",
+      },
+      selector: {
+        directionLabel: "Notification",
+        summary: "custom.preference / share",
+      },
+    });
+    expect(advancedBoundary.boundary.advancedSummary).toContain("advanced path");
+  });
 });
