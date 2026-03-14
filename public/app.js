@@ -4638,9 +4638,25 @@ const DataLoader = {
       if (State.currentView === "boundaries") {
         UI.renderPolicies();
       }
+
+      void this.loadAcceptedContactReadiness(allFriendsModel.items);
     } catch (error) {
       console.error("Failed to load friends:", error);
     }
+  },
+
+  async loadAcceptedContactReadiness(friends = State.friends) {
+    const acceptedFriends = (Array.isArray(friends) ? friends : []).filter(
+      (friend) => UI.networkBucket(friend) === "accepted",
+    );
+
+    await Promise.allSettled(
+      acceptedFriends.map((friend) =>
+        UI.ensureNetworkConnectionData(friend, {
+          renderSelected: State.selectedNetworkFriendId === friend.friendshipId,
+        }),
+      ),
+    );
   },
 
   async loadRoles() {
@@ -7397,7 +7413,10 @@ const UI = {
     document
       .getElementById("agent-count")
       .classList.toggle("hidden", count === 0);
-    document.getElementById("overview-agent-count").textContent = count;
+    const overviewAgentCount = document.getElementById("overview-agent-count");
+    if (overviewAgentCount) {
+      overviewAgentCount.textContent = count;
+    }
   },
 
   updateFriendCount(count) {
@@ -7405,7 +7424,11 @@ const UI = {
     document
       .getElementById("friend-count")
       .classList.toggle("hidden", count === 0);
-    document.getElementById("overview-friend-count").textContent = count;
+    const overviewFriendCount =
+      document.getElementById("overview-friend-count");
+    if (overviewFriendCount) {
+      overviewFriendCount.textContent = count;
+    }
     document.getElementById("profile-friend-count").textContent = count;
   },
 
@@ -7435,7 +7458,10 @@ const UI = {
     document
       .getElementById("group-count")
       .classList.toggle("hidden", count === 0);
-    document.getElementById("overview-group-count").textContent = count;
+    const overviewGroupCount = document.getElementById("overview-group-count");
+    if (overviewGroupCount) {
+      overviewGroupCount.textContent = count;
+    }
     document.getElementById("profile-group-count").textContent = count;
   },
 
@@ -8687,6 +8713,11 @@ const UI = {
       return;
     }
 
+    const shouldRenderOverview = options.renderOverview !== false;
+    const shouldRenderSelected =
+      options.renderSelected !== false &&
+      State.selectedNetworkFriendId === friend.friendshipId;
+
     State.contactConnectionsByUsername.set(key, {
       status: "loading",
       items: Array.isArray(existingState.items) ? existingState.items : [],
@@ -8694,8 +8725,11 @@ const UI = {
       loadedAt: existingState.loadedAt || null,
     });
 
-    if (State.selectedNetworkFriendId === friend.friendshipId) {
+    if (shouldRenderSelected) {
       this.renderNetworkConnectionSpace(friend);
+    }
+    if (shouldRenderOverview) {
+      this.renderOverviewFriends();
     }
 
     try {
@@ -8718,8 +8752,11 @@ const UI = {
       });
     }
 
-    if (State.selectedNetworkFriendId === friend.friendshipId) {
+    if (shouldRenderSelected) {
       this.renderNetworkConnectionSpace(friend);
+    }
+    if (shouldRenderOverview) {
+      this.renderOverviewFriends();
     }
   },
 
@@ -11802,9 +11839,434 @@ const UI = {
       .join("");
   },
 
+  getOverviewNetworkReadiness() {
+    const counts = this.getNetworkRelationshipCounts();
+    const acceptedFriends = State.friends
+      .filter((friend) => this.networkBucket(friend) === "accepted")
+      .slice()
+      .sort((left, right) => {
+        const interactionDelta =
+          (right?.interactionCount || 0) - (left?.interactionCount || 0);
+        if (interactionDelta !== 0) {
+          return interactionDelta;
+        }
+
+        return Helpers.string(
+          left?.displayName || left?.username,
+        ).localeCompare(Helpers.string(right?.displayName || right?.username));
+      });
+
+    const readyContacts = [];
+    const notReadyContacts = [];
+    const checkingContacts = [];
+    const errorContacts = [];
+
+    acceptedFriends.forEach((friend) => {
+      const connectionState = this.getNetworkConnectionState(friend);
+
+      if (connectionState.status === "loaded") {
+        if (
+          Array.isArray(connectionState.items) &&
+          connectionState.items.length > 0
+        ) {
+          readyContacts.push({
+            connectionCount: connectionState.items.length,
+            connectionState,
+            friend,
+          });
+        } else {
+          notReadyContacts.push({
+            connectionState,
+            friend,
+          });
+        }
+        return;
+      }
+
+      if (connectionState.status === "error") {
+        errorContacts.push({
+          connectionState,
+          friend,
+        });
+        return;
+      }
+
+      checkingContacts.push({
+        connectionState,
+        friend,
+      });
+    });
+
+    return {
+      acceptedCount: counts.accepted,
+      acceptedFriends,
+      checkingContacts,
+      checkingCount: checkingContacts.length,
+      counts,
+      errorContacts,
+      errorCount: errorContacts.length,
+      notReadyContacts,
+      notReadyCount: notReadyContacts.length,
+      readyContacts,
+      readyCount: readyContacts.length,
+    };
+  },
+
+  getOverviewSenderReadiness() {
+    const connections = this.getSenderConnectionWorkspaceItems();
+    const activeConnections = connections.filter(
+      (connection) =>
+        Helpers.string(connection?.status).toLowerCase() === "active",
+    );
+    const defaultSender =
+      connections.find((connection) => connection.isDefaultSenderCandidate) ||
+      null;
+
+    if (!connections.length) {
+      return {
+        activeCount: 0,
+        canSend: false,
+        connections,
+        copy:
+          "Mahilo cannot send or ask around until you add a sender connection.",
+        defaultSender: null,
+        nextStep:
+          "Add a sender connection from the Sender Connections workspace.",
+        statusLabel: "Setup needed",
+        title: "No sender connections yet",
+        tone: "warning",
+      };
+    }
+
+    if (!activeConnections.length || !defaultSender) {
+      return {
+        activeCount: 0,
+        canSend: false,
+        connections,
+        copy:
+          "Connections are saved, but none are active for automatic routing right now.",
+        defaultSender,
+        nextStep:
+          "Activate one sender connection so Mahilo can route messages.",
+        statusLabel: "Action needed",
+        title: "No active sender route",
+        tone: "warning",
+      };
+    }
+
+    if (defaultSender.health?.tone === "warning") {
+      return {
+        activeCount: activeConnections.length,
+        canSend: true,
+        connections,
+        copy: `${defaultSender.label} is still the default ${defaultSender.modeLabel.toLowerCase()} sender, but the latest health check failed.`,
+        defaultSender,
+        nextStep: `Run a health check or fix ${defaultSender.label} before depending on it.`,
+        statusLabel: "Attention needed",
+        title: `${defaultSender.label} is ready but needs attention`,
+        tone: "warning",
+      };
+    }
+
+    if (defaultSender.health?.tone === "unknown") {
+      return {
+        activeCount: activeConnections.length,
+        canSend: true,
+        connections,
+        copy: `${Helpers.pluralize(activeConnections.length, "active sender connection")} available. ${defaultSender.modeLabel} routing is selected first.`,
+        defaultSender,
+        nextStep: `Run a health check on ${defaultSender.label} to verify reachability.`,
+        statusLabel: "Check recommended",
+        title: `Ready via ${defaultSender.label}`,
+        tone: "pending",
+      };
+    }
+
+    return {
+      activeCount: activeConnections.length,
+      canSend: true,
+      connections,
+      copy: `${Helpers.pluralize(activeConnections.length, "active sender connection")} available. ${defaultSender.modeLabel} routing is selected first.`,
+      defaultSender,
+      nextStep: "No obvious sender blocker.",
+      statusLabel: "Ready",
+      title: `Ready via ${defaultSender.label}`,
+      tone: "ready",
+    };
+  },
+
+  getOverviewActivitySnapshot() {
+    const auditCounts = Helpers.auditCounts(State.auditLog);
+    const threadSummary = Helpers.askAroundThreadSummary(State.auditLog);
+    const parts = [];
+
+    if (threadSummary.threadIds.size) {
+      parts.push(
+        Helpers.pluralize(threadSummary.threadIds.size, "ask-around thread"),
+      );
+    }
+
+    if (threadSummary.counts.replied) {
+      parts.push(Helpers.pluralize(threadSummary.counts.replied, "reply"));
+    }
+
+    if (threadSummary.counts.waiting) {
+      parts.push(
+        `${Helpers.pluralize(threadSummary.counts.waiting, "contact")} waiting`,
+      );
+    }
+
+    if (threadSummary.counts.noGrounded) {
+      parts.push(
+        Helpers.pluralize(
+          threadSummary.counts.noGrounded,
+          "no-grounded answer",
+          "no-grounded answers",
+        ),
+      );
+    }
+
+    if (!parts.length && auditCounts.delivered) {
+      parts.push(
+        Helpers.pluralize(auditCounts.delivered, "delivery", "deliveries"),
+      );
+    }
+
+    if (auditCounts.review) {
+      parts.push(Helpers.pluralize(auditCounts.review, "review item"));
+    }
+
+    if (auditCounts.blocked) {
+      parts.push(Helpers.pluralize(auditCounts.blocked, "blocked event"));
+    }
+
+    return {
+      copy: parts.length
+        ? parts.join(" • ")
+        : "No recent ask-around or delivery activity yet.",
+    };
+  },
+
+  getOverviewReadinessSummary() {
+    const sender = this.getOverviewSenderReadiness();
+    const network = this.getOverviewNetworkReadiness();
+    const auditCounts = Helpers.auditCounts(State.auditLog);
+    const reviewQueueCount =
+      auditCounts.reviewRequired + auditCounts.approvalPending;
+    const activity = this.getOverviewActivitySnapshot();
+    let tone = "pending";
+    let statusLabel = "Checking";
+    let title = "Loading Mahilo readiness";
+    let copy =
+      "Mahilo is loading your sender routes, network, and recent activity.";
+    let nextStep = "Loading the latest readiness signals.";
+
+    if (!sender.connections.length) {
+      tone = "warning";
+      statusLabel = "Setup needed";
+      title = "Add a sender connection";
+      copy =
+        "Mahilo cannot send or ask around until you register a sender connection.";
+      nextStep = sender.nextStep;
+    } else if (!sender.canSend) {
+      tone = "warning";
+      statusLabel = "Action needed";
+      title = "Activate a sender route";
+      copy =
+        "You have sender connections saved, but none are active for automatic routing.";
+      nextStep = sender.nextStep;
+    } else if (!network.acceptedCount) {
+      tone = "warning";
+      statusLabel = "Build your circle";
+      title = "Add trusted contacts";
+      copy =
+        "You have a sender route, but nobody is in your accepted Mahilo circle yet.";
+      nextStep = "Add someone by username so Mahilo has a real circle to reach.";
+    } else if (!network.readyCount && network.checkingCount) {
+      tone = "pending";
+      statusLabel = "Checking";
+      title = "Checking network readiness";
+      copy = `Mahilo is confirming which of your ${network.acceptedCount} accepted contacts have active connections.`;
+      nextStep =
+        "Give Mahilo a moment to finish checking each contact connection space.";
+    } else if (!network.readyCount) {
+      tone = "warning";
+      statusLabel = "Waiting on contacts";
+      title = "Accepted contacts need active connections";
+      copy =
+        "Your circle exists, but none of the accepted contacts currently have an active Mahilo connection.";
+      nextStep =
+        "Ask a contact to bring one of their Mahilo connections online.";
+    } else {
+      tone = sender.tone === "warning" ? "warning" : "ready";
+      statusLabel = sender.tone === "warning" ? "Attention needed" : "Ready";
+      title = "Ready to ask around";
+      copy = `Mahilo can route through ${sender.defaultSender?.label || "your default sender"} and reach ${Helpers.pluralize(network.readyCount, "contact")} with active connections right now.`;
+
+      if (sender.tone !== "ready") {
+        nextStep = sender.nextStep;
+      } else if (reviewQueueCount) {
+        nextStep = `Review ${Helpers.pluralize(reviewQueueCount, "held item")} waiting in the queue.`;
+      } else if (network.counts.incoming) {
+        nextStep = `Accept ${Helpers.pluralize(network.counts.incoming, "incoming request")} to widen your circle.`;
+      } else {
+        nextStep =
+          "No obvious blocker. You can ask around or send directly now.";
+      }
+    }
+
+    return {
+      activity,
+      auditCounts,
+      blockedCount: auditCounts.blocked,
+      copy,
+      network,
+      nextStep,
+      reviewQueueCount,
+      sender,
+      statusLabel,
+      title,
+      tone,
+    };
+  },
+
+  renderOverviewReadiness() {
+    const container = document.getElementById("overview-readiness-summary");
+    if (!container) {
+      return;
+    }
+
+    const summary = this.getOverviewReadinessSummary();
+    const reviewCopyParts = [];
+    if (summary.auditCounts.reviewRequired) {
+      reviewCopyParts.push(
+        `${summary.auditCounts.reviewRequired} review required`,
+      );
+    }
+    if (summary.auditCounts.approvalPending) {
+      reviewCopyParts.push(
+        `${summary.auditCounts.approvalPending} approval pending`,
+      );
+    }
+
+    const statCards = [
+      {
+        copy: "In your trusted circle",
+        label: "Accepted contacts",
+        value: summary.network.counts.accepted,
+      },
+      {
+        copy: summary.network.checkingCount
+          ? `${summary.network.checkingCount} checking`
+          : "Active contact connections",
+        label: "Ready contacts",
+        value: summary.network.readyCount,
+      },
+      {
+        copy: "Waiting on you",
+        label: "Incoming requests",
+        value: summary.network.counts.incoming,
+      },
+      {
+        copy: "Waiting on them",
+        label: "Outgoing requests",
+        value: summary.network.counts.outgoing,
+      },
+      {
+        copy: reviewCopyParts.length
+          ? reviewCopyParts.join(" • ")
+          : "Held deliveries",
+        label: "Review queue",
+        value: summary.reviewQueueCount,
+      },
+      {
+        copy: "Boundary and policy denials",
+        label: "Blocked events",
+        value: summary.blockedCount,
+      },
+    ];
+
+    container.innerHTML = `
+      <div class="overview-readiness-hero">
+        <div class="overview-readiness-copy">
+          <span class="overview-readiness-status ${Helpers.escapeHtml(summary.tone)}">${Helpers.escapeHtml(summary.statusLabel)}</span>
+          <h3>${Helpers.escapeHtml(summary.title)}</h3>
+          <p>${Helpers.escapeHtml(summary.copy)}</p>
+        </div>
+        <div class="overview-readiness-next-step">
+          <span class="overview-readiness-next-label">Next step</span>
+          <p>${Helpers.escapeHtml(summary.nextStep)}</p>
+        </div>
+      </div>
+      <div class="overview-summary-strip">
+        ${statCards
+          .map(
+            (card) => `
+              <div class="network-summary-card">
+                <span class="network-summary-label">${Helpers.escapeHtml(card.label)}</span>
+                <span class="network-summary-value">${Helpers.escapeHtml(String(card.value))}</span>
+                <span class="network-summary-copy">${Helpers.escapeHtml(card.copy)}</span>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+      <div class="overview-activity-note">
+        <span class="overview-activity-note-label">Recent activity</span>
+        <p>${Helpers.escapeHtml(summary.activity.copy)}</p>
+      </div>
+    `;
+  },
+
+  renderOverviewNetworkRow(options = {}) {
+    const friend = options.friend || null;
+    const displayName =
+      options.title ||
+      friend?.displayName ||
+      friend?.username ||
+      "Unknown contact";
+    const avatarLabel =
+      options.avatarLabel ||
+      (friend?.displayName?.[0] || friend?.username?.[0] || "?").toUpperCase();
+    const tone = Helpers.string(options.tone, "ready");
+    const badgeTone = Helpers.string(options.badgeTone, tone);
+    const avatarTone = Helpers.string(options.avatarTone, tone);
+
+    return `
+      <div class="friend-preview-item ${Helpers.escapeHtml(tone)}">
+        <div class="friend-preview-avatar ${Helpers.escapeHtml(avatarTone)}">${Helpers.escapeHtml(avatarLabel)}</div>
+        <div class="friend-preview-main">
+          <span class="friend-preview-name">${Helpers.escapeHtml(displayName)}</span>
+          <span class="friend-preview-copy">${Helpers.escapeHtml(options.copy || "")}</span>
+        </div>
+        <span class="friend-preview-badge ${Helpers.escapeHtml(badgeTone)}">${Helpers.escapeHtml(options.badge || "")}</span>
+      </div>
+    `;
+  },
+
   renderOverviewAgents() {
     const list = document.getElementById("overview-agent-list");
-    const connections = this.getSenderConnectionWorkspaceItems();
+    const summaryContainer = document.getElementById("overview-sender-summary");
+    const sender = this.getOverviewSenderReadiness();
+    const connections = sender.connections;
+
+    this.renderOverviewReadiness();
+
+    if (summaryContainer) {
+      summaryContainer.innerHTML = `
+        <div class="overview-card-callout ${Helpers.escapeHtml(sender.tone)}">
+          <div class="overview-card-callout-copy">
+            <span class="overview-card-callout-label">Current sender</span>
+            <strong>${Helpers.escapeHtml(sender.title)}</strong>
+            <p>${Helpers.escapeHtml(sender.copy)}</p>
+          </div>
+          <div class="overview-card-callout-next">
+            <span>Next step</span>
+            <p>${Helpers.escapeHtml(sender.nextStep)}</p>
+          </div>
+        </div>
+      `;
+    }
 
     if (!connections.length) {
       list.innerHTML = `
@@ -11822,13 +12284,22 @@ const UI = {
         (agent) => `
       <div class="agent-status-item ${agent.isDefaultSenderCandidate ? "default" : ""}">
         <span class="status-indicator ${Helpers.escapeHtml(agent.status)}"></span>
-        <span class="agent-status-name">${Helpers.escapeHtml(agent.label)}</span>
-        <span class="agent-status-framework">${Helpers.escapeHtml(agent.modeLabel)}</span>
-        ${
-          agent.isDefaultSenderCandidate
-            ? '<span class="agent-status-default">Default</span>'
-            : ""
-        }
+        <div class="agent-status-main">
+          <span class="agent-status-name">${Helpers.escapeHtml(agent.label)}</span>
+          <span class="agent-status-copy">${Helpers.escapeHtml(`${agent.modeLabel} • ${agent.health.label}`)}</span>
+        </div>
+        <div class="agent-status-meta">
+          <span class="agent-status-framework">${Helpers.escapeHtml(
+            agent.isDefaultSenderCandidate
+              ? "Default sender"
+              : agent.routing.badge,
+          )}</span>
+          ${
+            agent.isDefaultSenderCandidate
+              ? '<span class="agent-status-default">Default</span>'
+              : ""
+          }
+        </div>
       </div>
     `,
       )
@@ -11837,11 +12308,51 @@ const UI = {
 
   renderOverviewFriends() {
     const list = document.getElementById("overview-friend-list");
-    const acceptedFriends = State.friends.filter(
-      (f) => f.status === "accepted",
-    );
+    const cues = document.getElementById("overview-network-cues");
+    const network = this.getOverviewNetworkReadiness();
 
-    if (!acceptedFriends.length) {
+    this.renderOverviewReadiness();
+
+    if (cues) {
+      const cueCards = [
+        {
+          copy: "In your circle",
+          label: "Accepted",
+          value: network.counts.accepted,
+        },
+        {
+          copy: network.checkingCount
+            ? `${network.checkingCount} checking`
+            : "Live connection space",
+          label: "Ready now",
+          value: network.readyCount,
+        },
+        {
+          copy: "Waiting on you",
+          label: "Incoming",
+          value: network.counts.incoming,
+        },
+        {
+          copy: "Waiting on them",
+          label: "Outgoing",
+          value: network.counts.outgoing,
+        },
+      ];
+
+      cues.innerHTML = cueCards
+        .map(
+          (card) => `
+            <div class="network-summary-card">
+              <span class="network-summary-label">${Helpers.escapeHtml(card.label)}</span>
+              <span class="network-summary-value">${Helpers.escapeHtml(String(card.value))}</span>
+              <span class="network-summary-copy">${Helpers.escapeHtml(card.copy)}</span>
+            </div>
+          `,
+        )
+        .join("");
+    }
+
+    if (!State.friends.length) {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 30px 20px;">
           <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">👋</div>
@@ -11851,17 +12362,108 @@ const UI = {
       return;
     }
 
-    list.innerHTML = acceptedFriends
-      .slice(0, 5)
-      .map(
-        (friend) => `
-      <div class="friend-preview-item">
-        <div class="friend-preview-avatar">${(friend.displayName?.[0] || friend.username?.[0]).toUpperCase()}</div>
-        <span class="friend-preview-name">${friend.displayName || friend.username}</span>
-      </div>
-    `,
-      )
-      .join("");
+    const rows = [];
+
+    network.readyContacts.slice(0, 3).forEach(({ connectionCount, friend }) => {
+      const interactionCopy = Number.isFinite(friend?.interactionCount)
+        ? ` • ${Helpers.pluralize(friend.interactionCount, "interaction")}`
+        : "";
+
+      rows.push(
+        this.renderOverviewNetworkRow({
+          badge: "Ready",
+          copy: `${Helpers.pluralize(connectionCount, "active connection")} live${interactionCopy}`,
+          friend,
+          tone: "ready",
+        }),
+      );
+    });
+
+    if (!network.readyCount && network.checkingCount) {
+      rows.push(
+        this.renderOverviewNetworkRow({
+          avatarLabel: "...",
+          avatarTone: "pending",
+          badge: "Checking",
+          badgeTone: "pending",
+          copy: `Looking up active connections for ${Helpers.pluralize(network.checkingCount, "accepted contact")}.`,
+          title: "Checking contact readiness",
+          tone: "pending",
+        }),
+      );
+    }
+
+    network.notReadyContacts
+      .slice(0, rows.length ? 1 : 2)
+      .forEach(({ friend }) => {
+        rows.push(
+          this.renderOverviewNetworkRow({
+            badge: "Not ready",
+            copy: "Accepted, but no active Mahilo connection is live right now.",
+            friend,
+            tone: "not-ready",
+          }),
+        );
+      });
+
+    if (network.errorCount && rows.length < 5) {
+      rows.push(
+        this.renderOverviewNetworkRow({
+          avatarLabel: "!",
+          avatarTone: "warning",
+          badge: "Retry",
+          badgeTone: "warning",
+          copy: `${Helpers.pluralize(network.errorCount, "contact")} need a readiness refresh from the Network view.`,
+          title: "Connection checks need attention",
+          tone: "warning",
+        }),
+      );
+    }
+
+    if (network.counts.incoming) {
+      rows.push(
+        this.renderOverviewNetworkRow({
+          avatarLabel: "↓",
+          avatarTone: "pending",
+          badge: String(network.counts.incoming),
+          badgeTone: "pending",
+          copy: `${Helpers.pluralize(network.counts.incoming, "request")} waiting on you.`,
+          title: "Incoming requests",
+          tone: "pending",
+        }),
+      );
+    }
+
+    if (network.counts.outgoing) {
+      rows.push(
+        this.renderOverviewNetworkRow({
+          avatarLabel: "↑",
+          avatarTone: "pending",
+          badge: String(network.counts.outgoing),
+          badgeTone: "pending",
+          copy: `${Helpers.pluralize(network.counts.outgoing, "request")} waiting on them.`,
+          title: "Outgoing requests",
+          tone: "pending",
+        }),
+      );
+    }
+
+    if (!rows.length) {
+      rows.push(
+        this.renderOverviewNetworkRow({
+          avatarLabel: "•",
+          avatarTone: "pending",
+          badge: "Start",
+          badgeTone: "pending",
+          copy:
+            "Add or accept a contact to start building a usable Mahilo circle.",
+          title: "No accepted or pending contacts yet",
+          tone: "pending",
+        }),
+      );
+    }
+
+    list.innerHTML = rows.slice(0, 5).join("");
   },
 
   renderOverviewGroups() {
@@ -12055,6 +12657,7 @@ const UI = {
       return;
     }
 
+    this.renderOverviewReadiness();
     this.renderOverviewAuditCues(State.auditLog);
     const activities = Helpers.overviewActivityFeed(State.auditLog).slice(0, 5);
 

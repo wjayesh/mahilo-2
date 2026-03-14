@@ -3100,6 +3100,320 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
   });
 });
 
+describe("Dashboard overview readiness (DASH-011)", () => {
+  it("surfaces readiness counts, sender status, pending requests, and recent activity from overview state", () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(
+          `Unexpected fetch while testing overview readiness: ${url}`,
+        );
+      },
+    });
+
+    const { Helpers, Normalizers, State, UI } = harness.dashboard;
+
+    Helpers.applyCollectionState(
+      "agents",
+      "agentsById",
+      Normalizers.agentsModel([
+        {
+          callback_url: "polling://inbox",
+          created_at: "2026-03-14T10:00:00.000Z",
+          framework: "openclaw",
+          id: "conn_default",
+          label: "default",
+          mode: "polling",
+          routing_priority: 5,
+          status: "active",
+        },
+      ]),
+    );
+
+    Helpers.applyCollectionState(
+      "friends",
+      "friendsById",
+      Normalizers.friendsModel([
+        {
+          created_at: "2026-03-10T00:00:00.000Z",
+          direction: "sent",
+          display_name: "Alice",
+          id: "fr_alice",
+          interaction_count: 4,
+          status: "accepted",
+          username: "alice",
+        },
+        {
+          created_at: "2026-03-11T00:00:00.000Z",
+          direction: "sent",
+          display_name: "Bob",
+          id: "fr_bob",
+          interaction_count: 1,
+          status: "accepted",
+          username: "bob",
+        },
+        {
+          created_at: "2026-03-12T00:00:00.000Z",
+          direction: "received",
+          display_name: "Charlie",
+          id: "fr_charlie",
+          status: "pending",
+          username: "charlie",
+        },
+        {
+          created_at: "2026-03-13T00:00:00.000Z",
+          direction: "sent",
+          display_name: "Dana",
+          id: "fr_dana",
+          status: "pending",
+          username: "dana",
+        },
+      ]),
+    );
+
+    State.contactConnectionsByUsername.set("alice", {
+      error: null,
+      items: Normalizers.agentsModel([
+        {
+          callback_url: "polling://peer",
+          created_at: "2026-03-14T09:00:00.000Z",
+          framework: "openclaw",
+          id: "conn_peer_alice",
+          label: "peer_default",
+          mode: "polling",
+          routing_priority: 1,
+          status: "active",
+        },
+      ]).items,
+      loadedAt: "2026-03-14T10:30:00.000Z",
+      status: "loaded",
+    });
+    State.contactConnectionsByUsername.set("bob", {
+      error: null,
+      items: [],
+      loadedAt: "2026-03-14T10:31:00.000Z",
+      status: "loaded",
+    });
+
+    Helpers.applyCollectionState(
+      "messages",
+      "messagesById",
+      Helpers.collectionModel([
+        Normalizers.message(
+          {
+            action: "share",
+            correlation_id: "corr_overview_readiness",
+            created_at: "2026-03-14T12:00:00.000Z",
+            direction: "outbound",
+            id: "msg_overview_ask",
+            message: "Who has a ramen spot worth trusting?",
+            recipient: { type: "user", username: "alice" },
+            resource: "message.general",
+            sender: { agent: "default", username: "viewer" },
+            status: "delivered",
+          },
+          { currentUsername: "viewer" },
+        ),
+        Normalizers.message(
+          {
+            action: "share",
+            correlation_id: "corr_overview_readiness",
+            created_at: "2026-03-14T12:02:00.000Z",
+            direction: "inbound",
+            id: "msg_overview_reply",
+            in_response_to: "msg_overview_ask",
+            message: "Try Mensho for the broth.",
+            recipient: { type: "user", username: "viewer" },
+            resource: "message.general",
+            sender: { agent: "peer_default", username: "alice" },
+            status: "delivered",
+          },
+          { currentUsername: "viewer" },
+        ),
+      ]),
+    );
+    Helpers.applyCollectionState(
+      "reviews",
+      "reviewsById",
+      Helpers.collectionModel([
+        Normalizers.review({
+          created_at: "2026-03-14T12:03:00.000Z",
+          decision: "ask",
+          delivery_mode: "review_required",
+          message_preview: "Share exact location",
+          queue_direction: "outbound",
+          recipient: { type: "user", username: "charlie" },
+          review_id: "rev_overview_readiness",
+          sender: { username: "viewer" },
+          selectors: {
+            action: "share",
+            direction: "outbound",
+            resource: "location.current",
+          },
+          status: "review_required",
+          summary: "Needs review before delivery.",
+        }),
+      ]),
+    );
+    Helpers.applyCollectionState(
+      "blockedEvents",
+      "blockedEventsById",
+      Helpers.collectionModel([
+        Normalizers.blockedEvent({
+          created_at: "2026-03-14T12:04:00.000Z",
+          id: "blocked_overview_readiness",
+          queue_direction: "outbound",
+          reason: "Blocked by boundary.",
+          recipient: { type: "user", username: "dana" },
+          resource: "health.summary",
+          action: "share",
+          sender: { username: "viewer" },
+          status: "rejected",
+          stored_payload_excerpt: "Share my health summary with Dana",
+        }),
+      ]),
+    );
+
+    UI.renderOverviewAgents();
+    UI.renderOverviewFriends();
+    UI.renderOverviewMessages();
+
+    const readinessHtml =
+      harness.getElement("overview-readiness-summary").innerHTML;
+    expect(readinessHtml).toContain("Ready to ask around");
+    expect(readinessHtml).toContain(
+      "route through default and reach 1 contact with active connections right now.",
+    );
+    expect(readinessHtml).toContain("2 deliveries");
+    expect(readinessHtml).toContain("1 review item");
+    expect(readinessHtml).toContain("1 blocked event");
+    expect(readinessHtml).toMatch(
+      /Accepted contacts<\/span>\s*<span class="network-summary-value">2<\/span>/,
+    );
+    expect(readinessHtml).toMatch(
+      /Ready contacts<\/span>\s*<span class="network-summary-value">1<\/span>/,
+    );
+    expect(readinessHtml).toMatch(
+      /Incoming requests<\/span>\s*<span class="network-summary-value">1<\/span>/,
+    );
+    expect(readinessHtml).toMatch(
+      /Outgoing requests<\/span>\s*<span class="network-summary-value">1<\/span>/,
+    );
+    expect(readinessHtml).toMatch(
+      /Review queue<\/span>\s*<span class="network-summary-value">1<\/span>/,
+    );
+    expect(readinessHtml).toMatch(
+      /Blocked events<\/span>\s*<span class="network-summary-value">1<\/span>/,
+    );
+
+    const senderHtml = harness.getElement("overview-sender-summary").innerHTML;
+    expect(senderHtml).toContain("Ready via default");
+    expect(senderHtml).toContain("1 active sender connection available.");
+    expect(senderHtml).toContain("No obvious sender blocker.");
+
+    const networkCuesHtml =
+      harness.getElement("overview-network-cues").innerHTML;
+    expect(networkCuesHtml).toContain("Accepted");
+    expect(networkCuesHtml).toContain("Ready now");
+    expect(networkCuesHtml).toContain("Incoming");
+    expect(networkCuesHtml).toContain("Outgoing");
+
+    const networkListHtml = harness.getElement("overview-friend-list").innerHTML;
+    expect(networkListHtml).toContain("Alice");
+    expect(networkListHtml).toContain("1 active connection live");
+    expect(networkListHtml).toContain("Bob");
+    expect(networkListHtml).toContain(
+      "Accepted, but no active Mahilo connection is live right now.",
+    );
+    expect(networkListHtml).toContain("Incoming requests");
+    expect(networkListHtml).toContain("Outgoing requests");
+
+    const overviewMessageHtml =
+      harness.getElement("overview-message-list").innerHTML;
+    expect(overviewMessageHtml).toContain("Blocked");
+    expect(overviewMessageHtml).toContain("Review required");
+    expect(overviewMessageHtml).toContain(
+      "Who has a ramen spot worth trusting?",
+    );
+  });
+
+  it("shows the sender blocker in overview when no active sender route is available", () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(
+          `Unexpected fetch while testing sender blocker readiness: ${url}`,
+        );
+      },
+    });
+
+    const { Helpers, Normalizers, State, UI } = harness.dashboard;
+
+    Helpers.applyCollectionState(
+      "agents",
+      "agentsById",
+      Normalizers.agentsModel([
+        {
+          callback_url: "https://agent.example/callback",
+          created_at: "2026-03-14T10:00:00.000Z",
+          framework: "openclaw",
+          id: "conn_inactive",
+          label: "default",
+          mode: "webhook",
+          routing_priority: 5,
+          status: "inactive",
+        },
+      ]),
+    );
+    Helpers.applyCollectionState(
+      "friends",
+      "friendsById",
+      Normalizers.friendsModel([
+        {
+          created_at: "2026-03-10T00:00:00.000Z",
+          direction: "sent",
+          display_name: "Alice",
+          id: "fr_ready_alice",
+          status: "accepted",
+          username: "alice",
+        },
+      ]),
+    );
+
+    State.contactConnectionsByUsername.set("alice", {
+      error: null,
+      items: Normalizers.agentsModel([
+        {
+          callback_url: "polling://peer",
+          created_at: "2026-03-14T09:00:00.000Z",
+          framework: "openclaw",
+          id: "conn_peer_ready",
+          label: "peer_default",
+          mode: "polling",
+          routing_priority: 1,
+          status: "active",
+        },
+      ]).items,
+      loadedAt: "2026-03-14T10:35:00.000Z",
+      status: "loaded",
+    });
+
+    UI.renderOverviewAgents();
+    UI.renderOverviewFriends();
+
+    const readinessHtml =
+      harness.getElement("overview-readiness-summary").innerHTML;
+    expect(readinessHtml).toContain("Activate a sender route");
+    expect(readinessHtml).toContain(
+      "none are active for automatic routing.",
+    );
+
+    const senderHtml = harness.getElement("overview-sender-summary").innerHTML;
+    expect(senderHtml).toContain("No active sender route");
+    expect(senderHtml).toContain(
+      "Activate one sender connection so Mahilo can route messages.",
+    );
+  });
+});
+
 describe("Dashboard network list (DASH-020)", () => {
   beforeEach(async () => {
     await setupTestDatabase();

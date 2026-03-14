@@ -785,39 +785,23 @@
             <!-- Overview View -->
             <div id="overview-view" class="view active">
               <div class="dashboard-grid">
-                <!-- Welcome Card -->
-                <div class="card card-large welcome-card">
+                <!-- Readiness Card -->
+                <div class="card card-large welcome-card readiness-dashboard-card">
                   <div class="card-bg-decoration">
                     <div class="floating-blob blob-1"></div>
                     <div class="floating-blob blob-2"></div>
                   </div>
                   <div class="welcome-content">
-                    <h2>Hello, <span id="welcome-name">Friend</span>! 👋</h2>
-                    <p>
-                      Your trust network is ready. Ask around and get real
-                      answers.
+                    <p class="welcome-eyebrow">Readiness dashboard</p>
+                    <h2>Hello, <span id="welcome-name">Friend</span></h2>
+                    <p class="welcome-copy">
+                      See whether your sender setup, network, and review queue
+                      are ready for Mahilo right now.
                     </p>
-                    <div class="quick-stats">
-                      <div class="stat-pill">
-                        <span class="stat-icon">🤖</span>
-                        <span class="stat-value" id="overview-agent-count"
-                          >0</span
-                        >
-                        <span class="stat-label">Connections</span>
-                      </div>
-                      <div class="stat-pill">
-                        <span class="stat-icon">👥</span>
-                        <span class="stat-value" id="overview-friend-count"
-                          >0</span
-                        >
-                        <span class="stat-label">Network</span>
-                      </div>
-                      <div class="stat-pill">
-                        <span class="stat-icon">🏘️</span>
-                        <span class="stat-value" id="overview-group-count"
-                          >0</span
-                        >
-                        <span class="stat-label">Groups</span>
+                    <div id="overview-readiness-summary">
+                      <div class="overview-readiness-loading">
+                        <span class="network-loading-dot"></span>
+                        <p>Loading your Mahilo readiness...</p>
                       </div>
                     </div>
                   </div>
@@ -826,11 +810,15 @@
                 <!-- Sender Connections Card -->
                 <div class="card agent-status-card">
                   <div class="card-header">
-                    <h3>🤖 Sender Connections</h3>
+                    <h3>🤖 Sender Readiness</h3>
                     <button class="btn-icon-only" id="refresh-agents">
                       🔄
                     </button>
                   </div>
+                  <div
+                    class="overview-sender-summary"
+                    id="overview-sender-summary"
+                  ></div>
                   <div class="agent-status-list" id="overview-agent-list">
                     <div class="empty-state small">
                       <div class="empty-icon">🤖</div>
@@ -848,12 +836,16 @@
                 <!-- Network Activity Card -->
                 <div class="card friend-activity-card">
                   <div class="card-header">
-                    <h3>👥 Network Activity</h3>
+                    <h3>👥 Network Readiness</h3>
                   </div>
+                  <div
+                    class="overview-network-cues"
+                    id="overview-network-cues"
+                  ></div>
                   <div class="friend-preview-list" id="overview-friend-list">
                     <div class="empty-state small">
                       <div class="empty-icon">👋</div>
-                      <p>No network yet</p>
+                      <p>No network readiness signals yet</p>
                     </div>
                   </div>
                   <button
