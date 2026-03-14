@@ -576,7 +576,7 @@ This project is done when all of the following are true:
 
 ### 4.1 Persist Local Review-Held and Blocked Attempts
 - **ID**: `LPE-040`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-012`, `LPE-033`
 - **Description**:
@@ -588,6 +588,8 @@ This project is done when all of the following are true:
   - [ ] No fake delivered message is created for a blocked local send
   - [ ] Integration tests cover review and blocked-event visibility for local decisions
 
+- **Notes**:
+  - 2026-03-14T17:09:38.083Z: LPE-040 completed via orchestrator integration.
 ### 4.2 Make Lifecycle Consumption Idempotent and Correct
 - **ID**: `LPE-041`
 - **Status**: `done`
