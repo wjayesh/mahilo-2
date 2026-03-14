@@ -241,7 +241,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T15:22:13.823Z: DASH-030 completed via orchestrator integration.
 ### 3.2 Agent Add/Edit UX Aligned to the Current API
 - **ID**: `DASH-031`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-030`
 - **Description**:
@@ -253,6 +253,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Unsupported rotate-secret behavior is removed or replaced with a real supported action
   - [ ] Save/update states clearly reflect whether the connection was created or updated
 
+- **Notes**:
+  - 2026-03-14T15:32:55.709Z: DASH-031 completed via orchestrator integration.
 ### 3.3 Developer Console and API-Key Utilities
 - **ID**: `DASH-032`
 - **Status**: `pending`
