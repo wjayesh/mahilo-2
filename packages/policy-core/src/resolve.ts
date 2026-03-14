@@ -127,7 +127,7 @@ export function resolveMatchedPolicySet(
     base_resolution: baseResolution,
     group_resolution: groupResolution,
     final_effect: finalEffect,
-    winning_match: winner,
+    winning_match: winner ?? null,
   };
 }
 
@@ -488,7 +488,7 @@ export async function resolvePolicySet(
 
   return toResult(finalEffect, {
     reason,
-    reason_code: buildPolicyReasonCode(finalEffect, winner),
+    reason_code: buildPolicyReasonCode(finalEffect, winner ?? undefined),
     explanation,
     authenticated_identity: options.authenticatedIdentity,
     resolver_layer: options.resolverLayer ?? "user_policies",

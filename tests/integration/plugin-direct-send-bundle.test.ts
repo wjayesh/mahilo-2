@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { eq } from "drizzle-orm";
-import {
-  resolvePolicySet,
-  type CorePolicy,
-  type LLMPolicyEvaluator,
-} from "@mahilo/policy-core";
 import { createApp } from "../../src/server";
 import { config } from "../../src/config";
 import {
@@ -20,6 +15,10 @@ import {
   canonicalToStorage,
   type PolicyDirection,
 } from "../../src/services/policySchema";
+import {
+  evaluateDirectSendBundleLocally,
+  type DirectSendPolicyBundle,
+} from "../../plugins/openclaw-mahilo/src";
 import * as schema from "../../src/db/schema";
 
 let app: ReturnType<typeof createApp>;
@@ -224,37 +223,77 @@ describe("Plugin direct-send policy bundle endpoint (LPE-010)", () => {
       },
     });
 
-    const llmEvaluator: LLMPolicyEvaluator = async (input) => {
-      expect(input.subject).toBe(recipient.username);
-      expect(input.message).toContain("Alice");
-      return {
-        status: "match",
-        reasoning: "Plugin-local LLM policy matched the direct send.",
-      };
-    };
-
-    const localResult = await resolvePolicySet({
-      policies: body.applicable_policies as CorePolicy[],
-      ownerUserId: body.authenticated_identity.sender_user_id,
-      message: "Alice is at home right now.",
-      recipientUsername: body.recipient.username,
-      llmSubject: body.llm.subject,
-      authenticatedIdentity: body.authenticated_identity,
-      llmEvaluator,
-      llmErrorMode: "ask",
-      llmUnavailableMode: "ask",
-    });
-
-    expect(localResult.effect).toBe("deny");
-    expect(localResult.reason_code).toBe("policy.deny.user.llm");
-    expect(localResult.winning_policy_id).toBe(userLlmDenyPolicyId);
-    expect(localResult.authenticated_identity).toEqual(
-      body.authenticated_identity,
+    const providerCalls: Array<{
+      message: string;
+      prompt: string;
+      subject: string;
+    }> = [];
+    const localResult = await evaluateDirectSendBundleLocally(
+      body as DirectSendPolicyBundle,
+      {
+        context: "User asked whether Alice is nearby.",
+        message: "Alice is at home right now.",
+      },
+      {
+        llmProviderAdapter: async ({ input, prompt }) => {
+          providerCalls.push({
+            message: input.message,
+            prompt,
+            subject: input.subject,
+          });
+          return {
+            model: "gpt-4o-mini",
+            provider: "openai",
+            text: "FAIL\nPlugin-local LLM policy matched the direct send.",
+          };
+        },
+        llmErrorMode: "ask",
+        llmUnavailableMode: "ask",
+      },
     );
-    expect(localResult.matched_policy_ids).toEqual([
-      roleAskPolicyId,
-      userLlmDenyPolicyId,
+
+    expect(providerCalls).toEqual([
+      expect.objectContaining({
+        message: "Alice is at home right now.",
+        subject: recipient.username,
+      }),
     ]);
+    expect(providerCalls[0]?.prompt).toContain(
+      "Never share a person's exact location without consent.",
+    );
+    expect(localResult.local_decision).toEqual(
+      expect.objectContaining({
+        decision: "deny",
+        delivery_mode: "blocked",
+        reason_code: "policy.deny.user.llm",
+        summary: "Plugin-local LLM policy matched the direct send.",
+        winning_policy_id: userLlmDenyPolicyId,
+      }),
+    );
+    expect(localResult.recipient_results).toEqual([
+      expect.objectContaining({
+        recipient: recipient.username,
+        recipient_id: recipient.id,
+        resolution_id: body.bundle_metadata.resolution_id,
+        should_send: false,
+        transport_action: "block",
+        local_decision: expect.objectContaining({
+          decision: "deny",
+          matched_policy_ids: [roleAskPolicyId, userLlmDenyPolicyId],
+        }),
+      }),
+    ]);
+    expect(localResult.commit_payload).toEqual(
+      expect.objectContaining({
+        recipient: recipient.username,
+        recipient_type: "user",
+        resolution_id: body.bundle_metadata.resolution_id,
+        sender_connection_id: senderConnection.id,
+      }),
+    );
+    expect(localResult.commit_payload.local_decision.evaluated_policies).toHaveLength(
+      2,
+    );
 
     const storedMessages = await db
       .select({ id: schema.messages.id })

@@ -68,6 +68,46 @@ describe("MahiloContractClient", () => {
     );
   });
 
+  it("posts direct-send bundle requests to the documented endpoint", async () => {
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion,
+    });
+
+    await client.getDirectSendPolicyBundle({
+      recipient: "alice",
+      recipient_type: "user",
+      sender_connection_id: "conn_123",
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0]?.input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.directSendBundle}`,
+    );
+    expect(fetchCalls[0]?.init?.method).toBe("POST");
+  });
+
+  it("posts group-fanout bundle requests to the documented endpoint", async () => {
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion,
+    });
+
+    await client.getGroupFanoutPolicyBundle({
+      recipient: "grp_hiking",
+      recipient_type: "group",
+      sender_connection_id: "conn_123",
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0]?.input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.groupFanoutBundle}`,
+    );
+    expect(fetchCalls[0]?.init?.method).toBe("POST");
+  });
+
   it("includes idempotency header for send operations", async () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",

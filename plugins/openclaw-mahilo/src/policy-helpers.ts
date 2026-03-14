@@ -192,6 +192,8 @@ export async function resolveLocalPolicySet(
   });
 }
 
+// Advisory-only heuristic retained for lightweight UX hints. Real plugin-local
+// enforcement now lives in local-policy-runtime.ts.
 export function applyLocalPolicyGuard(
   input: LocalPolicyGuardInput,
 ): LocalPolicyGuardResult {

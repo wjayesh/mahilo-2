@@ -18,6 +18,10 @@ import {
   getTestDb,
   setupTestDatabase,
 } from "../helpers/setup";
+import {
+  evaluateGroupFanoutBundleLocally,
+  type GroupFanoutPolicyBundle,
+} from "../../plugins/openclaw-mahilo/src";
 
 let app: ReturnType<typeof createApp>;
 let originalTrustedMode: boolean;
@@ -214,7 +218,7 @@ describe("Plugin group fanout policy bundle endpoint (LPE-011)", () => {
     );
 
     expect(bundleResponse.status).toBe(200);
-    const bundle = (await bundleResponse.json()) as GroupFanoutBundleResponse;
+    const bundle = (await bundleResponse.json()) as GroupFanoutPolicyBundle;
 
     expect(bundle.contract_version).toBe("1.0.0");
     expect(bundle.bundle_type).toBe("group_fanout");
@@ -274,24 +278,36 @@ describe("Plugin group fanout policy bundle endpoint (LPE-011)", () => {
       .from(schema.messages);
     expect(storedMessagesBeforeSend).toHaveLength(0);
 
-    const localResult = await evaluateLocalGroupBundle(bundle, "Mixed team update");
-    expect(localResult.aggregate).toEqual({
-      decision: "allow",
-      partial_delivery: true,
-      reason_code: "policy.partial.group_fanout",
-      summary:
-        "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed.",
-      counts: {
-        delivered: 1,
-        pending: 0,
-        denied: 1,
-        review_required: 1,
-        failed: 0,
+    const localResult = await evaluateGroupFanoutBundleLocally(
+      bundle,
+      { message: "Mixed team update" },
+      {
+        llmErrorMode: "ask",
+        llmUnavailableMode: "ask",
       },
-    });
+    );
+    expect(localResult.aggregate).toEqual(
+      expect.objectContaining({
+        decision: "allow",
+        partial_delivery: true,
+        reason_code: "policy.partial.group_fanout",
+        summary:
+          "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed.",
+        counts: {
+          delivered: 1,
+          pending: 0,
+          denied: 1,
+          review_required: 1,
+          failed: 0,
+        },
+      }),
+    );
 
     const localDecisionByRecipient = new Map(
-      localResult.memberResults.map((entry) => [entry.recipient, entry.decision]),
+      localResult.recipient_results.map((entry) => [
+        entry.recipient,
+        entry.local_decision.decision,
+      ]),
     );
     expect(localDecisionByRecipient.get(deniedRecipient.username)).toBe("deny");
     expect(localDecisionByRecipient.get(askRecipient.username)).toBe("ask");
@@ -441,7 +457,7 @@ describe("Plugin group fanout policy bundle endpoint (LPE-011)", () => {
     );
 
     expect(bundleResponse.status).toBe(200);
-    const bundle = (await bundleResponse.json()) as GroupFanoutBundleResponse;
+    const bundle = (await bundleResponse.json()) as GroupFanoutPolicyBundle;
 
     expect(bundle.selector_context).toEqual({
       action: "ask_around",
@@ -474,12 +490,19 @@ describe("Plugin group fanout policy bundle endpoint (LPE-011)", () => {
     });
     expect(neutralWithoutOverlay.effect).toBe("allow");
 
-    const localResult = await evaluateLocalGroupBundle(
+    const localResult = await evaluateGroupFanoutBundleLocally(
       bundle,
-      "Who can answer this group question?",
+      { message: "Who can answer this group question?" },
+      {
+        llmErrorMode: "ask",
+        llmUnavailableMode: "ask",
+      },
     );
     const localDecisionByRecipient = new Map(
-      localResult.memberResults.map((entry) => [entry.recipient, entry.decision]),
+      localResult.recipient_results.map((entry) => [
+        entry.recipient,
+        entry.local_decision.decision,
+      ]),
     );
     expect(localDecisionByRecipient.get(neutralRecipient.username)).toBe("ask");
     expect(localDecisionByRecipient.get(deniedRecipient.username)).toBe("deny");
