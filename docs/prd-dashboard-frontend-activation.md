@@ -173,7 +173,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T13:20:41.961Z: DASH-020 completed via orchestrator integration.
 ### 2.2 Contact Detail and Connection Space
 - **ID**: `DASH-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-020`
 - **Description**:
@@ -185,6 +185,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] The connection space surfaces framework, label, capabilities, and status for each active connection
   - [ ] The user can tell from the UI whether a contact is ready for direct send or ask-around participation
 
+- **Notes**:
+  - 2026-03-14T13:31:32.678Z: DASH-021 completed via orchestrator integration.
 ### 2.3 Relationship Actions and Role Management
 - **ID**: `DASH-022`
 - **Status**: `pending`
