@@ -115,6 +115,7 @@ Verification requirements by route:
 
 - `POST /api/v1/plugin/context`: authenticated user required, Twitter verification not required.
 - `POST /api/v1/plugin/bundles/direct-send`: authenticated + verified user required.
+- `POST /api/v1/plugin/bundles/group-fanout`: authenticated + verified user required.
 - `POST /api/v1/plugin/resolve`: authenticated + verified user required.
 - `POST /api/v1/plugin/outcomes`: authenticated + verified user required.
 - `POST /api/v1/plugin/overrides`: authenticated + verified user required.
@@ -308,6 +309,135 @@ Response example:
     "subject": "alice",
     "provider_defaults": null
   }
+}
+```
+
+### 2a) Get Group-Fanout Policy Bundle
+
+Endpoint:
+
+```http
+POST /api/v1/plugin/bundles/group-fanout
+```
+
+Request body:
+
+```json
+{
+  "sender_connection_id": "conn_sender",
+  "recipient": "grp_hiking",
+  "recipient_type": "group",
+  "declared_selectors": {
+    "direction": "outbound",
+    "resource": "message.general",
+    "action": "share"
+  }
+}
+```
+
+Request notes:
+
+- `sender_connection_id` is optional; when omitted, server picks the highest-priority active connection for the authenticated user.
+- `recipient_type=group` is required for this fan-out bundle.
+- This contract prepares member-level local enforcement inputs for both direct group sends and `ask_network` group asks.
+- `group_overlay_policies` contain only group-scope policies; each member row carries only the member-specific/global/role policies that must be combined with those overlays locally.
+- `members[*].resolution_id` is the authoritative per-recipient correlation handle derived from `bundle_metadata.resolution_id`.
+- `aggregate_metadata` describes the trusted mixed-outcome rule used for partial fan-out summaries.
+
+Response example:
+
+```json
+{
+  "contract_version": "1.0.0",
+  "bundle_type": "group_fanout",
+  "bundle_metadata": {
+    "bundle_id": "bundle_456",
+    "resolution_id": "res_456",
+    "issued_at": "2026-03-14T10:30:00.000Z",
+    "expires_at": "2026-03-14T10:35:00.000Z"
+  },
+  "authenticated_identity": {
+    "sender_user_id": "usr_sender",
+    "sender_connection_id": "conn_sender"
+  },
+  "selector_context": {
+    "action": "share",
+    "direction": "outbound",
+    "resource": "message.general"
+  },
+  "group": {
+    "id": "grp_hiking",
+    "type": "group",
+    "name": "Weekend Hikers",
+    "member_count": 3
+  },
+  "aggregate_metadata": {
+    "fanout_mode": "per_recipient",
+    "mixed_decision_priority": ["allow", "ask", "deny"],
+    "partial_reason_code": "policy.partial.group_fanout",
+    "empty_group_summary": "No active recipients in group.",
+    "partial_summary_template": "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.",
+    "policy_evaluation_mode": "group_outbound_fanout"
+  },
+  "group_overlay_policies": [
+    {
+      "id": "pol_group_1",
+      "scope": "group",
+      "target_id": "grp_hiking",
+      "direction": "outbound",
+      "resource": "message.general",
+      "action": "share",
+      "effect": "allow",
+      "evaluator": "structured",
+      "policy_content": {},
+      "effective_from": null,
+      "expires_at": null,
+      "max_uses": null,
+      "remaining_uses": null,
+      "source": "user_created",
+      "derived_from_message_id": null,
+      "learning_provenance": null,
+      "priority": 10,
+      "created_at": "2026-03-14T10:00:00.000Z"
+    }
+  ],
+  "members": [
+    {
+      "recipient": {
+        "id": "usr_alice",
+        "type": "user",
+        "username": "alice"
+      },
+      "roles": ["close_friends"],
+      "resolution_id": "res_456_usr_alice",
+      "member_applicable_policies": [
+        {
+          "id": "pol_user_1",
+          "scope": "user",
+          "target_id": "usr_alice",
+          "direction": "outbound",
+          "resource": "message.general",
+          "action": "share",
+          "effect": "ask",
+          "evaluator": "structured",
+          "policy_content": {},
+          "effective_from": null,
+          "expires_at": null,
+          "max_uses": null,
+          "remaining_uses": null,
+          "source": "user_created",
+          "derived_from_message_id": null,
+          "learning_provenance": null,
+          "priority": 80,
+          "created_at": "2026-03-14T10:00:00.000Z"
+        }
+      ],
+      "llm": {
+        "subject": "alice",
+        "provider_defaults": null
+      }
+    }
+  ]
 }
 ```
 

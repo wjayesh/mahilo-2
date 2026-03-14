@@ -3,7 +3,18 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { createHash } from "crypto";
-import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   isInboundSelectorDirection,
   normalizeSelectorContext,
@@ -99,6 +110,11 @@ const pluginSendSelectorRequestSchema = z.object({
 });
 
 const pluginDirectSendBundleRequestSchema = pluginSendSelectorRequestSchema;
+const pluginGroupFanoutBundleRequestSchema = pluginSendSelectorRequestSchema.extend(
+  {
+    recipient_type: z.enum(["group"]).optional().default("group"),
+  },
+);
 
 const pluginResolveRequestSchema = pluginSendSelectorRequestSchema.extend({
   recipient_connection_id: z.string().optional(),
@@ -199,6 +215,11 @@ const defaultSelectors = {
   direction: "outbound" as const,
   resource: "message.general",
 };
+
+const GROUP_FANOUT_MIXED_DECISION_PRIORITY = ["allow", "ask", "deny"] as const;
+const GROUP_FANOUT_EMPTY_SUMMARY = "No active recipients in group.";
+const GROUP_FANOUT_PARTIAL_SUMMARY_TEMPLATE =
+  "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.";
 
 export const pluginRoutes = new Hono<AppEnv>();
 pluginRoutes.use("*", requireAuth());
@@ -695,10 +716,18 @@ async function resolveUserRecipient(
 async function resolveGroupRecipient(
   senderUserId: string,
   groupId: string,
-): Promise<void> {
+): Promise<{
+  group: {
+    id: string;
+    name: string;
+  };
+}> {
   const db = getDb();
   const [group] = await db
-    .select()
+    .select({
+      id: schema.groups.id,
+      name: schema.groups.name,
+    })
     .from(schema.groups)
     .where(eq(schema.groups.id, groupId))
     .limit(1);
@@ -722,6 +751,41 @@ async function resolveGroupRecipient(
   if (!senderMembership) {
     throw new AppError("Not a member of this group", 403, "NOT_MEMBER");
   }
+
+  return { group };
+}
+
+async function loadGroupFanoutMembers(
+  senderUserId: string,
+  groupId: string,
+): Promise<{
+  group: {
+    id: string;
+    name: string;
+  };
+  members: Array<{
+    userId: string;
+    username: string;
+  }>;
+}> {
+  const db = getDb();
+  const { group } = await resolveGroupRecipient(senderUserId, groupId);
+  const members = await db
+    .select({
+      userId: schema.groupMemberships.userId,
+      username: schema.users.username,
+    })
+    .from(schema.groupMemberships)
+    .innerJoin(schema.users, eq(schema.groupMemberships.userId, schema.users.id))
+    .where(
+      and(
+        eq(schema.groupMemberships.groupId, groupId),
+        eq(schema.groupMemberships.status, "active"),
+        ne(schema.groupMemberships.userId, senderUserId),
+      ),
+    );
+
+  return { group, members };
 }
 
 function parseJsonObject(value: string | null): Record<string, unknown> | null {
@@ -1251,15 +1315,36 @@ async function loadContextPolicies(
   recipientUserId: string,
   roles: string[],
   selectors: { direction: PolicyDirection; resource: string; action: string },
+  groupId?: string,
 ) {
-  return loadApplicablePolicies(userId, recipientUserId, roles, undefined, {
+  return loadApplicablePolicies(userId, recipientUserId, roles, groupId, {
     direction: selectors.direction,
     resource: selectors.resource,
     action: selectors.action,
   });
 }
 
-function toDirectSendBundlePolicy(policy: CanonicalPolicy) {
+async function loadGroupOverlayPolicies(
+  userId: string,
+  groupId: string,
+  selectors: { direction: PolicyDirection; resource: string; action: string },
+) {
+  const applicablePolicies = await loadApplicablePolicies(
+    userId,
+    undefined,
+    [],
+    groupId,
+    {
+      direction: selectors.direction,
+      resource: selectors.resource,
+      action: selectors.action,
+    },
+  );
+
+  return applicablePolicies.filter((policy) => policy.scope === "group");
+}
+
+function toBundlePolicy(policy: CanonicalPolicy) {
   return {
     id: policy.id,
     scope: policy.scope,
@@ -1282,7 +1367,7 @@ function toDirectSendBundlePolicy(policy: CanonicalPolicy) {
   };
 }
 
-function buildDirectSendLLMContext(
+function buildBundleLLMContext(
   applicablePolicies: CanonicalPolicy[],
   subject: string,
 ) {
@@ -1794,8 +1879,110 @@ pluginRoutes.post(
         type: "user",
         username: recipient.username,
       },
-      applicable_policies: applicablePolicies.map(toDirectSendBundlePolicy),
-      llm: buildDirectSendLLMContext(applicablePolicies, recipient.username),
+      applicable_policies: applicablePolicies.map(toBundlePolicy),
+      llm: buildBundleLLMContext(applicablePolicies, recipient.username),
+    });
+  },
+);
+
+pluginRoutes.post(
+  "/bundles/group-fanout",
+  requireActive(),
+  zValidator("json", pluginGroupFanoutBundleRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+    const selectors = resolveDraftSelectors(data);
+    const direction = parseDirectionCandidate(selectors.direction);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
+    const { group, members } = await loadGroupFanoutMembers(
+      user.id,
+      data.recipient,
+    );
+    const issuedAt = new Date();
+    const resolutionId = `res_${nanoid(18)}`;
+    const groupOverlayPolicies = await loadGroupOverlayPolicies(
+      user.id,
+      group.id,
+      {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+    );
+    const bundleMembers = await Promise.all(
+      members.map(async (member) => {
+        const roles = await getRolesForFriend(user.id, member.userId);
+        const applicablePolicies = await loadContextPolicies(
+          user.id,
+          member.userId,
+          roles,
+          {
+            action: selectors.action,
+            direction,
+            resource: selectors.resource,
+          },
+          group.id,
+        );
+        const memberApplicablePolicies = applicablePolicies.filter(
+          (policy) => policy.scope !== "group",
+        );
+
+        return {
+          recipient: {
+            id: member.userId,
+            type: "user",
+            username: member.username,
+          },
+          roles,
+          resolution_id: `${resolutionId}_${member.userId}`,
+          member_applicable_policies: memberApplicablePolicies.map(
+            toBundlePolicy,
+          ),
+          llm: buildBundleLLMContext(applicablePolicies, member.username),
+        };
+      }),
+    );
+
+    return c.json({
+      contract_version: CONTRACT_VERSION,
+      bundle_type: "group_fanout",
+      bundle_metadata: {
+        bundle_id: `bundle_${nanoid(18)}`,
+        resolution_id: resolutionId,
+        issued_at: issuedAt.toISOString(),
+        expires_at: new Date(
+          issuedAt.getTime() + 5 * 60 * 1000,
+        ).toISOString(),
+      },
+      authenticated_identity: {
+        sender_user_id: user.id,
+        sender_connection_id: senderConnection.id,
+      },
+      selector_context: {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+      group: {
+        id: group.id,
+        member_count: members.length,
+        name: group.name,
+        type: "group",
+      },
+      aggregate_metadata: {
+        fanout_mode: "per_recipient",
+        mixed_decision_priority: GROUP_FANOUT_MIXED_DECISION_PRIORITY,
+        partial_reason_code: "policy.partial.group_fanout",
+        empty_group_summary: GROUP_FANOUT_EMPTY_SUMMARY,
+        partial_summary_template: GROUP_FANOUT_PARTIAL_SUMMARY_TEMPLATE,
+        policy_evaluation_mode: "group_outbound_fanout",
+      },
+      group_overlay_policies: groupOverlayPolicies.map(toBundlePolicy),
+      members: bundleMembers,
     });
   },
 );
