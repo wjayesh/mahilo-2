@@ -781,7 +781,7 @@ This project is done when all of the following are true:
   - 2026-03-14T18:24:21.093Z: LPE-060 completed via orchestrator integration.
 ### 6.2 Define Rollout and Enablement Rules
 - **ID**: `LPE-061`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P1
 - **Depends on**: `LPE-056`, `LPE-060`
 - **Description**:
@@ -799,6 +799,8 @@ This project is done when all of the following are true:
 
 ---
 
+- **Notes**:
+  - 2026-03-14T18:28:53.094Z: LPE-061 completed via orchestrator integration.
 ## Recommended Execution Order
 
 1. `LPE-001` through `LPE-005`
