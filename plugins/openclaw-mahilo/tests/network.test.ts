@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   executeMahiloNetworkAction,
   MahiloRequestError,
+  type LocalDirectPolicyRuntimeResult,
 } from "../src";
 
 interface MockClientState {
@@ -12,10 +13,16 @@ interface MockClientState {
   friendshipsResponse: unknown;
   groupCalls: number;
   groupsResponse: unknown;
+  localDecisionCommitCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   resolveCalls: Array<Record<string, unknown>>;
   sendCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
 }
+
+type LocalDecision = "allow" | "ask" | "deny";
 
 function createMockClient(options: {
   friendConnectionErrorsByUsername?: Record<string, Error>;
@@ -59,6 +66,7 @@ function createMockClient(options: {
           status: "active"
         }
       ],
+    localDecisionCommitCalls: [],
     outcomeCalls: [],
     resolveCalls: [],
     sendCalls: []
@@ -99,6 +107,10 @@ function createMockClient(options: {
         resolution_id: `res_${String(payload.recipient ?? "unknown")}`
       };
     },
+    commitLocalDecision: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+      state.localDecisionCommitCalls.push({ idempotencyKey, payload });
+      return buildLocalDecisionCommitResponse(payload);
+    },
     sendMessage: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.sendCalls.push({ idempotencyKey, payload });
       const recipient = String(payload.recipient ?? "");
@@ -118,6 +130,192 @@ function createMockClient(options: {
   return {
     client: client as never,
     state
+  };
+}
+
+function buildLocalDecisionCommitResponse(payload: Record<string, unknown>) {
+  const localDecision = payload.local_decision as Record<string, unknown> | undefined;
+  const decision =
+    typeof localDecision?.decision === "string" ? localDecision.decision : "allow";
+  const deliveryMode =
+    typeof localDecision?.delivery_mode === "string"
+      ? localDecision.delivery_mode
+      : decision === "allow"
+        ? "full_send"
+        : decision === "ask"
+          ? "review_required"
+          : "blocked";
+  const status =
+    decision === "allow"
+      ? "pending"
+      : decision === "ask"
+        ? "review_required"
+        : "rejected";
+  const recipient =
+    typeof payload.recipient === "string" ? payload.recipient : "unknown";
+  const resolutionId =
+    typeof payload.resolution_id === "string"
+      ? payload.resolution_id
+      : `res_${recipient}`;
+
+  return {
+    recipient_results: [
+      {
+        decision,
+        delivery_mode: deliveryMode,
+        delivery_status: status,
+        recipient
+      }
+    ],
+    resolution: {
+      decision,
+      delivery_mode: deliveryMode,
+      resolution_id: resolutionId,
+      summary:
+        typeof localDecision?.summary === "string" ? localDecision.summary : undefined
+    },
+    status
+  };
+}
+
+function createLocalDirectResult(
+  decision: LocalDecision,
+  recipient: string,
+  senderConnectionId: string = "conn_sender"
+): LocalDirectPolicyRuntimeResult {
+  const deliveryMode =
+    decision === "allow"
+      ? "full_send"
+      : decision === "ask"
+        ? "review_required"
+        : "blocked";
+  const summary =
+    decision === "allow"
+      ? "Message allowed by policy."
+      : decision === "ask"
+        ? "Message requires review before delivery."
+        : "Message blocked by policy.";
+  const resolutionId = `res_local_${recipient}`;
+
+  return {
+    authenticated_identity: {
+      sender_connection_id: senderConnectionId,
+      sender_user_id: "usr_sender"
+    },
+    bundle_metadata: {
+      bundle_id: `bundle_local_${recipient}`,
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: resolutionId
+    },
+    bundle_type: "direct_send",
+    commit_payload: {
+      correlation_id: "corr_local_ask_1",
+      declared_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general"
+      },
+      idempotency_key: `idem_local_ask_1:${recipient}`,
+      local_decision: {
+        decision,
+        delivery_mode: deliveryMode,
+        evaluated_policies: [],
+        matched_policy_ids: [],
+        reason_code:
+          decision === "allow"
+            ? "policy.allow.resolved"
+            : decision === "ask"
+              ? "policy.ask.user.structured"
+              : "policy.deny.user.structured",
+        resolution_explanation: summary,
+        summary
+      },
+      message: "Who has a good ramen spot?",
+      payload_type: "text/plain",
+      recipient,
+      recipient_type: "user",
+      resolution_id: resolutionId,
+      sender_connection_id: senderConnectionId
+    },
+    contract_version: "1.0.0",
+    llm: {
+      provider_defaults: null,
+      subject: recipient
+    },
+    local_decision: {
+      decision,
+      delivery_mode: deliveryMode,
+      evaluated_policies: [],
+      matched_policy_ids: [],
+      reason_code:
+        decision === "allow"
+          ? "policy.allow.resolved"
+          : decision === "ask"
+            ? "policy.ask.user.structured"
+            : "policy.deny.user.structured",
+      resolution_explanation: summary,
+      summary
+    },
+    recipient: {
+      id: `usr_${recipient}`,
+      type: "user",
+      username: recipient
+    },
+    recipient_results: [
+      {
+        llm: {
+          provider_defaults: null,
+          subject: recipient
+        },
+        local_decision: {
+          decision,
+          delivery_mode: deliveryMode,
+          evaluated_policies: [],
+          matched_policy_ids: [],
+          reason_code:
+            decision === "allow"
+              ? "policy.allow.resolved"
+              : decision === "ask"
+                ? "policy.ask.user.structured"
+                : "policy.deny.user.structured",
+          resolution_explanation: summary,
+          summary
+        },
+        recipient,
+        recipient_id: `usr_${recipient}`,
+        recipient_type: "user",
+        resolution_id: resolutionId,
+        roles: [],
+        should_send: decision === "allow",
+        transport_action:
+          decision === "allow"
+            ? "send"
+            : decision === "ask"
+              ? "hold"
+              : "block"
+      }
+    ],
+    selector_context: {
+      action: "share",
+      direction: "outbound",
+      resource: "message.general"
+    },
+    transport_payload: {
+      correlation_id: "corr_local_ask_1",
+      declared_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general"
+      },
+      idempotency_key: `idem_local_ask_1:${recipient}`,
+      message: "Who has a good ramen spot?",
+      payload_type: "text/plain",
+      recipient,
+      recipient_type: "user",
+      resolution_id: resolutionId,
+      sender_connection_id: senderConnectionId
+    }
   };
 }
 
@@ -198,6 +396,134 @@ describe("executeMahiloNetworkAction", () => {
       "corr_ask_1",
       "corr_ask_1"
     ]);
+  });
+
+  it("applies local policy per contact and preserves mixed delivery reporting", async () => {
+    const { client, state } = createMockClient({
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+        bob: [{ active: true, id: "conn_bob" }],
+        carol: [{ active: true, id: "conn_carol" }]
+      },
+      friendshipsResponse: [
+        {
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          username: "alice"
+        },
+        {
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: ["friends"],
+          status: "accepted",
+          username: "bob"
+        },
+        {
+          displayName: "Carol",
+          friendshipId: "fr_carol",
+          roles: ["friends"],
+          status: "accepted",
+          username: "carol"
+        }
+      ]
+    });
+    const localRuntime = {
+      evaluateDirectSend: async ({
+        recipient,
+        senderConnectionId
+      }: {
+        recipient: string;
+        senderConnectionId?: string;
+      }) => {
+        const decisionByRecipient: Record<string, LocalDecision> = {
+          alice: "allow",
+          bob: "ask",
+          carol: "deny"
+        };
+        return createLocalDirectResult(
+          decisionByRecipient[recipient] ?? "allow",
+          recipient,
+          senderConnectionId
+        );
+      }
+    };
+
+    const result = await executeMahiloNetworkAction(
+      client,
+      {
+        action: "ask_around",
+        correlationId: "corr_local_ask_1",
+        idempotencyKey: "idem_local_ask_1",
+        question: "Who has a good ramen spot?"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never
+        }
+      }
+    );
+
+    expect(result).toMatchObject({
+      action: "ask_around",
+      counts: {
+        awaitingReplies: 1,
+        blocked: 1,
+        reviewRequired: 1,
+        sendFailed: 0,
+        skipped: 0
+      },
+      status: "success",
+      summary: expect.stringContaining("asked 1 of 3 your contacts"),
+      target: {
+        contactCount: 3,
+        kind: "all_contacts"
+      }
+    });
+    expect(result.deliveries).toEqual([
+      expect.objectContaining({
+        decision: "allow",
+        messageId: "msg_alice",
+        recipient: "alice",
+        status: "awaiting_reply"
+      }),
+      expect.objectContaining({
+        decision: "ask",
+        recipient: "bob",
+        status: "review_required"
+      }),
+      expect.objectContaining({
+        decision: "deny",
+        recipient: "carol",
+        status: "blocked"
+      })
+    ]);
+    expect(result.gaps).toEqual([
+      expect.objectContaining({
+        kind: "blocked",
+        recipientLabels: ["Carol"]
+      })
+    ]);
+    expect(String(result.replyExpectation)).toContain("Replies will show up in this thread");
+    expect(state.localDecisionCommitCalls.map((call) => call.idempotencyKey)).toEqual([
+      "idem_local_ask_1:alice",
+      "idem_local_ask_1:bob",
+      "idem_local_ask_1:carol"
+    ]);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]).toMatchObject({
+      idempotencyKey: "idem_local_ask_1:alice",
+      payload: {
+        correlation_id: "corr_local_ask_1",
+        recipient: "alice",
+        resolution_id: "res_local_alice",
+        sender_connection_id: "conn_sender"
+      }
+    });
   });
 
   it("handles unavailable contacts and transport failures without failing the whole ask-around flow", async () => {

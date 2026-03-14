@@ -251,7 +251,12 @@ export function registerMahiloOpenClawPlugin(
     createManageNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
   );
   api.registerTool(
-    createAskNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
+    createAskNetworkTool(
+      client,
+      isBootstrapReady,
+      resolveNotConfiguredMessage,
+      localPolicyRuntime,
+    ),
   );
   api.registerTool(
     createSetBoundariesTool(client, isBootstrapReady, resolveNotConfiguredMessage),
@@ -389,6 +394,7 @@ function createAskNetworkTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
   resolveNotConfiguredMessage: () => string,
+  localPolicyRuntime: ReturnType<typeof createMahiloLocalPolicyRuntime>,
 ): AnyAgentTool {
   return {
     description:
@@ -405,6 +411,9 @@ function createAskNetworkTool(
             client,
             input,
             parseToolContext(rawInput),
+            {
+              localPolicy: { runtime: localPolicyRuntime },
+            },
           );
           if (result.action !== "ask_around") {
             throw new Error(
@@ -1526,36 +1535,26 @@ function rememberMahiloAskAroundInboundRoutes(
     ? resultDetails.deliveries
     : [];
   const target = readMahiloAskAroundTarget(resultDetails.target);
+  const trackedDeliveries =
+    readMahiloAskAroundReplyRecipients(
+      resultDetails.replyRecipients ?? resultDetails.reply_recipients,
+      target,
+    ) ?? collectMahiloAskAroundReplyRecipientsFromDeliveries(deliveries, target) ?? [];
   const expectedReplyCount = readMahiloAskAroundExpectedReplyCount(
     resultDetails,
     deliveries,
     target,
   );
-  const expectedParticipants: Array<{ label?: string; recipient: string }> = [];
-
-  for (const rawDelivery of deliveries) {
-    const delivery = readOptionalObject(rawDelivery);
-    if (!delivery || readOptionalString(delivery.status) !== "awaiting_reply") {
-      continue;
-    }
-
-    const recipient = readOptionalString(delivery.recipient);
-    const recipientType =
-      readRecipientType(delivery.recipientType) ??
-      readRecipientType(delivery.recipient_type) ??
-      (target?.kind === "group" ? "group" : "user");
-
-    if (recipientType !== "user" || !recipient) {
-      continue;
-    }
-
-    expectedParticipants.push({
-      label:
-        readOptionalString(delivery.recipientLabel) ??
-        readOptionalString(delivery.recipient_label),
-      recipient,
-    });
-  }
+  const expectedParticipants = trackedDeliveries.flatMap((delivery) =>
+    delivery.recipientType === "user" && delivery.recipient
+      ? [
+          {
+            label: delivery.recipientLabel,
+            recipient: delivery.recipient,
+          },
+        ]
+      : []
+  );
 
   if (correlationId) {
     pluginState.rememberAskAroundSession({
@@ -1570,13 +1569,7 @@ function rememberMahiloAskAroundInboundRoutes(
       target,
     });
 
-    if (
-      deliveries.some(
-        (rawDelivery) =>
-          readOptionalString(readOptionalObject(rawDelivery)?.status) ===
-          "awaiting_reply",
-      )
-    ) {
+    if (trackedDeliveries.length > 0) {
       pluginState.recordAskAroundQuery({
         correlationId,
         expectedReplyCount,
@@ -1586,39 +1579,26 @@ function rememberMahiloAskAroundInboundRoutes(
     }
   }
 
-  for (const rawDelivery of deliveries) {
-    const delivery = readOptionalObject(rawDelivery);
-    if (!delivery) {
-      continue;
-    }
-
-    if (readOptionalString(delivery.status) !== "awaiting_reply") {
-      continue;
-    }
-
-    const outboundMessageId =
-      readOptionalString(delivery.messageId) ??
-      readOptionalString(delivery.message_id);
-    const recipient = readOptionalString(delivery.recipient);
-    const recipientType =
-      readRecipientType(delivery.recipientType) ??
-      readRecipientType(delivery.recipient_type) ??
-      (target?.kind === "group" ? "group" : "user");
-
-    if (!outboundMessageId || !recipient) {
+  for (const trackedDelivery of trackedDeliveries) {
+    if (!trackedDelivery.messageId || !trackedDelivery.recipient) {
       continue;
     }
 
     const groupId =
-      recipientType === "group" ? (target?.groupId ?? recipient) : undefined;
-    const remoteParticipant = recipientType === "user" ? recipient : undefined;
+      trackedDelivery.recipientType === "group"
+        ? (target?.groupId ?? trackedDelivery.recipient)
+        : undefined;
+    const remoteParticipant =
+      trackedDelivery.recipientType === "user"
+        ? trackedDelivery.recipient
+        : undefined;
 
     pluginState.rememberInboundRoute({
       agentId: context.agentId,
       correlationId,
       groupId,
       localConnectionId: senderConnectionId,
-      outboundMessageId,
+      outboundMessageId: trackedDelivery.messageId,
       remoteParticipant,
       sessionKey: context.sessionKey,
     });
@@ -1897,12 +1877,118 @@ function readMahiloAskAroundExpectedReplyCount(
   let awaitingReplyCount = 0;
   for (const rawDelivery of deliveries) {
     const delivery = readOptionalObject(rawDelivery);
-    if (readOptionalString(delivery?.status) === "awaiting_reply") {
+    if (delivery && shouldTrackMahiloAskAroundReplyDelivery(delivery)) {
       awaitingReplyCount += 1;
     }
   }
 
   return awaitingReplyCount > 0 ? awaitingReplyCount : undefined;
+}
+
+function shouldTrackMahiloAskAroundReplyDelivery(
+  delivery: Record<string, unknown>,
+): boolean {
+  const status =
+    readOptionalString(delivery.status) ??
+    readOptionalString(delivery.deliveryStatus) ??
+    readOptionalString(delivery.delivery_status);
+  if (status) {
+    return status === "awaiting_reply";
+  }
+
+  const messageId =
+    readOptionalString(delivery.messageId) ??
+    readOptionalString(delivery.message_id);
+  if (!messageId) {
+    return false;
+  }
+
+  const decision = readOptionalString(delivery.decision);
+  return decision !== "ask" && decision !== "deny";
+}
+
+interface MahiloTrackedAskAroundReplyRecipient {
+  messageId?: string;
+  recipient: string;
+  recipientLabel?: string;
+  recipientType: "group" | "user";
+}
+
+function readMahiloAskAroundReplyRecipients(
+  value: unknown,
+  target: MahiloAskAroundTarget | undefined,
+): MahiloTrackedAskAroundReplyRecipient[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+
+  const replyRecipients = value
+    .map((rawRecipient) => {
+      const recipient = readOptionalObject(rawRecipient);
+      if (!recipient) {
+        return undefined;
+      }
+
+      const normalizedRecipient = readOptionalString(recipient.recipient);
+      if (!normalizedRecipient) {
+        return undefined;
+      }
+
+      return {
+        messageId:
+          readOptionalString(recipient.messageId) ??
+          readOptionalString(recipient.message_id),
+        recipient: normalizedRecipient,
+        recipientLabel:
+          readOptionalString(recipient.recipientLabel) ??
+          readOptionalString(recipient.recipient_label),
+        recipientType:
+          readRecipientType(recipient.recipientType) ??
+          readRecipientType(recipient.recipient_type) ??
+          (target?.kind === "group" ? "group" : "user"),
+      } satisfies MahiloTrackedAskAroundReplyRecipient;
+    })
+    .filter(
+      (recipient): recipient is MahiloTrackedAskAroundReplyRecipient =>
+        Boolean(recipient),
+    );
+
+  return replyRecipients.length > 0 ? replyRecipients : undefined;
+}
+
+function collectMahiloAskAroundReplyRecipientsFromDeliveries(
+  deliveries: unknown[],
+  target: MahiloAskAroundTarget | undefined,
+): MahiloTrackedAskAroundReplyRecipient[] | undefined {
+  const trackedDeliveries = deliveries.flatMap((rawDelivery) => {
+    const delivery = readOptionalObject(rawDelivery);
+    if (!delivery || !shouldTrackMahiloAskAroundReplyDelivery(delivery)) {
+      return [];
+    }
+
+    const recipient = readOptionalString(delivery.recipient);
+    if (!recipient) {
+      return [];
+    }
+
+    return [
+      {
+        messageId:
+          readOptionalString(delivery.messageId) ??
+          readOptionalString(delivery.message_id),
+        recipient,
+        recipientLabel:
+          readOptionalString(delivery.recipientLabel) ??
+          readOptionalString(delivery.recipient_label),
+        recipientType:
+          readRecipientType(delivery.recipientType) ??
+          readRecipientType(delivery.recipient_type) ??
+          (target?.kind === "group" ? "group" : "user"),
+      } satisfies MahiloTrackedAskAroundReplyRecipient,
+    ];
+  });
+
+  return trackedDeliveries.length > 0 ? trackedDeliveries : undefined;
 }
 
 function formatMahiloAskAroundTargetLine(

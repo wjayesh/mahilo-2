@@ -18,6 +18,7 @@ import {
   talkToGroup,
   type MahiloContact,
   type MahiloContactConnectionState,
+  type MahiloSendExecutionOptions,
   type MahiloToolContext,
 } from "./tools-default-sender";
 
@@ -80,6 +81,13 @@ export interface MahiloAskAroundDelivery {
   status: MahiloAskAroundDeliveryStatus;
 }
 
+export interface MahiloAskAroundReplyRecipient {
+  messageId?: string;
+  recipient: string;
+  recipientLabel: string;
+  recipientType: "group" | "user";
+}
+
 export interface MahiloAskAroundGap {
   count: number;
   kind: MahiloAskAroundGapKind;
@@ -113,6 +121,7 @@ export interface MahiloAskAroundActionResult {
   error?: MahiloNetworkError;
   gaps: MahiloAskAroundGap[];
   question?: string;
+  replyRecipients?: MahiloAskAroundReplyRecipient[];
   replyExpectation?: string;
   replyOutcomeKinds: MahiloAskAroundReplyOutcome[];
   senderConnectionId?: string;
@@ -157,7 +166,8 @@ const REQUEST_PENDING_SUGGESTED_ACTION =
 export async function executeMahiloNetworkAction(
   client: MahiloContractClient,
   input: ExecuteMahiloNetworkActionInput = {},
-  context: MahiloToolContext = {}
+  context: MahiloToolContext = {},
+  options: MahiloSendExecutionOptions = {}
 ): Promise<MahiloNetworkActionResult> {
   const action = normalizeMahiloNetworkAction(input.action);
   if (!action) {
@@ -168,7 +178,7 @@ export async function executeMahiloNetworkAction(
   }
 
   if (action === "ask_around") {
-    return executeMahiloAskAroundAction(client, input, context);
+    return executeMahiloAskAroundAction(client, input, context, options);
   }
 
   return executeMahiloRelationshipAction(client, {
@@ -225,7 +235,8 @@ export function normalizeMahiloNetworkAction(
 async function executeMahiloAskAroundAction(
   client: MahiloContractClient,
   input: ExecuteMahiloNetworkActionInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  options: MahiloSendExecutionOptions = {}
 ): Promise<MahiloAskAroundActionResult> {
   const question = normalizeToken(input.question) ?? normalizeToken(input.message);
   if (!question) {
@@ -269,7 +280,7 @@ async function executeMahiloAskAroundAction(
     idempotencyKey: normalizeToken(input.idempotencyKey),
     question,
     roles
-  }, context);
+  }, context, options);
 }
 
 async function executeMahiloContactAskAround(
@@ -281,7 +292,8 @@ async function executeMahiloContactAskAround(
     question: string;
     roles: string[];
   },
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  sendOptions: MahiloSendExecutionOptions = {}
 ): Promise<MahiloAskAroundActionResult> {
   let contacts: MahiloContact[];
   try {
@@ -354,7 +366,7 @@ async function executeMahiloContactAskAround(
         declaredSelectors: options.declaredSelectors,
         idempotencyKey: options.idempotencyKey,
         question: options.question
-      }, context)
+      }, context, sendOptions)
     )
   );
 
@@ -369,6 +381,7 @@ async function executeMahiloContactAskAround(
     deliveries,
     gaps,
     question: options.question,
+    replyRecipients: buildAskAroundReplyRecipients(deliveries),
     replyExpectation,
     replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
     senderConnectionId: context.senderConnectionId,
@@ -436,6 +449,7 @@ async function executeMahiloGroupAskAround(
       deliveries: [delivery],
       gaps: [],
       question: options.question,
+      replyRecipients: buildAskAroundReplyRecipients([delivery]),
       replyExpectation: formatGroupReplyExpectation(delivery, resolvedGroup.group),
       replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
       senderConnectionId: context.senderConnectionId,
@@ -461,7 +475,8 @@ async function askContact(
     idempotencyKey?: string;
     question: string;
   },
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  sendOptions: MahiloSendExecutionOptions = {}
 ): Promise<MahiloAskAroundDelivery> {
   const username = readContactUsername(contact);
   const roles = readContactRoles(contact);
@@ -503,7 +518,8 @@ async function askContact(
         message: options.question,
         recipient: username
       },
-      context
+      context,
+      sendOptions
     );
 
     return mapToolResultToAskAroundDelivery(result, {
@@ -862,6 +878,21 @@ function countAskAroundDeliveries(
     },
     emptyAskAroundCounts()
   );
+}
+
+function buildAskAroundReplyRecipients(
+  deliveries: MahiloAskAroundDelivery[],
+): MahiloAskAroundReplyRecipient[] | undefined {
+  const replyRecipients = deliveries
+    .filter((delivery) => delivery.status === "awaiting_reply")
+    .map((delivery) => ({
+      messageId: delivery.messageId,
+      recipient: delivery.recipient,
+      recipientLabel: delivery.recipientLabel,
+      recipientType: delivery.recipientType,
+    }));
+
+  return replyRecipients.length > 0 ? replyRecipients : undefined;
 }
 
 function summarizeAskAroundGaps(

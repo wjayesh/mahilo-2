@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { CorePolicy } from "@mahilo/policy-core";
 
 import {
   createMahiloOpenClawPlugin,
   generateCallbackSignature,
+  InMemoryPluginState,
   MahiloRequestError,
   MahiloRuntimeBootstrapStore,
   resetSharedMahiloPluginStates,
@@ -157,6 +159,27 @@ function buildDefaultDirectSendBundle(payload: Record<string, unknown>) {
           ? declaredSelectors.resource
           : "message.general",
     },
+  };
+}
+
+function createPolicy(
+  overrides: Partial<CorePolicy> & Pick<CorePolicy, "id">,
+): CorePolicy {
+  return {
+    id: overrides.id,
+    scope: overrides.scope ?? "global",
+    effect: overrides.effect ?? "deny",
+    evaluator: overrides.evaluator ?? "structured",
+    policy_content: overrides.policy_content ?? {},
+    effective_from: overrides.effective_from ?? null,
+    expires_at: overrides.expires_at ?? null,
+    max_uses: overrides.max_uses ?? null,
+    remaining_uses: overrides.remaining_uses ?? null,
+    source: overrides.source ?? "user_created",
+    derived_from_message_id: overrides.derived_from_message_id ?? null,
+    learning_provenance: overrides.learning_provenance ?? null,
+    priority: overrides.priority ?? 1,
+    created_at: overrides.created_at ?? null,
   };
 }
 
@@ -315,7 +338,9 @@ function createMockContractClient(
     blockedEventsResponse?: unknown;
     createOverrideError?: Error;
     directSendBundleError?: Error;
-    directSendBundleResponse?: Record<string, unknown>;
+    directSendBundleResponse?:
+      | Record<string, unknown>
+      | ((payload: Record<string, unknown>) => Record<string, unknown>);
     friendConnectionErrorsByUsername?: Record<string, Error>;
     friendConnectionsByUsername?: Record<string, unknown[]>;
     friendshipsByStatus?: Record<string, unknown>;
@@ -471,6 +496,10 @@ function createMockContractClient(
       state.directSendBundleCalls.push(payload);
       if (options.directSendBundleError) {
         throw options.directSendBundleError;
+      }
+
+      if (typeof options.directSendBundleResponse === "function") {
+        return options.directSendBundleResponse(payload);
       }
 
       return options.directSendBundleResponse ?? buildDefaultDirectSendBundle(payload);
@@ -2893,6 +2922,317 @@ describe("createMahiloOpenClawPlugin", () => {
         ),
       },
     });
+  });
+
+  it("only registers ask-network reply routes for contacts whose locally approved asks were sent", async () => {
+    const pluginState = new InMemoryPluginState();
+    const { client, state } = createMockContractClient({
+      directSendBundleResponse: (payload) => {
+        const bundle = buildDefaultDirectSendBundle(payload);
+        const recipient =
+          typeof payload.recipient === "string"
+            ? payload.recipient.trim().toLowerCase()
+            : "alice";
+
+        if (recipient === "bob") {
+          return {
+            ...bundle,
+            applicable_policies: [
+              createPolicy({
+                effect: "ask",
+                evaluator: "structured",
+                id: "pol_bob_review",
+                policy_content: { intent: "manual_review" },
+                priority: 100,
+                scope: "user",
+              }),
+            ],
+            bundle_metadata: {
+              ...bundle.bundle_metadata,
+              resolution_id: "res_local_bob",
+            },
+            llm: {
+              ...bundle.llm,
+              subject: "bob",
+            },
+            recipient: {
+              ...bundle.recipient,
+              id: "usr_bob",
+              username: "bob",
+            },
+          };
+        }
+
+        if (recipient === "carol") {
+          return {
+            ...bundle,
+            applicable_policies: [
+              createPolicy({
+                effect: "deny",
+                evaluator: "structured",
+                id: "pol_carol_block",
+                policy_content: {},
+                priority: 100,
+                scope: "user",
+              }),
+            ],
+            bundle_metadata: {
+              ...bundle.bundle_metadata,
+              resolution_id: "res_local_carol",
+            },
+            llm: {
+              ...bundle.llm,
+              subject: "carol",
+            },
+            recipient: {
+              ...bundle.recipient,
+              id: "usr_carol",
+              username: "carol",
+            },
+          };
+        }
+
+        return {
+          ...bundle,
+          bundle_metadata: {
+            ...bundle.bundle_metadata,
+            resolution_id: "res_local_alice",
+          },
+        };
+      },
+      friendConnectionsByUsername: {
+        alice: [{ active: true, id: "conn_alice" }],
+        bob: [{ active: true, id: "conn_bob" }],
+        carol: [{ active: true, id: "conn_carol" }],
+      },
+      friendshipsResponse: [
+        {
+          direction: "sent",
+          displayName: "Alice",
+          friendshipId: "fr_alice",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_alice",
+          username: "alice",
+        },
+        {
+          direction: "sent",
+          displayName: "Bob",
+          friendshipId: "fr_bob",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_bob",
+          username: "bob",
+        },
+        {
+          direction: "sent",
+          displayName: "Carol",
+          friendshipId: "fr_carol",
+          roles: ["friends"],
+          status: "accepted",
+          userId: "usr_carol",
+          username: "carol",
+        },
+      ],
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      pluginState,
+      webhookRoute: {
+        callbackSecret: CALLBACK_SECRET,
+      },
+    });
+    const { api, heartbeatRequests, hooks, routes, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+        inboundAgentId: "mahilo-fallback-agent",
+        inboundSessionKey: "session_fallback_local_policy",
+      });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "ask_network");
+    const outboundInput = {
+      correlationId: "corr_network_local_policy_1",
+      question: "Who knows a good ramen spot?",
+      senderConnectionId: "conn_sender",
+    };
+    const toolResult = await tool.execute(
+      "tool_call_network_local_policy_1",
+      outboundInput,
+    );
+
+    expect(toolResult).toMatchObject({
+      details: {
+        counts: {
+          awaitingReplies: 1,
+          blocked: 1,
+          reviewRequired: 1,
+          sendFailed: 0,
+          skipped: 0,
+        },
+        deliveries: [
+          expect.objectContaining({
+            decision: "allow",
+            messageId: "msg_123",
+            recipient: "alice",
+            status: "awaiting_reply",
+          }),
+          expect.objectContaining({
+            decision: "ask",
+            recipient: "bob",
+            status: "review_required",
+          }),
+          expect.objectContaining({
+            decision: "deny",
+            recipient: "carol",
+            status: "blocked",
+          }),
+        ],
+      },
+    });
+    expect(
+      state.directSendBundleCalls.map((call) => String(call.recipient)),
+    ).toEqual(["alice", "bob", "carol"]);
+    expect(state.localDecisionCommitCalls).toHaveLength(3);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      correlation_id: "corr_network_local_policy_1",
+      recipient: "alice",
+      resolution_id: "res_local_alice",
+      sender_connection_id: "conn_sender",
+    });
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: outboundInput,
+        result: toolResult,
+        toolName: "ask_network",
+      },
+      {
+        agentId: "mahilo-network-agent",
+        runId: "run_network_local_policy_1",
+        sessionKey: "session_network_local_policy_1",
+        toolCallId: "tool_call_network_local_policy_1",
+        toolName: "ask_network",
+      },
+    );
+    expect(
+      pluginState.getAskAroundSession("corr_network_local_policy_1"),
+    ).toMatchObject({
+      expectedParticipants: [
+        {
+          label: "Alice",
+          recipient: "alice",
+        },
+      ],
+      expectedReplyCount: 1,
+    });
+    expect(
+      pluginState.resolveInboundRoute({
+        inResponseToMessageId: "msg_123",
+      }),
+    ).toMatchObject({
+      correlationId: "corr_network_local_policy_1",
+      sessionKey: "session_network_local_policy_1",
+    });
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const aliceRawBody = buildInboundWebhookRawBody({
+      in_response_to: "msg_123",
+      message: "Try Mensho for the broth.",
+      message_id: "msg_inbound_local_policy_alice_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Alice",
+      sender_connection_id: "conn_alice",
+      timestamp: "2026-03-10T12:15:00.000Z",
+    });
+    const aliceTimestamp = Math.floor(Date.now() / 1000);
+    const aliceSignature = generateCallbackSignature(
+      aliceRawBody,
+      CALLBACK_SECRET,
+      aliceTimestamp,
+    );
+    const aliceRequest = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_local_policy_alice_1",
+        "x-mahilo-signature": `sha256=${aliceSignature}`,
+        "x-mahilo-timestamp": String(aliceTimestamp),
+      },
+      rawBody: aliceRawBody,
+    });
+    const aliceResponse = createMockWebhookResponse();
+
+    await routes[0]!.handler(aliceRequest, aliceResponse.response);
+
+    expect(aliceResponse.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "session_network_local_policy_1",
+        text: expect.stringContaining(
+          "Synthesized summary (plugin-generated): 1 of 1 contacted people has replied so far.",
+        ),
+      }),
+    ]);
+    expect(systemEvents[0]?.text).toContain(
+      "Alice (2026-03-10T12:15:00.000Z) said: Try Mensho for the broth.",
+    );
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-network-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_network_local_policy_1",
+      },
+    ]);
+
+    systemEvents.length = 0;
+    heartbeatRequests.length = 0;
+
+    const bobRawBody = buildInboundWebhookRawBody({
+      message: "I know a spot too.",
+      message_id: "msg_inbound_local_policy_bob_1",
+      recipient_connection_id: "conn_sender",
+      sender: "Bob",
+      sender_connection_id: "conn_bob",
+      timestamp: "2026-03-10T12:18:00.000Z",
+    });
+    const bobTimestamp = Math.floor(Date.now() / 1000);
+    const bobSignature = generateCallbackSignature(
+      bobRawBody,
+      CALLBACK_SECRET,
+      bobTimestamp,
+    );
+    const bobRequest = createMockWebhookRequest({
+      headers: {
+        "x-mahilo-message-id": "msg_inbound_local_policy_bob_1",
+        "x-mahilo-signature": `sha256=${bobSignature}`,
+        "x-mahilo-timestamp": String(bobTimestamp),
+      },
+      rawBody: bobRawBody,
+    });
+    const bobResponse = createMockWebhookResponse();
+
+    await routes[0]!.handler(bobRequest, bobResponse.response);
+
+    expect(bobResponse.status()).toBe(200);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "session_fallback_local_policy",
+        text: expect.stringContaining("I know a spot too."),
+      }),
+    ]);
+    expect(systemEvents[0]?.text).not.toContain("Mahilo ask-around update");
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-fallback-agent",
+        reason: "mahilo:inbound-message",
+        sessionKey: "session_fallback_local_policy",
+      },
+    ]);
   });
 
   it("executes send_message sends with sender_connection_id alias", async () => {
