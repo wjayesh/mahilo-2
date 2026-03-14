@@ -1832,6 +1832,13 @@ body {
 .policy-filters,
 .logs-filters {
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.logs-filter-group {
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-xs);
 }
 

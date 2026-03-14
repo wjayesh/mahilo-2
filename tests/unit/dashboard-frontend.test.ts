@@ -1261,6 +1261,158 @@ describe("Dashboard navigation and audit IA (DASH-010)", () => {
       "Ask-around thread (2)",
     );
   });
+
+  it("filters delivery logs by unified audit state and direction", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch while testing log filters: ${url}`);
+      },
+    });
+
+    const { Helpers, Normalizers, State, UI } = harness.dashboard;
+
+    const messages = [
+      Normalizers.message(
+        {
+          created_at: "2026-03-14T12:00:00.000Z",
+          id: "msg_delivered_ui",
+          message: "Delivered dashboard ping",
+          recipient: { type: "user", username: "alice" },
+          sender: { agent: "default", username: "viewer" },
+          status: "delivered",
+          correlation_id: "corr_delivered_ui",
+          policies_evaluated: JSON.stringify({
+            reason_code: "policy.allow.global.structured",
+          }),
+          direction: "outbound",
+          resource: "message.general",
+          action: "share",
+        },
+        { currentUsername: "viewer" },
+      ),
+      Normalizers.message(
+        {
+          created_at: "2026-03-14T12:01:00.000Z",
+          id: "msg_review_ui",
+          message: "Share exact location",
+          recipient: { type: "user", username: "alice" },
+          sender: { agent: "default", username: "viewer" },
+          status: "review_required",
+          correlation_id: "corr_review_ui",
+          policies_evaluated: JSON.stringify({
+            effect: "ask",
+            reason_code: "policy.ask.user.structured",
+          }),
+          direction: "outbound",
+          resource: "location.current",
+          action: "share",
+        },
+        { currentUsername: "viewer" },
+      ),
+      Normalizers.message(
+        {
+          created_at: "2026-03-14T12:02:00.000Z",
+          id: "msg_blocked_ui",
+          message: "Share your health summary",
+          recipient: { type: "user", username: "viewer" },
+          sender: { agent: "default", username: "alice" },
+          status: "rejected",
+          correlation_id: "corr_blocked_ui",
+          policies_evaluated: JSON.stringify({
+            effect: "deny",
+            reason_code: "policy.deny.inbound.request",
+          }),
+          direction: "inbound",
+          resource: "health.summary",
+          action: "request",
+        },
+        { currentUsername: "viewer" },
+      ),
+    ];
+
+    const review = Normalizers.review({
+      created_at: "2026-03-14T12:01:30.000Z",
+      decision: "ask",
+      delivery_mode: "hold_for_approval",
+      message_id: "msg_review_ui",
+      message_preview: "Share exact location",
+      queue_direction: "outbound",
+      recipient: { type: "user", username: "alice" },
+      review_id: "rev_review_ui",
+      sender: { username: "viewer" },
+      selectors: {
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+      },
+      status: "approval_pending",
+      reason_code: "policy.ask.user.structured",
+      correlation_id: "corr_review_ui",
+      summary: "Needs approval before delivery.",
+    });
+
+    const blocked = Normalizers.blockedEvent({
+      created_at: "2026-03-14T12:02:30.000Z",
+      id: "blocked_review_ui",
+      message_id: "msg_blocked_ui",
+      payload_hash: "abc123def456",
+      queue_direction: "inbound",
+      reason: "Blocked by boundary.",
+      recipient: { type: "user", username: "viewer" },
+      resource: "health.summary",
+      action: "request",
+      reason_code: "policy.deny.inbound.request",
+      sender: { username: "alice" },
+      status: "rejected",
+    });
+
+    Helpers.applyCollectionState(
+      "messages",
+      "messagesById",
+      Helpers.collectionModel(messages),
+    );
+    Helpers.applyCollectionState(
+      "reviews",
+      "reviewsById",
+      Helpers.collectionModel([review]),
+    );
+    Helpers.applyCollectionState(
+      "blockedEvents",
+      "blockedEventsById",
+      Helpers.collectionModel([blocked]),
+    );
+
+    State.logDirectionFilter = "all";
+    State.logStateFilter = "review";
+    UI.renderLogs();
+
+    const reviewHtml = harness.getElement("logs-list").innerHTML;
+    expect(reviewHtml).toContain("Review queue");
+    expect(reviewHtml).toContain("Reason: policy.ask.user.structured");
+    expect(reviewHtml).toContain("Corr: corr_review");
+    expect(reviewHtml.match(/class=\"log-item\"/g)?.length ?? 0).toBe(1);
+
+    State.logDirectionFilter = "all";
+    State.logStateFilter = "blocked";
+    UI.renderLogs();
+
+    const blockedHtml = harness.getElement("logs-list").innerHTML;
+    expect(blockedHtml).toContain("Blocked event");
+    expect(blockedHtml).toContain("Reason: policy.deny.inbound.request");
+    expect(blockedHtml).toContain("Corr: corr_blocked");
+    expect(blockedHtml.match(/class=\"log-item\"/g)?.length ?? 0).toBe(1);
+
+    State.logDirectionFilter = "received";
+    State.logStateFilter = "all";
+    UI.renderLogs();
+
+    const receivedHtml = harness.getElement("logs-list").innerHTML;
+    expect(receivedHtml).toContain("Blocked event: From: alice");
+    expect(receivedHtml).toContain("Selector: health.summary");
+    expect(receivedHtml).not.toContain("Share exact location");
+    expect(receivedHtml).not.toContain("Delivered dashboard ping");
+    expect(receivedHtml.match(/class=\"log-item\"/g)?.length ?? 0).toBe(1);
+  });
 });
 
 describe("Dashboard network list (DASH-020)", () => {

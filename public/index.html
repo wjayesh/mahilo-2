@@ -1129,13 +1129,31 @@
             <div id="logs-view" class="view">
               <div class="view-toolbar">
                 <div class="logs-filters">
-                  <button class="filter-btn active" data-direction="all">
-                    All
-                  </button>
-                  <button class="filter-btn" data-direction="sent">Sent</button>
-                  <button class="filter-btn" data-direction="received">
-                    Received
-                  </button>
+                  <div class="logs-filter-group">
+                    <button class="filter-btn active" data-direction="all">
+                      All
+                    </button>
+                    <button class="filter-btn" data-direction="sent">
+                      Outbound
+                    </button>
+                    <button class="filter-btn" data-direction="received">
+                      Inbound
+                    </button>
+                  </div>
+                  <div class="logs-filter-group logs-state-filters">
+                    <button class="filter-btn active" data-state="all">
+                      All states
+                    </button>
+                    <button class="filter-btn" data-state="delivered">
+                      Delivered
+                    </button>
+                    <button class="filter-btn" data-state="review">
+                      Review
+                    </button>
+                    <button class="filter-btn" data-state="blocked">
+                      Blocked
+                    </button>
+                  </div>
                 </div>
                 <button class="squishy-btn btn-secondary" id="refresh-logs-btn">
                   <span>🔄</span> Refresh

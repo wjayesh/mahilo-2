@@ -22,13 +22,19 @@ function loadDashboardData() {
       groupsById: new Map(),
       messages: [],
       messagesById: new Map(),
+      auditLog: [],
+      auditLogById: new Map(),
       policies: [],
       policiesById: new Map(),
       reviews: [],
       reviewsById: new Map(),
+      reviewQueue: null,
       blockedEvents: [],
       blockedEventsById: new Map(),
+      blockedEventRetention: null,
       conversations: new Map(),
+      logDirectionFilter: "all",
+      logStateFilter: "all",
     };
     ${snippet}
     return { Helpers, Normalizers, State };
@@ -43,6 +49,16 @@ function loadDashboardData() {
       ) => { ids: string[]; byId: Map<string, T>; items: T[] };
       rebuildConversations: () => void;
       upsertMessage: (message: Record<string, unknown>) => void;
+      filterAuditLog: (
+        items: Array<Record<string, unknown>>,
+        filters?: Record<string, unknown> | string,
+      ) => Array<Record<string, unknown>>;
+      logFeed: (
+        messages: Array<Record<string, unknown>>,
+        reviews: Array<Record<string, unknown>>,
+        blockedEvents: Array<Record<string, unknown>>,
+        filters?: Record<string, unknown> | string,
+      ) => Array<Record<string, unknown>>;
     };
     Normalizers: Record<string, (...args: unknown[]) => any>;
     State: Record<string, any>;
@@ -387,6 +403,190 @@ describe("Dashboard Data Adapter", () => {
     });
     expect(State.conversations.get("alice")).toHaveLength(1);
     expect(State.conversations.get("weekend-plan")).toHaveLength(1);
+  });
+
+  it("builds a unified audit log with correlated review and blocked states", () => {
+    const { Helpers, Normalizers, State } = loadDashboardData();
+
+    const messagesModel = Normalizers.messagesModel(
+      [
+        {
+          id: "msg_delivered_out",
+          message: "Delivered dashboard ping",
+          sender: { username: "viewer", agent: "openclaw" },
+          recipient: { type: "user", username: "alice" },
+          status: "delivered",
+          delivery_status: "delivered",
+          created_at: "2026-03-08T10:00:00.000Z",
+          policies_evaluated: JSON.stringify({
+            reason_code: "policy.allow.global.structured",
+          }),
+          correlation_id: "corr_delivered_out",
+          direction: "outbound",
+          resource: "message.general",
+          action: "share",
+        },
+        {
+          id: "msg_review_out",
+          message: "Share exact location",
+          sender: { username: "viewer", agent: "openclaw" },
+          recipient: { type: "user", username: "alice" },
+          status: "review_required",
+          delivery_status: "review_required",
+          created_at: "2026-03-08T11:00:00.000Z",
+          policies_evaluated: JSON.stringify({
+            effect: "ask",
+            reason_code: "policy.ask.user.structured",
+          }),
+          correlation_id: "corr_review_out",
+          direction: "outbound",
+          resource: "location.current",
+          action: "share",
+        },
+        {
+          id: "msg_blocked_in",
+          message: "Share your health summary",
+          sender: { username: "alice", agent: "openclaw" },
+          recipient: { type: "user", username: "viewer" },
+          status: "rejected",
+          delivery_status: "rejected",
+          created_at: "2026-03-08T12:00:00.000Z",
+          policies_evaluated: JSON.stringify({
+            effect: "deny",
+            reason_code: "policy.deny.inbound.request",
+          }),
+          correlation_id: "corr_blocked_in",
+          direction: "inbound",
+          resource: "health.summary",
+          action: "request",
+        },
+      ],
+      { currentUsername: "viewer" },
+    );
+    Helpers.applyCollectionState("messages", "messagesById", messagesModel);
+
+    const reviewsModel = Normalizers.reviewsModel({
+      reviews: [
+        {
+          review_id: "rev_msg_review_out",
+          message_id: "msg_review_out",
+          queue_direction: "outbound",
+          status: "approval_pending",
+          decision: "ask",
+          delivery_mode: "hold_for_approval",
+          summary: "Location share is waiting for approval.",
+          reason_code: "policy.ask.user.structured",
+          created_at: "2026-03-08T11:01:00.000Z",
+          correlation_id: "corr_review_out",
+          message_preview: "Share exact location",
+          context_preview: "User asked where you are right now.",
+          selectors: {
+            direction: "outbound",
+            resource: "location.current",
+            action: "share",
+          },
+          sender: {
+            user_id: "usr_viewer",
+            username: "viewer",
+            agent: "openclaw",
+          },
+          recipient: {
+            id: "usr_alice",
+            type: "user",
+            username: "alice",
+          },
+        },
+      ],
+    });
+    Helpers.applyCollectionState("reviews", "reviewsById", reviewsModel);
+
+    const blockedEventsModel = Normalizers.blockedEventsModel({
+      blocked_events: [
+        {
+          id: "blocked_msg_blocked_in",
+          message_id: "msg_blocked_in",
+          queue_direction: "inbound",
+          reason: "Inbound request blocked by policy.",
+          reason_code: "policy.deny.inbound.request",
+          created_at: "2026-03-08T12:01:00.000Z",
+          payload_hash: "abc123def456",
+          direction: "inbound",
+          resource: "health.summary",
+          action: "request",
+          sender: { username: "alice" },
+          recipient: { id: "usr_viewer", type: "user", username: "viewer" },
+          status: "rejected",
+        },
+      ],
+    });
+    Helpers.applyCollectionState(
+      "blockedEvents",
+      "blockedEventsById",
+      blockedEventsModel,
+    );
+
+    expect(State.auditLog).toHaveLength(3);
+
+    expect(State.auditLogById.get("msg_review_out")).toMatchObject({
+      kind: "review",
+      auditState: "review",
+      reviewId: "rev_msg_review_out",
+      correlationId: "corr_review_out",
+      reasonCode: "policy.ask.user.structured",
+      reviewReasonCode: "policy.ask.user.structured",
+      messageReasonCode: "policy.ask.user.structured",
+      selectors: {
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+      },
+      messageTimestamp: "2026-03-08T11:00:00.000Z",
+      reviewTimestamp: "2026-03-08T11:01:00.000Z",
+    });
+
+    expect(State.auditLogById.get("msg_blocked_in")).toMatchObject({
+      kind: "blocked",
+      auditState: "blocked",
+      blockedEventId: "blocked_msg_blocked_in",
+      correlationId: "corr_blocked_in",
+      reasonCode: "policy.deny.inbound.request",
+      blockedReasonCode: "policy.deny.inbound.request",
+      messageReasonCode: "policy.deny.inbound.request",
+      transportDirection: "received",
+      selectors: {
+        direction: "inbound",
+        resource: "health.summary",
+        action: "request",
+      },
+      messageTimestamp: "2026-03-08T12:00:00.000Z",
+      blockedTimestamp: "2026-03-08T12:01:00.000Z",
+    });
+
+    expect(
+      Helpers.logFeed(State.messages, State.reviews, State.blockedEvents, {
+        direction: "sent",
+      }).map((item) => item.id),
+    ).toEqual(["msg_review_out", "msg_delivered_out"]);
+    expect(
+      Helpers.logFeed(State.messages, State.reviews, State.blockedEvents, {
+        direction: "received",
+      }).map((item) => item.id),
+    ).toEqual(["msg_blocked_in"]);
+    expect(
+      Helpers.logFeed(State.messages, State.reviews, State.blockedEvents, {
+        state: "review",
+      }).map((item) => item.id),
+    ).toEqual(["msg_review_out"]);
+    expect(
+      Helpers.logFeed(State.messages, State.reviews, State.blockedEvents, {
+        state: "blocked",
+      }).map((item) => item.id),
+    ).toEqual(["msg_blocked_in"]);
+    expect(
+      Helpers.logFeed(State.messages, State.reviews, State.blockedEvents, {
+        state: "delivered",
+      }).map((item) => item.id),
+    ).toEqual(["msg_delivered_out"]);
   });
 
   it("maps canonical policy records into boundary categories, effects, audiences, and advanced fallbacks", () => {

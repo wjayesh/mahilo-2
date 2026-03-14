@@ -88,6 +88,8 @@ const State = {
   groupsById: new Map(),
   messages: [],
   messagesById: new Map(),
+  auditLog: [],
+  auditLogById: new Map(),
   policies: [],
   policiesById: new Map(),
   reviews: [],
@@ -103,6 +105,8 @@ const State = {
   selectedNetworkFriendId: null,
   wsConnected: false,
   notifications: [],
+  logDirectionFilter: "all",
+  logStateFilter: "all",
   networkFilter: "all",
   networkSearch: "",
   boundaryScopeFilter: "all",
@@ -165,6 +169,8 @@ const State = {
     this.groupsById = new Map();
     this.messages = [];
     this.messagesById = new Map();
+    this.auditLog = [];
+    this.auditLogById = new Map();
     this.policies = [];
     this.policiesById = new Map();
     this.reviews = [];
@@ -179,6 +185,8 @@ const State = {
     this.selectedChat = null;
     this.selectedNetworkFriendId = null;
     this.wsConnected = false;
+    this.logDirectionFilter = "all";
+    this.logStateFilter = "all";
     this.networkFilter = "all";
     this.networkSearch = "";
     this.boundaryScopeFilter = "all";
@@ -490,6 +498,22 @@ const Helpers = {
     return [];
   },
 
+  jsonRecord(value) {
+    if (this.isObject(value)) {
+      return value;
+    }
+
+    if (typeof value !== "string") {
+      return {};
+    }
+
+    try {
+      return this.record(JSON.parse(value));
+    } catch {
+      return {};
+    }
+  },
+
   nullableString(value) {
     if (typeof value === "string") {
       const trimmed = value.trim();
@@ -704,6 +728,14 @@ const Helpers = {
   applyCollectionState(stateKey, indexKey, model) {
     State[stateKey] = Array.isArray(model?.items) ? model.items : [];
     State[indexKey] = model?.byId instanceof Map ? model.byId : new Map();
+
+    if (
+      stateKey === "messages" ||
+      stateKey === "reviews" ||
+      stateKey === "blockedEvents"
+    ) {
+      this.rebuildAuditLog();
+    }
   },
 
   isInternalIdentifier(value) {
@@ -891,49 +923,473 @@ const Helpers = {
       (left, right) => this.compareByTimestampDesc(left, right),
     );
     this.rebuildConversations();
+    this.rebuildAuditLog();
   },
 
-  logFeed(messages, reviews, blockedEvents, direction = "all") {
-    return [...messages, ...reviews, ...blockedEvents]
+  normalizeLogDirectionFilter(value) {
+    const normalized = this.string(value, "all").toLowerCase();
+
+    switch (normalized) {
+      case "sent":
+      case "outbound":
+        return "sent";
+      case "received":
+      case "inbound":
+        return "received";
+      default:
+        return "all";
+    }
+  },
+
+  normalizeLogStateFilter(value) {
+    const normalized = this.string(value, "all").toLowerCase();
+
+    switch (normalized) {
+      case "review":
+      case "review_required":
+      case "approval_pending":
+        return "review";
+      case "blocked":
+      case "rejected":
+        return "blocked";
+      case "delivered":
+      case "full_send":
+        return "delivered";
+      case "failed":
+        return "failed";
+      case "pending":
+        return "pending";
+      default:
+        return "all";
+    }
+  },
+
+  logStateFromStatus(value) {
+    const normalized = this.string(value).toLowerCase();
+
+    switch (normalized) {
+      case "review_required":
+      case "approval_pending":
+      case "hold_for_approval":
+        return "review";
+      case "blocked":
+      case "rejected":
+        return "blocked";
+      case "delivered":
+      case "full_send":
+        return "delivered";
+      case "failed":
+      case "send_failed":
+        return "failed";
+      default:
+        return normalized ? "pending" : "pending";
+    }
+  },
+
+  latestTimestamp(values, fallback = null) {
+    let nextTimestamp = 0;
+
+    values.forEach((value) => {
+      nextTimestamp = Math.max(nextTimestamp, this.timestampValue(value));
+    });
+
+    if (nextTimestamp > 0) {
+      return new Date(nextTimestamp).toISOString();
+    }
+
+    return fallback;
+  },
+
+  mergeSelectors(...selectorCandidates) {
+    const selector = {
+      direction: null,
+      resource: null,
+      action: null,
+    };
+
+    selectorCandidates.forEach((candidate) => {
+      const record = this.record(candidate);
+
+      selector.direction =
+        selector.direction || this.nullableString(record.direction);
+      selector.resource =
+        selector.resource || this.nullableString(record.resource);
+      selector.action = selector.action || this.nullableString(record.action);
+    });
+
+    return selector;
+  },
+
+  buildAuditEntry({ message = null, review = null, blockedEvent = null }) {
+    const primaryMessageId =
+      this.nullableString(message?.messageId ?? message?.id) ||
+      this.nullableString(review?.messageId) ||
+      this.nullableString(blockedEvent?.messageId) ||
+      this.nullableString(review?.reviewId) ||
+      this.nullableString(blockedEvent?.blockedEventId) ||
+      `log_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const primaryTimestamp = this.latestTimestamp(
+      [
+        blockedEvent?.timestamp,
+        review?.timestamp,
+        message?.timestamp,
+        message?.deliveredAt,
+      ],
+      new Date().toISOString(),
+    );
+    const auditState = blockedEvent
+      ? "blocked"
+      : review
+        ? "review"
+        : this.logStateFromStatus(
+            message?.deliveryStatus || message?.status || null,
+          );
+    const mergedSelectors = this.mergeSelectors(
+      blockedEvent?.selectors,
+      review?.selectors,
+      message?.selectors,
+      message?.classifiedSelectors,
+    );
+    const transportDirection =
+      blockedEvent?.transportDirection ||
+      review?.transportDirection ||
+      message?.transportDirection ||
+      "sent";
+    const recipientType =
+      blockedEvent?.recipientType || review?.recipientType || message?.recipientType;
+    const sourceKinds = [
+      message ? "message" : null,
+      review ? "review" : null,
+      blockedEvent ? "blocked" : null,
+    ].filter(Boolean);
+
+    return {
+      kind:
+        auditState === "review"
+          ? "review"
+          : auditState === "blocked"
+            ? "blocked"
+            : "message",
+      id: primaryMessageId,
+      messageId: this.nullableString(message?.messageId ?? primaryMessageId),
+      reviewId: this.nullableString(review?.reviewId),
+      blockedEventId: this.nullableString(blockedEvent?.blockedEventId),
+      auditState,
+      status:
+        this.nullableString(blockedEvent?.status) ||
+        this.nullableString(review?.status) ||
+        this.string(message?.status, auditState),
+      transportDirection,
+      sender:
+        blockedEvent?.sender ||
+        review?.sender ||
+        message?.sender ||
+        "Unknown sender",
+      senderId:
+        this.nullableString(blockedEvent?.senderId) ||
+        this.nullableString(review?.senderId) ||
+        this.nullableString(message?.senderId),
+      senderAgent:
+        this.nullableString(review?.senderAgent) ||
+        this.nullableString(message?.senderAgent),
+      senderConnectionId:
+        this.nullableString(review?.senderConnectionId) ||
+        this.nullableString(message?.senderConnectionId),
+      recipient:
+        blockedEvent?.recipient ||
+        review?.recipient ||
+        message?.recipient ||
+        "Unknown recipient",
+      recipientId:
+        this.nullableString(blockedEvent?.recipientId) ||
+        this.nullableString(review?.recipientId) ||
+        this.nullableString(message?.recipientId),
+      recipientType: recipientType || "user",
+      recipientConnectionId:
+        this.nullableString(review?.recipientConnectionId) ||
+        this.nullableString(message?.recipientConnectionId),
+      counterpart:
+        message?.counterpart ||
+        (transportDirection === "sent"
+          ? blockedEvent?.recipient || review?.recipient || null
+          : blockedEvent?.sender || review?.sender || null),
+      counterpartLabel:
+        message?.counterpartLabel ||
+        (transportDirection === "sent"
+          ? blockedEvent?.recipient || review?.recipient || "Unknown recipient"
+          : blockedEvent?.sender || review?.sender || "Unknown sender"),
+      timestamp: primaryTimestamp,
+      createdAt: primaryTimestamp,
+      deliveredAt: this.nullableString(message?.deliveredAt),
+      correlationId:
+        this.nullableString(review?.correlationId) ||
+        this.nullableString(blockedEvent?.correlationId) ||
+        this.nullableString(message?.correlationId),
+      inResponseTo:
+        this.nullableString(review?.inResponseTo) ||
+        this.nullableString(blockedEvent?.inResponseTo) ||
+        this.nullableString(message?.inResponseTo),
+      selectors: mergedSelectors,
+      messageSelectors: message?.selectors || null,
+      reviewSelectors: review?.selectors || null,
+      blockedSelectors: blockedEvent?.selectors || null,
+      messageText:
+        message?.messageText ||
+        review?.messagePreview ||
+        blockedEvent?.storedPayloadExcerpt ||
+        "",
+      previewText:
+        message?.previewText ||
+        review?.messagePreview ||
+        blockedEvent?.storedPayloadExcerpt ||
+        "",
+      context:
+        message?.context ||
+        review?.contextPreview ||
+        blockedEvent?.storedPayloadExcerpt ||
+        "",
+      messageReasonCode: this.nullableString(message?.reasonCode),
+      reviewReasonCode: this.nullableString(review?.reasonCode),
+      blockedReasonCode: this.nullableString(blockedEvent?.reasonCode),
+      reasonCode:
+        this.nullableString(blockedEvent?.reasonCode) ||
+        this.nullableString(review?.reasonCode) ||
+        this.nullableString(message?.reasonCode),
+      decision:
+        this.nullableString(review?.decision) ||
+        this.nullableString(message?.decision) ||
+        null,
+      deliveryMode:
+        this.nullableString(review?.deliveryMode) ||
+        this.nullableString(message?.deliveryMode),
+      summary:
+        this.nullableString(blockedEvent?.reason) ||
+        this.nullableString(review?.summary) ||
+        this.nullableString(message?.previewText) ||
+        null,
+      reason: this.nullableString(blockedEvent?.reason),
+      messagePreview:
+        this.contentText(review?.messagePreview) ||
+        this.contentText(message?.previewText),
+      contextPreview: this.contentText(review?.contextPreview),
+      storedPayloadExcerpt: this.contentText(blockedEvent?.storedPayloadExcerpt),
+      payloadHash: this.nullableString(blockedEvent?.payloadHash),
+      payloadType:
+        this.nullableString(review?.payloadType) ||
+        this.nullableString(message?.payloadType),
+      messageTimestamp: this.nullableString(message?.timestamp),
+      reviewTimestamp: this.nullableString(review?.timestamp),
+      blockedTimestamp: this.nullableString(blockedEvent?.timestamp),
+      sourceKinds,
+      sourceIds: {
+        blockedEventId: this.nullableString(blockedEvent?.blockedEventId),
+        messageId: this.nullableString(message?.messageId ?? message?.id),
+        reviewId: this.nullableString(review?.reviewId),
+      },
+      raw: {
+        blockedEvent: blockedEvent?.raw || null,
+        message: message?.raw || null,
+        review: review?.raw || null,
+      },
+    };
+  },
+
+  auditLogModel(messages = [], reviews = [], blockedEvents = []) {
+    const auditItems = [];
+    const messagesById = new Map();
+    const reviewsByMessageId = new Map();
+    const blockedByMessageId = new Map();
+    const consumedReviewIds = new Set();
+    const consumedBlockedIds = new Set();
+
+    messages.forEach((message) => {
+      const messageId = this.nullableString(message?.messageId ?? message?.id);
+      if (messageId) {
+        messagesById.set(messageId, message);
+      }
+    });
+
+    reviews.forEach((review) => {
+      const reviewId = this.nullableString(review?.reviewId);
+      if (!reviewId) {
+        return;
+      }
+
+      const key =
+        this.nullableString(review?.messageId) || `review:${reviewId}`;
+      const existing = reviewsByMessageId.get(key);
+
+      if (
+        !existing ||
+        this.compareByTimestampDesc(review, existing) < 0
+      ) {
+        reviewsByMessageId.set(key, review);
+      }
+    });
+
+    blockedEvents.forEach((blockedEvent) => {
+      const blockedEventId = this.nullableString(blockedEvent?.blockedEventId);
+      if (!blockedEventId) {
+        return;
+      }
+
+      const key =
+        this.nullableString(blockedEvent?.messageId) ||
+        `blocked:${blockedEventId}`;
+      const existing = blockedByMessageId.get(key);
+
+      if (
+        !existing ||
+        this.compareByTimestampDesc(blockedEvent, existing) < 0
+      ) {
+        blockedByMessageId.set(key, blockedEvent);
+      }
+    });
+
+    messages.forEach((message) => {
+      const messageId = this.nullableString(message?.messageId ?? message?.id);
+      const review = messageId ? reviewsByMessageId.get(messageId) || null : null;
+      const blockedEvent = messageId
+        ? blockedByMessageId.get(messageId) || null
+        : null;
+
+      if (review?.reviewId) {
+        consumedReviewIds.add(review.reviewId);
+      }
+
+      if (blockedEvent?.blockedEventId) {
+        consumedBlockedIds.add(blockedEvent.blockedEventId);
+      }
+
+      auditItems.push(
+        this.buildAuditEntry({
+          blockedEvent,
+          message,
+          review,
+        }),
+      );
+    });
+
+    reviews.forEach((review) => {
+      if (review?.reviewId && consumedReviewIds.has(review.reviewId)) {
+        return;
+      }
+
+      const message =
+        messagesById.get(this.nullableString(review?.messageId) || "") || null;
+
+      auditItems.push(
+        this.buildAuditEntry({
+          message,
+          review,
+        }),
+      );
+    });
+
+    blockedEvents.forEach((blockedEvent) => {
+      if (
+        blockedEvent?.blockedEventId &&
+        consumedBlockedIds.has(blockedEvent.blockedEventId)
+      ) {
+        return;
+      }
+
+      const message =
+        messagesById.get(this.nullableString(blockedEvent?.messageId) || "") ||
+        null;
+
+      auditItems.push(
+        this.buildAuditEntry({
+          blockedEvent,
+          message,
+        }),
+      );
+    });
+
+    const threadSummary = this.askAroundThreadSummary(auditItems);
+    const model = this.collectionModel(
+      auditItems
+        .map((item) => ({
+          ...item,
+          askAroundTag: this.askAroundTag(item, threadSummary),
+          correlationCount: item.correlationId
+            ? threadSummary.correlationCounts.get(item.correlationId) || 1
+            : 0,
+        }))
+        .sort((left, right) => this.compareByTimestampDesc(left, right)),
+      (item) => item.id,
+    );
+
+    return {
+      ...model,
+      threadSummary,
+    };
+  },
+
+  rebuildAuditLog() {
+    const auditModel = this.auditLogModel(
+      State.messages,
+      State.reviews,
+      State.blockedEvents,
+    );
+    State.auditLog = auditModel.items;
+    State.auditLogById = auditModel.byId;
+  },
+
+  filterAuditLog(items, filters = {}) {
+    const record =
+      typeof filters === "string" ? { direction: filters } : this.record(filters);
+    const direction = this.normalizeLogDirectionFilter(record.direction);
+    const state = this.normalizeLogStateFilter(record.state);
+
+    return items
       .filter((item) => {
-        if (direction === "all") {
-          return true;
+        if (direction !== "all" && item.transportDirection !== direction) {
+          return false;
         }
-        return item.transportDirection === direction;
+
+        if (state !== "all" && item.auditState !== state) {
+          return false;
+        }
+
+        return true;
       })
       .sort((left, right) => this.compareByTimestampDesc(left, right));
   },
 
-  askAroundThreadSummary(messages) {
+  logFeed(messages, reviews, blockedEvents, filters = {}) {
+    return this.filterAuditLog(
+      this.auditLogModel(messages, reviews, blockedEvents).items,
+      filters,
+    );
+  },
+
+  askAroundThreadSummary(items) {
     const correlationCounts = new Map();
     const threadIds = new Set();
 
-    messages
-      .filter((message) => message.kind === "message")
-      .forEach((message) => {
-        if (message.correlationId) {
-          correlationCounts.set(
-            message.correlationId,
-            (correlationCounts.get(message.correlationId) || 0) + 1,
-          );
-        }
-      });
+    items.forEach((item) => {
+      if (item.correlationId) {
+        correlationCounts.set(
+          item.correlationId,
+          (correlationCounts.get(item.correlationId) || 0) + 1,
+        );
+      }
+    });
 
-    messages
-      .filter((message) => message.kind === "message")
-      .forEach((message) => {
-        if (message.recipientType === "group") {
-          threadIds.add(message.correlationId || `group:${message.messageId}`);
-          return;
-        }
+    items.forEach((item) => {
+      if (item.recipientType === "group") {
+        threadIds.add(item.correlationId || `group:${item.messageId || item.id}`);
+        return;
+      }
 
-        if (
-          message.correlationId &&
-          (correlationCounts.get(message.correlationId) || 0) > 1
-        ) {
-          threadIds.add(message.correlationId);
-        }
-      });
+      if (
+        item.correlationId &&
+        (correlationCounts.get(item.correlationId) || 0) > 1
+      ) {
+        threadIds.add(item.correlationId);
+      }
+    });
 
     return {
       correlationCounts,
@@ -941,21 +1397,21 @@ const Helpers = {
     };
   },
 
-  askAroundTag(message, threadSummary) {
-    if (!message || message.kind !== "message") {
+  askAroundTag(item, threadSummary) {
+    if (!item) {
       return null;
     }
 
-    if (message.recipientType === "group") {
+    if (item.recipientType === "group") {
       return "Ask-around group";
     }
 
     if (
-      message.correlationId &&
-      threadSummary.threadIds.has(message.correlationId)
+      item.correlationId &&
+      threadSummary.threadIds.has(item.correlationId)
     ) {
       const threadSize =
-        threadSummary.correlationCounts.get(message.correlationId) || 0;
+        threadSummary.correlationCounts.get(item.correlationId) || 0;
       return threadSize > 1
         ? `Ask-around thread (${threadSize})`
         : "Ask-around thread";
@@ -1768,6 +2224,9 @@ const Normalizers = {
 
   message(value, options = {}) {
     const record = Helpers.record(value);
+    const policyAudit = Helpers.jsonRecord(
+      record.policies_evaluated ?? record.policiesEvaluated,
+    );
     const timestamp =
       Helpers.iso(
         record.created_at ??
@@ -1830,12 +2289,28 @@ const Normalizers = {
         counterpart || (transportDirection === "sent" ? recipient : sender),
       status,
       deliveryStatus: Helpers.string(record.delivery_status, status),
+      decision: Helpers.nullableString(record.decision ?? policyAudit.effect),
+      deliveryMode: Helpers.nullableString(
+        record.delivery_mode ?? policyAudit.delivery_mode,
+      ),
+      reasonCode: Helpers.nullableString(
+        record.reason_code ?? policyAudit.reason_code,
+      ),
       timestamp,
       createdAt: timestamp,
       deliveredAt: Helpers.iso(record.delivered_at ?? record.deliveredAt),
       messageText,
       previewText: Helpers.truncate(messageText, 120),
       context: Helpers.contentText(record.context ?? record.context_preview),
+      inResponseTo: Helpers.nullableString(
+        record.in_response_to ?? record.inResponseTo,
+      ),
+      payloadType: Helpers.nullableString(
+        record.payload_type ?? record.payloadType,
+      ),
+      outcome: Helpers.nullableString(record.outcome),
+      outcomeDetails:
+        record.outcome_details ?? record.outcomeDetails ?? null,
       senderAgent: Helpers.nullableString(
         record.sender_agent ?? record.sender?.agent ?? record.sender?.label,
       ),
@@ -1865,9 +2340,19 @@ const Normalizers = {
           record.action ?? record.selectors?.action ?? record.classified_action,
         ),
       },
+      classifiedSelectors: {
+        direction: Helpers.nullableString(record.classified_direction),
+        resource: Helpers.nullableString(record.classified_resource),
+        action: Helpers.nullableString(record.classified_action),
+      },
       replyPolicies: Helpers.isObject(record.reply_policies)
         ? record.reply_policies
         : null,
+      matchedPolicyIds: Helpers.stringList(policyAudit.matched_policy_ids),
+      winningPolicyId: Helpers.nullableString(policyAudit.winning_policy_id),
+      resolverLayer: Helpers.nullableString(policyAudit.resolver_layer),
+      guardrailId: Helpers.nullableString(policyAudit.guardrail_id),
+      policyAudit,
       raw: value,
     };
   },
@@ -1988,6 +2473,8 @@ const Normalizers = {
       status: Helpers.string(record.status, "approval_pending"),
       decision: Helpers.string(record.decision, "ask"),
       deliveryMode: Helpers.nullableString(record.delivery_mode),
+      correlationId: Helpers.nullableString(record.correlation_id),
+      inResponseTo: Helpers.nullableString(record.in_response_to),
       summary: Helpers.string(
         record.summary,
         "Message requires review before delivery.",
@@ -1998,7 +2485,19 @@ const Normalizers = {
         new Date().toISOString(),
       messagePreview: Helpers.contentText(record.message_preview),
       contextPreview: Helpers.contentText(record.context_preview),
+      senderId: Helpers.nullableString(
+        record.sender?.user_id ?? record.sender?.id,
+      ),
       sender: Helpers.participantLabel(record.sender) || "Unknown sender",
+      senderAgent: Helpers.nullableString(
+        record.sender?.agent ?? record.sender_agent,
+      ),
+      senderConnectionId: Helpers.nullableString(
+        record.sender?.connection_id ?? record.sender_connection_id,
+      ),
+      recipientId: Helpers.nullableString(
+        record.recipient?.user_id ?? record.recipient?.id,
+      ),
       recipient:
         Helpers.recipientLabel(
           record.recipient,
@@ -2007,11 +2506,21 @@ const Normalizers = {
         (Helpers.participantType(record.recipient) === "group"
           ? "Group conversation"
           : "Unknown recipient"),
-      selectors: {
-        direction: Helpers.nullableString(record.selectors?.direction),
-        resource: Helpers.nullableString(record.selectors?.resource),
-        action: Helpers.nullableString(record.selectors?.action),
-      },
+      recipientType:
+        Helpers.participantType(record.recipient) ||
+        Helpers.nullableString(record.recipient_type) ||
+        "user",
+      recipientConnectionId: Helpers.nullableString(
+        record.recipient?.connection_id ?? record.recipient_connection_id,
+      ),
+      payloadType: Helpers.nullableString(record.payload_type),
+      selectors: Helpers.mergeSelectors(record.selectors, {
+        direction: record.direction,
+        resource: record.resource,
+        action: record.action,
+      }),
+      appliedPolicy: Helpers.record(record.applied_policy),
+      audit: Helpers.jsonRecord(record.audit),
       raw: value,
     };
   },
@@ -2075,10 +2584,18 @@ const Normalizers = {
       status: Helpers.string(record.status, "rejected"),
       reason: Helpers.string(record.reason, "Message blocked by policy."),
       reasonCode: Helpers.nullableString(record.reason_code),
+      correlationId: Helpers.nullableString(record.correlation_id),
+      inResponseTo: Helpers.nullableString(record.in_response_to),
       timestamp:
         Helpers.iso(record.timestamp ?? record.created_at) ||
         new Date().toISOString(),
+      senderId: Helpers.nullableString(
+        record.sender?.user_id ?? record.sender?.id,
+      ),
       sender: Helpers.participantLabel(record.sender) || "Unknown sender",
+      recipientId: Helpers.nullableString(
+        record.recipient?.user_id ?? record.recipient?.id,
+      ),
       recipient:
         Helpers.recipientLabel(
           record.recipient,
@@ -2087,13 +2604,18 @@ const Normalizers = {
         (Helpers.participantType(record.recipient) === "group"
           ? "Group conversation"
           : "Unknown recipient"),
+      recipientType:
+        Helpers.participantType(record.recipient) ||
+        Helpers.nullableString(record.recipient_type) ||
+        "user",
       storedPayloadExcerpt: Helpers.contentText(record.stored_payload_excerpt),
       payloadHash: Helpers.nullableString(record.payload_hash),
-      selectors: {
-        direction: Helpers.nullableString(record.direction),
-        resource: Helpers.nullableString(record.resource),
-        action: Helpers.nullableString(record.action),
-      },
+      selectors: Helpers.mergeSelectors(record.selectors, {
+        direction: record.direction,
+        resource: record.resource,
+        action: record.action,
+      }),
+      audit: Helpers.jsonRecord(record.audit),
       raw: value,
     };
   },
@@ -2482,6 +3004,8 @@ const DataLoader = {
       State.reviewQueue = null;
       State.reviews = [];
       State.reviewsById = new Map();
+      Helpers.rebuildAuditLog();
+      UI.renderLogs();
       console.error("Failed to load review queue:", error);
     }
   },
@@ -2501,6 +3025,8 @@ const DataLoader = {
       State.blockedEventRetention = null;
       State.blockedEvents = [];
       State.blockedEventsById = new Map();
+      Helpers.rebuildAuditLog();
+      UI.renderLogs();
       console.error("Failed to load blocked events:", error);
     }
   },
@@ -2740,15 +3266,32 @@ const UI = {
       });
 
     // Logs filters
-    document.querySelectorAll(".logs-filters .filter-btn").forEach((btn) => {
+    document.querySelectorAll(".logs-filters [data-direction]").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         document
-          .querySelectorAll(".logs-filters .filter-btn")
+          .querySelectorAll(".logs-filters [data-direction]")
           .forEach((b) => b.classList.remove("active"));
         e.target.classList.add("active");
-        this.renderLogs(e.target.dataset.direction);
+        State.logDirectionFilter = Helpers.normalizeLogDirectionFilter(
+          e.target.dataset.direction,
+        );
+        this.renderLogs();
       });
     });
+    document
+      .querySelectorAll(".logs-state-filters [data-state]")
+      .forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          document
+            .querySelectorAll(".logs-state-filters [data-state]")
+            .forEach((b) => b.classList.remove("active"));
+          e.target.classList.add("active");
+          State.logStateFilter = Helpers.normalizeLogStateFilter(
+            e.target.dataset.state,
+          );
+          this.renderLogs();
+        });
+      });
 
     // Logout
     document.getElementById("logout-btn")?.addEventListener("click", () => {
@@ -5235,7 +5778,13 @@ const UI = {
   },
 
   renderPolicies(scope = State.boundaryScopeFilter || "all") {
-    const list = document.getElementById("boundaries-groups");
+    const list =
+      document.getElementById("boundaries-groups") ||
+      document.getElementById("policies-list");
+    const legacyList =
+      list?.id === "policies-list"
+        ? null
+        : document.getElementById("policies-list");
     const browserTitle = document.getElementById("boundaries-browser-title");
     const browserDescription = document.getElementById(
       "boundaries-browser-description",
@@ -5244,6 +5793,13 @@ const UI = {
     if (!list) {
       return;
     }
+
+    const setListHtml = (html) => {
+      list.innerHTML = html;
+      if (legacyList && legacyList !== list) {
+        legacyList.innerHTML = html;
+      }
+    };
 
     const activeScope = scope || "all";
     State.boundaryScopeFilter = activeScope;
@@ -5324,7 +5880,7 @@ const UI = {
     }
 
     if (!State.policies.length) {
-      list.innerHTML = `
+      setListHtml(`
         <div class="empty-state">
           <div class="empty-icon-large">🛡️</div>
           <h3>No boundaries yet</h3>
@@ -5333,7 +5889,7 @@ const UI = {
             <span>🛡️</span> Create Your First Boundary
           </button>
         </div>
-      `;
+      `);
       document
         .getElementById("create-first-policy")
         ?.addEventListener("click", () => {
@@ -5343,7 +5899,7 @@ const UI = {
     }
 
     if (!policies.length) {
-      list.innerHTML = `
+      setListHtml(`
         <div class="empty-state">
           <div class="empty-icon-large">🧭</div>
           <h3>No boundaries match this view</h3>
@@ -5352,7 +5908,7 @@ const UI = {
             <span>↺</span> Clear Filters
           </button>
         </div>
-      `;
+      `);
       document
         .getElementById("reset-boundary-filters")
         ?.addEventListener("click", () => {
@@ -5395,7 +5951,8 @@ const UI = {
         categoryGroup.audiences.get(audienceKey).policies.push(policy);
       });
 
-    list.innerHTML = Array.from(groupedPolicies.values())
+    setListHtml(
+      Array.from(groupedPolicies.values())
       .sort((left, right) => {
         const leftIndex = BOUNDARY_CATEGORY_ORDER.indexOf(left.key);
         const rightIndex = BOUNDARY_CATEGORY_ORDER.indexOf(right.key);
@@ -5552,7 +6109,8 @@ const UI = {
           </section>
         `;
       })
-      .join("");
+      .join(""),
+    );
   },
 
   async handleTogglePolicy(id, enabled) {
@@ -5777,18 +6335,25 @@ const UI = {
       return;
     }
 
-    const messageCount = items.filter((item) => item.kind === "message").length;
-    const reviewCount = items.filter((item) => item.kind === "review").length;
-    const blockedCount = items.filter((item) => item.kind === "blocked").length;
+    const deliveredCount = items.filter(
+      (item) => item.auditState === "delivered",
+    ).length;
+    const reviewCount = items.filter(
+      (item) => item.auditState === "review",
+    ).length;
+    const blockedCount = items.filter(
+      (item) => item.auditState === "blocked",
+    ).length;
     const approvalPendingCount = items.filter(
-      (item) => item.kind === "review" && item.status === "approval_pending",
+      (item) =>
+        item.auditState === "review" && item.status === "approval_pending",
     ).length;
 
     container.innerHTML = `
       <div class="log-summary-card">
         <span class="log-summary-label">Deliveries</span>
-        <span class="log-summary-value">${messageCount}</span>
-        <p>Sent or received messages in the current audit view.</p>
+        <span class="log-summary-value">${deliveredCount}</span>
+        <p>Completed sends or receives in the current audit view.</p>
       </div>
       <div class="log-summary-card">
         <span class="log-summary-label">Review Queue</span>
@@ -5808,26 +6373,44 @@ const UI = {
     `;
   },
 
-  renderLogs(direction = "all") {
-    const list = document.getElementById("logs-list");
+  renderLogs(filters = null) {
+    if (typeof filters === "string") {
+      State.logDirectionFilter = Helpers.normalizeLogDirectionFilter(filters);
+    } else if (Helpers.isObject(filters)) {
+      if (Object.hasOwn(filters, "direction")) {
+        State.logDirectionFilter = Helpers.normalizeLogDirectionFilter(
+          filters.direction,
+        );
+      }
 
-    const items = Helpers.logFeed(
-      State.messages,
-      State.reviews,
-      State.blockedEvents,
-      direction,
-    );
-    const messageItems = items.filter((item) => item.kind === "message");
-    const threadSummary = Helpers.askAroundThreadSummary(messageItems);
+      if (Object.hasOwn(filters, "state")) {
+        State.logStateFilter = Helpers.normalizeLogStateFilter(filters.state);
+      }
+    }
+
+    const list = document.getElementById("logs-list");
+    if (!list) {
+      return;
+    }
+
+    const items = Helpers.filterAuditLog(State.auditLog, {
+      direction: State.logDirectionFilter,
+      state: State.logStateFilter,
+    });
+    const threadSummary = Helpers.askAroundThreadSummary(items);
 
     this.renderLogSummary(items, threadSummary);
 
     if (!items.length) {
+      const emptyCopy =
+        State.logDirectionFilter === "all" && State.logStateFilter === "all"
+          ? "Deliveries, reviews, blocked events, and ask-around threads will appear here for audit"
+          : "No delivery-log items match the current direction and state filters.";
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">📋</div>
           <h3>No delivery logs yet</h3>
-          <p>Deliveries, reviews, blocked events, and ask-around threads will appear here for audit</p>
+          <p>${emptyCopy}</p>
         </div>
       `;
       return;
@@ -5835,6 +6418,16 @@ const UI = {
 
     list.innerHTML = items
       .map((item) => {
+        const askAroundTag =
+          item.askAroundTag || Helpers.askAroundTag(item, threadSummary);
+        const selectorLabel = item.selectors.resource || "message.general";
+        const reasonCodeDetail = item.reasonCode
+          ? `<span class="log-detail">Reason: ${item.reasonCode}</span>`
+          : "";
+        const correlationDetail = item.correlationId
+          ? `<span class="log-detail">Corr: ${item.correlationId.substring(0, 12)}...</span>`
+          : "";
+
         if (item.kind === "review") {
           return `
           <div class="log-item">
@@ -5849,18 +6442,21 @@ const UI = {
                   </div>
                   <div class="log-meta">
                     <span>${new Date(item.timestamp).toLocaleString()}</span>
-                    <span>ID: ${item.reviewId.substring(0, 12)}...</span>
+                    <span>ID: ${(item.reviewId || item.messageId || item.id).substring(0, 12)}...</span>
                   </div>
                 </div>
               </div>
               <span class="log-status ${item.status}">${item.status}</span>
             </div>
-            <div class="log-content">${item.messagePreview || item.summary}</div>
+            <div class="log-content">${item.messagePreview || item.previewText || item.summary}</div>
             <div class="log-details">
               <span class="log-detail log-detail-highlight">Review queue</span>
-              <span class="log-detail">Decision: ${item.decision}</span>
+              <span class="log-detail">Decision: ${item.decision || "ask"}</span>
               <span class="log-detail">Mode: ${item.deliveryMode || "review_required"}</span>
-              <span class="log-detail">Selector: ${item.selectors.resource || "message.general"}</span>
+              <span class="log-detail">Selector: ${selectorLabel}</span>
+              ${reasonCodeDetail}
+              ${correlationDetail}
+              ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ""}
             </div>
           </div>
         `;
@@ -5880,23 +6476,24 @@ const UI = {
                   </div>
                   <div class="log-meta">
                     <span>${new Date(item.timestamp).toLocaleString()}</span>
-                    <span>ID: ${item.blockedEventId.substring(0, 12)}...</span>
+                    <span>ID: ${(item.blockedEventId || item.messageId || item.id).substring(0, 12)}...</span>
                   </div>
                 </div>
               </div>
               <span class="log-status ${item.status}">${item.status}</span>
             </div>
-            <div class="log-content">${item.reason}</div>
+            <div class="log-content">${item.reason || item.summary}</div>
             <div class="log-details">
               <span class="log-detail log-detail-highlight">Blocked</span>
-              <span class="log-detail">Selector: ${item.selectors.resource || "message.general"}</span>
+              <span class="log-detail">Selector: ${selectorLabel}</span>
+              ${reasonCodeDetail}
+              ${correlationDetail}
               ${item.payloadHash ? `<span class="log-detail">Hash: ${item.payloadHash.substring(0, 16)}...</span>` : ""}
+              ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ""}
             </div>
           </div>
         `;
         }
-
-        const askAroundTag = Helpers.askAroundTag(item, threadSummary);
 
         return `
         <div class="log-item">
@@ -5911,7 +6508,7 @@ const UI = {
                 </div>
                 <div class="log-meta">
                   <span>${new Date(item.timestamp).toLocaleString()}</span>
-                  <span>ID: ${item.messageId.substring(0, 8)}...</span>
+                  <span>ID: ${(item.messageId || item.id).substring(0, 8)}...</span>
                 </div>
               </div>
             </div>
@@ -5920,8 +6517,10 @@ const UI = {
           <div class="log-content">${item.messageText || "(no content)"}</div>
           <div class="log-details">
             <span class="log-detail">🤖 ${item.senderAgent || "unknown"}</span>
+            <span class="log-detail">Selector: ${selectorLabel}</span>
+            ${reasonCodeDetail}
             ${askAroundTag ? `<span class="log-detail log-detail-highlight">${askAroundTag}</span>` : ""}
-            ${item.correlationId ? `<span class="log-detail">🔗 ${item.correlationId.substring(0, 8)}...</span>` : ""}
+            ${correlationDetail}
             ${item.recipientType === "group" ? '<span class="log-detail">👥 Group</span>' : ""}
           </div>
         </div>
