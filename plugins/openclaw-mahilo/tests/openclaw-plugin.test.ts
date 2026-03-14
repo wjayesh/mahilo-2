@@ -4258,6 +4258,344 @@ describe("createMahiloOpenClawPlugin", () => {
     ]);
   });
 
+  it("keeps locally allowed send_message results routed as real sends in after-tool hooks", async () => {
+    const pluginState = new InMemoryPluginState();
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      pluginState,
+    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const input = {
+      correlationId: "corr_local_allow_hook_1",
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current",
+      },
+      message: "hello",
+      recipient: "alice",
+      senderConnectionId: "conn_sender",
+    };
+    const toolResult = await tool.execute("tool_call_local_allow_hook_1", input);
+
+    expect(toolResult).toMatchObject({
+      content: [
+        {
+          text: "Message sent through Mahilo.",
+        },
+      ],
+      details: {
+        decision: "allow",
+        messageId: "msg_123",
+        resolutionId: "res_direct_default",
+        status: "sent",
+      },
+    });
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(1);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: input,
+        result: toolResult,
+        toolName: "send_message",
+      },
+      {
+        agentId: "mahilo-agent",
+        runId: "run_local_allow_hook_1",
+        sessionKey: "session_local_allow_hook_1",
+        toolCallId: "tool_call_local_allow_hook_1",
+        toolName: "send_message",
+      },
+    );
+
+    expect(
+      pluginState.resolveInboundRoute({
+        inResponseToMessageId: "msg_123",
+      }),
+    ).toMatchObject({
+      correlationId: "corr_local_allow_hook_1",
+      sessionKey: "session_local_allow_hook_1",
+    });
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "session_local_allow_hook_1",
+        text:
+          "Mahilo outcome: sent to alice (location.current/share) [message msg_123].",
+      }),
+    ]);
+
+    const agentEnd = findHook(hooks, "agent_end");
+    await agentEnd.execute(
+      {
+        messages: [],
+        success: true,
+      },
+      {
+        agentId: "mahilo-agent",
+        sessionKey: "session_local_allow_hook_1",
+      },
+    );
+
+    expect(systemEvents).toHaveLength(2);
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "Mahilo learning opportunity:",
+    );
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "Mahilo just shared new information with alice",
+    );
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-agent",
+        reason: "mahilo:learning-suggestion",
+        sessionKey: "session_local_allow_hook_1",
+      },
+    ]);
+  });
+
+  it("keeps locally held send_message results out of reply routing while preserving review hooks", async () => {
+    const pluginState = new InMemoryPluginState();
+    const { client, state } = createMockContractClient({
+      directSendBundleResponse: (payload) => ({
+        ...buildDefaultDirectSendBundle(payload),
+        applicable_policies: [
+          createPolicy({
+            effect: "ask",
+            evaluator: "structured",
+            id: "pol_direct_review_hook",
+            policy_content: { intent: "manual_review" },
+            priority: 100,
+            scope: "user",
+          }),
+        ],
+        bundle_metadata: {
+          ...buildDefaultDirectSendBundle(payload).bundle_metadata,
+          resolution_id: "res_direct_review_hook",
+        },
+      }),
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      pluginState,
+    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const input = {
+      correlationId: "corr_local_review_hook_1",
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current",
+      },
+      message: "share location",
+      recipient: "alice",
+      senderConnectionId: "conn_sender",
+    };
+    const toolResult = await tool.execute("tool_call_local_review_hook_1", input);
+
+    expect(toolResult).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining(
+            "Mahilo needs review before sending this person message.",
+          ),
+        },
+      ],
+      details: {
+        decision: "ask",
+        reason: expect.stringContaining("Review required"),
+        resolutionId: "res_direct_review_hook",
+        status: "review_required",
+      },
+    });
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: input,
+        result: toolResult,
+        toolName: "send_message",
+      },
+      {
+        agentId: "mahilo-agent",
+        runId: "run_local_review_hook_1",
+        sessionKey: "session_local_review_hook_1",
+        toolCallId: "tool_call_local_review_hook_1",
+        toolName: "send_message",
+      },
+    );
+
+    expect(pluginState.inboundRouteCount()).toBe(0);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "session_local_review_hook_1",
+        text: expect.stringContaining(
+          "Mahilo outcome: review required for alice (location.current/share).",
+        ),
+      }),
+    ]);
+
+    const agentEnd = findHook(hooks, "agent_end");
+    await agentEnd.execute(
+      {
+        messages: [],
+        success: true,
+      },
+      {
+        agentId: "mahilo-agent",
+        sessionKey: "session_local_review_hook_1",
+      },
+    );
+
+    expect(systemEvents).toHaveLength(2);
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "Mahilo learning opportunity:",
+    );
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "Mahilo asked for review before sending to alice",
+    );
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-agent",
+        reason: "mahilo:learning-suggestion",
+        sessionKey: "session_local_review_hook_1",
+      },
+    ]);
+  });
+
+  it("keeps locally blocked send_message results out of reply routing while preserving blocked hooks", async () => {
+    const pluginState = new InMemoryPluginState();
+    const { client, state } = createMockContractClient({
+      directSendBundleResponse: (payload) => ({
+        ...buildDefaultDirectSendBundle(payload),
+        applicable_policies: [
+          createPolicy({
+            effect: "deny",
+            evaluator: "structured",
+            id: "pol_direct_block_hook",
+            policy_content: {},
+            priority: 100,
+            scope: "user",
+          }),
+        ],
+        bundle_metadata: {
+          ...buildDefaultDirectSendBundle(payload).bundle_metadata,
+          resolution_id: "res_direct_block_hook",
+        },
+      }),
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+      pluginState,
+    });
+    const { api, heartbeatRequests, hooks, systemEvents, tools } =
+      createMockPluginApi({
+        apiKey: "mhl_test",
+        baseUrl: "https://mahilo.example",
+      });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const input = {
+      correlationId: "corr_local_block_hook_1",
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current",
+      },
+      message: "share ssn",
+      recipient: "alice",
+      senderConnectionId: "conn_sender",
+    };
+    const toolResult = await tool.execute("tool_call_local_block_hook_1", input);
+
+    expect(toolResult).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining("Mahilo blocked this person message."),
+        },
+      ],
+      details: {
+        decision: "deny",
+        reason: expect.any(String),
+        resolutionId: "res_direct_block_hook",
+        status: "denied",
+      },
+    });
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
+
+    const afterToolCall = findHook(hooks, "after_tool_call");
+    await afterToolCall.execute(
+      {
+        params: input,
+        result: toolResult,
+        toolName: "send_message",
+      },
+      {
+        agentId: "mahilo-agent",
+        runId: "run_local_block_hook_1",
+        sessionKey: "session_local_block_hook_1",
+        toolCallId: "tool_call_local_block_hook_1",
+        toolName: "send_message",
+      },
+    );
+
+    expect(pluginState.inboundRouteCount()).toBe(0);
+    expect(systemEvents).toEqual([
+      expect.objectContaining({
+        sessionKey: "session_local_block_hook_1",
+        text: expect.stringContaining(
+          "Mahilo outcome: blocked for alice (location.current/share).",
+        ),
+      }),
+    ]);
+
+    const agentEnd = findHook(hooks, "agent_end");
+    await agentEnd.execute(
+      {
+        messages: [],
+        success: true,
+      },
+      {
+        agentId: "mahilo-agent",
+        sessionKey: "session_local_block_hook_1",
+      },
+    );
+
+    expect(systemEvents).toHaveLength(2);
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "Mahilo learning opportunity:",
+    );
+    expect(String(systemEvents[1]?.text ?? "")).toContain(
+      "Mahilo blocked a send to alice",
+    );
+    expect(heartbeatRequests).toEqual([
+      {
+        agentId: "mahilo-agent",
+        reason: "mahilo:learning-suggestion",
+        sessionKey: "session_local_block_hook_1",
+      },
+    ]);
+  });
+
   it("does not repeat learning suggestions for the same Mahilo decision fingerprint", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({

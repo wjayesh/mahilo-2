@@ -953,6 +953,108 @@ describe("send tools", () => {
     });
   });
 
+  it("keeps fully held local group results out of failed transport semantics", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["ask", "ask"],
+          resolutionId: "res_local_group_review",
+        }),
+    };
+
+    const result = await talkToGroup(
+      client,
+      {
+        message: "hello group",
+        recipient: "grp_hiking",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never,
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      decision: "ask",
+      reason: "Message requires review before delivery.",
+      resolutionId: "res_local_group_review",
+      response: {
+        delivery_status: "review_required",
+        recipient_results: [
+          expect.objectContaining({
+            delivery_status: "review_required",
+            recipient: "friend_1",
+          }),
+          expect.objectContaining({
+            delivery_status: "review_required",
+            recipient: "friend_2",
+          }),
+        ],
+        status: "review_required",
+      },
+      status: "review_required",
+    });
+    expect(result.messageId).toBeUndefined();
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("keeps fully blocked local group results out of failed transport semantics", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["deny", "deny"],
+          resolutionId: "res_local_group_blocked",
+        }),
+    };
+
+    const result = await talkToGroup(
+      client,
+      {
+        message: "hello group",
+        recipient: "grp_hiking",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never,
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      decision: "deny",
+      reason: "Message blocked by policy.",
+      resolutionId: "res_local_group_blocked",
+      response: {
+        delivery_status: "rejected",
+        recipient_results: [
+          expect.objectContaining({
+            delivery_status: "rejected",
+            recipient: "friend_1",
+          }),
+          expect.objectContaining({
+            delivery_status: "rejected",
+            recipient: "friend_2",
+          }),
+        ],
+        status: "rejected",
+      },
+      status: "denied",
+    });
+    expect(result.messageId).toBeUndefined();
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
   it("commits and transports each allowed group recipient with member resolution ids", async () => {
     const { client, state } = createMockClient({
       sendResponse: {

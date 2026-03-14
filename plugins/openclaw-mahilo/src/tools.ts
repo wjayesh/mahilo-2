@@ -1010,15 +1010,8 @@ function buildSyntheticLocalGroupResponse(
     status = "failed";
   }
 
-  let deliveryStatus = "delivered";
-  if (counts.pending > 0) {
-    deliveryStatus = "pending";
-  } else if (recipientsTotal > 0 && counts.delivered === 0) {
-    deliveryStatus = "failed";
-  }
-
   return compactObject({
-    delivery_status: deliveryStatus,
+    delivery_status: status,
     delivered: counts.delivered,
     denied: counts.denied,
     failed: counts.failed,

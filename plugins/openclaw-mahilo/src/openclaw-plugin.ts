@@ -1458,7 +1458,7 @@ function rememberMahiloMessageInboundRoute(
   }
 
   const status = readOptionalString(resultDetails.status);
-  if (status === "denied" || status === "error") {
+  if (status !== "sent") {
     return;
   }
 
