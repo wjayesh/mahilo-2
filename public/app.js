@@ -255,13 +255,6 @@ const API = {
 
   // Auth endpoints
   auth: {
-    async register(username, displayName) {
-      return API.request("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ username, display_name: displayName }),
-      });
-    },
-
     async me() {
       return API.request("/auth/me");
     },
@@ -4842,7 +4835,10 @@ const UI = {
         console.error("Failed to resume dashboard session:", error);
         State.clear();
         this.showLanding();
-        this.showToast("Session expired. Please authenticate again.", "error");
+        this.showToast(
+          "Session expired. Sign in with your agent or use the advanced API-key fallback.",
+          "error",
+        );
       }
     } else {
       this.showLanding();
@@ -4851,19 +4847,11 @@ const UI = {
 
   // Bind all event listeners
   bindEvents() {
-    // Login form (may not exist if landing page replaced auth screen)
+    // Advanced API-key fallback form
     document.getElementById("login-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       this.handleLogin();
     });
-
-    // Register form (may not exist if landing page replaced auth screen)
-    document
-      .getElementById("register-form")
-      ?.addEventListener("submit", (e) => {
-        e.preventDefault();
-        this.handleRegister();
-      });
 
     // Toggle password
     document
@@ -5252,7 +5240,9 @@ const UI = {
 
     // Landing page: smooth scroll for nav links
     document
-      .querySelectorAll('.landing-nav a[href^="#"], .hero-cta[href^="#"]')
+      .querySelectorAll(
+        '.landing-nav a[href^="#"], .hero-cta-link[href^="#"], .browser-access-link[href^="#"]',
+      )
       .forEach((link) => {
         link.addEventListener("click", (e) => {
           e.preventDefault();
@@ -5270,7 +5260,7 @@ const UI = {
     const apiKeyInput = document.getElementById("login-api-key");
     if (!apiKeyInput) {
       this.showToast(
-        "Dashboard login inputs are not available on this page.",
+        "Advanced API-key sign-in is unavailable on this page.",
         "error",
       );
       return;
@@ -5278,7 +5268,10 @@ const UI = {
 
     const apiKey = apiKeyInput.value.trim();
     if (!apiKey) {
-      this.showToast("Please enter your API key", "error");
+      this.showToast(
+        "Enter your API key to use the advanced browser fallback.",
+        "error",
+      );
       return;
     }
 
@@ -5299,15 +5292,11 @@ const UI = {
     } catch (error) {
       State.apiKey = null;
       State.user = null;
-      this.showToast("Invalid API key", "error");
+      this.showToast(
+        "Invalid API key. Browser signup is not self-serve; this fallback only works for existing invite-backed accounts.",
+        "error",
+      );
     }
-  },
-
-  async handleRegister() {
-    this.showToast(
-      "Browser signup is not part of the active dashboard flow. Register through your agent with an invite token, then come back here.",
-      "info",
-    );
   },
 
   // Handle save preferences
@@ -11640,9 +11629,9 @@ const UI = {
     if (!key) {
       display.textContent = "No API key loaded";
       context.textContent =
-        "Sign in with an API key to enable developer utilities.";
+        "Use the advanced API-key fallback to load an existing invite-backed account.";
       footnote.textContent =
-        "Mahilo only returns a fresh key when you regenerate it.";
+        "API keys are an advanced access path for existing accounts. Mahilo only returns a fresh key when you regenerate it.";
       toggle.disabled = true;
       toggle.innerHTML = "<span>👁️</span> Reveal";
       return;
@@ -11653,9 +11642,9 @@ const UI = {
       : Helpers.maskSecret(key);
     context.textContent = State.developerApiKeyVisible
       ? "Visible because you intentionally revealed it in this dashboard session."
-      : "Loaded from this dashboard session. Copy works without revealing it on screen.";
+      : "Loaded from this dashboard session for an existing invite-backed account. Copy works without revealing it on screen.";
     footnote.textContent =
-      "Mahilo can regenerate this key, but it cannot recover an older lost key.";
+      "Mahilo can regenerate this advanced credential, but it cannot recover an older lost key.";
     toggle.disabled = false;
     toggle.innerHTML = State.developerApiKeyVisible
       ? "<span>🙈</span> Hide"

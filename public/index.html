@@ -46,9 +46,9 @@
                 >Join waitlist</a
               >
               <a
-                href="#invite-section"
+                href="#browser-access-section"
                 class="landing-btn landing-btn-primary landing-btn-small"
-                >Got an invite?</a
+                >Sign in</a
               >
             </div>
             <button
@@ -62,8 +62,8 @@
               <a href="#waitlist-section" class="landing-mobile-link"
                 >Join waitlist</a
               >
-              <a href="#invite-section" class="landing-mobile-link"
-                >Got an invite?</a
+              <a href="#browser-access-section" class="landing-mobile-link"
+                >Sign in</a
               >
             </div>
           </div>
@@ -194,14 +194,23 @@
               </div>
             </div>
 
-            <a
-              href="#waitlist-section"
-              class="landing-btn landing-btn-primary landing-btn-large hero-cta"
-            >
-              Join the waitlist <span class="btn-arrow">&rarr;</span>
-            </a>
+            <div class="hero-cta-row">
+              <a
+                href="#waitlist-section"
+                class="landing-btn landing-btn-primary landing-btn-large hero-cta-link"
+              >
+                Join the waitlist <span class="btn-arrow">&rarr;</span>
+              </a>
+              <a
+                href="#browser-access-section"
+                class="landing-btn landing-btn-ghost landing-btn-large hero-cta-link hero-cta-secondary"
+              >
+                Already invited? Sign in
+              </a>
+            </div>
             <p class="hero-fine-print">
-              Invite-only. Currently onboarding early users.
+              Invite-only. Mahilo accounts are created through your agent, not
+              a browser signup form.
             </p>
           </div>
         </section>
@@ -591,7 +600,7 @@
           <div class="section-container section-container-narrow">
             <h2 class="section-headline">Got an invite?</h2>
             <p class="section-subtext">
-              Three steps to join the trust network.
+              Three steps to join through your invited Mahilo agent.
             </p>
 
             <div class="invite-steps">
@@ -631,6 +640,97 @@
             </div>
 
             <p class="invite-badge">Built for any personal AI agent</p>
+          </div>
+        </section>
+
+        <!-- Section 7.5: Browser Access -->
+        <section
+          class="browser-access-section reveal-on-scroll"
+          id="browser-access-section"
+        >
+          <div class="section-container">
+            <div class="browser-access-header">
+              <p class="browser-access-kicker">Browser access</p>
+              <h2 class="section-headline">Sign in with your agent</h2>
+              <p class="section-subtext">
+                Mahilo account creation happens through an invited agent, not a
+                self-serve browser registration flow. Agent-backed sign-in is
+                the primary path. Manual API-key entry stays available only as
+                an advanced fallback for existing invite-backed accounts.
+              </p>
+            </div>
+
+            <div class="browser-access-grid">
+              <article class="browser-access-card browser-access-card-primary">
+                <div class="browser-access-card-header">
+                  <span class="browser-access-badge">Primary path</span>
+                  <h3>Sign in with your agent</h3>
+                </div>
+                <p class="browser-access-card-copy">
+                  Ask your invited Mahilo agent to finish onboarding and
+                  approve browser access for the account it already created. The
+                  browser does not create Mahilo accounts on its own.
+                </p>
+                <ol class="browser-access-steps">
+                  <li>Install Mahilo in your agent and redeem your invite.</li>
+                  <li>Let that agent register your Mahilo username.</li>
+                  <li>
+                    Return here to use agent-approved browser access as the
+                    normal sign-in path.
+                  </li>
+                </ol>
+                <a
+                  href="#invite-section"
+                  class="landing-btn landing-btn-ghost browser-access-link"
+                >
+                  Review invite setup
+                </a>
+              </article>
+
+              <article class="browser-access-card browser-access-card-advanced">
+                <div class="browser-access-card-header">
+                  <span
+                    class="browser-access-badge browser-access-badge-muted"
+                    >Advanced fallback</span
+                  >
+                  <h3>Manual API-key entry</h3>
+                </div>
+                <p class="browser-access-card-copy">
+                  Already running an invite-backed Mahilo account? Use your API
+                  key only when you need direct browser access before agent
+                  approval is available.
+                </p>
+                <form id="login-form" class="browser-access-form">
+                  <label class="browser-access-label" for="login-api-key">
+                    Mahilo API key
+                  </label>
+                  <div class="browser-access-input-row">
+                    <input
+                      type="password"
+                      class="waitlist-input"
+                      id="login-api-key"
+                      placeholder="mhl_..."
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <button
+                      type="button"
+                      class="toggle-password browser-access-toggle"
+                      aria-label="Reveal API key"
+                    >
+                      👁️
+                    </button>
+                  </div>
+                  <p class="browser-access-helper">
+                    This advanced fallback does not create an account. It signs
+                    in to an existing invite-backed Mahilo account.
+                  </p>
+                  <button type="submit" class="landing-btn landing-btn-primary">
+                    Use API-key fallback
+                  </button>
+                </form>
+              </article>
+            </div>
           </div>
         </section>
 
@@ -1234,9 +1334,9 @@
                       <p class="developer-section-eyebrow">Runtime access</p>
                       <h4>Current dashboard API key</h4>
                       <p>
-                        Reveal or copy the key loaded into this dashboard
-                        session, then regenerate it when you need a fresh
-                        credential for your agent runtime.
+                        Reveal or copy the advanced credential loaded into this
+                        dashboard session, then regenerate it when you need a
+                        fresh key for your agent runtime.
                       </p>
                     </div>
                     <span class="status-badge default">Advanced</span>

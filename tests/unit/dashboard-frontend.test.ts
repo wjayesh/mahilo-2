@@ -74,9 +74,9 @@ type DashboardInternals = {
     handleInviteToGroup: (groupId?: string) => Promise<void>;
     handleJoinGroup: (groupId: string) => Promise<void>;
     handleLeaveGroup: (groupId: string) => Promise<void>;
+    handleLogin: () => Promise<void>;
     handlePingAgent: (id: string) => Promise<void>;
     handleRotateKey: () => Promise<void>;
-    handleRegister: () => Promise<void>;
     handleRejectFriend: (id: string) => Promise<void>;
     handleRemoveFriendRole: (
       friendshipId: string,
@@ -1530,27 +1530,11 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
     );
   });
 
-  it("gates the stale browser register path instead of calling the invite-only register API", async () => {
-    const harness = createDashboardHarness({
-      fetchImpl: async (url) => {
-        throw new Error(
-          `Unexpected fetch from gated browser register path: ${url}`,
-        );
-      },
-    });
+  it("removes the stale browser register helper from the dashboard frontend", () => {
+    const appSource = readFileSync("public/app.js", "utf8");
 
-    await harness.boot();
-
-    harness.getElement("reg-username").value = "browseruser";
-    harness.getElement("reg-display-name").value = "Browser User";
-
-    await harness.dashboard.UI.handleRegister();
-
-    const toastContainer = harness.getElement("toast-container");
-    expect(toastContainer.children).toHaveLength(1);
-    expect(toastContainer.children[0]?.innerHTML).toContain(
-      "Browser signup is not part of the active dashboard flow",
-    );
+    expect(appSource).not.toContain("/auth/register");
+    expect(appSource).not.toContain("handleRegister");
   });
 
   it("removes legacy message routing from friends and replaces static group cards with a workspace", async () => {
@@ -1732,6 +1716,65 @@ describe("Dashboard dead-end action cleanup (DASH-002)", () => {
     );
     expect(registerPayload?.public_key).toBeUndefined();
     expect(registerPayload?.public_key_alg).toBeUndefined();
+  });
+});
+
+describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("frames landing auth around agent-backed sign-in with an advanced API-key fallback", () => {
+    const html = readFileSync("public/index.html", "utf8");
+
+    expect(html).toContain('id="browser-access-section"');
+    expect(html).toContain("Sign in with your agent");
+    expect(html).toContain("self-serve browser registration flow");
+    expect(html).toContain("Manual API-key entry");
+    expect(html).toContain("Advanced fallback");
+    expect(html).toContain('id="login-form"');
+    expect(html).toContain("existing invite-backed Mahilo account");
+  });
+
+  it("keeps manual API-key sign-in available only as the advanced browser fallback", async () => {
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_browser_access_viewer",
+      "Browser Viewer",
+    );
+    const app = createApp();
+
+    const harness = createDashboardHarness({
+      app,
+    });
+
+    await harness.boot();
+
+    harness.getElement("login-api-key").value = apiKey;
+
+    await harness.dashboard.UI.handleLogin();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.user).toEqual(
+      expect.objectContaining({
+        username: viewer.username,
+      }),
+    );
+    expect(harness.dashboard.State.apiKey).toBe(apiKey);
+    expect(harness.fetchCalls).toContain("/api/v1/auth/me");
+    expect(harness.fetchCalls).not.toContain("/api/v1/auth/register");
+    expect(
+      harness.getElement("landing-page").classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      harness.getElement("dashboard-screen").classList.contains("hidden"),
+    ).toBe(false);
+    expect(harness.getElement("toast-container").children[0]?.innerHTML).toContain(
+      "Welcome back!",
+    );
   });
 });
 

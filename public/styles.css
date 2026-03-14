@@ -468,6 +468,23 @@ body {
   margin-bottom: 16px;
 }
 
+.hero-cta-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.hero-cta-link {
+  min-width: 220px;
+}
+
+.hero-cta-secondary {
+  background: rgba(255, 255, 255, 0.72);
+}
+
 .btn-arrow {
   font-size: 1.1em;
 }
@@ -968,6 +985,147 @@ body {
   width: 100%;
 }
 
+/* --- Section 7.5: Browser Access --- */
+.browser-access-section {
+  padding: var(--landing-section-padding);
+  background:
+    radial-gradient(circle at top right, rgba(255, 184, 140, 0.24), transparent 32%),
+    linear-gradient(180deg, #ffffff 0%, #fff6ec 100%);
+}
+
+.browser-access-header {
+  margin-bottom: 40px;
+}
+
+.browser-access-kicker {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-primary-dark);
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.browser-access-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 24px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.browser-access-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100%;
+  padding: 32px;
+  background: var(--color-card);
+  border: 1px solid rgba(255, 158, 107, 0.16);
+  border-radius: 28px;
+  box-shadow: var(--shadow-sm);
+}
+
+.browser-access-card-primary {
+  background:
+    radial-gradient(circle at top right, rgba(255, 158, 107, 0.16), transparent 38%),
+    linear-gradient(180deg, #fff4e7 0%, #ffffff 100%);
+}
+
+.browser-access-card-advanced {
+  background:
+    radial-gradient(circle at top left, rgba(135, 206, 235, 0.2), transparent 34%),
+    #fffdfb;
+}
+
+.browser-access-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.browser-access-badge {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 158, 107, 0.16);
+  color: var(--color-primary-dark);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.browser-access-badge-muted {
+  background: rgba(135, 206, 235, 0.18);
+  color: #2e6d8a;
+}
+
+.browser-access-card h3 {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.browser-access-card-copy {
+  font-size: 0.98rem;
+  color: var(--color-text-light);
+  line-height: 1.7;
+}
+
+.browser-access-steps {
+  display: grid;
+  gap: 12px;
+  padding-left: 22px;
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+.browser-access-steps li::marker {
+  font-weight: 800;
+  color: var(--color-primary-dark);
+}
+
+.browser-access-link {
+  align-self: flex-start;
+}
+
+.browser-access-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.browser-access-label {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.browser-access-input-row {
+  position: relative;
+}
+
+.browser-access-input-row .waitlist-input {
+  width: 100%;
+  padding-right: 56px;
+}
+
+.browser-access-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 158, 107, 0.1);
+}
+
+.browser-access-helper {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
 /* --- Section 8: Footer --- */
 .landing-footer {
   background: #2a2a3a;
@@ -1071,6 +1229,10 @@ body {
     gap: 32px;
   }
 
+  .browser-access-grid {
+    grid-template-columns: 1fr;
+  }
+
   .waitlist-input-row {
     flex-direction: column;
   }
@@ -1086,6 +1248,12 @@ body {
 
   .hero-illustration {
     transform: scale(0.85);
+  }
+
+  .browser-access-link,
+  .browser-access-form .landing-btn {
+    align-self: stretch;
+    text-align: center;
   }
 }
 
@@ -1103,12 +1271,24 @@ body {
   .how-it-works-section,
   .policy-section,
   .waitlist-section,
-  .invite-section {
+  .invite-section,
+  .browser-access-section {
     padding: var(--landing-section-padding-mobile);
   }
 
   .differentiator-section {
     padding: 80px 16px;
+  }
+
+  .hero-cta-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hero-cta-link {
+    width: 100%;
+    text-align: center;
+    min-width: 0;
   }
 
   .agent-connection-line {
@@ -1124,6 +1304,10 @@ body {
   .agent-node-circle.agent-node-you {
     width: 52px;
     height: 52px;
+  }
+
+  .browser-access-card {
+    padding: 24px 20px;
   }
 }
 
