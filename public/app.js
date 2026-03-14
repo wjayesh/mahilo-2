@@ -145,24 +145,33 @@ const State = {
   developerApiKeyVisible: false,
   browserLogin: createEmptyBrowserLoginState(),
 
-  // Initialize state from localStorage
-  init() {
+  readStoredSession() {
     const session = localStorage.getItem(CONFIG.STORAGE_KEY);
     if (session) {
       try {
         const data = JSON.parse(session);
-        this.apiKey = typeof data.apiKey === "string" ? data.apiKey : null;
-        this.user = Normalizers.user(data.user);
-        return Boolean(this.apiKey && this.user);
+        return {
+          apiKey: typeof data.apiKey === "string" ? data.apiKey : null,
+          user: Normalizers.user(data.user),
+        };
       } catch (e) {
         console.error("Failed to parse session:", e);
       }
     }
-    return false;
+
+    return {
+      apiKey: null,
+      user: null,
+    };
   },
 
   // Save state to localStorage
   save() {
+    if (!this.apiKey) {
+      localStorage.removeItem(CONFIG.STORAGE_KEY);
+      return;
+    }
+
     const user = this.user
       ? {
           user_id: this.user.user_id,
@@ -243,19 +252,24 @@ const State = {
 const API = {
   // Make authenticated API request
   async request(endpoint, options = {}) {
+    const {
+      authMode = "default",
+      headers: optionHeaders = {},
+      ...requestOptions
+    } = options;
     const url = `${CONFIG.API_URL}${endpoint}`;
     const headers = {
       "Content-Type": "application/json",
-      ...options.headers,
+      ...optionHeaders,
     };
 
-    if (State.apiKey) {
+    if (authMode !== "omit" && State.apiKey) {
       headers["Authorization"] = `Bearer ${State.apiKey}`;
     }
 
     try {
       const response = await fetch(url, {
-        ...options,
+        ...requestOptions,
         credentials: "same-origin",
         headers,
       });
@@ -281,8 +295,15 @@ const API = {
 
   // Auth endpoints
   auth: {
-    async me() {
-      return API.request("/auth/me");
+    async me(options = {}) {
+      return API.request("/auth/me", options);
+    },
+
+    async logout(options = {}) {
+      return API.request("/auth/logout", {
+        method: "POST",
+        ...options,
+      });
     },
 
     browserLogin: {
@@ -4559,8 +4580,12 @@ const WebSocketManager = {
 // Data Loader
 // ========================================
 const DataLoader = {
-  async bootstrap() {
-    const user = Normalizers.user(await API.auth.me());
+  async bootstrap(options = {}) {
+    const user = Normalizers.user(
+      await API.auth.me({
+        authMode: options.authMode || "default",
+      }),
+    );
 
     if (!user) {
       throw new Error("Unable to load the current user");
@@ -4882,7 +4907,27 @@ const UI = {
 
   // Check authentication status
   async checkAuth() {
-    if (State.init()) {
+    const storedSession = State.readStoredSession();
+
+    try {
+      State.apiKey = null;
+      State.user = null;
+      await DataLoader.bootstrap({ authMode: "omit" });
+      WebSocketManager.connect();
+      return;
+    } catch (error) {
+      const isAuthFailure = error?.status === 401 || error?.status === 403;
+      if (!isAuthFailure) {
+        console.error("Failed to resume browser session:", error);
+      }
+      State.apiKey = null;
+      State.user = null;
+    }
+
+    if (storedSession.apiKey) {
+      State.apiKey = storedSession.apiKey;
+      State.user = storedSession.user;
+
       try {
         await DataLoader.bootstrap();
         WebSocketManager.connect();
@@ -4895,9 +4940,10 @@ const UI = {
           "error",
         );
       }
-    } else {
-      this.showLanding();
+      return;
     }
+
+    this.showLanding();
   },
 
   // Bind all event listeners
@@ -5791,14 +5837,8 @@ const UI = {
         browserLogin.browserToken,
       );
 
-      const user = Normalizers.user(await API.auth.me());
-      if (!user) {
-        throw new Error("Failed to load the current user after browser sign-in");
-      }
-
-      State.user = user;
-      this.showDashboard();
-      await DataLoader.loadAll();
+      State.apiKey = null;
+      await DataLoader.bootstrap({ authMode: "omit" });
       WebSocketManager.connect();
       this.showToast("Signed in with agent approval", "success");
     } catch (error) {
@@ -5832,20 +5872,13 @@ const UI = {
     State.apiKey = apiKey;
 
     try {
-      const user = await API.auth.me();
-      State.user = Normalizers.user(user);
-      if (!State.user) {
-        throw new Error("Failed to load current user");
-      }
-      State.save();
-
-      this.showDashboard();
-      await DataLoader.loadAll();
+      await DataLoader.bootstrap();
       WebSocketManager.connect();
       this.showToast("Welcome back!", "success");
     } catch (error) {
       State.apiKey = null;
       State.user = null;
+      State.save();
       this.showToast(
         "Invalid API key. Browser signup is not self-serve; this fallback only works for existing invite-backed accounts.",
         "error",
@@ -5879,13 +5912,25 @@ const UI = {
   },
 
   // Handle logout
-  handleLogout() {
+  async handleLogout() {
     WebSocketManager.disconnect();
     this.clearBrowserLoginPolling();
+    let toastMessage = "Logged out successfully";
+    let toastTone = "success";
+
+    try {
+      await API.auth.logout({ authMode: "omit" });
+    } catch (error) {
+      console.error("Failed to clear browser session during logout:", error);
+      toastMessage =
+        "Signed out locally, but Mahilo could not confirm that the browser session was cleared.";
+      toastTone = "error";
+    }
+
     State.clear();
     this.hideModals();
     this.showLanding();
-    this.showToast("Logged out successfully", "success");
+    this.showToast(toastMessage, toastTone);
   },
 
   // Handle waitlist form submission

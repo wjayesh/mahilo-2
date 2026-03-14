@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { setCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -20,7 +20,9 @@ import {
   createBrowserLoginAttemptArtifacts,
   generateBrowserSession,
   getBrowserLoginAttemptStatus,
+  parseBrowserSessionToken,
   verifyBrowserLoginToken,
+  verifyBrowserSessionToken,
 } from "../services/browserAuth";
 import { AppError } from "../middleware/error";
 import { createDefaultPoliciesForUser } from "../services/defaultPolicies";
@@ -849,6 +851,51 @@ authRoutes.post("/rotate-key", requireAuth(), async (c) => {
 
   return c.json({
     api_key: apiKey,
+  });
+});
+
+authRoutes.post("/logout", async (c) => {
+  const sessionToken = getCookie(c, BROWSER_SESSION_COOKIE_NAME);
+  const now = new Date();
+  let revoked = false;
+
+  if (sessionToken) {
+    const parsedSession = parseBrowserSessionToken(sessionToken);
+    const verifiedSession = await verifyBrowserSessionToken(sessionToken);
+
+    if (parsedSession && verifiedSession) {
+      const db = getDb();
+      const [revokedSession] = await db
+        .update(schema.browserSessions)
+        .set({
+          revokedAt: now,
+          lastSeenAt: now,
+        })
+        .where(
+          and(
+            eq(schema.browserSessions.id, parsedSession.sessionId),
+            isNull(schema.browserSessions.revokedAt),
+          ),
+        )
+        .returning();
+
+      revoked = Boolean(revokedSession);
+    }
+  }
+
+  setCookie(c, BROWSER_SESSION_COOKIE_NAME, "", {
+    path: "/",
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    maxAge: 0,
+    expires: new Date(0),
+  });
+
+  return c.json({
+    authenticated: false,
+    revoked,
+    session_cleared: Boolean(sessionToken),
   });
 });
 

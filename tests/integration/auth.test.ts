@@ -310,6 +310,92 @@ describe("Auth Routes Integration", () => {
     });
   });
 
+  describe("POST /api/v1/auth/logout", () => {
+    it("should revoke the current browser session and clear the session cookie", async () => {
+      const { user, apiKey } = await createTestUser("logout_browser_user");
+
+      const start = await app.request("/api/v1/auth/browser-login/attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username }),
+      });
+      const started = await start.json();
+
+      const approve = await app.request("/api/v1/auth/browser-login/approve", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          attempt_id: started.attempt_id,
+          approval_code: started.approval_code,
+        }),
+      });
+      expect(approve.status).toBe(200);
+
+      const redeem = await app.request(
+        `/api/v1/auth/browser-login/attempts/${started.attempt_id}/redeem`,
+        {
+          method: "POST",
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: started.browser_token,
+          },
+        },
+      );
+      expect(redeem.status).toBe(200);
+
+      const sessionToken = extractCookieValue(
+        redeem.headers.get("set-cookie")!,
+        BROWSER_SESSION_COOKIE_NAME,
+      );
+      expect(sessionToken).toBeTruthy();
+
+      const verifiedSession = await verifyBrowserSessionToken(sessionToken!);
+      expect(verifiedSession?.user.id).toBe(user.id);
+
+      const logout = await app.request("/api/v1/auth/logout", {
+        method: "POST",
+        headers: {
+          Cookie: `${BROWSER_SESSION_COOKIE_NAME}=${sessionToken}`,
+        },
+      });
+
+      expect(logout.status).toBe(200);
+      expect(await logout.json()).toEqual(
+        expect.objectContaining({
+          authenticated: false,
+          revoked: true,
+          session_cleared: true,
+        }),
+      );
+
+      const clearedCookieHeader = logout.headers.get("set-cookie");
+      expect(clearedCookieHeader).toContain(`${BROWSER_SESSION_COOKIE_NAME}=`);
+      expect(clearedCookieHeader).toContain("Max-Age=0");
+      expect(clearedCookieHeader).toContain("HttpOnly");
+      expect(clearedCookieHeader).toContain("Secure");
+      expect(clearedCookieHeader).toContain("SameSite=Lax");
+
+      const db = getTestDb();
+      const [sessionRow] = await db
+        .select()
+        .from(schema.browserSessions)
+        .where(eq(schema.browserSessions.id, verifiedSession!.session.id))
+        .limit(1);
+
+      expect(sessionRow?.revokedAt).toBeTruthy();
+      expect(await verifyBrowserSessionToken(sessionToken!)).toBeNull();
+
+      const me = await app.request("/api/v1/auth/me", {
+        headers: {
+          Cookie: `${BROWSER_SESSION_COOKIE_NAME}=${sessionToken}`,
+        },
+      });
+      expect(me.status).toBe(401);
+    });
+  });
+
   describe("Browser login contract (DASH-071)", () => {
     it("starts, approves, polls, and redeems an agent-approved browser login exactly once", async () => {
       const { user, apiKey } = await createTestUser(

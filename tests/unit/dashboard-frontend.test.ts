@@ -5,6 +5,10 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createApp } from "../../src/server";
 import * as schema from "../../src/db/schema";
+import {
+  BROWSER_LOGIN_TOKEN_HEADER,
+  BROWSER_SESSION_COOKIE_NAME,
+} from "../../src/services/browserAuth";
 import { canonicalToStorage } from "../../src/services/policySchema";
 import {
   addRoleToFriendship,
@@ -76,6 +80,7 @@ type DashboardInternals = {
     handleJoinGroup: (groupId: string) => Promise<void>;
     handleLeaveGroup: (groupId: string) => Promise<void>;
     handleLogin: () => Promise<void>;
+    handleLogout: () => Promise<void>;
     handlePingAgent: (id: string) => Promise<void>;
     handleRotateKey: () => Promise<void>;
     handleRejectFriend: (id: string) => Promise<void>;
@@ -119,12 +124,14 @@ type DashboardHarness = {
   boot: () => Promise<void>;
   dashboard: DashboardInternals;
   fetchCalls: string[];
+  getCookieHeader: () => string;
   getElement: (id: string) => ElementStub;
 };
 
 type HarnessOptions = {
   app?: ReturnType<typeof createApp>;
   apiKey?: string;
+  initialCookieHeader?: string;
   fetchImpl?: (
     url: string,
     options?: RequestInit,
@@ -350,7 +357,7 @@ function createDashboardHarness(
 ): DashboardHarness {
   const { documentStub, getElement } = createDocumentStub(extractHtmlIds());
   const sessionStore = new Map<string, string>();
-  let cookieHeader = "";
+  let cookieHeader = options.initialCookieHeader ?? "";
 
   if (options.apiKey || options.sessionUser) {
     sessionStore.set(
@@ -471,8 +478,55 @@ function createDashboardHarness(
     },
     dashboard: context.__dashboard__ as DashboardInternals,
     fetchCalls,
+    getCookieHeader() {
+      return cookieHeader;
+    },
     getElement,
   };
+}
+
+async function createBrowserSessionCookie(
+  app: ReturnType<typeof createApp>,
+  username: string,
+  apiKey: string,
+) {
+  const start = await app.request("/api/v1/auth/browser-login/attempts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username }),
+  });
+  expect(start.status).toBe(201);
+  const started = await start.json();
+
+  const approve = await app.request("/api/v1/auth/browser-login/approve", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      attempt_id: started.attempt_id,
+      approval_code: started.approval_code,
+    }),
+  });
+  expect(approve.status).toBe(200);
+
+  const redeem = await app.request(
+    `/api/v1/auth/browser-login/attempts/${started.attempt_id}/redeem`,
+    {
+      method: "POST",
+      headers: {
+        [BROWSER_LOGIN_TOKEN_HEADER]: started.browser_token,
+      },
+    },
+  );
+  expect(redeem.status).toBe(200);
+
+  const setCookieHeader = redeem.headers.get("set-cookie");
+  expect(setCookieHeader).toContain(`${BROWSER_SESSION_COOKIE_NAME}=`);
+
+  const [cookiePair] = String(setCookieHeader).split(";");
+  return cookiePair;
 }
 
 describe("Dashboard frontend data adapter (DASH-001)", () => {
@@ -769,6 +823,7 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
     expect(harness.fetchCalls.slice().sort()).toEqual(
       [
         "/api/v1/agents",
+        "/api/v1/auth/me",
         "/api/v1/auth/me",
         `/api/v1/contacts/${peer.username}/connections`,
         "/api/v1/friends?status=accepted",
@@ -1996,6 +2051,93 @@ describe("Dashboard sign in with agent UX (DASH-072)", () => {
     expect(harness.getElement("agent-login-status-copy").textContent).toContain(
       "timed out",
     );
+  });
+});
+
+describe("Dashboard session-backed bootstrap and logout (DASH-073)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("boots from a browser session cookie before falling back to any stored API key", async () => {
+    await seedTestSystemRoles();
+    const { user, apiKey } = await createTestUser(
+      "dashboard_session_boot",
+      "Session Boot",
+    );
+    const app = createApp();
+    const sessionCookie = await createBrowserSessionCookie(
+      app,
+      user.username,
+      apiKey,
+    );
+
+    const harness = createDashboardHarness({
+      app,
+      apiKey: "mhl_invalid_stored_key",
+      initialCookieHeader: sessionCookie,
+    });
+
+    await harness.boot();
+
+    expect(harness.dashboard.State.user).toEqual(
+      expect.objectContaining({
+        username: user.username,
+      }),
+    );
+    expect(harness.dashboard.State.apiKey).toBeNull();
+    expect(
+      harness.fetchCalls.filter((call) => call === "/api/v1/auth/me"),
+    ).toHaveLength(1);
+    expect(
+      harness.getElement("landing-page").classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      harness.getElement("dashboard-screen").classList.contains("hidden"),
+    ).toBe(false);
+  });
+
+  it("logs out through the server, clears the browser session, and returns to a signed-out landing state", async () => {
+    const { user, apiKey } = await createTestUser(
+      "dashboard_session_logout",
+      "Session Logout",
+    );
+    const app = createApp();
+    const sessionCookie = await createBrowserSessionCookie(
+      app,
+      user.username,
+      apiKey,
+    );
+
+    const harness = createDashboardHarness({
+      app,
+      initialCookieHeader: sessionCookie,
+    });
+
+    await harness.boot();
+    await harness.dashboard.UI.handleLogout();
+    await flushDashboardWork();
+
+    expect(harness.fetchCalls).toContain("/api/v1/auth/logout");
+    expect(harness.dashboard.State.user).toBeNull();
+    expect(harness.dashboard.State.apiKey).toBeNull();
+    expect(
+      harness.getElement("landing-page").classList.contains("hidden"),
+    ).toBe(false);
+    expect(
+      harness.getElement("dashboard-screen").classList.contains("hidden"),
+    ).toBe(true);
+
+    const me = await app.request("/api/v1/auth/me", {
+      headers: {
+        Cookie: harness.getCookieHeader(),
+      },
+    });
+    expect(me.status).toBe(401);
   });
 });
 
