@@ -77,27 +77,22 @@ If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will
 
 `plugins.entries.mahilo.config` accepts:
 
-- Optional:
-  - `baseUrl` (defaults to `https://mahilo.io`; only use this as an override)
-  - `callbackUrl` (advanced override if you already know the public webhook URL)
-  - `inboundSessionKey` (defaults to `main`)
-  - `inboundAgentId`
-  - `apiKey`
-  - `localPolicyLLM`
-    - `provider`
-    - `model`
-    - `timeout` (milliseconds; defaults to `5000` when the block is present)
-    - `authProfile` (hint only; reserved for future host-managed auth profile reuse)
-    - `apiKeyEnvVar`
-    - `apiKey`
-  - `callbackPath` (defaults to `/mahilo/incoming`)
-  - `promptContextEnabled` (defaults to `true`)
-  - `reviewMode` (`auto`, `ask`, or `manual`; defaults to `ask`)
-  - `cacheTtlSeconds` (defaults to `60`)
+| Field | Purpose | Notes |
+| --- | --- | --- |
+| `baseUrl` | Mahilo server base URL override | Defaults to `https://mahilo.io`; change it only when you intentionally point the plugin at another Mahilo server. |
+| `apiKey` | Existing Mahilo API key | Optional when bootstrapping from an invite token. If present, the plugin uses it to auto-attach or repair the default sender on startup. |
+| `callbackUrl` | Public webhook URL override | Advanced only. Leave it unset unless callback auto-detection is wrong for your deployment. |
+| `callbackPath` | Path appended to auto-detected callback URLs | Defaults to `/mahilo/incoming`; must start with `/`. |
+| `inboundSessionKey` | Fallback OpenClaw session for inbound Mahilo messages | Defaults to `main`. |
+| `inboundAgentId` | Optional agent id paired with `inboundSessionKey` | Only needed when inbound fallback routing must target a specific agent. |
+| `localPolicyLLM` | Optional local LLM evaluator settings for applicable LLM policies | Supports `provider`, `model`, `timeout`, `authProfile`, `apiKeyEnvVar`, and `apiKey`. |
+| `promptContextEnabled` | Enables native prompt-time Mahilo context injection | Defaults to `true`; this is advisory UX only and does not disable live enforcement when turned off. |
+| `reviewMode` | Controls local UX for normal `ask` outcomes | `auto`, `ask`, or `manual`; defaults to `ask`. `reviewMode=auto` does not auto-send degraded local LLM review outcomes. |
+| `cacheTtlSeconds` | TTL for local non-authoritative caches | Defaults to `60`. |
 
 Do not add `contractVersion`, `pluginVersion`, or `callbackSecret` to plugin config. Those are server-owned and rejected by the plugin config parser.
 
-For local policy LLM evaluation, inline `localPolicyLLM.apiKey` is optional, not required. If it is omitted, the plugin checks `localPolicyLLM.apiKeyEnvVar`, then falls back to the provider-default env var where supported (currently `OPENAI_API_KEY` for `provider=openai`). `authProfile` is only a hint in v1; host auth-profile credential reuse is not wired up yet.
+For local policy LLM evaluation, inline `localPolicyLLM.apiKey` is optional, not required. If it is omitted, the plugin checks `localPolicyLLM.apiKeyEnvVar`, then falls back to the provider-default env var where supported (currently `OPENAI_API_KEY` for `provider=openai`). That credential lookup stays local to the plugin/OpenClaw environment. `authProfile` is only a hint in v1; host auth-profile credential reuse is not wired up yet.
 
 When `callbackUrl` is omitted, startup auto-registration tries this order:
 
@@ -109,6 +104,25 @@ When `callbackUrl` is omitted, startup auto-registration tries this order:
 So normal users do not need to type `callbackUrl` manually. The override exists for advanced setups only.
 
 When the plugin bootstraps an API key or rotates a callback secret (whether via automatic raw-HTTP bootstrap or the `mahilo setup` fallback), it stores those server-issued values in a local runtime store under `$XDG_CONFIG_HOME/mahilo/openclaw-plugin-runtime.json` (or `~/.config/mahilo/openclaw-plugin-runtime.json` when `XDG_CONFIG_HOME` is unset). That keeps server-owned secrets out of plugin config while still avoiding setup retry loops.
+
+## Non-Trusted Enforcement At A Glance
+
+In non-trusted mode, the live outbound path is always:
+
+1. Fetch a direct-send or group-fanout bundle from Mahilo.
+2. Evaluate locally with the shared Mahilo policy core.
+3. Commit the resulting `allow`, `ask`, or `deny` decision back to Mahilo.
+4. Transport only committed `allow` recipients.
+5. Report any post-send or post-review outcome against the committed `message_id`.
+
+Keep these boundaries in mind:
+
+- `send_message` `action=context` and `action=preview` are advisory or dry-run only. They never authorize transport, consume lifecycle-limited policies, or create an auditable send artifact.
+- Preview `resolution_id` values are preview-scoped only. A later live send always fetches a fresh bundle and uses the bundle `resolution_id` for commit/send correlation.
+- Local `ask` commits appear in `mahilo review`. Local `deny` commits appear in blocked-event surfaces. Local `allow` commits create pending artifacts that later bind to `/api/v1/messages/send`.
+- Group sends are per-recipient all the way through. The bundle summary is for plugin UX only; commits, retries, reviews, blocked events, and outcome reports are all recorded per committed member artifact.
+
+If an applicable local LLM policy cannot be evaluated because credentials are missing or the provider returns `network`, `provider`, `timeout`, `invalid_response`, `unknown`, or `skip`, the plugin degrades the decision to `ask`. Those reason codes use `policy.ask.llm.<kind>`, stay `review_required`, and do not auto-send even when `reviewMode=auto`.
 
 ## Commands
 

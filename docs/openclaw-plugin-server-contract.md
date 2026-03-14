@@ -167,6 +167,22 @@ Idempotency:
 
 ---
 
+## Bundle/Commit/Report Cheat Sheet
+
+| Mode | Required live sequence | Correlation handles | Audit semantics |
+| --- | --- | --- | --- |
+| Direct non-trusted send | `bundle -> local evaluation -> local-decision commit -> transport -> outcome report` | Reuse `bundle_metadata.resolution_id` for commit/send. Use the resulting `message_id` for later outcomes. | `ask` commits land in reviews. `deny` commits land in blocked events. `allow` commits create pending transport artifacts until send resumes. |
+| Group non-trusted send | `group bundle -> member-by-member evaluation -> member-by-member commit -> transport only committed allow members -> per-member outcome report` | Reuse `members[*].resolution_id` plus `group_id` in bundle order. There is no bundle-level outcome handle. | Aggregate bundle data is UX-only. Reviews, blocked events, and outcomes are all per committed member artifact. |
+| Advisory context / preview | `context` or `resolve` only | Ignore preview `resolution_id` for live transport. | No lifecycle mutation, no persisted send artifact, and no authorization token. |
+
+Operator notes:
+
+- Mahilo may provide only `llm.provider_defaults` hints. Provider credentials must come from plugin/OpenClaw-local config or environment; Mahilo never returns provider secrets or host credentials.
+- Degraded local LLM outcomes use `policy.ask.llm.<kind>` and remain review-required even when plugin UX uses `reviewMode=auto`.
+- `audit.policy_evaluation_mode = "plugin_local_pre_delivery"` is the marker that a review or blocked item came from local commit rather than trusted send-time evaluation.
+
+---
+
 ## End-to-End Flows
 
 ### Direct User Send in Non-Trusted Mode
