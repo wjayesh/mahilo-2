@@ -83,12 +83,21 @@ If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will
   - `inboundSessionKey` (defaults to `main`)
   - `inboundAgentId`
   - `apiKey`
+  - `localPolicyLLM`
+    - `provider`
+    - `model`
+    - `timeout` (milliseconds; defaults to `5000` when the block is present)
+    - `authProfile` (hint only; reserved for future host-managed auth profile reuse)
+    - `apiKeyEnvVar`
+    - `apiKey`
   - `callbackPath` (defaults to `/mahilo/incoming`)
   - `promptContextEnabled` (defaults to `true`)
   - `reviewMode` (`auto`, `ask`, or `manual`; defaults to `ask`)
   - `cacheTtlSeconds` (defaults to `60`)
 
 Do not add `contractVersion`, `pluginVersion`, or `callbackSecret` to plugin config. Those are server-owned and rejected by the plugin config parser.
+
+For local policy LLM evaluation, inline `localPolicyLLM.apiKey` is optional, not required. If it is omitted, the plugin checks `localPolicyLLM.apiKeyEnvVar`, then falls back to the provider-default env var where supported (currently `OPENAI_API_KEY` for `provider=openai`). `authProfile` is only a hint in v1; host auth-profile credential reuse is not wired up yet.
 
 When `callbackUrl` is omitted, startup auto-registration tries this order:
 
@@ -204,9 +213,12 @@ If you are moving from a repo-local install to the published package:
 - `baseUrl must be a valid absolute URL`: use a full URL such as `https://mahilo.io` or `https://mahilo.example`, not a relative path.
 - `apiKey must be a non-empty string`: if you choose to preseed credentials, set `plugins.entries.mahilo.config.apiKey`; otherwise remove the field entirely and let `mahilo setup` bootstrap it.
 - `unsupported plugin config key(s)` or `Server-owned/deprecated keys are not allowed in plugin config`: remove unknown knobs and legacy keys such as `contractVersion`, `pluginVersion`, and `callbackSecret`.
+- `unsupported localPolicyLLM config key(s)`: remove unknown keys from the nested local LLM config block.
 - `callbackPath must start with '/'`: use a route like `/mahilo/incoming`.
 - `promptContextEnabled must be a boolean`: set it to `true` or `false`, not a string value.
 - `reviewMode must be one of: auto, ask, manual`: choose one of the supported review modes exactly.
+- `localPolicyLLM.timeout must be a positive integer`: use a millisecond timeout such as `5000`.
+- `localPolicyLLM.apiKeyEnvVar must be a valid env var name`: use a name like `OPENAI_API_KEY`.
 - `Mahilo setup ... callback step`: enable OpenClaw gateway remote or Tailscale exposure so `/mahilo/incoming` is reachable, then rerun `mahilo setup`. If you already have a public webhook URL and auto-detection is wrong, set `plugins.entries.mahilo.config.callbackUrl` as an override.
 - `Mahilo status: connectivity checks failed`: rerun `mahilo setup`, then run `mahilo reconnect` and check server reachability, API key scope, and callback alignment.
 

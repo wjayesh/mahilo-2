@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "bun:test";
 import {
+  MAHILO_LOCAL_POLICY_LLM_CONFIG_KEYS,
   MAHILO_PLUGIN_CONFIG_KEYS,
   MAHILO_PLUGIN_PACKAGE_NAME,
   MAHILO_PLUGIN_RELEASE_VERSION,
@@ -11,6 +12,7 @@ import {
 } from "../src";
 
 const manifestPath = new URL("../openclaw.plugin.json", import.meta.url);
+const clawdbotManifestPath = new URL("../clawdbot.plugin.json", import.meta.url);
 const packageJsonPath = new URL("../package.json", import.meta.url);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -216,17 +218,20 @@ describe("openclaw.plugin.json", () => {
     const baseUrl = properties.baseUrl;
     const apiKey = properties.apiKey;
     const callbackPath = properties.callbackPath;
+    const localPolicyLLM = properties.localPolicyLLM;
     const promptContextEnabled = properties.promptContextEnabled;
 
     expect(isRecord(baseUrl)).toBe(true);
     expect(isRecord(apiKey)).toBe(true);
     expect(isRecord(callbackPath)).toBe(true);
+    expect(isRecord(localPolicyLLM)).toBe(true);
     expect(isRecord(promptContextEnabled)).toBe(true);
 
     if (
       !isRecord(baseUrl) ||
       !isRecord(apiKey) ||
       !isRecord(callbackPath) ||
+      !isRecord(localPolicyLLM) ||
       !isRecord(promptContextEnabled)
     ) {
       return;
@@ -238,7 +243,49 @@ describe("openclaw.plugin.json", () => {
     expect(apiKey.writeOnly).toBe(true);
     expect(apiKey["x-sensitive"]).toBe(true);
     expect(callbackPath.pattern).toBe("^\\/.*");
+    expect(localPolicyLLM.type).toBe("object");
+    expect(localPolicyLLM.additionalProperties).toBe(false);
     expect(promptContextEnabled.type).toBe("boolean");
     expect(promptContextEnabled.default).toBe(true);
+
+    const localPolicyLLMProperties = localPolicyLLM.properties;
+    expect(isRecord(localPolicyLLMProperties)).toBe(true);
+
+    if (!isRecord(localPolicyLLMProperties)) {
+      return;
+    }
+
+    expect(Object.keys(localPolicyLLMProperties).sort()).toEqual([...MAHILO_LOCAL_POLICY_LLM_CONFIG_KEYS].sort());
+
+    const localPolicyLLMApiKey = localPolicyLLMProperties.apiKey;
+    const localPolicyLLMApiKeyEnvVar = localPolicyLLMProperties.apiKeyEnvVar;
+    const localPolicyLLMTimeout = localPolicyLLMProperties.timeout;
+
+    expect(isRecord(localPolicyLLMApiKey)).toBe(true);
+    expect(isRecord(localPolicyLLMApiKeyEnvVar)).toBe(true);
+    expect(isRecord(localPolicyLLMTimeout)).toBe(true);
+
+    if (
+      !isRecord(localPolicyLLMApiKey) ||
+      !isRecord(localPolicyLLMApiKeyEnvVar) ||
+      !isRecord(localPolicyLLMTimeout)
+    ) {
+      return;
+    }
+
+    expect(localPolicyLLMApiKey.type).toBe("string");
+    expect(localPolicyLLMApiKey.writeOnly).toBe(true);
+    expect(localPolicyLLMApiKey["x-sensitive"]).toBe(true);
+    expect(localPolicyLLMApiKeyEnvVar.pattern).toBe("^[A-Za-z_][A-Za-z0-9_]*$");
+    expect(localPolicyLLMTimeout.type).toBe("integer");
+    expect(localPolicyLLMTimeout.minimum).toBe(1);
+    expect(localPolicyLLMTimeout.default).toBe(5000);
+  });
+
+  it("keeps the clawdbot manifest config schema aligned with the OpenClaw manifest", async () => {
+    const manifest = (await Bun.file(manifestPath).json()) as { configSchema?: unknown };
+    const clawdbotManifest = (await Bun.file(clawdbotManifestPath).json()) as { configSchema?: unknown };
+
+    expect(clawdbotManifest.configSchema).toEqual(manifest.configSchema);
   });
 });

@@ -52,6 +52,9 @@ describe("README install docs", () => {
     expect(readme).toContain(`"${MAHILO_RUNTIME_PLUGIN_ID}"`);
     expect(readme).toContain("baseUrl");
     expect(readme).toContain('"apiKey"');
+    expect(readme).toContain("localPolicyLLM");
+    expect(readme).toContain("apiKeyEnvVar");
+    expect(readme).toContain("OPENAI_API_KEY");
     expect(readme).toContain("callbackUrl");
     expect(readme).toContain("https://mahilo.io");
     expect(readme).toContain("local runtime store");
@@ -79,9 +82,11 @@ describe("README install docs", () => {
     expect(readme).toContain("bun run demo:stories");
     expect(readme).toContain("rollout confidence");
     expect(readme).toContain("unsupported plugin config key(s)");
+    expect(readme).toContain("unsupported localPolicyLLM config key(s)");
     expect(readme).toContain("contractVersion");
     expect(readme).toContain("pluginVersion");
     expect(readme).toContain("callbackSecret");
     expect(readme).toContain("callbackPath must start with '/'");
+    expect(readme).toContain("localPolicyLLM.timeout must be a positive integer");
   });
 });
