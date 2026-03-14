@@ -57,6 +57,57 @@ export const inviteTokens = sqliteTable(
   ],
 );
 
+export const browserLoginAttempts = sqliteTable(
+  "browser_login_attempts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    approvalCode: text("approval_code").notNull(),
+    browserTokenHash: text("browser_token_hash").notNull(),
+    approvedByUserId: text("approved_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    redeemedAt: integer("redeemed_at", { mode: "timestamp" }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("idx_browser_login_attempts_user").on(table.userId),
+    index("idx_browser_login_attempts_lookup").on(
+      table.userId,
+      table.approvalCode,
+    ),
+    index("idx_browser_login_attempts_expires").on(table.expiresAt),
+  ],
+);
+
+export const browserSessions = sqliteTable(
+  "browser_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionTokenHash: text("session_token_hash").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    revokedAt: integer("revoked_at", { mode: "timestamp" }),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("idx_browser_sessions_user").on(table.userId),
+    index("idx_browser_sessions_expires").on(table.expiresAt),
+    index("idx_browser_sessions_revoked").on(table.revokedAt),
+  ],
+);
+
 // Agent connections table
 export const agentConnections = sqliteTable(
   "agent_connections",
@@ -399,7 +450,9 @@ export const friendRoles = sqliteTable(
 
 // Waitlist emails table
 export const waitlistEmails = sqliteTable("waitlist_emails", {
-  id: text("id").primaryKey().$defaultFn(() => nanoid()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => nanoid()),
   email: text("email").notNull().unique(),
   source: text("source").notNull().default("landing"),
   createdAt: integer("created_at", { mode: "timestamp" })
@@ -414,6 +467,10 @@ export type AgentConnection = typeof agentConnections.$inferSelect;
 export type NewAgentConnection = typeof agentConnections.$inferInsert;
 export type InviteToken = typeof inviteTokens.$inferSelect;
 export type NewInviteToken = typeof inviteTokens.$inferInsert;
+export type BrowserLoginAttempt = typeof browserLoginAttempts.$inferSelect;
+export type NewBrowserLoginAttempt = typeof browserLoginAttempts.$inferInsert;
+export type BrowserSession = typeof browserSessions.$inferSelect;
+export type NewBrowserSession = typeof browserSessions.$inferInsert;
 export type Friendship = typeof friendships.$inferSelect;
 export type NewFriendship = typeof friendships.$inferInsert;
 export type Message = typeof messages.$inferSelect;

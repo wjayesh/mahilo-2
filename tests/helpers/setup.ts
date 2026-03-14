@@ -67,6 +67,34 @@ export async function setupTestDatabase() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_tokens_token_id_unique ON invite_tokens(token_id);
     CREATE INDEX IF NOT EXISTS idx_invite_tokens_redeemed_by_user ON invite_tokens(redeemed_by_user_id);
 
+    CREATE TABLE IF NOT EXISTS browser_login_attempts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      approval_code TEXT NOT NULL,
+      browser_token_hash TEXT NOT NULL,
+      approved_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      approved_at INTEGER,
+      redeemed_at INTEGER,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_browser_login_attempts_user ON browser_login_attempts(user_id);
+    CREATE INDEX IF NOT EXISTS idx_browser_login_attempts_lookup ON browser_login_attempts(user_id, approval_code);
+    CREATE INDEX IF NOT EXISTS idx_browser_login_attempts_expires ON browser_login_attempts(expires_at);
+
+    CREATE TABLE IF NOT EXISTS browser_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_token_hash TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked_at INTEGER,
+      last_seen_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_user ON browser_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_expires ON browser_sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_browser_sessions_revoked ON browser_sessions(revoked_at);
+
     CREATE TABLE IF NOT EXISTS agent_connections (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
