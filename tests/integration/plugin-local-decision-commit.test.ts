@@ -29,6 +29,53 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
     cleanupTestDatabase();
   });
 
+  it("requires authentication and an active invite-backed account", async () => {
+    const db = getTestDb();
+    const { sender, senderKey, senderConnection, recipient } =
+      await setupParticipants("local_commit_auth");
+
+    const requestBody = {
+      sender_connection_id: senderConnection.id,
+      recipient: recipient.username,
+      resolution_id: "res_local_commit_auth",
+      message: "This local decision should never commit for unauthorized senders.",
+      local_decision: {
+        decision: "deny",
+        delivery_mode: "blocked",
+        reason: "Blocked before delivery.",
+      },
+    };
+
+    const unauthenticated = await app.request(
+      "/api/v1/plugin/local-decisions/commit",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      },
+    );
+
+    expect(unauthenticated.status).toBe(401);
+
+    await db
+      .update(schema.users)
+      .set({ status: "pending", verifiedAt: null })
+      .where(eq(schema.users.id, sender.id));
+
+    const inactive = await app.request("/api/v1/plugin/local-decisions/commit", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    expect(inactive.status).toBe(403);
+  });
+
   it("records local ask and deny decisions without creating delivered messages", async () => {
     const db = getTestDb();
     const { sender, senderKey, senderConnection, recipient } =
@@ -474,6 +521,44 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
       .where(eq(schema.policies.id, allowPolicyId))
       .limit(1);
     expect(policyAfterCommit?.remainingUses).toBe(0);
+
+    const reviewQueueResponse = await app.request(
+      "/api/v1/plugin/reviews?direction=outbound",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+        },
+      },
+    );
+
+    expect(reviewQueueResponse.status).toBe(200);
+    const reviewQueueBody = await reviewQueueResponse.json();
+    expect(
+      reviewQueueBody.reviews.find(
+        (review: { message_id: string }) =>
+          review.message_id === commitBody.message_id,
+      ),
+    ).toBeUndefined();
+
+    const blockedEventsResponse = await app.request(
+      "/api/v1/plugin/events/blocked?direction=outbound",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+        },
+      },
+    );
+
+    expect(blockedEventsResponse.status).toBe(200);
+    const blockedEventsBody = await blockedEventsResponse.json();
+    expect(
+      blockedEventsBody.blocked_events.find(
+        (event: { message_id: string }) =>
+          event.message_id === commitBody.message_id,
+      ),
+    ).toBeUndefined();
 
     const sendResponse = await app.request("/api/v1/messages/send", {
       method: "POST",

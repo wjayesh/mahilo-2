@@ -123,6 +123,39 @@ describe("Plugin group fanout policy bundle endpoint (LPE-011)", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects users who are not active members of the requested group", async () => {
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "group_bundle_not_member_sender",
+    );
+    const { user: owner } = await createTestUser("group_bundle_not_member_owner");
+    const { user: peer } = await createTestUser("group_bundle_not_member_peer");
+
+    await activateUsers([sender.id, owner.id, peer.id]);
+
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://group_bundle_not_member_sender",
+      framework: "openclaw",
+      label: "group-bundle-not-member",
+    });
+    const group = await createGroup(owner.id, [peer.id]);
+
+    const response = await app.request("/api/v1/plugin/bundles/group-fanout", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        recipient: group.id,
+        sender_connection_id: senderConnection.id,
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.code).toBe("NOT_MEMBER");
+  });
+
   it("returns a canonical group fanout bundle that reproduces mixed allow/ask/deny group results locally", async () => {
     const db = getTestDb();
     const { user: sender, apiKey: senderKey } = await createTestUser(

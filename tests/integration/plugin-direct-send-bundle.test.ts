@@ -103,6 +103,64 @@ describe("Plugin direct-send policy bundle endpoint (LPE-010)", () => {
     expect(body.code).toBe("NOT_FRIENDS");
   });
 
+  it("selects the highest-priority active sender connection when sender_connection_id is omitted", async () => {
+    const db = getTestDb();
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "bundle_default_sender",
+    );
+    const { user: recipient } = await createTestUser(
+      "bundle_default_recipient",
+    );
+
+    await db
+      .update(schema.users)
+      .set({ status: "active", verifiedAt: new Date() })
+      .where(eq(schema.users.id, sender.id));
+    await db
+      .update(schema.users)
+      .set({ status: "active", verifiedAt: new Date() })
+      .where(eq(schema.users.id, recipient.id));
+    await createFriendship(sender.id, recipient.id, "accepted");
+
+    const lowerPriorityConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://bundle_default_sender_low",
+      framework: "openclaw",
+      label: "fallback",
+    });
+    const higherPriorityConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://bundle_default_sender_high",
+      framework: "openclaw",
+      label: "preferred",
+    });
+
+    await db
+      .update(schema.agentConnections)
+      .set({ routingPriority: 5 })
+      .where(eq(schema.agentConnections.id, lowerPriorityConnection.id));
+    await db
+      .update(schema.agentConnections)
+      .set({ routingPriority: 50 })
+      .where(eq(schema.agentConnections.id, higherPriorityConnection.id));
+
+    const response = await app.request("/api/v1/plugin/bundles/direct-send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.authenticated_identity).toEqual({
+      sender_user_id: sender.id,
+      sender_connection_id: higherPriorityConnection.id,
+    });
+  });
+
   it("returns a canonical direct-send bundle that the shared resolver can evaluate locally", async () => {
     const db = getTestDb();
     const { sender, senderKey, senderConnection, recipient, friendship } =
