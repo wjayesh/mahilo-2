@@ -387,44 +387,49 @@ export async function evaluateGroupFanoutBundleLocally(
     bundle.selector_context,
     "outbound",
   );
-  const recipientResults = await Promise.all(
-    bundle.members.map(async (member) => {
-      const llmEvaluator = await resolveConfiguredLLMEvaluator(options, {
-        bundleType: bundle.bundle_type,
-        llm: member.llm,
-        recipient: member.recipient,
-        selectorContext,
-      });
-      const policyResult = await resolveLocalPolicySet({
-        policies: [
-          ...member.member_applicable_policies,
-          ...bundle.group_overlay_policies,
-        ],
-        ownerUserId: bundle.authenticated_identity.sender_user_id,
-        message: input.message,
-        context: input.context,
-        recipientUsername: member.recipient.username,
-        llmSubject: member.llm.subject,
-        authenticatedIdentity: bundle.authenticated_identity,
-        llmEvaluator,
-        llmUnavailableMode: options.llmUnavailableMode,
-        llmErrorMode: options.llmErrorMode,
-        llmSkipMode: options.llmSkipMode,
-      });
-      const localDecision = toLocalDecision(
-        policyResult,
-        selectorContext.direction,
-      );
+  const sharedPolicyState = createSharedGroupPolicyState(bundle);
+  const recipientResults: LocalPolicyRecipientResult[] = [];
 
-      return buildRecipientResult(
+  for (const member of bundle.members) {
+    const llmEvaluator = await resolveConfiguredLLMEvaluator(options, {
+      bundleType: bundle.bundle_type,
+      llm: member.llm,
+      recipient: member.recipient,
+      selectorContext,
+    });
+    const policyResult = await resolveLocalPolicySet({
+      policies: buildMemberEvaluationPolicies(
+        member,
+        bundle.group_overlay_policies,
+        sharedPolicyState,
+      ),
+      ownerUserId: bundle.authenticated_identity.sender_user_id,
+      message: input.message,
+      context: input.context,
+      recipientUsername: member.recipient.username,
+      llmSubject: member.llm.subject,
+      authenticatedIdentity: bundle.authenticated_identity,
+      llmEvaluator,
+      llmUnavailableMode: options.llmUnavailableMode,
+      llmErrorMode: options.llmErrorMode,
+      llmSkipMode: options.llmSkipMode,
+    });
+    const localDecision = toLocalDecision(
+      policyResult,
+      selectorContext.direction,
+    );
+
+    recipientResults.push(
+      buildRecipientResult(
         member.recipient,
         member.resolution_id,
         member.roles,
         member.llm,
         localDecision,
-      );
-    }),
-  );
+      ),
+    );
+    consumeSharedPolicyUse(sharedPolicyState, policyResult.winning_policy_id);
+  }
   const aggregate = buildGroupAggregateResult(
     recipientResults,
     bundle.aggregate_metadata,
@@ -451,6 +456,105 @@ export async function evaluateGroupFanoutBundleLocally(
     recipient_results: recipientResults,
     transport_payload: transportPayload,
   };
+}
+
+function createSharedGroupPolicyState(
+  bundle: GroupFanoutPolicyBundle,
+): Map<string, CorePolicy> {
+  const policyState = new Map<string, CorePolicy>();
+
+  for (const policy of bundle.group_overlay_policies) {
+    policyState.set(policy.id, clonePolicy(policy));
+  }
+
+  for (const member of bundle.members) {
+    for (const policy of member.member_applicable_policies) {
+      if (!policyState.has(policy.id)) {
+        policyState.set(policy.id, clonePolicy(policy));
+      }
+    }
+  }
+
+  return policyState;
+}
+
+function buildMemberEvaluationPolicies(
+  member: GroupFanoutPolicyBundleMember,
+  groupOverlayPolicies: CorePolicy[],
+  policyState: Map<string, CorePolicy>,
+): CorePolicy[] {
+  const memberPolicies: CorePolicy[] = [];
+  const seenPolicyIds = new Set<string>();
+
+  for (const policy of [
+    ...member.member_applicable_policies,
+    ...groupOverlayPolicies,
+  ]) {
+    if (seenPolicyIds.has(policy.id)) {
+      continue;
+    }
+
+    seenPolicyIds.add(policy.id);
+    const currentPolicy = policyState.get(policy.id) ?? clonePolicy(policy);
+    if (!policyState.has(policy.id)) {
+      policyState.set(policy.id, currentPolicy);
+    }
+
+    if (isPolicyLifecycleAvailable(currentPolicy)) {
+      memberPolicies.push(currentPolicy);
+    }
+  }
+
+  return memberPolicies;
+}
+
+function clonePolicy(policy: CorePolicy): CorePolicy {
+  return {
+    ...policy,
+    learning_provenance: policy.learning_provenance
+      ? {
+          ...policy.learning_provenance,
+          promoted_from_policy_ids: [
+            ...policy.learning_provenance.promoted_from_policy_ids,
+          ],
+        }
+      : (policy.learning_provenance ?? null),
+  };
+}
+
+function isPolicyLifecycleAvailable(policy: CorePolicy): boolean {
+  if (policy.remaining_uses !== null) {
+    return policy.remaining_uses > 0;
+  }
+
+  if (policy.max_uses !== null) {
+    return policy.max_uses > 0;
+  }
+
+  return true;
+}
+
+function consumeSharedPolicyUse(
+  policyState: Map<string, CorePolicy>,
+  winningPolicyId: string | undefined,
+): void {
+  if (!winningPolicyId) {
+    return;
+  }
+
+  const policy = policyState.get(winningPolicyId);
+  if (!policy) {
+    return;
+  }
+
+  if (policy.remaining_uses !== null) {
+    policy.remaining_uses = Math.max(0, policy.remaining_uses - 1);
+    return;
+  }
+
+  if (policy.max_uses !== null) {
+    policy.remaining_uses = Math.max(0, policy.max_uses - 1);
+  }
 }
 
 function toLocalDecision(

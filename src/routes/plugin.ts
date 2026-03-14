@@ -141,6 +141,7 @@ const pluginLocalDecisionCommitRequestSchema =
     context: z.string().optional(),
     payload_type: z.string().optional().default("text/plain"),
     correlation_id: z.string().optional(),
+    group_id: z.string().min(1).max(255).optional(),
     in_response_to: z.string().optional(),
     resolution_id: z.string().min(1).max(120),
     idempotency_key: z.string().min(1).max(255).optional(),
@@ -632,20 +633,7 @@ async function loadDirectUserRecipientAccess(
   };
 }> {
   const db = getDb();
-  const recipientUsername = recipientValue.toLowerCase();
-  const [recipient] = await db
-    .select({
-      displayName: schema.users.displayName,
-      id: schema.users.id,
-      username: schema.users.username,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.username, recipientUsername))
-    .limit(1);
-
-  if (!recipient) {
-    throw new AppError("Recipient user not found", 404, "USER_NOT_FOUND");
-  }
+  const recipient = await loadRecipientUserRecord(recipientValue);
 
   const [friendship] = await db
     .select({
@@ -678,6 +666,86 @@ async function loadDirectUserRecipientAccess(
   }
 
   return { friendship, recipient };
+}
+
+async function loadRecipientUserRecord(recipientValue: string): Promise<{
+  displayName: string | null;
+  id: string;
+  username: string;
+}> {
+  const db = getDb();
+  const recipientUsername = recipientValue.toLowerCase();
+  const [recipient] = await db
+    .select({
+      displayName: schema.users.displayName,
+      id: schema.users.id,
+      username: schema.users.username,
+    })
+    .from(schema.users)
+    .where(eq(schema.users.username, recipientUsername))
+    .limit(1);
+
+  if (!recipient) {
+    throw new AppError("Recipient user not found", 404, "USER_NOT_FOUND");
+  }
+
+  return recipient;
+}
+
+async function loadLocalDecisionRecipientAccess(
+  senderUserId: string,
+  recipientValue: string,
+  groupId?: string,
+): Promise<{
+  group: {
+    id: string;
+    name: string;
+  } | null;
+  recipient: {
+    displayName: string | null;
+    id: string;
+    username: string;
+  };
+}> {
+  if (!groupId) {
+    const { recipient } = await loadDirectUserRecipientAccess(
+      senderUserId,
+      recipientValue,
+    );
+
+    return {
+      group: null,
+      recipient,
+    };
+  }
+
+  const db = getDb();
+  const recipient = await loadRecipientUserRecord(recipientValue);
+  const { group } = await resolveGroupRecipient(senderUserId, groupId);
+  const [membership] = await db
+    .select({ id: schema.groupMemberships.id })
+    .from(schema.groupMemberships)
+    .where(
+      and(
+        eq(schema.groupMemberships.groupId, groupId),
+        eq(schema.groupMemberships.userId, recipient.id),
+        eq(schema.groupMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!membership) {
+    throw new AppError(
+      "Recipient is no longer an active member of this group",
+      409,
+      "LOCAL_DECISION_STALE",
+    );
+  }
+
+  return {
+    group,
+    recipient,
+  };
 }
 
 async function resolveUserRecipient(
@@ -1101,6 +1169,7 @@ function buildLocalDecisionPolicyEvaluation(args: {
   senderConnectionId: string;
   resolutionId: string;
   committedAt: string;
+  groupId: string | null;
   selectors: { direction: PolicyDirection; resource: string; action: string };
   decision: ContextDecision;
   reason: string | null;
@@ -1143,6 +1212,7 @@ function buildLocalDecisionPolicyEvaluation(args: {
       resolution_id: args.resolutionId,
       committed_at: args.committedAt,
       summary: args.summary,
+      ...(args.groupId ? { group_id: args.groupId } : {}),
     },
   });
 }
@@ -1254,6 +1324,7 @@ function assertCommittedMessageMatchesLocalDecision(
     resolutionId: string;
     recipientId: string;
     recipientType: PluginLocalDecisionCommitRequest["recipient_type"];
+    groupId: string | null;
     selectors: ReturnType<typeof resolveDraftSelectors>;
     payload: string;
     payloadType: string;
@@ -1324,6 +1395,21 @@ function assertCommittedMessageMatchesLocalDecision(
       409,
       "LOCAL_DECISION_CONFLICT",
     );
+  }
+
+  const evaluation = parseJsonObject(message.policiesEvaluated);
+  const localDecisionCommit = parseObjectValue(
+    evaluation?.local_decision_commit,
+  );
+  const storedGroupId = parseStringValue(localDecisionCommit?.group_id);
+  if (storedGroupId || input.groupId) {
+    if (storedGroupId !== input.groupId) {
+      throw new AppError(
+        "resolution_id is already bound to a different group context",
+        409,
+        "LOCAL_DECISION_CONFLICT",
+      );
+    }
   }
 
   const existingResolution = buildCommittedMessageResolution(message);
@@ -2524,9 +2610,10 @@ pluginRoutes.post(
       user.id,
       data.sender_connection_id,
     );
-    const { recipient } = await loadDirectUserRecipientAccess(
+    const { group, recipient } = await loadLocalDecisionRecipientAccess(
       user.id,
       data.recipient,
+      data.group_id,
     );
     const decision = data.local_decision.decision as ContextDecision;
     const deliveryMode = data.local_decision.delivery_mode as DeliveryMode;
@@ -2546,6 +2633,7 @@ pluginRoutes.post(
         direction,
         resource: selectors.resource,
       },
+      group?.id,
     );
 
     const [existingByResolution] = await db
@@ -2591,6 +2679,7 @@ pluginRoutes.post(
         resolutionId: data.resolution_id,
         recipientId: recipient.id,
         recipientType: "user",
+        groupId: group?.id ?? null,
         selectors,
         payload: data.message,
         payloadType: data.payload_type,
@@ -2697,6 +2786,7 @@ pluginRoutes.post(
       senderConnectionId: senderConnection.id,
       resolutionId: data.resolution_id,
       committedAt,
+      groupId: group?.id ?? null,
       selectors: {
         direction,
         resource: selectors.resource,

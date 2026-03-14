@@ -481,7 +481,8 @@ Request notes:
 - Mahilo uses a dedicated commit endpoint for plugin-local decisions. `/api/v1/plugin/outcomes` remains the post-send and post-review outcome-reporting channel.
 - `resolution_id` is the authoritative local-evaluation attempt key. Retries with the same `resolution_id` deduplicate and return the existing artifact.
 - `idempotency_key` in the body or `Idempotency-Key` header may also be supplied. Reusing that key for a different `resolution_id` is rejected.
-- Current implementation accepts direct user-send commits (`recipient_type=user`).
+- Current implementation accepts direct user-send commits and per-recipient group-fanout commits. Group fan-out commits still use `recipient_type=user`; when the winning policy may depend on group overlays, clients must also send `group_id` from the source fan-out bundle.
+- For group fan-out, plugin clients must commit members in the bundle member order and reuse each member `resolution_id`. This preserves trusted lifecycle semantics for shared one-time or limited policies across partial fan-out.
 - On the first successful commit, the server performs authoritative winning-policy lifecycle mutation and persists a message artifact even when transport never starts.
 - `allow` commits create a pending message artifact. Later `POST /api/v1/messages/send` must reuse the same `resolution_id` so transport binds to that committed local decision.
 - Degraded local LLM review outcomes use explicit reason codes under `policy.ask.llm.<kind>`. Current kinds include `unavailable`, normalized transport/provider/parser kinds such as `network`, `provider`, `invalid_response`, `timeout`, `unknown`, and `skip`.

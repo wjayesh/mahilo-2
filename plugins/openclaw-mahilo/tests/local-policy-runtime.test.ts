@@ -160,9 +160,9 @@ describe("MahiloLocalPolicyRuntime", () => {
       "pol_role_ask",
       "pol_user_llm",
     ]);
-    expect(result.commit_payload.local_decision.evaluated_policies).toHaveLength(
-      2,
-    );
+    expect(
+      result.commit_payload.local_decision.evaluated_policies,
+    ).toHaveLength(2);
     expect(result.transport_payload).toMatchObject({
       recipient: "alice",
       recipient_type: "user",
@@ -371,6 +371,155 @@ describe("MahiloLocalPolicyRuntime", () => {
       sender_connection_id: "conn_sender",
       correlation_id: "corr_group_1",
       payload_type: "text/plain",
+    });
+  });
+
+  it("consumes shared lifecycle-limited policies once across ordered group fanout members", async () => {
+    const groupBundle: GroupFanoutPolicyBundle = {
+      contract_version: "1.0.0",
+      bundle_type: "group_fanout",
+      bundle_metadata: {
+        bundle_id: "bundle_group_lifecycle_1",
+        resolution_id: "res_group_lifecycle_1",
+        issued_at: "2026-03-14T10:30:00.000Z",
+        expires_at: "2026-03-14T10:35:00.000Z",
+      },
+      authenticated_identity: {
+        sender_user_id: "usr_sender",
+        sender_connection_id: "conn_sender",
+      },
+      selector_context: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general",
+      },
+      group: {
+        id: "grp_lifecycle",
+        member_count: 2,
+        name: "Lifecycle Crew",
+        type: "group",
+      },
+      aggregate_metadata: {
+        fanout_mode: "per_recipient",
+        mixed_decision_priority: ["allow", "ask", "deny"],
+        partial_reason_code: "policy.partial.group_fanout",
+        empty_group_summary: "No active recipients in group.",
+        partial_summary_template:
+          "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.",
+        policy_evaluation_mode: "group_outbound_fanout",
+      },
+      group_overlay_policies: [
+        createPolicy({
+          id: "pol_group_deny_once",
+          scope: "group",
+          effect: "deny",
+          evaluator: "structured",
+          priority: 1,
+          policy_content: {},
+          source: "override",
+          max_uses: 1,
+          remaining_uses: 1,
+        }),
+      ],
+      members: [
+        {
+          recipient: {
+            id: "usr_alice",
+            type: "user",
+            username: "alice",
+          },
+          roles: [],
+          resolution_id: "res_group_lifecycle_1_usr_alice",
+          member_applicable_policies: [
+            createPolicy({
+              id: "pol_global_allow",
+              scope: "global",
+              effect: "allow",
+              evaluator: "structured",
+              priority: 50,
+              policy_content: {},
+            }),
+          ],
+          llm: {
+            subject: "alice",
+            provider_defaults: null,
+          },
+        },
+        {
+          recipient: {
+            id: "usr_bob",
+            type: "user",
+            username: "bob",
+          },
+          roles: [],
+          resolution_id: "res_group_lifecycle_1_usr_bob",
+          member_applicable_policies: [
+            createPolicy({
+              id: "pol_global_allow",
+              scope: "global",
+              effect: "allow",
+              evaluator: "structured",
+              priority: 50,
+              policy_content: {},
+            }),
+          ],
+          llm: {
+            subject: "bob",
+            provider_defaults: null,
+          },
+        },
+      ],
+    };
+
+    const runtime = createMahiloLocalPolicyRuntime({
+      client: {
+        getDirectSendPolicyBundle: async () => {
+          throw new Error("unexpected direct bundle request");
+        },
+        getGroupFanoutPolicyBundle: async () => groupBundle,
+      },
+      llmUnavailableMode: "ask",
+      llmErrorMode: "ask",
+    });
+
+    const result = await runtime.evaluateGroupFanout({
+      message: "Weekend plans are confirmed.",
+      recipient: "grp_lifecycle",
+      senderConnectionId: "conn_sender",
+    });
+
+    expect(
+      result.recipient_results.map((entry) => ({
+        decision: entry.local_decision.decision,
+        recipient: entry.recipient,
+        winning_policy_id: entry.local_decision.winning_policy_id,
+      })),
+    ).toEqual([
+      {
+        decision: "deny",
+        recipient: "alice",
+        winning_policy_id: "pol_group_deny_once",
+      },
+      {
+        decision: "allow",
+        recipient: "bob",
+        winning_policy_id: "pol_global_allow",
+      },
+    ]);
+    expect(result.aggregate).toEqual({
+      decision: "allow",
+      partial_delivery: true,
+      reason_code: "policy.partial.group_fanout",
+      summary:
+        "Partial group delivery: 1 delivered, 0 pending, 1 denied, 0 review-required, 0 failed.",
+      has_sendable_recipients: true,
+      counts: {
+        delivered: 1,
+        pending: 0,
+        denied: 1,
+        review_required: 0,
+        failed: 0,
+      },
     });
   });
 });

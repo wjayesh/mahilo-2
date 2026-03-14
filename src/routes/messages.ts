@@ -601,6 +601,104 @@ function hasLocalDecisionCommitMarker(
   );
 }
 
+function readLocalDecisionCommitGroupId(
+  message: Pick<schema.Message, "policiesEvaluated">,
+): string | null {
+  const evaluation = parseOptionalJsonText(message.policiesEvaluated);
+  if (
+    !evaluation ||
+    typeof evaluation !== "object" ||
+    Array.isArray(evaluation)
+  ) {
+    return null;
+  }
+
+  const marker = (evaluation as Record<string, unknown>).local_decision_commit;
+  if (typeof marker !== "object" || marker === null || Array.isArray(marker)) {
+    return null;
+  }
+
+  const groupId = (marker as Record<string, unknown>).group_id;
+  return typeof groupId === "string" && groupId.length > 0 ? groupId : null;
+}
+
+function readCommittedLocalGroupIdForRecipient(
+  message: schema.Message | null | undefined,
+  recipientUserId: string,
+): string | null {
+  if (
+    !message ||
+    message.recipientType !== "user" ||
+    message.recipientId !== recipientUserId ||
+    !hasLocalDecisionCommitMarker(message)
+  ) {
+    return null;
+  }
+
+  return readLocalDecisionCommitGroupId(message);
+}
+
+async function assertActiveGroupFanoutSendAccess(
+  senderUserId: string,
+  recipientUserId: string,
+  groupId: string,
+): Promise<void> {
+  const db = getDb();
+  const [group] = await db
+    .select({ id: schema.groups.id })
+    .from(schema.groups)
+    .where(eq(schema.groups.id, groupId))
+    .limit(1);
+
+  if (!group) {
+    throw new AppError(
+      "Source group is no longer available for this committed local decision",
+      409,
+      "LOCAL_DECISION_STALE",
+    );
+  }
+
+  const [senderMembership] = await db
+    .select({ id: schema.groupMemberships.id })
+    .from(schema.groupMemberships)
+    .where(
+      and(
+        eq(schema.groupMemberships.groupId, groupId),
+        eq(schema.groupMemberships.userId, senderUserId),
+        eq(schema.groupMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!senderMembership) {
+    throw new AppError(
+      "Sender is no longer an active member of the source group",
+      409,
+      "LOCAL_DECISION_STALE",
+    );
+  }
+
+  const [recipientMembership] = await db
+    .select({ id: schema.groupMemberships.id })
+    .from(schema.groupMemberships)
+    .where(
+      and(
+        eq(schema.groupMemberships.groupId, groupId),
+        eq(schema.groupMemberships.userId, recipientUserId),
+        eq(schema.groupMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!recipientMembership) {
+    throw new AppError(
+      "Recipient is no longer an active member of the source group",
+      409,
+      "LOCAL_DECISION_STALE",
+    );
+  }
+}
+
 function isCommittedLocalAllowAwaitingTransport(
   message: schema.Message,
 ): boolean {
@@ -782,6 +880,7 @@ messageRoutes.post(
     const data = c.req.valid("json");
     const db = getDb();
     let committedLocalAllowByIdempotency: schema.Message | null = null;
+    let existingResolutionMessageHint: schema.Message | null = null;
 
     // Validate payload size
     const sizeValidation = validatePayloadSize(data.message);
@@ -932,6 +1031,19 @@ messageRoutes.post(
 
       recipientUserId = recipient.id;
 
+      if (data.resolution_id) {
+        [existingResolutionMessageHint] = await db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.senderUserId, user.id),
+              eq(schema.messages.resolutionId, data.resolution_id),
+            ),
+          )
+          .limit(1);
+      }
+
       // Check friendship
       const [friendship] = await db
         .select()
@@ -954,7 +1066,25 @@ messageRoutes.post(
         .limit(1);
 
       if (!friendship) {
-        throw new AppError("Not friends with recipient", 403, "NOT_FRIENDS");
+        const committedLocalGroupId =
+          readCommittedLocalGroupIdForRecipient(
+            committedLocalAllowByIdempotency,
+            recipient.id,
+          ) ??
+          readCommittedLocalGroupIdForRecipient(
+            existingResolutionMessageHint,
+            recipient.id,
+          );
+
+        if (!committedLocalGroupId) {
+          throw new AppError("Not friends with recipient", 403, "NOT_FRIENDS");
+        }
+
+        await assertActiveGroupFanoutSendAccess(
+          user.id,
+          recipient.id,
+          committedLocalGroupId,
+        );
       }
 
       // Get recipient connection
@@ -1550,16 +1680,19 @@ messageRoutes.post(
       committedLocalAllowByIdempotency;
 
     if (data.resolution_id) {
-      const [existingByResolution] = await db
-        .select()
-        .from(schema.messages)
-        .where(
-          and(
-            eq(schema.messages.senderUserId, user.id),
-            eq(schema.messages.resolutionId, data.resolution_id),
-          ),
-        )
-        .limit(1);
+      const existingByResolution =
+        existingResolutionMessageHint ||
+        (await db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.senderUserId, user.id),
+              eq(schema.messages.resolutionId, data.resolution_id),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0] || null));
 
       if (existingByResolution) {
         assertResolutionBoundMessageMatchesRequest(existingByResolution, {
@@ -1763,7 +1896,7 @@ messageRoutes.post(
           status: "pending",
           rejectionReason: null,
           idempotencyKey:
-            data.idempotency_key || committedLocalAllowMessage.idempotencyKey,
+            committedLocalAllowMessage.idempotencyKey || data.idempotency_key,
         })
         .where(eq(schema.messages.id, messageId));
     } else {

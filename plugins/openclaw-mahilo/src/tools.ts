@@ -4,14 +4,14 @@ import {
   type MahiloAgentConnectionSummary,
   type MahiloContractClient,
   type MahiloFriendConnectionDirectory,
-  type MahiloFriendshipSummary
+  type MahiloFriendshipSummary,
 } from "./client";
 import {
   extractDecision,
   extractResolutionId,
   normalizeDeclaredSelectors,
   type DeclaredSelectors,
-  type PolicyDecision
+  type PolicyDecision,
 } from "./policy-helpers";
 import type {
   LocalDirectPolicyRuntimeResult,
@@ -22,7 +22,7 @@ import type {
 import {
   fetchMahiloPromptContext,
   type FetchMahiloPromptContextOptions,
-  type FetchMahiloPromptContextResult
+  type FetchMahiloPromptContextResult,
 } from "./prompt-context";
 import { resolveMahiloSenderConnection } from "./sender-resolution";
 
@@ -192,7 +192,7 @@ export async function talkToAgent(
   client: MahiloContractClient,
   input: MahiloSendToolInput,
   context: MahiloToolContext,
-  options: MahiloSendExecutionOptions = {}
+  options: MahiloSendExecutionOptions = {},
 ): Promise<MahiloToolResult> {
   return executeSendTool(client, "user", input, context, options);
 }
@@ -201,25 +201,30 @@ export async function talkToGroup(
   client: MahiloContractClient,
   input: TalkToGroupInput,
   context: MahiloToolContext,
-  options: MahiloSendExecutionOptions = {}
+  options: MahiloSendExecutionOptions = {},
 ): Promise<MahiloToolResult> {
   return executeSendTool(client, "group", input, context, options);
 }
 
-export async function listMahiloContacts(provider?: ContactsProvider): Promise<MahiloContact[]>;
+export async function listMahiloContacts(
+  provider?: ContactsProvider,
+): Promise<MahiloContact[]>;
 export async function listMahiloContacts(
   client: MahiloContractClient,
-  provider?: ContactsProvider
+  provider?: ContactsProvider,
 ): Promise<MahiloContact[]>;
 export async function listMahiloContacts(
   clientOrProvider?: MahiloContractClient | ContactsProvider,
-  fallbackProvider?: ContactsProvider
+  fallbackProvider?: ContactsProvider,
 ): Promise<MahiloContact[]> {
   const client =
     typeof clientOrProvider === "function" || clientOrProvider === undefined
       ? undefined
       : clientOrProvider;
-  const provider = typeof clientOrProvider === "function" ? clientOrProvider : fallbackProvider;
+  const provider =
+    typeof clientOrProvider === "function"
+      ? clientOrProvider
+      : fallbackProvider;
 
   if (client && hasMahiloSocialContactSupport(client)) {
     return listMahiloContactsFromServer(client);
@@ -232,14 +237,14 @@ export async function listMahiloContacts(
   const contacts = await provider();
   return contacts.map((contact) => ({
     ...contact,
-    label: contact.label.trim()
+    label: contact.label.trim(),
   }));
 }
 
 export async function getMahiloContext(
   client: MahiloContractClient,
   input: GetMahiloContextInput,
-  options: GetMahiloContextOptions = {}
+  options: GetMahiloContextOptions = {},
 ): Promise<MahiloContextToolResult> {
   const senderConnectionId =
     input.senderConnectionId ??
@@ -249,29 +254,37 @@ export async function getMahiloContext(
     client,
     {
       ...input,
-      senderConnectionId
+      senderConnectionId,
     },
-    options
+    options,
   );
 }
 
 export async function previewMahiloSend(
   client: MahiloContractClient,
   input: PreviewMahiloSendInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
 ): Promise<MahiloPreviewResult> {
   const recipientType = input.recipientType ?? "user";
-  const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
+  const normalizedSelectors = normalizeDeclaredSelectors(
+    input.declaredSelectors,
+    "outbound",
+  );
   const response = await client.resolveDraft(
-    buildSendPayload(recipientType, input, context, normalizedSelectors)
+    buildSendPayload(recipientType, input, context, normalizedSelectors),
   );
 
-  return summarizePreviewResponse(response, normalizedSelectors, input.recipient, recipientType);
+  return summarizePreviewResponse(
+    response,
+    normalizedSelectors,
+    input.recipient,
+    recipientType,
+  );
 }
 
 export async function createMahiloOverride(
   client: MahiloContractClient,
-  input: CreateMahiloOverrideInput
+  input: CreateMahiloOverrideInput,
 ): Promise<MahiloOverrideResult> {
   const normalized = await normalizeOverrideRequest(client, input);
   const payload = compactObject({
@@ -287,7 +300,7 @@ export async function createMahiloOverride(
     sender_connection_id: input.senderConnectionId,
     source_resolution_id: input.sourceResolutionId,
     target_id: normalized.targetId,
-    ttl_seconds: normalized.ttlSeconds
+    ttl_seconds: normalized.ttlSeconds,
   });
   const response = await client.createOverride(payload, input.idempotencyKey);
   const root = readObject(response);
@@ -311,8 +324,8 @@ export async function createMahiloOverride(
       selectors: normalized.selectors,
       targetId: normalized.targetId,
       targetLabel: normalized.targetLabel,
-      ttlSeconds: normalized.ttlSeconds
-    })
+      ttlSeconds: normalized.ttlSeconds,
+    }),
   };
 }
 
@@ -330,7 +343,7 @@ interface NormalizedOverrideRequest {
 
 async function normalizeOverrideRequest(
   client: MahiloContractClient,
-  input: CreateMahiloOverrideInput
+  input: CreateMahiloOverrideInput,
 ): Promise<NormalizedOverrideRequest> {
   const effect = normalizeOverrideEffect(input.effect);
   const kind = normalizeOverrideKind(input.kind);
@@ -342,7 +355,7 @@ async function normalizeOverrideRequest(
 
   if (!kind) {
     throw new Error(
-      "kind is required (use one_time, temporary, or persistent; aliases once/expiring/always are also accepted)"
+      "kind is required (use one_time, temporary, or persistent; aliases once/expiring/always are also accepted)",
     );
   }
 
@@ -361,21 +374,21 @@ async function normalizeOverrideRequest(
     expiresAt,
     kind,
     maxUses,
-    ttlSeconds
+    ttlSeconds,
   });
 
   const targetId =
     scope === "global"
       ? undefined
-      : readString(input.targetId) ??
+      : (readString(input.targetId) ??
         (scope === "user"
           ? await resolveUserOverrideTargetId(client, {
               recipient: readString(input.recipient),
               recipientType: input.recipientType,
               selectors,
-              senderConnectionId: input.senderConnectionId
+              senderConnectionId: input.senderConnectionId,
             })
-          : undefined);
+          : undefined));
 
   if (scope !== "global" && !targetId) {
     if (scope === "user") {
@@ -394,18 +407,22 @@ async function normalizeOverrideRequest(
     selectors,
     targetId,
     targetLabel: readString(input.recipient) ?? targetId,
-    ttlSeconds
+    ttlSeconds,
   };
 }
 
-function normalizeOverrideEffect(value: string | undefined): string | undefined {
+function normalizeOverrideEffect(
+  value: string | undefined,
+): string | undefined {
   return readString(value)?.toLowerCase();
 }
 
 function normalizeOverrideKind(
-  value: string | undefined
+  value: string | undefined,
 ): "one_time" | "persistent" | "temporary" | undefined {
-  const normalized = readString(value)?.toLowerCase().replace(/[\s-]+/g, "_");
+  const normalized = readString(value)
+    ?.toLowerCase()
+    .replace(/[\s-]+/g, "_");
   if (!normalized) {
     return undefined;
   }
@@ -440,7 +457,7 @@ function normalizeOverrideKind(
 }
 
 function normalizeOverrideScope(
-  value: string | undefined
+  value: string | undefined,
 ): "global" | "group" | "role" | "user" | undefined {
   const normalized = readString(value)?.toLowerCase();
   if (
@@ -464,7 +481,9 @@ function normalizeMaxUses(value: number | undefined): number | undefined {
   return normalized > 0 ? normalized : undefined;
 }
 
-function resolveOverrideTtlSeconds(input: CreateMahiloOverrideInput): number | undefined {
+function resolveOverrideTtlSeconds(
+  input: CreateMahiloOverrideInput,
+): number | undefined {
   const ttlSeconds = normalizePositiveInteger(input.ttlSeconds);
   if (typeof ttlSeconds === "number") {
     return ttlSeconds;
@@ -483,7 +502,9 @@ function resolveOverrideTtlSeconds(input: CreateMahiloOverrideInput): number | u
   return undefined;
 }
 
-function normalizePositiveInteger(value: number | undefined): number | undefined {
+function normalizePositiveInteger(
+  value: number | undefined,
+): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
   }
@@ -498,15 +519,21 @@ function validateOverrideLifecycle(options: {
   maxUses?: number;
   ttlSeconds?: number;
 }): void {
-  if (options.kind === "temporary" && !options.expiresAt && typeof options.ttlSeconds !== "number") {
+  if (
+    options.kind === "temporary" &&
+    !options.expiresAt &&
+    typeof options.ttlSeconds !== "number"
+  ) {
     throw new Error(
-      "temporary overrides require expiresAt, ttlSeconds, durationMinutes, or durationHours"
+      "temporary overrides require expiresAt, ttlSeconds, durationMinutes, or durationHours",
     );
   }
 
   if (
     options.kind === "persistent" &&
-    (options.expiresAt || typeof options.ttlSeconds === "number" || typeof options.maxUses === "number")
+    (options.expiresAt ||
+      typeof options.ttlSeconds === "number" ||
+      typeof options.maxUses === "number")
   ) {
     throw new Error("persistent overrides cannot include expiry or maxUses");
   }
@@ -519,14 +546,16 @@ async function resolveUserOverrideTargetId(
     recipientType?: "group" | "user";
     selectors?: DeclaredSelectors;
     senderConnectionId: string;
-  }
+  },
 ): Promise<string | undefined> {
   if (!options.recipient) {
     return undefined;
   }
 
   if (options.recipientType === "group") {
-    throw new Error("recipientType=group cannot be used for a user-scoped override");
+    throw new Error(
+      "recipientType=group cannot be used for a user-scoped override",
+    );
   }
 
   const context = await fetchMahiloPromptContext(client, {
@@ -535,7 +564,7 @@ async function resolveUserOverrideTargetId(
     interactionLimit: 1,
     recipient: options.recipient,
     recipientType: "user",
-    senderConnectionId: options.senderConnectionId
+    senderConnectionId: options.senderConnectionId,
   });
 
   const recipientId = context.context?.recipient.id;
@@ -545,7 +574,7 @@ async function resolveUserOverrideTargetId(
 
   const detail = context.error ? `: ${context.error}` : "";
   throw new Error(
-    `Could not resolve a Mahilo user ID for recipient ${options.recipient}${detail}. Pass targetId explicitly or fetch Mahilo context first.`
+    `Could not resolve a Mahilo user ID for recipient ${options.recipient}${detail}. Pass targetId explicitly or fetch Mahilo context first.`,
   );
 }
 
@@ -562,8 +591,15 @@ function formatOverrideSummary(options: {
   ttlSeconds?: number;
 }): string {
   const status = options.created === false ? "Submitted" : "Created";
-  const lifecycle = describeOverrideLifecycle(options.kind, options.expiresAt, options.ttlSeconds);
-  const scope = describeOverrideScope(options.scope, options.targetLabel ?? options.targetId);
+  const lifecycle = describeOverrideLifecycle(
+    options.kind,
+    options.expiresAt,
+    options.ttlSeconds,
+  );
+  const scope = describeOverrideScope(
+    options.scope,
+    options.targetLabel ?? options.targetId,
+  );
   const selectors = options.selectors
     ? ` covering ${options.selectors.direction}/${options.selectors.resource}/${options.selectors.action}`
     : "";
@@ -575,7 +611,7 @@ function formatOverrideSummary(options: {
 function describeOverrideLifecycle(
   kind: string,
   expiresAt?: string,
-  ttlSeconds?: number
+  ttlSeconds?: number,
 ): string {
   if (kind === "one_time") {
     if (expiresAt) {
@@ -636,10 +672,18 @@ async function executeSendTool(
   recipientType: "group" | "user",
   input: MahiloSendToolInput,
   context: MahiloToolContext,
-  options: MahiloSendExecutionOptions = {}
+  options: MahiloSendExecutionOptions = {},
 ): Promise<MahiloToolResult> {
-  const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
-  const sendPayload = buildSendPayload(recipientType, input, context, normalizedSelectors);
+  const normalizedSelectors = normalizeDeclaredSelectors(
+    input.declaredSelectors,
+    "outbound",
+  );
+  const sendPayload = buildSendPayload(
+    recipientType,
+    input,
+    context,
+    normalizedSelectors,
+  );
 
   if (options.localPolicy) {
     const localRuntimeInput = {
@@ -650,30 +694,20 @@ async function executeSendTool(
       message: input.message,
       payloadType: input.payloadType,
       recipient: input.recipient,
-      senderConnectionId: context.senderConnectionId
+      senderConnectionId: context.senderConnectionId,
     };
 
     if (recipientType === "group") {
-      const localResult = await options.localPolicy.runtime.evaluateGroupFanout(
-        localRuntimeInput
-      );
-      return executeGroupLocalSend(
-        client,
-        input,
-        sendPayload,
-        localResult
-      );
+      const localResult =
+        await options.localPolicy.runtime.evaluateGroupFanout(
+          localRuntimeInput,
+        );
+      return executeGroupLocalSend(client, input, sendPayload, localResult);
     }
 
-    const localResult = await options.localPolicy.runtime.evaluateDirectSend(
-      localRuntimeInput
-    );
-    return executeDirectLocalSend(
-      client,
-      input,
-      sendPayload,
-      localResult
-    );
+    const localResult =
+      await options.localPolicy.runtime.evaluateDirectSend(localRuntimeInput);
+    return executeDirectLocalSend(client, input, sendPayload, localResult);
   }
 
   return sendMahiloTransportMessage(client, sendPayload, {
@@ -687,11 +721,11 @@ async function executeDirectLocalSend(
   client: MahiloContractClient,
   input: MahiloSendToolInput,
   sendPayload: Record<string, unknown>,
-  localResult: LocalDirectPolicyRuntimeResult
+  localResult: LocalDirectPolicyRuntimeResult,
 ): Promise<MahiloToolResult> {
   const commitResponse = await client.commitLocalDecision(
     localResult.commit_payload as unknown as Record<string, unknown>,
-    input.idempotencyKey
+    input.idempotencyKey,
   );
 
   if (localResult.local_decision.decision !== "allow") {
@@ -712,7 +746,7 @@ async function executeDirectLocalSend(
       fallbackRecipient: localResult.recipient.username,
       idempotencyKey: input.idempotencyKey,
       resolutionId: localResult.bundle_metadata.resolution_id,
-    }
+    },
   );
 }
 
@@ -729,7 +763,7 @@ async function executeGroupLocalSend(
   client: MahiloContractClient,
   input: MahiloSendToolInput,
   sendPayload: Record<string, unknown>,
-  localResult: LocalGroupPolicyRuntimeResult
+  localResult: LocalGroupPolicyRuntimeResult,
 ): Promise<MahiloToolResult> {
   const committedRecipients: Array<{
     idempotencyKey?: string;
@@ -740,16 +774,16 @@ async function executeGroupLocalSend(
   for (const recipientResult of localResult.recipient_results) {
     const idempotencyKey = deriveRecipientIdempotencyKey(
       input.idempotencyKey,
-      recipientResult.recipient
+      recipientResult.recipient,
     );
     const commitResponse = await client.commitLocalDecision(
       buildLocalGroupCommitPayload(
         localResult,
         recipientResult,
         input,
-        idempotencyKey
+        idempotencyKey,
       ),
-      idempotencyKey
+      idempotencyKey,
     );
 
     committedRecipients.push({
@@ -766,7 +800,9 @@ async function executeGroupLocalSend(
       recipientResults.push({
         deliveryStatus:
           readDeliveryStatus(recipient.response) ??
-          localDecisionDeliveryStatus(recipient.localResult.local_decision.decision),
+          localDecisionDeliveryStatus(
+            recipient.localResult.local_decision.decision,
+          ),
         localResult: recipient.localResult,
         response: recipient.response,
         transported: false,
@@ -780,9 +816,9 @@ async function executeGroupLocalSend(
           sendPayload,
           localResult.selector_context,
           recipient.localResult,
-          recipient.idempotencyKey
+          recipient.idempotencyKey,
         ),
-        recipient.idempotencyKey
+        recipient.idempotencyKey,
       );
 
       recipientResults.push({
@@ -803,7 +839,10 @@ async function executeGroupLocalSend(
     }
   }
 
-  const syntheticResponse = buildSyntheticLocalGroupResponse(localResult, recipientResults);
+  const syntheticResponse = buildSyntheticLocalGroupResponse(
+    localResult,
+    recipientResults,
+  );
   const includeReason =
     localResult.aggregate.partial_delivery ||
     recipientResults.some((result) => result.deliveryStatus !== "delivered");
@@ -829,9 +868,12 @@ async function sendMahiloTransportMessage(
     idempotencyKey?: string;
     reason?: string;
     resolutionId?: string;
-  }
+  },
 ): Promise<MahiloToolResult> {
-  const sendResponse = await client.sendMessage(payload, options.idempotencyKey);
+  const sendResponse = await client.sendMessage(
+    payload,
+    options.idempotencyKey,
+  );
 
   return buildMahiloToolResult({
     fallbackDecision: options.fallbackDecision,
@@ -850,15 +892,20 @@ function buildMahiloToolResult(options: {
   resolutionId?: string;
   response?: unknown;
 }): MahiloToolResult {
-  const sendDecision = extractDecision(options.response, options.fallbackDecision);
+  const sendDecision = extractDecision(
+    options.response,
+    options.fallbackDecision,
+  );
   const sendOutcomeSummary = summarizeMahiloSendOutcome(
     options.response,
     sendDecision,
-    options.fallbackRecipient
+    options.fallbackRecipient,
   );
 
   const messageId =
-    options.includeMessageId === false ? undefined : extractMessageId(options.response);
+    options.includeMessageId === false
+      ? undefined
+      : extractMessageId(options.response);
 
   return {
     decision: sendDecision,
@@ -867,13 +914,13 @@ function buildMahiloToolResult(options: {
     reason: options.reason ?? sendOutcomeSummary.reason,
     resolutionId: extractResolutionId(options.response) ?? options.resolutionId,
     response: options.response,
-    status: sendOutcomeSummary.status
+    status: sendOutcomeSummary.status,
   };
 }
 
 function mergeLocalTransportPayload(
   sendPayload: Record<string, unknown>,
-  transportPayload: LocalPolicyTransportPayload
+  transportPayload: LocalPolicyTransportPayload,
 ): Record<string, unknown> {
   return compactObject({
     ...sendPayload,
@@ -887,13 +934,13 @@ function mergeLocalTransportPayload(
     recipient: transportPayload.recipient,
     recipient_type: transportPayload.recipient_type,
     resolution_id: transportPayload.resolution_id,
-    sender_connection_id: transportPayload.sender_connection_id
+    sender_connection_id: transportPayload.sender_connection_id,
   });
 }
 
 function buildSyntheticLocalGroupResponse(
   localResult: LocalGroupPolicyRuntimeResult,
-  recipientResults: LocalGroupRecipientExecutionResult[]
+  recipientResults: LocalGroupRecipientExecutionResult[],
 ): Record<string, unknown> {
   const responseRecipientResults = recipientResults.map((result) =>
     compactObject({
@@ -910,16 +957,18 @@ function buildSyntheticLocalGroupResponse(
       recipient_type: result.localResult.recipient_type,
       resolution_id: result.localResult.resolution_id,
       roles:
-        result.localResult.roles.length > 0 ? result.localResult.roles : undefined,
-    })
+        result.localResult.roles.length > 0
+          ? result.localResult.roles
+          : undefined,
+    }),
   );
   const counts = countLocalGroupDeliveryStatuses(recipientResults);
   const recipientsTotal = responseRecipientResults.length;
   const distinctDecisions = new Set(
-    responseRecipientResults.map((result) => result.decision)
+    responseRecipientResults.map((result) => result.decision),
   );
   const distinctStatuses = new Set(
-    responseRecipientResults.map((result) => result.delivery_status)
+    responseRecipientResults.map((result) => result.delivery_status),
   );
   const partialDelivery =
     recipientsTotal > 0 &&
@@ -927,7 +976,8 @@ function buildSyntheticLocalGroupResponse(
   const aggregateDecision = localResult.aggregate.decision;
   const aggregateDeliveryMode = resolveAggregateDeliveryMode(aggregateDecision);
   const representative = recipientResults.find(
-    (result) => result.localResult.local_decision.decision === aggregateDecision
+    (result) =>
+      result.localResult.local_decision.decision === aggregateDecision,
   );
   const summary =
     recipientsTotal === 0
@@ -935,14 +985,14 @@ function buildSyntheticLocalGroupResponse(
       : partialDelivery
         ? formatAggregateSummary(
             localResult.aggregate_metadata.partial_summary_template,
-            counts
+            counts,
           )
-        : representative?.localResult.local_decision.summary ??
-          localResult.aggregate.summary;
+        : (representative?.localResult.local_decision.summary ??
+          localResult.aggregate.summary);
   const reasonCode = partialDelivery
     ? localResult.aggregate_metadata.partial_reason_code
-    : representative?.localResult.local_decision.reason_code ??
-      localResult.aggregate.reason_code;
+    : (representative?.localResult.local_decision.reason_code ??
+      localResult.aggregate.reason_code);
 
   let status = "delivered";
   if (counts.pending > 0) {
@@ -988,7 +1038,7 @@ function buildSyntheticLocalGroupResponse(
 }
 
 function countLocalGroupDeliveryStatuses(
-  recipientResults: LocalGroupRecipientExecutionResult[]
+  recipientResults: LocalGroupRecipientExecutionResult[],
 ): {
   delivered: number;
   denied: number;
@@ -1025,7 +1075,7 @@ function countLocalGroupDeliveryStatuses(
       failed: 0,
       pending: 0,
       review_required: 0,
-    }
+    },
   );
 }
 
@@ -1037,7 +1087,7 @@ function formatAggregateSummary(
     failed: number;
     pending: number;
     review_required: number;
-  }
+  },
 ): string {
   return template
     .replace("{delivered}", String(counts.delivered))
@@ -1063,12 +1113,13 @@ function buildLocalGroupCommitPayload(
   localResult: LocalGroupPolicyRuntimeResult,
   recipientResult: LocalGroupPolicyRuntimeResult["recipient_results"][number],
   input: MahiloSendToolInput,
-  idempotencyKey?: string
+  idempotencyKey?: string,
 ): Record<string, unknown> {
   return compactObject({
     context: input.context,
     correlation_id: input.correlationId,
     declared_selectors: localResult.selector_context,
+    group_id: localResult.group.id,
     idempotency_key: idempotencyKey,
     local_decision: recipientResult.local_decision,
     message: input.message,
@@ -1076,7 +1127,8 @@ function buildLocalGroupCommitPayload(
     recipient: recipientResult.recipient,
     recipient_type: "user",
     resolution_id: recipientResult.resolution_id,
-    sender_connection_id: localResult.authenticated_identity.sender_connection_id,
+    sender_connection_id:
+      localResult.authenticated_identity.sender_connection_id,
   });
 }
 
@@ -1084,7 +1136,7 @@ function buildLocalGroupRecipientTransportPayload(
   sendPayload: Record<string, unknown>,
   selectorContext: DeclaredSelectors,
   recipientResult: LocalGroupPolicyRuntimeResult["recipient_results"][number],
-  idempotencyKey?: string
+  idempotencyKey?: string,
 ): Record<string, unknown> {
   return compactObject({
     ...sendPayload,
@@ -1111,14 +1163,17 @@ function localDecisionDeliveryStatus(decision: PolicyDecision): string {
 
 function deriveRecipientIdempotencyKey(
   baseKey: string | undefined,
-  recipient: string
+  recipient: string,
 ): string | undefined {
   const normalizedBaseKey = readString(baseKey);
   if (!normalizedBaseKey) {
     return undefined;
   }
 
-  const normalizedRecipient = recipient.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "_");
+  const normalizedRecipient = recipient
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_");
   return `${normalizedBaseKey}:${normalizedRecipient}`;
 }
 
@@ -1149,7 +1204,9 @@ function readDeliveryStatus(response: unknown): string | undefined {
       ? readObject(nestedRecipientResults[0])
       : undefined;
   if (firstNestedRecipientResult) {
-    const deliveryStatus = readString(firstNestedRecipientResult.delivery_status);
+    const deliveryStatus = readString(
+      firstNestedRecipientResult.delivery_status,
+    );
     if (deliveryStatus) {
       return deliveryStatus;
     }
@@ -1167,7 +1224,7 @@ function buildSendPayload(
   recipientType: "group" | "user",
   input: MahiloSendToolInput,
   context: MahiloToolContext,
-  normalizedSelectors: DeclaredSelectors
+  normalizedSelectors: DeclaredSelectors,
 ): Record<string, unknown> {
   return compactObject({
     agent_session_id: context.agentSessionId,
@@ -1181,11 +1238,13 @@ function buildSendPayload(
     recipient_connection_id: input.recipientConnectionId,
     recipient_type: recipientType,
     routing_hints: input.routingHints,
-    sender_connection_id: context.senderConnectionId
+    sender_connection_id: context.senderConnectionId,
   });
 }
 
-function compactObject(value: Record<string, unknown>): Record<string, unknown> {
+function compactObject(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
   const compacted: Record<string, unknown> = {};
 
   for (const [key, candidate] of Object.entries(value)) {
@@ -1207,14 +1266,22 @@ interface ResolvedMahiloFriendConnectionDirectory {
 }
 
 function hasMahiloSocialContactSupport(
-  client: MahiloContractClient
+  client: MahiloContractClient,
 ): client is MahiloContractClient & {
-  getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
-  listFriendships: (params?: { status?: string }) => Promise<MahiloFriendshipSummary[]>;
+  getFriendAgentConnections: (
+    username: string,
+  ) => Promise<MahiloFriendConnectionDirectory>;
+  listFriendships: (params?: {
+    status?: string;
+  }) => Promise<MahiloFriendshipSummary[]>;
 } {
   const typedClient = client as MahiloContractClient & {
-    getFriendAgentConnections?: (username: string) => Promise<MahiloFriendConnectionDirectory>;
-    listFriendships?: (params?: { status?: string }) => Promise<MahiloFriendshipSummary[]>;
+    getFriendAgentConnections?: (
+      username: string,
+    ) => Promise<MahiloFriendConnectionDirectory>;
+    listFriendships?: (params?: {
+      status?: string;
+    }) => Promise<MahiloFriendshipSummary[]>;
   };
 
   return (
@@ -1225,13 +1292,19 @@ function hasMahiloSocialContactSupport(
 
 async function listMahiloContactsFromServer(
   client: MahiloContractClient & {
-    getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
-    listFriendships: (params?: { status?: string }) => Promise<MahiloFriendshipSummary[]>;
-  }
+    getFriendAgentConnections: (
+      username: string,
+    ) => Promise<MahiloFriendConnectionDirectory>;
+    listFriendships: (params?: {
+      status?: string;
+    }) => Promise<MahiloFriendshipSummary[]>;
+  },
 ): Promise<MahiloContact[]> {
   const friendships = await client.listFriendships({ status: "accepted" });
   const contacts = await Promise.all(
-    friendships.map((friendship) => buildMahiloContactFromFriendship(client, friendship))
+    friendships.map((friendship) =>
+      buildMahiloContactFromFriendship(client, friendship),
+    ),
   );
 
   return contacts.sort(compareMahiloContacts);
@@ -1239,15 +1312,24 @@ async function listMahiloContactsFromServer(
 
 async function buildMahiloContactFromFriendship(
   client: MahiloContractClient & {
-    getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
+    getFriendAgentConnections: (
+      username: string,
+    ) => Promise<MahiloFriendConnectionDirectory>;
   },
-  friendship: MahiloFriendshipSummary
+  friendship: MahiloFriendshipSummary,
 ): Promise<MahiloContact> {
-  const directory = await resolveFriendConnectionDirectory(client, friendship.username);
+  const directory = await resolveFriendConnectionDirectory(
+    client,
+    friendship.username,
+  );
   const connections = sortMahiloConnections(directory.connections);
   const primaryConnection = pickPrimaryContactConnection(connections);
-  const id = readString(friendship.username) ?? readString(friendship.userId) ?? friendship.friendshipId;
-  const label = readString(friendship.displayName) ?? readString(friendship.username) ?? id;
+  const id =
+    readString(friendship.username) ??
+    readString(friendship.userId) ??
+    friendship.friendshipId;
+  const label =
+    readString(friendship.displayName) ?? readString(friendship.username) ?? id;
 
   return {
     connectionId: primaryConnection?.id,
@@ -1266,23 +1348,25 @@ async function buildMahiloContactFromFriendship(
       since: friendship.since,
       status: friendship.status,
       username: friendship.username,
-      userId: friendship.userId
+      userId: friendship.userId,
     }),
-    type: "user"
+    type: "user",
   };
 }
 
 async function resolveFriendConnectionDirectory(
   client: MahiloContractClient & {
-    getFriendAgentConnections: (username: string) => Promise<MahiloFriendConnectionDirectory>;
+    getFriendAgentConnections: (
+      username: string,
+    ) => Promise<MahiloFriendConnectionDirectory>;
   },
-  username?: string
+  username?: string,
 ): Promise<ResolvedMahiloFriendConnectionDirectory> {
   if (!username) {
     return {
       connections: [],
       raw: undefined,
-      state: "not_found"
+      state: "not_found",
     };
   }
 
@@ -1292,26 +1376,26 @@ async function resolveFriendConnectionDirectory(
       connections: directory.connections,
       raw: directory.raw,
       state: directory.state,
-      username: directory.username
+      username: directory.username,
     };
   } catch (error) {
     return {
       connections: [],
       raw: error,
       state: mapMahiloContactConnectionState(error),
-      username
+      username,
     };
   }
 }
 
 function pickPrimaryContactConnection(
-  connections: MahiloAgentConnectionSummary[]
+  connections: MahiloAgentConnectionSummary[],
 ): MahiloAgentConnectionSummary | undefined {
   return sortMahiloConnections(connections)[0];
 }
 
 function sortMahiloConnections(
-  connections: MahiloAgentConnectionSummary[]
+  connections: MahiloAgentConnectionSummary[],
 ): MahiloAgentConnectionSummary[] {
   return [...connections].sort((left, right) => {
     const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
@@ -1330,7 +1414,10 @@ function sortMahiloConnections(
   });
 }
 
-function compareMahiloContacts(left: MahiloContact, right: MahiloContact): number {
+function compareMahiloContacts(
+  left: MahiloContact,
+  right: MahiloContact,
+): number {
   const labelComparison = left.label.localeCompare(right.label);
   if (labelComparison !== 0) {
     return labelComparison;
@@ -1339,7 +1426,9 @@ function compareMahiloContacts(left: MahiloContact, right: MahiloContact): numbe
   return left.id.localeCompare(right.id);
 }
 
-function mapMahiloContactConnectionState(error: unknown): MahiloContactConnectionState {
+function mapMahiloContactConnectionState(
+  error: unknown,
+): MahiloContactConnectionState {
   if (error instanceof MahiloRequestError) {
     switch (error.productState) {
       case "blocked":
@@ -1375,7 +1464,11 @@ function extractMessageId(value: unknown): string | undefined {
   }
 
   const result = readObject(root.result);
-  if (result && typeof result.message_id === "string" && result.message_id.length > 0) {
+  if (
+    result &&
+    typeof result.message_id === "string" &&
+    result.message_id.length > 0
+  ) {
     return result.message_id;
   }
 
@@ -1404,11 +1497,12 @@ function summarizePreviewResponse(
   response: unknown,
   fallbackSelectors: DeclaredSelectors,
   fallbackRecipient: string,
-  fallbackRecipientType: "group" | "user"
+  fallbackRecipientType: "group" | "user",
 ): MahiloPreviewResult {
   const root = readObject(response);
   const result = root ? readObject(root.result) : undefined;
-  const resolution = readObject(root?.resolution) ?? readObject(result?.resolution);
+  const resolution =
+    readObject(root?.resolution) ?? readObject(result?.resolution);
   const decision = extractDecision(response);
   const deliveryMode =
     readString(root?.delivery_mode) ??
@@ -1424,19 +1518,28 @@ function summarizePreviewResponse(
     readResolutionSummary(root) ??
     readResolutionSummary(result);
   const resolvedRecipient =
-    readPreviewResolvedRecipient(root?.resolved_recipient, fallbackRecipient, fallbackRecipientType) ??
-    readPreviewResolvedRecipient(result?.resolved_recipient, fallbackRecipient, fallbackRecipientType);
-  const review = readPreviewReview(root?.review) ?? readPreviewReview(result?.review);
+    readPreviewResolvedRecipient(
+      root?.resolved_recipient,
+      fallbackRecipient,
+      fallbackRecipientType,
+    ) ??
+    readPreviewResolvedRecipient(
+      result?.resolved_recipient,
+      fallbackRecipient,
+      fallbackRecipientType,
+    );
+  const review =
+    readPreviewReview(root?.review) ?? readPreviewReview(result?.review);
   const recipientResults = readPreviewRecipientResults(
     root?.recipient_results ?? result?.recipient_results,
     fallbackRecipient,
     decision,
-    deliveryMode
+    deliveryMode,
   );
 
   return {
     agentGuidance: normalizeBoundaryLanguage(
-      readString(root?.agent_guidance) ?? readString(result?.agent_guidance)
+      readString(root?.agent_guidance) ?? readString(result?.agent_guidance),
     ),
     decision,
     deliveryMode,
@@ -1449,32 +1552,40 @@ function summarizePreviewResponse(
     review,
     serverSelectors: readPreviewSelectors(
       root?.server_selectors ?? result?.server_selectors,
-      fallbackSelectors
+      fallbackSelectors,
     ),
-    recipientResults
+    recipientResults,
   };
 }
 
-function normalizeBoundaryLanguage(value: string | undefined): string | undefined {
+function normalizeBoundaryLanguage(
+  value: string | undefined,
+): string | undefined {
   if (!value) {
     return undefined;
   }
 
-  return value.replace(
-    /\bcreate an override\b/giu,
-    "adjust boundaries"
-  );
+  return value.replace(/\bcreate an override\b/giu, "adjust boundaries");
 }
 
 export function summarizeMahiloSendOutcome(
   response: unknown,
   fallbackDecision: PolicyDecision,
-  fallbackRecipient: string
+  fallbackRecipient: string,
 ): MahiloSendOutcomeSummary {
   const root = readObject(response);
   const result = root ? readObject(root.result) : undefined;
-  const inferredOutcome = inferOutcomeFromResponse(root, result, fallbackDecision);
-  const recipientResults = readRecipientOutcomes(root, result, inferredOutcome, fallbackRecipient);
+  const inferredOutcome = inferOutcomeFromResponse(
+    root,
+    result,
+    fallbackDecision,
+  );
+  const recipientResults = readRecipientOutcomes(
+    root,
+    result,
+    inferredOutcome,
+    fallbackRecipient,
+  );
   const outcome = deriveAggregateOutcome(recipientResults, inferredOutcome);
   const reason = deriveOutcomeReason(outcome, root, result);
 
@@ -1482,14 +1593,14 @@ export function summarizeMahiloSendOutcome(
     outcome,
     reason,
     recipientResults,
-    status: outcomeToToolStatus(outcome)
+    status: outcomeToToolStatus(outcome),
   };
 }
 
 function inferOutcomeFromResponse(
   root: Record<string, unknown> | undefined,
   result: Record<string, unknown> | undefined,
-  fallbackDecision: PolicyDecision
+  fallbackDecision: PolicyDecision,
 ): ReportedOutcome {
   const status = readString(root?.status) ?? readString(result?.status);
   if (status === "review_required" || status === "approval_pending") {
@@ -1505,8 +1616,12 @@ function inferOutcomeFromResponse(
     return "partial_sent";
   }
 
-  const deliveryStatus = readString(root?.delivery_status) ?? readString(result?.delivery_status);
-  if (deliveryStatus === "review_required" || deliveryStatus === "approval_pending") {
+  const deliveryStatus =
+    readString(root?.delivery_status) ?? readString(result?.delivery_status);
+  if (
+    deliveryStatus === "review_required" ||
+    deliveryStatus === "approval_pending"
+  ) {
     return "review_requested";
   }
   if (deliveryStatus === "rejected") {
@@ -1516,9 +1631,13 @@ function inferOutcomeFromResponse(
     return "send_failed";
   }
 
-  const resolution = readObject(root?.resolution) ?? readObject(result?.resolution);
+  const resolution =
+    readObject(root?.resolution) ?? readObject(result?.resolution);
   const deliveryMode = readString(resolution?.delivery_mode);
-  if (deliveryMode === "review_required" || deliveryMode === "hold_for_approval") {
+  if (
+    deliveryMode === "review_required" ||
+    deliveryMode === "hold_for_approval"
+  ) {
     return "review_requested";
   }
   if (deliveryMode === "blocked") {
@@ -1539,7 +1658,7 @@ function readRecipientOutcomes(
   root: Record<string, unknown> | undefined,
   result: Record<string, unknown> | undefined,
   fallbackOutcome: ReportedOutcome,
-  fallbackRecipient: string
+  fallbackRecipient: string,
 ): MahiloRecipientOutcome[] | undefined {
   const rawResults = Array.isArray(root?.recipient_results)
     ? root.recipient_results
@@ -1561,7 +1680,7 @@ function readRecipientOutcomes(
 
     normalizedResults.push({
       outcome: inferRecipientOutcome(recipientResult, fallbackOutcome),
-      recipient
+      recipient,
     });
   }
 
@@ -1573,8 +1692,8 @@ function readRecipientOutcomes(
     return [
       {
         outcome: fallbackOutcome,
-        recipient: fallbackRecipient
-      }
+        recipient: fallbackRecipient,
+      },
     ];
   }
 
@@ -1583,13 +1702,16 @@ function readRecipientOutcomes(
 
 function inferRecipientOutcome(
   recipientResult: Record<string, unknown>,
-  fallbackOutcome: ReportedOutcome
+  fallbackOutcome: ReportedOutcome,
 ): ReportedOutcome {
   const deliveryStatus = readString(recipientResult.delivery_status);
   if (deliveryStatus === "delivered") {
     return "sent";
   }
-  if (deliveryStatus === "review_required" || deliveryStatus === "approval_pending") {
+  if (
+    deliveryStatus === "review_required" ||
+    deliveryStatus === "approval_pending"
+  ) {
     return "review_requested";
   }
   if (deliveryStatus === "rejected") {
@@ -1600,7 +1722,10 @@ function inferRecipientOutcome(
   }
 
   const deliveryMode = readString(recipientResult.delivery_mode);
-  if (deliveryMode === "review_required" || deliveryMode === "hold_for_approval") {
+  if (
+    deliveryMode === "review_required" ||
+    deliveryMode === "hold_for_approval"
+  ) {
     return "review_requested";
   }
   if (deliveryMode === "blocked") {
@@ -1620,7 +1745,7 @@ function inferRecipientOutcome(
 
 function deriveAggregateOutcome(
   recipientResults: MahiloRecipientOutcome[] | undefined,
-  fallbackOutcome: ReportedOutcome
+  fallbackOutcome: ReportedOutcome,
 ): ReportedOutcome {
   if (!recipientResults || recipientResults.length === 0) {
     return fallbackOutcome;
@@ -1641,7 +1766,7 @@ function deriveAggregateOutcome(
 function deriveOutcomeReason(
   outcome: ReportedOutcome,
   root: Record<string, unknown> | undefined,
-  result: Record<string, unknown> | undefined
+  result: Record<string, unknown> | undefined,
 ): string | undefined {
   const summary =
     readResolutionSummary(root) ??
@@ -1662,7 +1787,9 @@ function deriveOutcomeReason(
   return undefined;
 }
 
-function outcomeToToolStatus(outcome: ReportedOutcome): MahiloToolResult["status"] {
+function outcomeToToolStatus(
+  outcome: ReportedOutcome,
+): MahiloToolResult["status"] {
   if (outcome === "review_requested") {
     return "review_required";
   }
@@ -1679,7 +1806,9 @@ function outcomeToToolStatus(outcome: ReportedOutcome): MahiloToolResult["status
   return "sent";
 }
 
-function readResolutionSummary(value: Record<string, unknown> | undefined): string | undefined {
+function readResolutionSummary(
+  value: Record<string, unknown> | undefined,
+): string | undefined {
   const resolution = readObject(value?.resolution);
   if (!resolution) {
     return undefined;
@@ -1695,7 +1824,7 @@ function readResolutionSummary(value: Record<string, unknown> | undefined): stri
 function readPreviewResolvedRecipient(
   value: unknown,
   fallbackRecipient: string,
-  fallbackRecipientType: "group" | "user"
+  fallbackRecipientType: "group" | "user",
 ): MahiloPreviewResolvedRecipient | undefined {
   const recipient = readObject(value);
   const resolvedRecipient =
@@ -1715,7 +1844,7 @@ function readPreviewResolvedRecipient(
     recipientType:
       readRecipientType(recipient?.recipient_type) ??
       readRecipientType(recipient?.recipientType) ??
-      fallbackRecipientType
+      fallbackRecipientType,
   };
 }
 
@@ -1742,7 +1871,7 @@ function readPreviewReview(value: unknown): MahiloPreviewReview | undefined {
 
 function readPreviewSelectors(
   value: unknown,
-  fallbackSelectors: DeclaredSelectors
+  fallbackSelectors: DeclaredSelectors,
 ): DeclaredSelectors {
   const selectors = readObject(value);
   if (!selectors) {
@@ -1753,9 +1882,9 @@ function readPreviewSelectors(
     {
       action: readString(selectors.action),
       direction: readSelectorDirection(selectors.direction),
-      resource: readString(selectors.resource)
+      resource: readString(selectors.resource),
     },
-    fallbackSelectors.direction
+    fallbackSelectors.direction,
   );
 }
 
@@ -1763,7 +1892,7 @@ function readPreviewRecipientResults(
   value: unknown,
   fallbackRecipient: string,
   fallbackDecision: PolicyDecision,
-  fallbackDeliveryMode?: string
+  fallbackDeliveryMode?: string,
 ): MahiloPreviewRecipientResult[] {
   const recipientResults: MahiloPreviewRecipientResult[] = [];
   const rawResults = Array.isArray(value) ? value : [];
@@ -1782,7 +1911,7 @@ function readPreviewRecipientResults(
     recipientResults.push({
       decision: extractDecision(recipientResult, fallbackDecision),
       deliveryMode: readString(recipientResult.delivery_mode),
-      recipient
+      recipient,
     });
   }
 
@@ -1798,8 +1927,8 @@ function readPreviewRecipientResults(
     {
       decision: fallbackDecision,
       deliveryMode: fallbackDeliveryMode,
-      recipient: fallbackRecipient
-    }
+      recipient: fallbackRecipient,
+    },
   ];
 }
 
@@ -1807,8 +1936,12 @@ function readRecipientType(value: unknown): "group" | "user" | undefined {
   return value === "group" || value === "user" ? value : undefined;
 }
 
-function readSelectorDirection(value: unknown): DeclaredSelectors["direction"] | undefined {
-  return normalizeSelectorDirection(typeof value === "string" ? value : undefined);
+function readSelectorDirection(
+  value: unknown,
+): DeclaredSelectors["direction"] | undefined {
+  return normalizeSelectorDirection(
+    typeof value === "string" ? value : undefined,
+  );
 }
 
 function toErrorMessage(error: unknown): string {

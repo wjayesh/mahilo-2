@@ -9,7 +9,7 @@ import {
   talkToAgent,
   talkToGroup,
   type LocalDirectPolicyRuntimeResult,
-  type LocalGroupPolicyRuntimeResult
+  type LocalGroupPolicyRuntimeResult,
 } from "../src";
 
 type Decision = "allow" | "ask" | "deny";
@@ -21,64 +21,74 @@ interface MockClientState {
   friendConnectionsByUsername: Record<string, unknown[]>;
   friendshipCalls: Array<{ status?: string }>;
   friendshipsResponse: unknown;
-  localDecisionCommitCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
-  overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  localDecisionCommitCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
+  overrideCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
   overrideResponse: unknown;
-  outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  outcomeCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
   promptContextCalls: Array<Record<string, unknown>>;
   promptContextResponse: unknown;
   reportOutcomeError?: Error;
   resolveCalls: Array<Record<string, unknown>>;
   resolveResponse: unknown;
-  sendCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
+  sendCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
   sendResponse: unknown;
 }
 
-function createMockClient(options: {
-  agentConnectionsResponse?: unknown;
-  friendConnectionsByUsername?: Record<string, unknown[]>;
-  friendshipsResponse?: unknown;
-  localDecisionCommitResponse?: unknown;
-  overrideResponse?: unknown;
-  promptContextResponse?: unknown;
-  reportOutcomeError?: Error;
-  resolveResponse?: unknown;
-  sendResponse?: unknown;
-} = {}) {
+function createMockClient(
+  options: {
+    agentConnectionsResponse?: unknown;
+    friendConnectionsByUsername?: Record<string, unknown[]>;
+    friendshipsResponse?: unknown;
+    localDecisionCommitResponse?: unknown;
+    overrideResponse?: unknown;
+    promptContextResponse?: unknown;
+    reportOutcomeError?: Error;
+    resolveResponse?: unknown;
+    sendResponse?: unknown;
+  } = {},
+) {
   const state: MockClientState = {
     agentConnectionCalls: 0,
-    agentConnectionsResponse:
-      options.agentConnectionsResponse ??
-      [
-        {
-          active: true,
-          framework: "openclaw",
-          id: "conn_sender_default",
-          label: "default"
-        }
-      ],
+    agentConnectionsResponse: options.agentConnectionsResponse ?? [
+      {
+        active: true,
+        framework: "openclaw",
+        id: "conn_sender_default",
+        label: "default",
+      },
+    ],
     friendConnectionCalls: [],
     friendConnectionsByUsername: options.friendConnectionsByUsername ?? {},
     friendshipCalls: [],
-    friendshipsResponse:
-      options.friendshipsResponse ??
-      [
-        {
-          direction: "sent",
-          displayName: "Alice",
-          friendshipId: "fr_alice",
-          roles: ["friends"],
-          status: "accepted",
-          userId: "usr_alice",
-          username: "alice"
-        }
-      ],
+    friendshipsResponse: options.friendshipsResponse ?? [
+      {
+        direction: "sent",
+        displayName: "Alice",
+        friendshipId: "fr_alice",
+        roles: ["friends"],
+        status: "accepted",
+        userId: "usr_alice",
+        username: "alice",
+      },
+    ],
     localDecisionCommitCalls: [],
     overrideCalls: [],
     overrideResponse: options.overrideResponse ?? {
       created: true,
       kind: "one_time",
-      policy_id: "pol_789"
+      policy_id: "pol_789",
     },
     outcomeCalls: [],
     promptContextCalls: [],
@@ -86,38 +96,47 @@ function createMockClient(options: {
       policy_guidance: {
         default_decision: "ask",
         reason_code: "context.ask.role.structured",
-        summary: "Share only high-level details."
+        summary: "Share only high-level details.",
       },
       recipient: {
         relationship: "friend",
         roles: ["close_friends"],
-        username: "alice"
+        username: "alice",
       },
       suggested_selectors: {
         action: "share",
         direction: "outbound",
-        resource: "message.general"
-      }
+        resource: "message.general",
+      },
     },
     reportOutcomeError: options.reportOutcomeError,
     resolveCalls: [],
     resolveResponse: options.resolveResponse ?? {
       decision: "allow",
-      resolution_id: "res_123"
+      resolution_id: "res_123",
     },
     sendCalls: [],
     sendResponse: options.sendResponse ?? {
       deduplicated: false,
-      message_id: "msg_123"
-    }
+      message_id: "msg_123",
+    },
   };
 
   const client = {
-    commitLocalDecision: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+    commitLocalDecision: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
       state.localDecisionCommitCalls.push({ idempotencyKey, payload });
-      return options.localDecisionCommitResponse ?? buildLocalDecisionCommitResponse(payload);
+      return (
+        options.localDecisionCommitResponse ??
+        buildLocalDecisionCommitResponse(payload)
+      );
     },
-    createOverride: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+    createOverride: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
       state.overrideCalls.push({ idempotencyKey, payload });
       return state.overrideResponse;
     },
@@ -132,7 +151,7 @@ function createMockClient(options: {
         connections,
         raw: connections,
         state: connections.length > 0 ? "available" : "no_active_connections",
-        username
+        username,
       };
     },
     listOwnAgentConnections: async () => {
@@ -143,7 +162,10 @@ function createMockClient(options: {
       state.friendshipCalls.push(params ?? {});
       return state.friendshipsResponse;
     },
-    reportOutcome: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+    reportOutcome: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
       state.outcomeCalls.push({ idempotencyKey, payload });
       if (state.reportOutcomeError) {
         throw state.reportOutcomeError;
@@ -155,27 +177,32 @@ function createMockClient(options: {
       state.resolveCalls.push(payload);
       return state.resolveResponse;
     },
-    sendMessage: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+    sendMessage: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
       state.sendCalls.push({ idempotencyKey, payload });
       return state.sendResponse;
-    }
+    },
   };
 
   return {
     client: client as never,
-    state
+    state,
   };
 }
 
 function createResolveResponse(decision: Decision) {
   return {
     decision,
-    resolution_id: "res_123"
+    resolution_id: "res_123",
   };
 }
 
 function buildLocalDecisionCommitResponse(payload: Record<string, unknown>) {
-  const localDecision = payload.local_decision as Record<string, unknown> | undefined;
+  const localDecision = payload.local_decision as
+    | Record<string, unknown>
+    | undefined;
   const decision = (localDecision?.decision as Decision | undefined) ?? "allow";
   const deliveryMode =
     (localDecision?.delivery_mode as string | undefined) ??
@@ -208,8 +235,8 @@ function buildLocalDecisionCommitResponse(payload: Record<string, unknown>) {
         decision,
         delivery_mode: deliveryMode,
         delivery_status: deliveryStatus,
-        recipient
-      }
+        recipient,
+      },
     ],
     resolution: {
       decision,
@@ -224,15 +251,15 @@ function buildLocalDecisionCommitResponse(payload: Record<string, unknown>) {
           ? localDecision.summary
           : typeof localDecision?.reason === "string"
             ? localDecision.reason
-            : undefined
+            : undefined,
     },
-    status
+    status,
   };
 }
 
 function createLocalDirectResult(
   decision: Decision,
-  overrides: Partial<LocalDirectPolicyRuntimeResult> = {}
+  overrides: Partial<LocalDirectPolicyRuntimeResult> = {},
 ): LocalDirectPolicyRuntimeResult {
   const deliveryMode =
     decision === "allow"
@@ -246,7 +273,8 @@ function createLocalDirectResult(
       : decision === "ask"
         ? "Message requires review before delivery."
         : "Message blocked by policy.";
-  const resolutionId = overrides.bundle_metadata?.resolution_id ?? "res_local_direct_1";
+  const resolutionId =
+    overrides.bundle_metadata?.resolution_id ?? "res_local_direct_1";
   const recipient = overrides.recipient?.username ?? "alice";
   const senderConnectionId =
     overrides.authenticated_identity?.sender_connection_id ?? "conn_sender";
@@ -255,21 +283,21 @@ function createLocalDirectResult(
     authenticated_identity: {
       sender_connection_id: senderConnectionId,
       sender_user_id: "usr_sender",
-      ...overrides.authenticated_identity
+      ...overrides.authenticated_identity,
     },
     bundle_metadata: {
       bundle_id: "bundle_local_direct_1",
       expires_at: "2026-03-14T10:35:00.000Z",
       issued_at: "2026-03-14T10:30:00.000Z",
       resolution_id: resolutionId,
-      ...overrides.bundle_metadata
+      ...overrides.bundle_metadata,
     },
     bundle_type: "direct_send",
     commit_payload: {
       declared_selectors: {
         action: "share",
         direction: "outbound",
-        resource: "message.general"
+        resource: "message.general",
       },
       local_decision: {
         decision,
@@ -283,19 +311,19 @@ function createLocalDirectResult(
               ? "policy.ask.user.structured"
               : "policy.deny.user.structured",
         resolution_explanation: summary,
-        summary
+        summary,
       },
       message: "hello",
       payload_type: "text/plain",
       recipient,
       recipient_type: "user",
       resolution_id: resolutionId,
-      sender_connection_id: senderConnectionId
+      sender_connection_id: senderConnectionId,
     },
     contract_version: "1.0.0",
     llm: {
       provider_defaults: null,
-      subject: recipient
+      subject: recipient,
     },
     local_decision: {
       decision,
@@ -309,19 +337,19 @@ function createLocalDirectResult(
             ? "policy.ask.user.structured"
             : "policy.deny.user.structured",
       resolution_explanation: summary,
-      summary
+      summary,
     },
     recipient: {
       id: "usr_alice",
       type: "user",
       username: recipient,
-      ...overrides.recipient
+      ...overrides.recipient,
     },
     recipient_results: [
       {
         llm: {
           provider_defaults: null,
-          subject: recipient
+          subject: recipient,
         },
         local_decision: {
           decision,
@@ -335,7 +363,7 @@ function createLocalDirectResult(
                 ? "policy.ask.user.structured"
                 : "policy.deny.user.structured",
           resolution_explanation: summary,
-          summary
+          summary,
         },
         recipient,
         recipient_id: "usr_alice",
@@ -344,32 +372,28 @@ function createLocalDirectResult(
         roles: [],
         should_send: decision === "allow",
         transport_action:
-          decision === "allow"
-            ? "send"
-            : decision === "ask"
-              ? "hold"
-              : "block"
-      }
+          decision === "allow" ? "send" : decision === "ask" ? "hold" : "block",
+      },
     ],
     selector_context: {
       action: "share",
       direction: "outbound",
-      resource: "message.general"
+      resource: "message.general",
     },
     transport_payload: {
       declared_selectors: {
         action: "share",
         direction: "outbound",
-        resource: "message.general"
+        resource: "message.general",
       },
       message: "hello",
       payload_type: "text/plain",
       recipient,
       recipient_type: "user",
       resolution_id: resolutionId,
-      sender_connection_id: senderConnectionId
+      sender_connection_id: senderConnectionId,
     },
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -390,7 +414,7 @@ function createLocalGroupResult(options: {
     return {
       llm: {
         provider_defaults: null,
-        subject: recipient
+        subject: recipient,
       },
       local_decision: {
         decision,
@@ -409,7 +433,7 @@ function createLocalGroupResult(options: {
               ? "policy.ask.user.structured"
               : "policy.deny.user.structured",
         resolution_explanation: summary,
-        summary
+        summary,
       },
       recipient,
       recipient_id: `usr_${recipient}`,
@@ -418,11 +442,7 @@ function createLocalGroupResult(options: {
       roles: [],
       should_send: decision === "allow",
       transport_action:
-        decision === "allow"
-          ? "send"
-          : decision === "ask"
-            ? "hold"
-            : "block"
+        decision === "allow" ? "send" : decision === "ask" ? "hold" : "block",
     };
   });
   const partialDelivery = new Set(options.recipientDecisions).size > 1;
@@ -430,25 +450,32 @@ function createLocalGroupResult(options: {
   return {
     aggregate: {
       counts: {
-        delivered: recipientResults.filter((result) => result.should_send).length,
+        delivered: recipientResults.filter((result) => result.should_send)
+          .length,
         denied: recipientResults.filter(
-          (result) => result.local_decision.decision === "deny"
+          (result) => result.local_decision.decision === "deny",
         ).length,
         failed: 0,
         pending: 0,
         review_required: recipientResults.filter(
-          (result) => result.local_decision.decision === "ask"
+          (result) => result.local_decision.decision === "ask",
         ).length,
       },
-      decision: partialDelivery ? "allow" : options.recipientDecisions[0] ?? "allow",
-      has_sendable_recipients: recipientResults.some((result) => result.should_send),
+      decision: partialDelivery
+        ? "allow"
+        : (options.recipientDecisions[0] ?? "allow"),
+      has_sendable_recipients: recipientResults.some(
+        (result) => result.should_send,
+      ),
       partial_delivery: partialDelivery,
       reason_code: partialDelivery
         ? "policy.partial.group_fanout"
-        : recipientResults[0]?.local_decision.reason_code ?? "policy.allow.resolved",
+        : (recipientResults[0]?.local_decision.reason_code ??
+          "policy.allow.resolved"),
       summary: partialDelivery
         ? "Partial group delivery: 1 delivered, 0 pending, 1 denied, 0 review-required, 0 failed."
-        : recipientResults[0]?.local_decision.summary ?? "No active recipients in group.",
+        : (recipientResults[0]?.local_decision.summary ??
+          "No active recipients in group."),
     },
     aggregate_metadata: {
       empty_group_summary: "No active recipients in group.",
@@ -457,17 +484,17 @@ function createLocalGroupResult(options: {
       partial_reason_code: "policy.partial.group_fanout",
       partial_summary_template:
         "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.",
-      policy_evaluation_mode: "group_outbound_fanout"
+      policy_evaluation_mode: "group_outbound_fanout",
     },
     authenticated_identity: {
       sender_connection_id: "conn_sender",
-      sender_user_id: "usr_sender"
+      sender_user_id: "usr_sender",
     },
     bundle_metadata: {
       bundle_id: "bundle_local_group_1",
       expires_at: "2026-03-14T10:35:00.000Z",
       issued_at: "2026-03-14T10:30:00.000Z",
-      resolution_id: resolutionId
+      resolution_id: resolutionId,
     },
     bundle_type: "group_fanout",
     contract_version: "1.0.0",
@@ -475,28 +502,28 @@ function createLocalGroupResult(options: {
       id: "grp_hiking",
       member_count: recipientResults.length,
       name: "Hiking Crew",
-      type: "group"
+      type: "group",
     },
     group_overlay_policies: [],
     recipient_results: recipientResults,
     selector_context: {
       action: "share",
       direction: "outbound",
-      resource: "message.general"
+      resource: "message.general",
     },
     transport_payload: {
       declared_selectors: {
         action: "share",
         direction: "outbound",
-        resource: "message.general"
+        resource: "message.general",
       },
       message: "hello group",
       payload_type: "text/plain",
       recipient: "grp_hiking",
       recipient_type: "group",
       resolution_id: resolutionId,
-      sender_connection_id: "conn_sender"
-    }
+      sender_connection_id: "conn_sender",
+    },
   };
 }
 
@@ -508,11 +535,11 @@ describe("send tools", () => {
       client,
       {
         message: "hello",
-        recipient: "alice"
+        recipient: "alice",
       },
       {
-        senderConnectionId: "conn_sender"
-      }
+        senderConnectionId: "conn_sender",
+      },
     );
 
     expect(result.status).toBe("sent");
@@ -527,29 +554,31 @@ describe("send tools", () => {
           active: true,
           framework: "other",
           id: "conn_other",
-          label: "zeta"
+          label: "zeta",
         },
         {
           active: true,
           framework: "openclaw",
           id: "conn_sender_default",
-          label: "primary"
-        }
-      ]
+          label: "primary",
+        },
+      ],
     });
 
     const result = await talkToAgent(
       client,
       {
         message: "hello",
-        recipient: "alice"
+        recipient: "alice",
       },
-      {}
+      {},
     );
 
     expect(result.status).toBe("sent");
     expect(state.agentConnectionCalls).toBe(1);
-    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe("conn_sender_default");
+    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe(
+      "conn_sender_default",
+    );
   });
 
   it("returns review_required when server holds message for review", async () => {
@@ -561,27 +590,27 @@ describe("send tools", () => {
             decision: "ask",
             delivery_mode: "review_required",
             delivery_status: "review_required",
-            recipient: "alice"
-          }
+            recipient: "alice",
+          },
         ],
         resolution: {
           decision: "ask",
           delivery_mode: "review_required",
-          summary: "Message requires review before delivery."
+          summary: "Message requires review before delivery.",
         },
-        status: "review_required"
-      }
+        status: "review_required",
+      },
     });
 
     const result = await talkToAgent(
       client,
       {
         message: "share location",
-        recipient: "alice"
+        recipient: "alice",
       },
       {
-        senderConnectionId: "conn_sender"
-      }
+        senderConnectionId: "conn_sender",
+      },
     );
 
     expect(result.status).toBe("review_required");
@@ -599,27 +628,27 @@ describe("send tools", () => {
             decision: "deny",
             delivery_mode: "blocked",
             delivery_status: "rejected",
-            recipient: "alice"
-          }
+            recipient: "alice",
+          },
         ],
         resolution: {
           decision: "deny",
           delivery_mode: "blocked",
-          summary: "Message blocked by policy."
+          summary: "Message blocked by policy.",
         },
-        status: "rejected"
-      }
+        status: "rejected",
+      },
     });
 
     const result = await talkToAgent(
       client,
       {
         message: "secret",
-        recipient: "alice"
+        recipient: "alice",
       },
       {
-        senderConnectionId: "conn_sender"
-      }
+        senderConnectionId: "conn_sender",
+      },
     );
 
     expect(result.status).toBe("denied");
@@ -637,17 +666,17 @@ describe("send tools", () => {
         correlationId: "corr_123",
         declaredSelectors: {
           action: " Share ",
-          resource: "Location Current"
+          resource: "Location Current",
         },
         idempotencyKey: "idem_123",
         message: "hello",
         recipient: "alice",
-        routingHints: { labels: ["work"] }
+        routingHints: { labels: ["work"] },
       },
       {
         agentSessionId: "sess_123",
-        senderConnectionId: "conn_sender"
-      }
+        senderConnectionId: "conn_sender",
+      },
     );
 
     expect(state.sendCalls).toHaveLength(1);
@@ -659,7 +688,7 @@ describe("send tools", () => {
       declared_selectors: {
         action: "share",
         direction: "outbound",
-        resource: "location.current"
+        resource: "location.current",
       },
       idempotency_key: "idem_123",
       message: "hello",
@@ -667,7 +696,7 @@ describe("send tools", () => {
       recipient: "alice",
       recipient_type: "user",
       routing_hints: { labels: ["work"] },
-      sender_connection_id: "conn_sender"
+      sender_connection_id: "conn_sender",
     });
   });
 
@@ -676,20 +705,20 @@ describe("send tools", () => {
       sendResponse: {
         result: {
           deduplicated: true,
-          message_id: "msg_nested"
-        }
-      }
+          message_id: "msg_nested",
+        },
+      },
     });
 
     const result = await talkToAgent(
       client,
       {
         message: "hello",
-        recipient: "alice"
+        recipient: "alice",
       },
       {
-        senderConnectionId: "conn_sender"
-      }
+        senderConnectionId: "conn_sender",
+      },
     );
 
     expect(result.status).toBe("sent");
@@ -706,28 +735,28 @@ describe("send tools", () => {
             decision: "allow",
             delivery_mode: "full_send",
             delivery_status: "delivered",
-            recipient: "alice"
+            recipient: "alice",
           },
           {
             decision: "ask",
             delivery_mode: "review_required",
             delivery_status: "review_required",
-            recipient: "bob"
-          }
+            recipient: "bob",
+          },
         ],
-        status: "delivered"
-      }
+        status: "delivered",
+      },
     });
 
     const result = await talkToGroup(
       client,
       {
         message: "hello group",
-        recipient: "engineering"
+        recipient: "engineering",
       },
       {
-        senderConnectionId: "conn_sender"
-      }
+        senderConnectionId: "conn_sender",
+      },
     );
 
     expect(result.status).toBe("sent");
@@ -745,23 +774,23 @@ describe("send tools", () => {
       client,
       {
         message: "share location",
-        recipient: "alice"
+        recipient: "alice",
       },
       {
-        senderConnectionId: "conn_sender"
+        senderConnectionId: "conn_sender",
       },
       {
         localPolicy: {
-          runtime: localRuntime as never
-        }
-      }
+          runtime: localRuntime as never,
+        },
+      },
     );
 
     expect(result).toMatchObject({
       decision: "ask",
       reason: "Message requires review before delivery.",
       resolutionId: "res_local_direct_1",
-      status: "review_required"
+      status: "review_required",
     });
     expect(result.messageId).toBeUndefined();
     expect(state.localDecisionCommitCalls).toHaveLength(1);
@@ -778,23 +807,23 @@ describe("send tools", () => {
       client,
       {
         message: "share ssn",
-        recipient: "alice"
+        recipient: "alice",
       },
       {
-        senderConnectionId: "conn_sender"
+        senderConnectionId: "conn_sender",
       },
       {
         localPolicy: {
-          runtime: localRuntime as never
-        }
-      }
+          runtime: localRuntime as never,
+        },
+      },
     );
 
     expect(result).toMatchObject({
       decision: "deny",
       reason: "Message blocked by policy.",
       resolutionId: "res_local_direct_1",
-      status: "denied"
+      status: "denied",
     });
     expect(result.messageId).toBeUndefined();
     expect(state.localDecisionCommitCalls).toHaveLength(1);
@@ -809,8 +838,8 @@ describe("send tools", () => {
           decision: "allow",
           resolution_id: "res_local_direct_allow",
         },
-        status: "delivered"
-      }
+        status: "delivered",
+      },
     });
     const localRuntime = {
       evaluateDirectSend: async () =>
@@ -819,13 +848,13 @@ describe("send tools", () => {
             bundle_id: "bundle_local_direct_allow",
             expires_at: "2026-03-14T10:35:00.000Z",
             issued_at: "2026-03-14T10:30:00.000Z",
-            resolution_id: "res_local_direct_allow"
+            resolution_id: "res_local_direct_allow",
           },
           recipient: {
             id: "usr_alice",
             type: "user",
-            username: "alice"
-          }
+            username: "alice",
+          },
         }),
     };
 
@@ -835,23 +864,23 @@ describe("send tools", () => {
         message: "hello",
         recipient: "Alice ",
         recipientConnectionId: "conn_alice",
-        routingHints: { labels: ["friends"] }
+        routingHints: { labels: ["friends"] },
       },
       {
-        senderConnectionId: "conn_sender"
+        senderConnectionId: "conn_sender",
       },
       {
         localPolicy: {
-          runtime: localRuntime as never
-        }
-      }
+          runtime: localRuntime as never,
+        },
+      },
     );
 
     expect(result).toMatchObject({
       decision: "allow",
       messageId: "msg_local_allow",
       resolutionId: "res_local_direct_allow",
-      status: "sent"
+      status: "sent",
     });
     expect(state.localDecisionCommitCalls).toHaveLength(1);
     expect(state.sendCalls).toHaveLength(1);
@@ -860,7 +889,7 @@ describe("send tools", () => {
       recipient_connection_id: "conn_alice",
       resolution_id: "res_local_direct_allow",
       routing_hints: { labels: ["friends"] },
-      sender_connection_id: "conn_sender"
+      sender_connection_id: "conn_sender",
     });
   });
 
@@ -870,7 +899,7 @@ describe("send tools", () => {
       evaluateGroupFanout: async () =>
         createLocalGroupResult({
           recipientDecisions: ["allow", "ask", "deny"],
-          resolutionId: "res_local_group_partial"
+          resolutionId: "res_local_group_partial",
         }),
     };
 
@@ -879,31 +908,39 @@ describe("send tools", () => {
       {
         idempotencyKey: "idem_group_partial",
         message: "hello group",
-        recipient: "grp_hiking"
+        recipient: "grp_hiking",
       },
       {
-        senderConnectionId: "conn_sender"
+        senderConnectionId: "conn_sender",
       },
       {
         localPolicy: {
-          runtime: localRuntime as never
-        }
-      }
+          runtime: localRuntime as never,
+        },
+      },
     );
 
     expect(result).toMatchObject({
       decision: "allow",
-      reason: "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed.",
+      reason:
+        "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed.",
       resolutionId: "res_local_group_partial",
-      status: "sent"
+      status: "sent",
     });
     expect(result.messageId).toBeUndefined();
     expect(state.localDecisionCommitCalls).toHaveLength(3);
-    expect(state.localDecisionCommitCalls.map((call) => call.idempotencyKey)).toEqual([
+    expect(
+      state.localDecisionCommitCalls.map((call) => call.idempotencyKey),
+    ).toEqual([
       "idem_group_partial:friend_1",
       "idem_group_partial:friend_2",
       "idem_group_partial:friend_3",
     ]);
+    expect(
+      state.localDecisionCommitCalls.every(
+        (call) => call.payload.group_id === "grp_hiking",
+      ),
+    ).toBe(true);
     expect(state.sendCalls).toHaveLength(1);
     expect(state.sendCalls[0]).toMatchObject({
       idempotencyKey: "idem_group_partial:friend_1",
@@ -911,8 +948,8 @@ describe("send tools", () => {
         recipient: "friend_1",
         recipient_type: "user",
         resolution_id: "res_local_group_partial_friend_1",
-        sender_connection_id: "conn_sender"
-      }
+        sender_connection_id: "conn_sender",
+      },
     });
   });
 
@@ -924,14 +961,14 @@ describe("send tools", () => {
           decision: "allow",
           resolution_id: "res_local_group_allowed",
         },
-        status: "delivered"
-      }
+        status: "delivered",
+      },
     });
     const localRuntime = {
       evaluateGroupFanout: async () =>
         createLocalGroupResult({
           recipientDecisions: ["allow", "allow"],
-          resolutionId: "res_local_group_allowed"
+          resolutionId: "res_local_group_allowed",
         }),
     };
 
@@ -939,22 +976,22 @@ describe("send tools", () => {
       client,
       {
         message: "hello group",
-        recipient: "team-hiking"
+        recipient: "team-hiking",
       },
       {
-        senderConnectionId: "conn_sender"
+        senderConnectionId: "conn_sender",
       },
       {
         localPolicy: {
-          runtime: localRuntime as never
-        }
-      }
+          runtime: localRuntime as never,
+        },
+      },
     );
 
     expect(result).toMatchObject({
       decision: "allow",
       resolutionId: "res_local_group_allowed",
-      status: "sent"
+      status: "sent",
     });
     expect(result.messageId).toBeUndefined();
     expect(state.localDecisionCommitCalls).toHaveLength(2);
@@ -964,13 +1001,13 @@ describe("send tools", () => {
         recipient: "friend_1",
         recipient_type: "user",
         resolution_id: "res_local_group_allowed_friend_1",
-        sender_connection_id: "conn_sender"
+        sender_connection_id: "conn_sender",
       }),
       expect.objectContaining({
         recipient: "friend_2",
         recipient_type: "user",
         resolution_id: "res_local_group_allowed_friend_2",
-        sender_connection_id: "conn_sender"
+        sender_connection_id: "conn_sender",
       }),
     ]);
   });
@@ -983,12 +1020,12 @@ describe("native contract tools", () => {
     const result = await getMahiloContext(client, {
       declaredSelectors: {
         action: "share",
-        resource: "location.current"
+        resource: "location.current",
       },
       includeRecentInteractions: true,
       interactionLimit: 8,
       recipient: "alice",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     });
 
     expect(result.ok).toBe(true);
@@ -999,13 +1036,13 @@ describe("native contract tools", () => {
       draft_selectors: {
         action: "share",
         direction: "outbound",
-        resource: "location.current"
+        resource: "location.current",
       },
       include_recent_interactions: true,
       interaction_limit: 5,
       recipient: "alice",
       recipient_type: "user",
-      sender_connection_id: "conn_sender"
+      sender_connection_id: "conn_sender",
     });
   });
 
@@ -1022,18 +1059,18 @@ describe("native contract tools", () => {
         resolved_recipient: {
           recipient: "alice",
           recipient_connection_id: "conn_alice",
-          recipient_type: "user"
+          recipient_type: "user",
         },
         review: {
           required: true,
-          review_id: "rev_123"
+          review_id: "rev_123",
         },
         server_selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
-        }
-      }
+          resource: "location.current",
+        },
+      },
     });
 
     const result = await previewMahiloSend(
@@ -1043,18 +1080,18 @@ describe("native contract tools", () => {
         correlationId: "corr_preview",
         declaredSelectors: {
           action: " Share ",
-          resource: "Location Current"
+          resource: "Location Current",
         },
         idempotencyKey: "idem_preview",
         message: "Alice is at home right now.",
         recipient: "alice",
         recipientConnectionId: "conn_alice",
-        routingHints: { labels: ["friends"] }
+        routingHints: { labels: ["friends"] },
       },
       {
         agentSessionId: "sess_preview",
-        senderConnectionId: "conn_sender"
-      }
+        senderConnectionId: "conn_sender",
+      },
     );
 
     expect(result).toMatchObject({
@@ -1066,17 +1103,17 @@ describe("native contract tools", () => {
       resolvedRecipient: {
         recipient: "alice",
         recipientConnectionId: "conn_alice",
-        recipientType: "user"
+        recipientType: "user",
       },
       review: {
         required: true,
-        reviewId: "rev_123"
+        reviewId: "rev_123",
       },
       serverSelectors: {
         action: "share",
         direction: "outbound",
-        resource: "location.current"
-      }
+        resource: "location.current",
+      },
     });
     expect(state.resolveCalls).toHaveLength(1);
     expect(state.resolveCalls[0]).toEqual({
@@ -1086,7 +1123,7 @@ describe("native contract tools", () => {
       declared_selectors: {
         action: "share",
         direction: "outbound",
-        resource: "location.current"
+        resource: "location.current",
       },
       idempotency_key: "idem_preview",
       message: "Alice is at home right now.",
@@ -1095,7 +1132,7 @@ describe("native contract tools", () => {
       recipient_connection_id: "conn_alice",
       recipient_type: "user",
       routing_hints: { labels: ["friends"] },
-      sender_connection_id: "conn_sender"
+      sender_connection_id: "conn_sender",
     });
     expect(state.sendCalls).toHaveLength(0);
   });
@@ -1105,8 +1142,8 @@ describe("native contract tools", () => {
       overrideResponse: {
         created: true,
         kind: "temporary",
-        policy_id: "pol_temp_1"
-      }
+        policy_id: "pol_temp_1",
+      },
     });
 
     const result = await createMahiloOverride(client, {
@@ -1119,18 +1156,18 @@ describe("native contract tools", () => {
       scope: "user",
       selectors: {
         action: " Share ",
-        resource: "Location Current"
+        resource: "Location Current",
       },
       senderConnectionId: "conn_sender",
       sourceResolutionId: "res_123",
       targetId: "usr_alice",
-      ttlSeconds: 600
+      ttlSeconds: 600,
     });
 
     expect(result).toMatchObject({
       created: true,
       kind: "temporary",
-      policyId: "pol_temp_1"
+      policyId: "pol_temp_1",
     });
     expect(state.overrideCalls).toHaveLength(1);
     expect(state.overrideCalls[0]).toEqual({
@@ -1145,13 +1182,13 @@ describe("native contract tools", () => {
         selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
+          resource: "location.current",
         },
         sender_connection_id: "conn_sender",
         source_resolution_id: "res_123",
         target_id: "usr_alice",
-        ttl_seconds: 600
-      }
+        ttl_seconds: 600,
+      },
     });
   });
 
@@ -1160,24 +1197,24 @@ describe("native contract tools", () => {
       overrideResponse: {
         created: true,
         kind: "temporary",
-        policy_id: "pol_temp_2"
+        policy_id: "pol_temp_2",
       },
       promptContextResponse: {
         policy_guidance: {
           default_decision: "ask",
-          summary: "Location shares require review by default."
+          summary: "Location shares require review by default.",
         },
         recipient: {
           id: "usr_alice",
           relationship: "friend",
-          username: "alice"
+          username: "alice",
         },
         suggested_selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
-        }
-      }
+          resource: "location.current",
+        },
+      },
     });
 
     const result = await createMahiloOverride(client, {
@@ -1189,17 +1226,17 @@ describe("native contract tools", () => {
       scope: "user",
       selectors: {
         action: "Share",
-        resource: "location.current"
+        resource: "location.current",
       },
       senderConnectionId: "conn_sender",
-      sourceResolutionId: "res_123"
+      sourceResolutionId: "res_123",
     });
 
     expect(result).toMatchObject({
       created: true,
       kind: "temporary",
       policyId: "pol_temp_2",
-      resolvedTargetId: "usr_alice"
+      resolvedTargetId: "usr_alice",
     });
     expect(result.summary).toContain("temporary rule for 30 minutes");
     expect(state.promptContextCalls).toEqual([
@@ -1207,14 +1244,14 @@ describe("native contract tools", () => {
         draft_selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
+          resource: "location.current",
         },
         include_recent_interactions: false,
         interaction_limit: 1,
         recipient: "alice",
         recipient_type: "user",
-        sender_connection_id: "conn_sender"
-      }
+        sender_connection_id: "conn_sender",
+      },
     ]);
     expect(state.overrideCalls).toHaveLength(1);
     expect(state.overrideCalls[0]?.payload).toEqual({
@@ -1225,12 +1262,12 @@ describe("native contract tools", () => {
       selectors: {
         action: "share",
         direction: "outbound",
-        resource: "location.current"
+        resource: "location.current",
       },
       sender_connection_id: "conn_sender",
       source_resolution_id: "res_123",
       target_id: "usr_alice",
-      ttl_seconds: 1800
+      ttl_seconds: 1800,
     });
   });
 
@@ -1243,10 +1280,10 @@ describe("native contract tools", () => {
         kind: "temporary",
         reason: "User approved it for a while.",
         scope: "global",
-        senderConnectionId: "conn_sender"
-      })
+        senderConnectionId: "conn_sender",
+      }),
     ).rejects.toThrow(
-      "temporary overrides require expiresAt, ttlSeconds, durationMinutes, or durationHours"
+      "temporary overrides require expiresAt, ttlSeconds, durationMinutes, or durationHours",
     );
   });
 });
@@ -1257,7 +1294,7 @@ describe("createMahiloBoundaryChange", () => {
 
     const result = await createMahiloBoundaryChange(client, {
       category: "contact_details",
-      senderConnectionId: "conn_sender"
+      senderConnectionId: "conn_sender",
     });
 
     expect(result).toMatchObject({
@@ -1271,20 +1308,20 @@ describe("createMahiloBoundaryChange", () => {
           selector: {
             action: "share",
             direction: "outbound",
-            resource: "contact.email"
-          }
+            resource: "contact.email",
+          },
         },
         {
           selector: {
             action: "share",
             direction: "outbound",
-            resource: "contact.phone"
-          }
-        }
-      ]
+            resource: "contact.phone",
+          },
+        },
+      ],
     });
     expect(result.summary).toContain(
-      "Boundary updated: stop sharing contact details with anyone from now on."
+      "Boundary updated: stop sharing contact details with anyone from now on.",
     );
     expect(state.promptContextCalls).toHaveLength(0);
     expect(state.overrideCalls).toHaveLength(2);
@@ -1295,12 +1332,12 @@ describe("createMahiloBoundaryChange", () => {
       selectors: {
         action: "share",
         direction: "outbound",
-        resource: "contact.email"
+        resource: "contact.email",
       },
-      sender_connection_id: "conn_sender"
+      sender_connection_id: "conn_sender",
     });
     expect(state.overrideCalls[0]?.payload.reason).toEqual(
-      expect.stringContaining("contact details")
+      expect.stringContaining("contact details"),
     );
     expect(state.overrideCalls[1]?.payload).toMatchObject({
       effect: "deny",
@@ -1309,9 +1346,9 @@ describe("createMahiloBoundaryChange", () => {
       selectors: {
         action: "share",
         direction: "outbound",
-        resource: "contact.phone"
+        resource: "contact.phone",
       },
-      sender_connection_id: "conn_sender"
+      sender_connection_id: "conn_sender",
     });
   });
 
@@ -1320,19 +1357,19 @@ describe("createMahiloBoundaryChange", () => {
       promptContextResponse: {
         policy_guidance: {
           default_decision: "ask",
-          summary: "Location shares require review by default."
+          summary: "Location shares require review by default.",
         },
         recipient: {
           id: "usr_alice",
           relationship: "friend",
-          username: "alice"
+          username: "alice",
         },
         suggested_selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
-        }
-      }
+          resource: "location.current",
+        },
+      },
     });
 
     const result = await createMahiloBoundaryChange(client, {
@@ -1342,7 +1379,7 @@ describe("createMahiloBoundaryChange", () => {
       idempotencyKey: "idem_boundary",
       recipient: "alice",
       senderConnectionId: "conn_sender",
-      sourceResolutionId: "res_123"
+      sourceResolutionId: "res_123",
     });
 
     expect(result).toMatchObject({
@@ -1357,34 +1394,34 @@ describe("createMahiloBoundaryChange", () => {
           selector: {
             action: "share",
             direction: "outbound",
-            resource: "location.current"
-          }
+            resource: "location.current",
+          },
         },
         {
           selector: {
             action: "share",
             direction: "outbound",
-            resource: "location.history"
-          }
-        }
-      ]
+            resource: "location.history",
+          },
+        },
+      ],
     });
     expect(result.summary).toContain(
-      "Boundary exception saved: allow sharing location with alice for 30 minutes."
+      "Boundary exception saved: allow sharing location with alice for 30 minutes.",
     );
     expect(state.promptContextCalls).toEqual([
       {
         draft_selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
+          resource: "location.current",
         },
         include_recent_interactions: false,
         interaction_limit: 1,
         recipient: "alice",
         recipient_type: "user",
-        sender_connection_id: "conn_sender"
-      }
+        sender_connection_id: "conn_sender",
+      },
     ]);
     expect(state.overrideCalls).toHaveLength(2);
     expect(state.overrideCalls[0]).toMatchObject({
@@ -1396,13 +1433,13 @@ describe("createMahiloBoundaryChange", () => {
         selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.current"
+          resource: "location.current",
         },
         sender_connection_id: "conn_sender",
         source_resolution_id: "res_123",
         target_id: "usr_alice",
-        ttl_seconds: 1800
-      }
+        ttl_seconds: 1800,
+      },
     });
     expect(state.overrideCalls[1]).toMatchObject({
       idempotencyKey: "idem_boundary:2",
@@ -1413,13 +1450,13 @@ describe("createMahiloBoundaryChange", () => {
         selectors: {
           action: "share",
           direction: "outbound",
-          resource: "location.history"
+          resource: "location.history",
         },
         sender_connection_id: "conn_sender",
         source_resolution_id: "res_123",
         target_id: "usr_alice",
-        ttl_seconds: 1800
-      }
+        ttl_seconds: 1800,
+      },
     });
   });
 });
@@ -1437,16 +1474,16 @@ describe("listMahiloContacts", () => {
             active: true,
             id: "conn_alice_secondary",
             label: "secondary",
-            priority: 1
+            priority: 1,
           },
           {
             active: true,
             id: "conn_alice_primary",
             label: "primary",
-            priority: 5
-          }
+            priority: 5,
+          },
         ],
-        bob: []
+        bob: [],
       },
       friendshipsResponse: [
         {
@@ -1458,7 +1495,7 @@ describe("listMahiloContacts", () => {
           since: "2026-03-01T10:00:00.000Z",
           status: "accepted",
           userId: "usr_alice",
-          username: "alice"
+          username: "alice",
         },
         {
           direction: "received",
@@ -1467,9 +1504,9 @@ describe("listMahiloContacts", () => {
           roles: [],
           status: "accepted",
           userId: "usr_bob",
-          username: "bob"
-        }
-      ]
+          username: "bob",
+        },
+      ],
     });
 
     const contacts = await listMahiloContacts(client);
@@ -1487,14 +1524,13 @@ describe("listMahiloContacts", () => {
         connectionState: "available",
         friendshipId: "fr_alice",
         interactionCount: 7,
-        roles: ["close_friends"]
+        roles: ["close_friends"],
       },
-      type: "user"
+      type: "user",
     });
-    expect(contacts[0]?.connections?.map((connection) => connection.id)).toEqual([
-      "conn_alice_primary",
-      "conn_alice_secondary"
-    ]);
+    expect(
+      contacts[0]?.connections?.map((connection) => connection.id),
+    ).toEqual(["conn_alice_primary", "conn_alice_secondary"]);
     expect(contacts[1]).toMatchObject({
       connectionId: undefined,
       connectionState: "no_active_connections",
@@ -1503,15 +1539,15 @@ describe("listMahiloContacts", () => {
       metadata: {
         connectionCount: 0,
         connectionState: "no_active_connections",
-        friendshipId: "fr_bob"
+        friendshipId: "fr_bob",
       },
-      type: "user"
+      type: "user",
     });
   });
 
   it("falls back to provider results with trimmed labels when a client is not available", async () => {
     const contacts = await listMahiloContacts(async () => [
-      { id: "alice", label: " Alice ", type: "user" }
+      { id: "alice", label: " Alice ", type: "user" },
     ]);
 
     expect(contacts).toHaveLength(1);

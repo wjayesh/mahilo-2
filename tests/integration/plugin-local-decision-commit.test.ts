@@ -3,6 +3,10 @@ import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { createApp } from "../../src/server";
 import {
+  evaluateGroupFanoutBundleLocally,
+  type GroupFanoutPolicyBundle,
+} from "../../plugins/openclaw-mahilo/src/local-policy-runtime";
+import {
   cleanupTestDatabase,
   createAgentConnection,
   createFriendship,
@@ -602,6 +606,356 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
       );
     expect(committedMessages).toHaveLength(1);
   });
+
+  it("keeps lifecycle-limited group local fanout consistent across commits, sends, and retries", async () => {
+    const db = getTestDb();
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "sender_group_local_lifecycle",
+    );
+    const { user: firstRecipient } = await createTestUser(
+      "recipient_group_local_lifecycle_first",
+    );
+    const { user: secondRecipient } = await createTestUser(
+      "recipient_group_local_lifecycle_second",
+    );
+
+    await activateUsers([sender.id, firstRecipient.id, secondRecipient.id]);
+
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://sender_group_local_lifecycle",
+      framework: "openclaw",
+      label: "sender_group_local_lifecycle",
+    });
+    const firstRecipientConnection = await createAgentConnection(
+      firstRecipient.id,
+      {
+        callbackUrl: "polling://recipient_group_local_lifecycle_first",
+        framework: "openclaw",
+        label: "recipient_group_local_lifecycle_first",
+      },
+    );
+    const secondRecipientConnection = await createAgentConnection(
+      secondRecipient.id,
+      {
+        callbackUrl: "polling://recipient_group_local_lifecycle_second",
+        framework: "openclaw",
+        label: "recipient_group_local_lifecycle_second",
+      },
+    );
+    const recipientConnectionsByUsername = new Map([
+      [firstRecipient.username, firstRecipientConnection.id],
+      [secondRecipient.username, secondRecipientConnection.id],
+    ]);
+
+    const group = await createGroup(sender.id, [
+      firstRecipient.id,
+      secondRecipient.id,
+    ]);
+
+    const oneTimeGroupDenyPolicyId = await insertScopedPolicy({
+      effect: "deny",
+      maxUses: 1,
+      priority: 1,
+      remainingUses: 1,
+      scope: "group",
+      source: "override",
+      targetId: group.id,
+      userId: sender.id,
+    });
+    const globalAllowPolicyId = await insertScopedPolicy({
+      effect: "allow",
+      maxUses: null,
+      priority: 50,
+      remainingUses: null,
+      scope: "global",
+      source: "user_created",
+      targetId: null,
+      userId: sender.id,
+    });
+
+    const groupBundleResponse = await app.request(
+      "/api/v1/plugin/bundles/group-fanout",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sender_connection_id: senderConnection.id,
+          recipient: group.id,
+          recipient_type: "group",
+        }),
+      },
+    );
+
+    expect(groupBundleResponse.status).toBe(200);
+    const groupBundle =
+      (await groupBundleResponse.json()) as GroupFanoutPolicyBundle;
+
+    const localResult = await evaluateGroupFanoutBundleLocally(groupBundle, {
+      idempotencyKey: "idem_group_local_lifecycle",
+      message: "The trailhead is open this weekend.",
+      payloadType: "text/plain",
+      recipient: group.id,
+      senderConnectionId: senderConnection.id,
+    });
+
+    expect(localResult.aggregate).toEqual(
+      expect.objectContaining({
+        decision: "allow",
+        partial_delivery: true,
+        reason_code: "policy.partial.group_fanout",
+        counts: {
+          delivered: 1,
+          pending: 0,
+          denied: 1,
+          review_required: 0,
+          failed: 0,
+        },
+      }),
+    );
+    expect(
+      localResult.recipient_results
+        .map((entry) => entry.local_decision.decision)
+        .sort(),
+    ).toEqual(["allow", "deny"]);
+
+    const allowedRecipient = localResult.recipient_results.find(
+      (entry) => entry.local_decision.decision === "allow",
+    );
+    const deniedRecipient = localResult.recipient_results.find(
+      (entry) => entry.local_decision.decision === "deny",
+    );
+
+    expect(allowedRecipient?.local_decision.winning_policy_id).toBe(
+      globalAllowPolicyId,
+    );
+    expect(deniedRecipient?.local_decision.winning_policy_id).toBe(
+      oneTimeGroupDenyPolicyId,
+    );
+
+    const commitResults = new Map<
+      string,
+      { body: Record<string, unknown>; idempotencyKey: string }
+    >();
+    for (const recipientResult of localResult.recipient_results) {
+      const idempotencyKey = `idem_group_local_lifecycle:${recipientResult.recipient}`;
+      const commitResponse = await app.request(
+        "/api/v1/plugin/local-decisions/commit",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${senderKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sender_connection_id: senderConnection.id,
+            recipient: recipientResult.recipient,
+            group_id: group.id,
+            resolution_id: recipientResult.resolution_id,
+            idempotency_key: idempotencyKey,
+            message: "The trailhead is open this weekend.",
+            local_decision: recipientResult.local_decision,
+          }),
+        },
+      );
+
+      expect(commitResponse.status).toBe(200);
+      const commitBody = (await commitResponse.json()) as Record<
+        string,
+        unknown
+      >;
+      expect(commitBody).toEqual(
+        expect.objectContaining({
+          recorded: true,
+          committed: true,
+          message_id: expect.any(String),
+          status:
+            recipientResult.local_decision.decision === "allow"
+              ? "pending"
+              : "rejected",
+        }),
+      );
+
+      commitResults.set(recipientResult.recipient, {
+        body: commitBody,
+        idempotencyKey,
+      });
+    }
+
+    const [groupAllowPolicyAfterCommit] = await db
+      .select({ remainingUses: schema.policies.remainingUses })
+      .from(schema.policies)
+      .where(eq(schema.policies.id, oneTimeGroupDenyPolicyId))
+      .limit(1);
+    expect(groupAllowPolicyAfterCommit?.remainingUses).toBe(0);
+
+    const allowedCommit = commitResults.get(allowedRecipient!.recipient)!;
+    const deniedCommit = commitResults.get(deniedRecipient!.recipient)!;
+    const [storedAllowedMessage] = await db
+      .select({
+        policiesEvaluated: schema.messages.policiesEvaluated,
+        status: schema.messages.status,
+      })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, String(allowedCommit.body.message_id)))
+      .limit(1);
+    const [storedDeniedMessage] = await db
+      .select({
+        policiesEvaluated: schema.messages.policiesEvaluated,
+        status: schema.messages.status,
+      })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, String(deniedCommit.body.message_id)))
+      .limit(1);
+
+    expect(storedAllowedMessage?.status).toBe("pending");
+    expect(storedDeniedMessage?.status).toBe("rejected");
+
+    const allowedEvaluation = JSON.parse(
+      storedAllowedMessage?.policiesEvaluated || "{}",
+    );
+    const deniedEvaluation = JSON.parse(
+      storedDeniedMessage?.policiesEvaluated || "{}",
+    );
+    expect(allowedEvaluation.local_decision_commit).toEqual(
+      expect.objectContaining({
+        group_id: group.id,
+        resolution_id: allowedRecipient?.resolution_id,
+      }),
+    );
+    expect(deniedEvaluation.local_decision_commit).toEqual(
+      expect.objectContaining({
+        group_id: group.id,
+        resolution_id: deniedRecipient?.resolution_id,
+      }),
+    );
+
+    const sendResponse = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sender_connection_id: senderConnection.id,
+        recipient: allowedRecipient?.recipient,
+        recipient_connection_id: recipientConnectionsByUsername.get(
+          allowedRecipient!.recipient,
+        ),
+        recipient_type: "user",
+        message: "The trailhead is open this weekend.",
+        resolution_id: allowedRecipient?.resolution_id,
+        idempotency_key: allowedCommit.idempotencyKey,
+      }),
+    });
+
+    expect(sendResponse.status).toBe(200);
+    const sendBody = await sendResponse.json();
+    expect(sendBody).toEqual(
+      expect.objectContaining({
+        message_id: allowedCommit.body.message_id,
+        status: "delivered",
+        resolution: expect.objectContaining({
+          resolution_id: allowedRecipient?.resolution_id,
+        }),
+      }),
+    );
+
+    for (const recipientResult of localResult.recipient_results) {
+      const existingCommit = commitResults.get(recipientResult.recipient)!;
+      const retryResponse = await app.request(
+        "/api/v1/plugin/local-decisions/commit",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${senderKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sender_connection_id: senderConnection.id,
+            recipient: recipientResult.recipient,
+            group_id: group.id,
+            resolution_id: recipientResult.resolution_id,
+            idempotency_key: existingCommit.idempotencyKey,
+            message: "The trailhead is open this weekend.",
+            local_decision: recipientResult.local_decision,
+          }),
+        },
+      );
+
+      expect(retryResponse.status).toBe(200);
+      const retryBody = await retryResponse.json();
+      expect(retryBody).toEqual(
+        expect.objectContaining({
+          committed: true,
+          deduplicated: true,
+          message_id: existingCommit.body.message_id,
+        }),
+      );
+    }
+
+    const sendRetryResponse = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sender_connection_id: senderConnection.id,
+        recipient: allowedRecipient?.recipient,
+        recipient_connection_id: recipientConnectionsByUsername.get(
+          allowedRecipient!.recipient,
+        ),
+        recipient_type: "user",
+        message: "The trailhead is open this weekend.",
+        resolution_id: allowedRecipient?.resolution_id,
+        idempotency_key: allowedCommit.idempotencyKey,
+      }),
+    });
+
+    expect(sendRetryResponse.status).toBe(200);
+    const sendRetryBody = await sendRetryResponse.json();
+    expect(sendRetryBody).toEqual(
+      expect.objectContaining({
+        deduplicated: true,
+        message_id: allowedCommit.body.message_id,
+      }),
+    );
+
+    const committedMessages = await db
+      .select({
+        id: schema.messages.id,
+        resolutionId: schema.messages.resolutionId,
+        status: schema.messages.status,
+      })
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.senderUserId, sender.id),
+          eq(schema.messages.payload, "The trailhead is open this weekend."),
+        ),
+      );
+
+    expect(
+      committedMessages.filter(
+        (message) => message.resolutionId === allowedRecipient?.resolution_id,
+      ),
+    ).toHaveLength(1);
+    expect(
+      committedMessages.filter(
+        (message) => message.resolutionId === deniedRecipient?.resolution_id,
+      ),
+    ).toHaveLength(1);
+
+    const [groupAllowPolicyAfterRetry] = await db
+      .select({ remainingUses: schema.policies.remainingUses })
+      .from(schema.policies)
+      .where(eq(schema.policies.id, oneTimeGroupDenyPolicyId))
+      .limit(1);
+    expect(groupAllowPolicyAfterRetry?.remainingUses).toBe(0);
+  });
 });
 
 async function setupParticipants(suffix: string) {
@@ -677,6 +1031,113 @@ async function insertDirectPolicy(input: {
     userId: input.userId,
     scope: "user",
     targetId: input.recipientId,
+    policyType: storage.policyType,
+    policyContent: storage.policyContent,
+    direction: storage.direction,
+    resource: storage.resource,
+    action: storage.action,
+    effect: storage.effect,
+    evaluator: storage.evaluator,
+    effectiveFrom: storage.effectiveFrom,
+    expiresAt: storage.expiresAt,
+    maxUses: storage.maxUses,
+    remainingUses: storage.remainingUses,
+    source: storage.source,
+    derivedFromMessageId: storage.derivedFromMessageId,
+    priority: input.priority,
+    enabled: true,
+    createdAt: new Date(),
+  });
+
+  return policyId;
+}
+
+async function activateUsers(userIds: string[]) {
+  const db = getTestDb();
+  for (const userId of userIds) {
+    await db
+      .update(schema.users)
+      .set({ status: "active", verifiedAt: new Date() })
+      .where(eq(schema.users.id, userId));
+  }
+}
+
+async function createGroup(ownerUserId: string, memberUserIds: string[]) {
+  const db = getTestDb();
+  const group = {
+    id: `grp_${nanoid(10)}`,
+    name: `group-${nanoid(6)}`,
+  };
+
+  await db.insert(schema.groups).values({
+    id: group.id,
+    name: group.name,
+    ownerUserId,
+    inviteOnly: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  await db.insert(schema.groupMemberships).values([
+    {
+      id: nanoid(),
+      groupId: group.id,
+      userId: ownerUserId,
+      role: "owner",
+      status: "active",
+      invitedByUserId: ownerUserId,
+      createdAt: new Date(),
+    },
+    ...memberUserIds.map((userId) => ({
+      id: nanoid(),
+      groupId: group.id,
+      userId,
+      role: "member",
+      status: "active" as const,
+      invitedByUserId: ownerUserId,
+      createdAt: new Date(),
+    })),
+  ]);
+
+  return group;
+}
+
+async function insertScopedPolicy(input: {
+  effect: "allow" | "ask" | "deny";
+  maxUses: number | null;
+  priority: number;
+  remainingUses: number | null;
+  scope: "global" | "group";
+  source: "override" | "user_created";
+  targetId: string | null;
+  userId: string;
+}) {
+  const db = getTestDb();
+  const storage = canonicalToStorage({
+    scope: input.scope,
+    target_id: input.targetId,
+    direction: "outbound",
+    resource: "message.general",
+    action: "share",
+    effect: input.effect,
+    evaluator: "structured",
+    policy_content: {},
+    effective_from: null,
+    expires_at: null,
+    max_uses: input.maxUses,
+    remaining_uses: input.remainingUses,
+    source: input.source,
+    derived_from_message_id: null,
+    priority: input.priority,
+    enabled: true,
+  });
+
+  const policyId = nanoid();
+  await db.insert(schema.policies).values({
+    id: policyId,
+    userId: input.userId,
+    scope: input.scope,
+    targetId: input.targetId,
     policyType: storage.policyType,
     policyContent: storage.policyContent,
     direction: storage.direction,
