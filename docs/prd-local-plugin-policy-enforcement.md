@@ -293,7 +293,7 @@ This project is done when all of the following are true:
 
 ### 1.1 Add a Direct-Send Policy Bundle Endpoint
 - **ID**: `LPE-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-005`
 - **Description**:
@@ -311,6 +311,8 @@ This project is done when all of the following are true:
   - [ ] Plugin can evaluate a direct user send locally without calling trusted-mode `/plugin/resolve`
   - [ ] Integration tests cover bundle shape and authorization rules
 
+- **Notes**:
+  - 2026-03-14T13:20:57.793Z: LPE-010 completed via orchestrator integration.
 ### 1.2 Add a Group Fanout Policy Bundle Endpoint
 - **ID**: `LPE-011`
 - **Status**: `pending`
