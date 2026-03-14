@@ -8,6 +8,7 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun run dist/index.js",
     "test": "bun test",
+    "test:dashboard:regression": "vitest run --config vitest.dashboard.config.ts --coverage",
     "test:run": "bun test",
     "test:watch": "bun test --watch",
     "lint": "eslint src tests --ext .ts",

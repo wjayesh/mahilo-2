@@ -13377,4 +13377,16 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Expose UI for onclick handlers
+if (
+  typeof globalThis !== "undefined" &&
+  globalThis.__MAHILO_DASHBOARD_TEST_HOOKS__
+) {
+  globalThis.__MAHILO_DASHBOARD__ = {
+    Helpers,
+    Normalizers,
+    State,
+    UI,
+  };
+}
+
 window.UI = UI;
