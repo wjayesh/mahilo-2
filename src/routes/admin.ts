@@ -346,3 +346,13 @@ function resolveInviteTokenStatus(token: {
 
   return "active";
 }
+
+// List waitlist emails
+adminRoutes.get("/waitlist", requireAdmin(), async (c) => {
+  const db = getDb();
+  const emails = await db
+    .select()
+    .from(schema.waitlistEmails)
+    .orderBy(desc(schema.waitlistEmails.createdAt));
+  return c.json({ emails, count: emails.length });
+});
