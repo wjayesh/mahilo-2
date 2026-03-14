@@ -59,6 +59,17 @@ describe("shared deterministic resolver parity", () => {
 
     expect(result.effect).toBe("allow");
     expect(result.reason_code).toBe("policy.allow.no_match");
+    expect(result.winning_policy).toBeUndefined();
+    expect(result.matched_policy_ids).toEqual([]);
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: expect.any(String),
+        phase: "deterministic",
+        matched: false,
+        skipped: false,
+      }),
+    );
   });
 
   it("matches server behavior for same-scope conflict resolution", async () => {
@@ -95,9 +106,23 @@ describe("shared deterministic resolver parity", () => {
 
     expect(result.effect).toBe("deny");
     expect(result.winning_policy_id).toBe(denyPolicyId);
+    expect(result.reason_code).toBe("policy.deny.user.structured");
+    expect(result.winning_policy).toEqual(
+      expect.objectContaining({
+        policy_id: denyPolicyId,
+        scope: "user",
+        effect: "deny",
+        evaluator: "structured",
+        phase: "deterministic",
+      }),
+    );
     expect(result.matched_policy_ids).toEqual(
       expect.arrayContaining([allowPolicyId, denyPolicyId]),
     );
+    expect(result.evaluated_policies).toHaveLength(2);
+    expect(
+      result.evaluated_policies.map((policy) => policy.policy_id).sort(),
+    ).toEqual([allowPolicyId, denyPolicyId].sort());
   });
 
   it("matches server behavior for scope specificity", async () => {
@@ -139,6 +164,16 @@ describe("shared deterministic resolver parity", () => {
 
     expect(result.effect).toBe("ask");
     expect(result.reason_code).toBe("policy.ask.role.structured");
+    expect(result.winning_policy).toEqual(
+      expect.objectContaining({
+        scope: "role",
+        effect: "ask",
+        evaluator: "structured",
+        phase: "deterministic",
+      }),
+    );
+    expect(result.matched_policy_ids).toHaveLength(2);
+    expect(result.evaluated_policies).toHaveLength(2);
   });
 
   it("matches server behavior for group overlay constraints", async () => {
@@ -174,7 +209,57 @@ describe("shared deterministic resolver parity", () => {
 
     expect(result.effect).toBe("deny");
     expect(result.winning_policy_id).toBe(groupPolicyId);
+    expect(result.reason_code).toBe("policy.deny.group.structured");
+    expect(result.winning_policy).toEqual(
+      expect.objectContaining({
+        policy_id: groupPolicyId,
+        scope: "group",
+        effect: "deny",
+        evaluator: "structured",
+        phase: "deterministic",
+      }),
+    );
+    expect(result.matched_policy_ids).toHaveLength(2);
+    expect(result.evaluated_policies).toHaveLength(2);
     expect(result.resolution_explanation).toContain("additional constraint");
+  });
+
+  it("matches server behavior when invalid deterministic policies are skipped", async () => {
+    const { user: sender } = await createTestUser("parity_invalid_sender");
+    const { user: recipient } = await createTestUser("parity_invalid_recipient");
+    await createFriendship(sender.id, recipient.id, "accepted");
+
+    const invalidPolicyId = await insertCanonicalPolicy({
+      user_id: sender.id,
+      scope: "global",
+      target_id: null,
+      effect: "deny",
+      priority: 20,
+      policy_content: "{not valid json",
+    });
+
+    const result = await expectServerCoreParity({
+      senderId: sender.id,
+      recipientId: recipient.id,
+      recipientUsername: recipient.username,
+      message: "neutral message",
+      roles: [],
+    });
+
+    expect(result.effect).toBe("allow");
+    expect(result.reason_code).toBe("policy.allow.no_match");
+    expect(result.winning_policy).toBeUndefined();
+    expect(result.matched_policy_ids).toEqual([]);
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: invalidPolicyId,
+        phase: "deterministic",
+        matched: false,
+        skipped: true,
+        skip_reason: "Policy content must be valid JSON",
+      }),
+    );
   });
 });
 

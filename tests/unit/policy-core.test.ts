@@ -65,7 +65,47 @@ describe("policy core resolver", () => {
 
     expect(result.effect).toBe("allow");
     expect(result.reason_code).toBe("policy.allow.no_match");
+    expect(result.winning_policy).toBeUndefined();
+    expect(result.matched_policy_ids).toEqual([]);
+    expect(result.evaluated_policies).toHaveLength(1);
     expect(result.evaluated_policies[0]?.matched).toBe(false);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_max_length",
+        phase: "deterministic",
+        skipped: false,
+      }),
+    );
+  });
+
+  it("skips invalid deterministic rules without creating a winning policy", async () => {
+    const result = await resolvePolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_invalid_json",
+          effect: "deny",
+          policy_content: "{not valid json",
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "hello",
+      llmSubject: "alice",
+    });
+
+    expect(result.effect).toBe("allow");
+    expect(result.reason_code).toBe("policy.allow.no_match");
+    expect(result.winning_policy).toBeUndefined();
+    expect(result.matched_policy_ids).toEqual([]);
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_invalid_json",
+        phase: "deterministic",
+        matched: false,
+        skipped: true,
+        skip_reason: "Policy content must be valid JSON",
+      }),
+    );
   });
 
   it("prefers user scope over global scope", async () => {
@@ -206,7 +246,63 @@ describe("policy core resolver", () => {
     expect(result.effect).toBe("ask");
     expect(result.reason_code).toBe("policy.ask.llm.unavailable");
     expect(result.winning_policy_id).toBe("pol_llm");
+    expect(result.winning_policy).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        scope: "global",
+        effect: "ask",
+        evaluator: "llm",
+        phase: "contextual_llm",
+      }),
+    );
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        phase: "contextual_llm",
+        matched: true,
+        skipped: false,
+      }),
+    );
     expect(result.evaluated_policies[0]?.matched).toBe(true);
+  });
+
+  it("maps injected llm PASS results to allow/no-match without a winner", async () => {
+    const evaluator: LLMPolicyEvaluator = async () => ({
+      status: "pass",
+      reasoning: "LLM policy passed",
+    });
+
+    const result = await resolvePolicySet({
+      policies: [
+        createPolicy({
+          id: "pol_llm",
+          scope: "global",
+          effect: "deny",
+          evaluator: "llm",
+          policy_content: "Never share secrets",
+        }),
+      ],
+      ownerUserId: "usr_owner",
+      message: "hello",
+      llmSubject: "alice",
+      llmEvaluator: evaluator,
+    });
+
+    expect(result.effect).toBe("allow");
+    expect(result.reason_code).toBe("policy.allow.no_match");
+    expect(result.winning_policy).toBeUndefined();
+    expect(result.matched_policy_ids).toEqual([]);
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        phase: "contextual_llm",
+        matched: false,
+        skipped: false,
+        reason: "LLM policy passed",
+      }),
+    );
   });
 
   it("maps normalized llm error kinds to explicit ask reason codes", async () => {
@@ -236,6 +332,26 @@ describe("policy core resolver", () => {
     expect(result.effect).toBe("ask");
     expect(result.reason_code).toBe("policy.ask.llm.network");
     expect(result.winning_policy_id).toBe("pol_llm");
+    expect(result.winning_policy).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        scope: "global",
+        effect: "ask",
+        evaluator: "llm",
+        phase: "contextual_llm",
+        reason: expect.stringContaining("socket hang up"),
+      }),
+    );
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        phase: "contextual_llm",
+        matched: true,
+        skipped: false,
+        reason: expect.stringContaining("socket hang up"),
+      }),
+    );
     expect(result.winning_policy?.reason).toContain("socket hang up");
   });
 
@@ -265,12 +381,30 @@ describe("policy core resolver", () => {
     expect(result.effect).toBe("ask");
     expect(result.reason_code).toBe("policy.ask.llm.skip");
     expect(result.winning_policy_id).toBe("pol_llm");
+    expect(result.winning_policy).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        scope: "global",
+        effect: "ask",
+        evaluator: "llm",
+        phase: "contextual_llm",
+      }),
+    );
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        phase: "contextual_llm",
+        matched: true,
+        skipped: false,
+      }),
+    );
     expect(result.winning_policy?.reason).toContain(
       "Classifier confidence too low",
     );
   });
 
-  it("uses an injected llm evaluator when available", async () => {
+  it("maps injected llm FAIL results to winning-policy details", async () => {
     const evaluator: LLMPolicyEvaluator = async () => ({
       status: "match",
       reasoning: "LLM matched the policy",
@@ -295,6 +429,27 @@ describe("policy core resolver", () => {
     expect(result.effect).toBe("deny");
     expect(result.reason_code).toBe("policy.deny.global.llm");
     expect(result.winning_policy_id).toBe("pol_llm");
+    expect(result.winning_policy).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        scope: "global",
+        effect: "deny",
+        evaluator: "llm",
+        phase: "contextual_llm",
+        reason: "LLM matched the policy",
+      }),
+    );
+    expect(result.evaluated_policies).toHaveLength(1);
+    expect(result.evaluated_policies[0]).toEqual(
+      expect.objectContaining({
+        policy_id: "pol_llm",
+        phase: "contextual_llm",
+        matched: true,
+        skipped: false,
+        reason: "LLM matched the policy",
+      }),
+    );
+    expect(result.matched_policy_ids).toEqual(["pol_llm"]);
     expect(result.winning_policy?.reason).toBe("LLM matched the policy");
   });
 
