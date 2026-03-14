@@ -38,7 +38,8 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
       sender_connection_id: senderConnection.id,
       recipient: recipient.username,
       resolution_id: "res_local_commit_auth",
-      message: "This local decision should never commit for unauthorized senders.",
+      message:
+        "This local decision should never commit for unauthorized senders.",
       local_decision: {
         decision: "deny",
         delivery_mode: "blocked",
@@ -64,14 +65,17 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
       .set({ status: "pending", verifiedAt: null })
       .where(eq(schema.users.id, sender.id));
 
-    const inactive = await app.request("/api/v1/plugin/local-decisions/commit", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${senderKey}`,
-        "Content-Type": "application/json",
+    const inactive = await app.request(
+      "/api/v1/plugin/local-decisions/commit",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
       },
-      body: JSON.stringify(requestBody),
-    });
+    );
 
     expect(inactive.status).toBe(403);
   });
@@ -240,6 +244,17 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
     );
     expect(storedDeny?.deliveredAt).toBeNull();
 
+    const askDeliveries = await db
+      .select({ id: schema.messageDeliveries.id })
+      .from(schema.messageDeliveries)
+      .where(eq(schema.messageDeliveries.messageId, askBody.message_id));
+    const denyDeliveries = await db
+      .select({ id: schema.messageDeliveries.id })
+      .from(schema.messageDeliveries)
+      .where(eq(schema.messageDeliveries.messageId, denyBody.message_id));
+    expect(askDeliveries).toHaveLength(0);
+    expect(denyDeliveries).toHaveLength(0);
+
     const reviewResponse = await app.request(
       "/api/v1/plugin/reviews?direction=outbound&status=review_required",
       {
@@ -252,14 +267,32 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
 
     expect(reviewResponse.status).toBe(200);
     const reviewBody = await reviewResponse.json();
-    expect(reviewBody.reviews).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          message_id: askBody.message_id,
-          queue_direction: "outbound",
-          status: "review_required",
+    const askReview = reviewBody.reviews.find(
+      (review: { message_id: string }) =>
+        review.message_id === askBody.message_id,
+    );
+    expect(askReview).toEqual(
+      expect.objectContaining({
+        message_id: askBody.message_id,
+        resolution_id: "res_local_commit_ask",
+        queue_direction: "outbound",
+        status: "review_required",
+        reason_code: "policy.ask.user.structured",
+        summary: "Local review is required before sharing.",
+        audit: expect.objectContaining({
+          policy_evaluation_mode: "plugin_local_pre_delivery",
+          winning_policy_id: askPolicyId,
+          matched_policy_ids: [askPolicyId],
+          local_decision_commit: expect.objectContaining({
+            source: "plugin.local_decisions.commit",
+            resolution_id: "res_local_commit_ask",
+            summary: "Local review is required before sharing.",
+          }),
         }),
-      ]),
+      }),
+    );
+    expect(askReview?.audit.local_decision_commit.committed_at).toEqual(
+      expect.any(String),
     );
 
     const blockedResponse = await app.request(
@@ -274,15 +307,225 @@ describe("Plugin local decision commit contract (LPE-012)", () => {
 
     expect(blockedResponse.status).toBe(200);
     const blockedBody = await blockedResponse.json();
-    expect(blockedBody.blocked_events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          message_id: denyBody.message_id,
-          queue_direction: "outbound",
-          reason_code: "policy.deny.user.structured",
-        }),
-      ]),
+    const denyEvent = blockedBody.blocked_events.find(
+      (event: { message_id: string }) =>
+        event.message_id === denyBody.message_id,
     );
+    expect(denyEvent).toEqual(
+      expect.objectContaining({
+        message_id: denyBody.message_id,
+        resolution_id: "res_local_commit_deny",
+        queue_direction: "outbound",
+        reason_code: "policy.deny.user.structured",
+        reason: "Local deny prevented delivery.",
+        audit: expect.objectContaining({
+          policy_evaluation_mode: "plugin_local_pre_delivery",
+          winning_policy_id: denyPolicyId,
+          matched_policy_ids: [denyPolicyId],
+          local_decision_commit: expect.objectContaining({
+            source: "plugin.local_decisions.commit",
+            resolution_id: "res_local_commit_deny",
+            summary: "Local deny prevented delivery.",
+          }),
+        }),
+      }),
+    );
+    expect(denyEvent?.audit.local_decision_commit.committed_at).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("preserves group local review and blocked metadata on the review and blocked-event surfaces", async () => {
+    const db = getTestDb();
+    const { user: sender, apiKey: senderKey } = await createTestUser(
+      "sender_group_local_surfaces",
+    );
+    const { user: reviewRecipient } = await createTestUser(
+      "recipient_group_local_surfaces_review",
+    );
+    const { user: blockedRecipient } = await createTestUser(
+      "recipient_group_local_surfaces_blocked",
+    );
+
+    await activateUsers([sender.id, reviewRecipient.id, blockedRecipient.id]);
+
+    const senderConnection = await createAgentConnection(sender.id, {
+      callbackUrl: "polling://sender_group_local_surfaces",
+      framework: "openclaw",
+      label: "sender_group_local_surfaces",
+    });
+    const group = await createGroup(sender.id, [
+      reviewRecipient.id,
+      blockedRecipient.id,
+    ]);
+
+    const askPolicyId = await insertDirectPolicy({
+      userId: sender.id,
+      recipientId: reviewRecipient.id,
+      effect: "ask",
+      maxUses: null,
+      remainingUses: null,
+      source: "user_created",
+      priority: 10,
+    });
+    const denyPolicyId = await insertDirectPolicy({
+      userId: sender.id,
+      recipientId: blockedRecipient.id,
+      effect: "deny",
+      maxUses: null,
+      remainingUses: null,
+      source: "user_created",
+      priority: 20,
+    });
+
+    const askResponse = await app.request(
+      "/api/v1/plugin/local-decisions/commit",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sender_connection_id: senderConnection.id,
+          recipient: reviewRecipient.username,
+          group_id: group.id,
+          resolution_id: "res_group_local_review",
+          message: "Trailhead timing is still tentative.",
+          local_decision: {
+            decision: "ask",
+            delivery_mode: "review_required",
+            reason: "Group share requires review before delivery.",
+            reason_code: "policy.ask.group.member",
+            winning_policy_id: askPolicyId,
+          },
+        }),
+      },
+    );
+
+    expect(askResponse.status).toBe(200);
+    const askBody = await askResponse.json();
+
+    const denyResponse = await app.request(
+      "/api/v1/plugin/local-decisions/commit",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sender_connection_id: senderConnection.id,
+          recipient: blockedRecipient.username,
+          group_id: group.id,
+          resolution_id: "res_group_local_blocked",
+          message: "Trailhead timing is still tentative.",
+          local_decision: {
+            decision: "deny",
+            delivery_mode: "blocked",
+            reason: "Group share is blocked for this member.",
+            reason_code: "policy.deny.group.member",
+            winning_policy_id: denyPolicyId,
+          },
+        }),
+      },
+    );
+
+    expect(denyResponse.status).toBe(200);
+    const denyBody = await denyResponse.json();
+
+    const reviewResponse = await app.request(
+      "/api/v1/plugin/reviews?direction=outbound",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+        },
+      },
+    );
+
+    expect(reviewResponse.status).toBe(200);
+    const reviewBody = await reviewResponse.json();
+    const groupReview = reviewBody.reviews.find(
+      (review: { message_id: string }) =>
+        review.message_id === askBody.message_id,
+    );
+    expect(groupReview).toEqual(
+      expect.objectContaining({
+        message_id: askBody.message_id,
+        resolution_id: "res_group_local_review",
+        queue_direction: "outbound",
+        status: "review_required",
+        reason_code: "policy.ask.group.member",
+        recipient: expect.objectContaining({
+          id: reviewRecipient.id,
+          type: "user",
+          username: reviewRecipient.username,
+        }),
+        audit: expect.objectContaining({
+          policy_evaluation_mode: "plugin_local_pre_delivery",
+          winning_policy_id: askPolicyId,
+          local_decision_commit: expect.objectContaining({
+            source: "plugin.local_decisions.commit",
+            resolution_id: "res_group_local_review",
+            group_id: group.id,
+            summary: "Group share requires review before delivery.",
+          }),
+        }),
+      }),
+    );
+
+    const blockedResponse = await app.request(
+      "/api/v1/plugin/events/blocked?direction=outbound",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+        },
+      },
+    );
+
+    expect(blockedResponse.status).toBe(200);
+    const blockedBody = await blockedResponse.json();
+    const groupBlockedEvent = blockedBody.blocked_events.find(
+      (event: { message_id: string }) =>
+        event.message_id === denyBody.message_id,
+    );
+    expect(groupBlockedEvent).toEqual(
+      expect.objectContaining({
+        message_id: denyBody.message_id,
+        resolution_id: "res_group_local_blocked",
+        queue_direction: "outbound",
+        reason_code: "policy.deny.group.member",
+        reason: "Group share is blocked for this member.",
+        recipient: expect.objectContaining({
+          id: blockedRecipient.id,
+          type: "user",
+          username: blockedRecipient.username,
+        }),
+        audit: expect.objectContaining({
+          policy_evaluation_mode: "plugin_local_pre_delivery",
+          winning_policy_id: denyPolicyId,
+          local_decision_commit: expect.objectContaining({
+            source: "plugin.local_decisions.commit",
+            resolution_id: "res_group_local_blocked",
+            group_id: group.id,
+            summary: "Group share is blocked for this member.",
+          }),
+        }),
+      }),
+    );
+
+    const askDeliveries = await db
+      .select({ id: schema.messageDeliveries.id })
+      .from(schema.messageDeliveries)
+      .where(eq(schema.messageDeliveries.messageId, askBody.message_id));
+    const denyDeliveries = await db
+      .select({ id: schema.messageDeliveries.id })
+      .from(schema.messageDeliveries)
+      .where(eq(schema.messageDeliveries.messageId, denyBody.message_id));
+    expect(askDeliveries).toHaveLength(0);
+    expect(denyDeliveries).toHaveLength(0);
   });
 
   it("deduplicates local commit retries without double-spending one-time overrides", async () => {

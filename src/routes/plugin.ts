@@ -1699,6 +1699,27 @@ function parseLearningProvenance(value: unknown): {
   };
 }
 
+function parseLocalDecisionCommitAudit(value: unknown): {
+  source: string | null;
+  resolution_id: string | null;
+  committed_at: string | null;
+  summary: string | null;
+  group_id: string | null;
+} | null {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    source: parseStringValue(parsed.source),
+    resolution_id: parseStringValue(parsed.resolution_id),
+    committed_at: parseStringValue(parsed.committed_at),
+    summary: parseStringValue(parsed.summary),
+    group_id: parseStringValue(parsed.group_id),
+  };
+}
+
 function parseWinningPolicyAudit(
   value: unknown,
 ): Record<string, unknown> | null {
@@ -1772,6 +1793,9 @@ function buildPolicyAuditDetails(evaluation: Record<string, unknown> | null) {
     policy_owner_user_id: parseStringValue(evaluation?.policy_owner_user_id),
     policy_evaluation_mode: parseStringValue(
       evaluation?.policy_evaluation_mode,
+    ),
+    local_decision_commit: parseLocalDecisionCommitAudit(
+      evaluation?.local_decision_commit,
     ),
     selector_context: parseSelectorContext(evaluation?.selector_context),
     selector_verification: parseSelectorVerification(
@@ -1902,6 +1926,7 @@ pluginRoutes.get("/reviews", requireActive(), async (c) => {
       senderUserId: schema.messages.senderUserId,
       status: schema.messages.status,
       resource: schema.messages.resource,
+      resolutionId: schema.messages.resolutionId,
     })
     .from(schema.messages)
     .where(and(visibilityFilter, inArray(schema.messages.status, statusFilter)))
@@ -1937,6 +1962,9 @@ pluginRoutes.get("/reviews", requireActive(), async (c) => {
     return {
       review_id: `rev_${message.id}`,
       message_id: message.id,
+      resolution_id:
+        message.resolutionId ||
+        auditDetails.local_decision_commit?.resolution_id,
       status: message.status,
       queue_direction: queueDirection,
       decision,
@@ -2011,14 +2039,17 @@ pluginRoutes.get("/events/blocked", requireActive(), async (c) => {
   const blockedMessages = await db
     .select({
       action: schema.messages.action,
+      correlationId: schema.messages.correlationId,
       createdAt: schema.messages.createdAt,
       direction: schema.messages.direction,
       id: schema.messages.id,
+      inResponseTo: schema.messages.inResponseTo,
       payload: schema.messages.payload,
       policiesEvaluated: schema.messages.policiesEvaluated,
       recipientId: schema.messages.recipientId,
       recipientType: schema.messages.recipientType,
       rejectionReason: schema.messages.rejectionReason,
+      resolutionId: schema.messages.resolutionId,
       resource: schema.messages.resource,
       senderUserId: schema.messages.senderUserId,
       status: schema.messages.status,
@@ -2051,10 +2082,15 @@ pluginRoutes.get("/events/blocked", requireActive(), async (c) => {
     return {
       id: `blocked_${message.id}`,
       message_id: message.id,
+      resolution_id:
+        message.resolutionId ||
+        auditDetails.local_decision_commit?.resolution_id,
       queue_direction: resolveQueueDirection(user.id, message),
       sender: usernamesById.get(message.senderUserId) || null,
       reason_code: reasonCode,
       reason,
+      correlation_id: message.correlationId,
+      in_response_to: message.inResponseTo,
       direction: message.direction,
       resource: message.resource,
       action: message.action,

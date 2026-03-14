@@ -153,16 +153,16 @@ Idempotency:
 
 ## Surface Matrix
 
-| Surface | Endpoint / handle | Intended use | Creates message or lifecycle mutation? | Live-send rule |
-| --- | --- | --- | --- | --- |
-| Advisory context | `POST /api/v1/plugin/context` | Prompt-time hints and relationship context | No | Never use `policy_guidance.default_decision` as live authorization |
-| Preview / preflight | `POST /api/v1/plugin/resolve` | Preview UX and trusted-mode parity checks | No | Preview `resolution_id` is ephemeral and not reused for local commit/send |
-| Direct local bundle | `POST /api/v1/plugin/bundles/direct-send` | Direct non-trusted local enforcement input | No | Later commit/send must use `bundle_metadata.resolution_id` |
-| Group local bundle | `POST /api/v1/plugin/bundles/group-fanout` | Group non-trusted fanout input | No | Later commit/send must use `members[*].resolution_id` per recipient |
-| Local decision commit | `POST /api/v1/plugin/local-decisions/commit` | Persist the plugin-local decision | Yes | `ask`/`deny` stop here; `allow` continues to transport |
-| Final send / transport | `POST /api/v1/messages/send` | Trusted server send or resume committed local `allow` | Yes | Local group sends call this per allowed user recipient, not once for the whole group |
-| Outcome report | `POST /api/v1/plugin/outcomes` | Append post-send or post-review audit | Appends audit only | Correlated by `message_id`; local group reports are per member artifact |
-| Override creation | `POST /api/v1/plugin/overrides` | Create an explicit override policy | Creates policy | Can follow preview, review, or blocked outcomes |
+| Surface                | Endpoint / handle                            | Intended use                                          | Creates message or lifecycle mutation? | Live-send rule                                                                       |
+| ---------------------- | -------------------------------------------- | ----------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------ |
+| Advisory context       | `POST /api/v1/plugin/context`                | Prompt-time hints and relationship context            | No                                     | Never use `policy_guidance.default_decision` as live authorization                   |
+| Preview / preflight    | `POST /api/v1/plugin/resolve`                | Preview UX and trusted-mode parity checks             | No                                     | Preview `resolution_id` is ephemeral and not reused for local commit/send            |
+| Direct local bundle    | `POST /api/v1/plugin/bundles/direct-send`    | Direct non-trusted local enforcement input            | No                                     | Later commit/send must use `bundle_metadata.resolution_id`                           |
+| Group local bundle     | `POST /api/v1/plugin/bundles/group-fanout`   | Group non-trusted fanout input                        | No                                     | Later commit/send must use `members[*].resolution_id` per recipient                  |
+| Local decision commit  | `POST /api/v1/plugin/local-decisions/commit` | Persist the plugin-local decision                     | Yes                                    | `ask`/`deny` stop here; `allow` continues to transport                               |
+| Final send / transport | `POST /api/v1/messages/send`                 | Trusted server send or resume committed local `allow` | Yes                                    | Local group sends call this per allowed user recipient, not once for the whole group |
+| Outcome report         | `POST /api/v1/plugin/outcomes`               | Append post-send or post-review audit                 | Appends audit only                     | Correlated by `message_id`; local group reports are per member artifact              |
+| Override creation      | `POST /api/v1/plugin/overrides`              | Create an explicit override policy                    | Creates policy                         | Can follow preview, review, or blocked outcomes                                      |
 
 ---
 
@@ -932,6 +932,7 @@ Query params:
 - `limit` optional: max `100`, default `50`.
 - Responses include a rich `audit` object for user/admin debugging (resolver layer, matched/winning policy IDs, evaluated policy trail, and explanation context when available).
 - Local `ask` commits appear here as ordinary review records. `audit.policy_evaluation_mode` distinguishes local commit records (`plugin_local_pre_delivery`) from trusted send records (`outbound_pre_delivery` / `inbound_pre_delivery`).
+- When a review record originated from `POST /api/v1/plugin/local-decisions/commit`, the response also includes top-level `resolution_id` and `audit.local_decision_commit` metadata (`source`, `resolution_id`, `committed_at`, `summary`, and optional `group_id`).
 - Local `allow` commits do not appear here, because they are stored as pending transport artifacts rather than review items.
 
 Success response:
@@ -948,6 +949,7 @@ Success response:
     {
       "review_id": "rev_msg_123",
       "message_id": "msg_123",
+      "resolution_id": "res_123",
       "status": "review_required",
       "queue_direction": "outbound",
       "decision": "ask",
@@ -955,10 +957,18 @@ Success response:
       "summary": "Message requires review before delivery.",
       "reason_code": "policy.ask.resolved",
       "audit": {
+        "policy_evaluation_mode": "plugin_local_pre_delivery",
         "resolver_layer": "user_policies",
         "winning_policy_id": "pol_ask_1",
         "matched_policy_ids": ["pol_ask_1"],
         "resolution_explanation": "User-scoped ask policy requires review.",
+        "local_decision_commit": {
+          "source": "plugin.local_decisions.commit",
+          "resolution_id": "res_123",
+          "committed_at": "2026-03-08T12:00:00.000Z",
+          "summary": "Message requires review before delivery.",
+          "group_id": null
+        },
         "evaluated_policies": [
           {
             "policy_id": "pol_ask_1",
@@ -1002,6 +1012,7 @@ Query params:
 - Local `deny` commits appear here as ordinary blocked events. In local group fan-out, denied members appear one event per committed member artifact.
 - Local `allow` commits never appear here.
 - `audit.policy_evaluation_mode` distinguishes local commit blocks (`plugin_local_pre_delivery`) from trusted send-time blocks.
+- When a blocked event originated from `POST /api/v1/plugin/local-decisions/commit`, the response also includes top-level `resolution_id` and `audit.local_decision_commit` metadata (`source`, `resolution_id`, `committed_at`, `summary`, and optional `group_id`).
 
 Success response:
 
@@ -1019,6 +1030,7 @@ Success response:
     {
       "id": "blocked_msg_123",
       "message_id": "msg_123",
+      "resolution_id": "res_123",
       "queue_direction": "outbound",
       "sender": "bob",
       "reason_code": "policy.deny.user.structured",
@@ -1027,9 +1039,17 @@ Success response:
       "resource": "location.current",
       "action": "share",
       "audit": {
+        "policy_evaluation_mode": "plugin_local_pre_delivery",
         "resolver_layer": "user_policies",
         "winning_policy_id": "pol_block_1",
         "matched_policy_ids": ["pol_block_1"],
+        "local_decision_commit": {
+          "source": "plugin.local_decisions.commit",
+          "resolution_id": "res_123",
+          "committed_at": "2026-03-08T12:00:00.000Z",
+          "summary": "Message blocked by policy.",
+          "group_id": null
+        },
         "evaluated_policies": [
           {
             "policy_id": "pol_block_1",
