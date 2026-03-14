@@ -582,7 +582,7 @@ This project is done when all of the following are true:
 
 ### 4.2 Make Lifecycle Consumption Idempotent and Correct
 - **ID**: `LPE-041`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-012`, `LPE-030`, `LPE-031`, `LPE-032`
 - **Description**:
@@ -599,6 +599,8 @@ This project is done when all of the following are true:
   - [ ] Allow/ask/deny local paths behave consistently with documented lifecycle rules
   - [ ] Integration tests cover duplicate and partial-delivery cases
 
+- **Notes**:
+  - 2026-03-14T16:13:27.529Z: LPE-041 completed via orchestrator integration.
 ### 4.3 Add Observability for Local Policy Decisions
 - **ID**: `LPE-042`
 - **Status**: `pending`
