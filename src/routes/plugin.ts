@@ -88,10 +88,19 @@ const pluginContextRequestSchema = z.object({
   interaction_limit: z.number().int().min(1).max(20).optional().default(5),
 });
 
-const pluginResolveRequestSchema = z.object({
+const pluginSendSelectorRequestSchema = z.object({
   recipient: z.string().min(1),
   recipient_type: z.enum(["user", "group"]).optional().default("user"),
   sender_connection_id: z.string().optional(),
+  direction: z.enum(selectorDirections).optional(),
+  resource: selectorTokenSchema.optional(),
+  action: selectorTokenSchema.optional(),
+  declared_selectors: selectorInputSchema.optional(),
+});
+
+const pluginDirectSendBundleRequestSchema = pluginSendSelectorRequestSchema;
+
+const pluginResolveRequestSchema = pluginSendSelectorRequestSchema.extend({
   recipient_connection_id: z.string().optional(),
   routing_hints: z
     .object({
@@ -102,10 +111,6 @@ const pluginResolveRequestSchema = z.object({
   message: z.string().min(1),
   context: z.string().optional(),
   payload_type: z.string().optional().default("text/plain"),
-  direction: z.enum(selectorDirections).optional(),
-  resource: selectorTokenSchema.optional(),
-  action: selectorTokenSchema.optional(),
-  declared_selectors: selectorInputSchema.optional(),
   correlation_id: z.string().optional(),
   idempotency_key: z.string().optional(),
 });
@@ -172,6 +177,7 @@ type PluginContextRequest = z.infer<typeof pluginContextRequestSchema>;
 type PluginResolveRequest = z.infer<typeof pluginResolveRequestSchema>;
 type PluginOutcomeRequest = z.infer<typeof pluginOutcomeRequestSchema>;
 type PluginOverrideRequest = z.infer<typeof pluginOverrideRequestSchema>;
+type PluginSendSelectorRequest = z.infer<typeof pluginSendSelectorRequestSchema>;
 type PluginReportedOutcome = (typeof pluginOutcomeValues)[number];
 type PluginOverrideKind = (typeof pluginOverrideKinds)[number];
 type ContextDecision = "allow" | "ask" | "deny";
@@ -245,7 +251,7 @@ function resolveContextSelectors(data: PluginContextRequest) {
   return selectors;
 }
 
-function resolveDraftSelectors(data: PluginResolveRequest) {
+function resolveDraftSelectors(data: PluginSendSelectorRequest) {
   const selectorSource = data.declared_selectors;
   const selectors = normalizeSelectorContext(
     {
@@ -544,18 +550,30 @@ async function resolveSenderConnection(
   return senderConnection;
 }
 
-async function resolveUserRecipient(
+async function loadDirectUserRecipientAccess(
   senderUserId: string,
-  data: PluginResolveRequest,
+  recipientValue: string,
+  notFriendsStatus = 403,
 ): Promise<{
-  recipientConnection: schema.AgentConnection;
-  recipientUserId: string;
+  friendship: {
+    createdAt: Date | null;
+  };
+  recipient: {
+    displayName: string | null;
+    id: string;
+    username: string;
+  };
 }> {
   const db = getDb();
+  const recipientUsername = recipientValue.toLowerCase();
   const [recipient] = await db
-    .select()
+    .select({
+      displayName: schema.users.displayName,
+      id: schema.users.id,
+      username: schema.users.username,
+    })
     .from(schema.users)
-    .where(eq(schema.users.username, data.recipient.toLowerCase()))
+    .where(eq(schema.users.username, recipientUsername))
     .limit(1);
 
   if (!recipient) {
@@ -563,10 +581,13 @@ async function resolveUserRecipient(
   }
 
   const [friendship] = await db
-    .select()
+    .select({
+      createdAt: schema.friendships.createdAt,
+    })
     .from(schema.friendships)
     .where(
       and(
+        eq(schema.friendships.status, "accepted"),
         or(
           and(
             eq(schema.friendships.requesterId, senderUserId),
@@ -577,14 +598,33 @@ async function resolveUserRecipient(
             eq(schema.friendships.addresseeId, senderUserId),
           ),
         ),
-        eq(schema.friendships.status, "accepted"),
       ),
     )
     .limit(1);
 
   if (!friendship) {
-    throw new AppError("Not friends with recipient", 403, "NOT_FRIENDS");
+    throw new AppError(
+      "Not friends with recipient",
+      notFriendsStatus,
+      "NOT_FRIENDS",
+    );
   }
+
+  return { friendship, recipient };
+}
+
+async function resolveUserRecipient(
+  senderUserId: string,
+  data: PluginResolveRequest,
+): Promise<{
+  recipientConnection: schema.AgentConnection;
+  recipientUserId: string;
+}> {
+  const db = getDb();
+  const { recipient } = await loadDirectUserRecipientAccess(
+    senderUserId,
+    data.recipient,
+  );
 
   if (data.recipient_connection_id) {
     const [recipientConnection] = await db
@@ -1219,6 +1259,48 @@ async function loadContextPolicies(
   });
 }
 
+function toDirectSendBundlePolicy(policy: CanonicalPolicy) {
+  return {
+    id: policy.id,
+    scope: policy.scope,
+    target_id: policy.target_id,
+    direction: policy.direction,
+    resource: policy.resource,
+    action: policy.action,
+    effect: policy.effect,
+    evaluator: policy.evaluator,
+    policy_content: policy.policy_content,
+    effective_from: policy.effective_from,
+    expires_at: policy.expires_at,
+    max_uses: policy.max_uses,
+    remaining_uses: policy.remaining_uses,
+    source: policy.source,
+    derived_from_message_id: policy.derived_from_message_id,
+    learning_provenance: policy.learning_provenance ?? null,
+    priority: policy.priority,
+    created_at: policy.created_at,
+  };
+}
+
+function buildDirectSendLLMContext(
+  applicablePolicies: CanonicalPolicy[],
+  subject: string,
+) {
+  const hasApplicableLLMPolicy = applicablePolicies.some(
+    (policy) => policy.evaluator === "llm",
+  );
+
+  return {
+    subject,
+    provider_defaults: hasApplicableLLMPolicy
+      ? {
+          provider: "anthropic",
+          model: config.llm.model,
+        }
+      : null,
+  };
+}
+
 pluginRoutes.get("/reviews", requireActive(), async (c) => {
   const user = c.get("user")!;
   const db = getDb();
@@ -1521,46 +1603,11 @@ pluginRoutes.post(
       );
     }
 
-    const recipientUsername = data.recipient.toLowerCase();
-    const [recipient] = await db
-      .select({
-        displayName: schema.users.displayName,
-        id: schema.users.id,
-        username: schema.users.username,
-      })
-      .from(schema.users)
-      .where(eq(schema.users.username, recipientUsername))
-      .limit(1);
-
-    if (!recipient) {
-      throw new AppError("Recipient user not found", 404, "USER_NOT_FOUND");
-    }
-
-    const [friendship] = await db
-      .select({
-        createdAt: schema.friendships.createdAt,
-      })
-      .from(schema.friendships)
-      .where(
-        and(
-          eq(schema.friendships.status, "accepted"),
-          or(
-            and(
-              eq(schema.friendships.requesterId, user.id),
-              eq(schema.friendships.addresseeId, recipient.id),
-            ),
-            and(
-              eq(schema.friendships.requesterId, recipient.id),
-              eq(schema.friendships.addresseeId, user.id),
-            ),
-          ),
-        ),
-      )
-      .limit(1);
-
-    if (!friendship) {
-      throw new AppError("Not friends with recipient", 404, "NOT_FRIENDS");
-    }
+    const { friendship, recipient } = await loadDirectUserRecipientAccess(
+      user.id,
+      data.recipient,
+      404,
+    );
 
     const roles = await getRolesForFriend(user.id, recipient.id);
     const applicablePolicies = await loadContextPolicies(
@@ -1679,6 +1726,76 @@ pluginRoutes.post(
       recent_interactions: recentInteractions,
       sender_connection: senderConnection,
       suggested_selectors: selectors,
+    });
+  },
+);
+
+pluginRoutes.post(
+  "/bundles/direct-send",
+  requireActive(),
+  zValidator("json", pluginDirectSendBundleRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+
+    if (data.recipient_type !== "user") {
+      throw new AppError(
+        "Only recipient_type='user' is supported for direct-send policy bundles",
+        400,
+        "UNSUPPORTED_RECIPIENT_TYPE",
+      );
+    }
+
+    const selectors = resolveDraftSelectors(data);
+    const direction = parseDirectionCandidate(selectors.direction);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
+    const { recipient } = await loadDirectUserRecipientAccess(
+      user.id,
+      data.recipient,
+    );
+    const roles = await getRolesForFriend(user.id, recipient.id);
+    const applicablePolicies = await loadContextPolicies(
+      user.id,
+      recipient.id,
+      roles,
+      {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+    );
+    const issuedAt = new Date();
+
+    return c.json({
+      contract_version: CONTRACT_VERSION,
+      bundle_type: "direct_send",
+      bundle_metadata: {
+        bundle_id: `bundle_${nanoid(18)}`,
+        resolution_id: `res_${nanoid(18)}`,
+        issued_at: issuedAt.toISOString(),
+        expires_at: new Date(
+          issuedAt.getTime() + 5 * 60 * 1000,
+        ).toISOString(),
+      },
+      authenticated_identity: {
+        sender_user_id: user.id,
+        sender_connection_id: senderConnection.id,
+      },
+      selector_context: {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+      recipient: {
+        id: recipient.id,
+        type: "user",
+        username: recipient.username,
+      },
+      applicable_policies: applicablePolicies.map(toDirectSendBundlePolicy),
+      llm: buildDirectSendLLMContext(applicablePolicies, recipient.username),
     });
   },
 );

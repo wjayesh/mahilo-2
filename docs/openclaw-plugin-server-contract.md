@@ -2,7 +2,7 @@
 
 > **Status**: Active (implementation-aligned)
 > **Contract Version**: `1.0.0`
-> **Last Updated**: 2026-03-08
+> **Last Updated**: 2026-03-14
 > **Applies To**: Mahilo server in this repo and the OpenClaw plugin in `plugins/openclaw-mahilo/`
 
 ---
@@ -114,6 +114,7 @@ Authorization: Bearer <mahilo_api_key>
 Verification requirements by route:
 
 - `POST /api/v1/plugin/context`: authenticated user required, Twitter verification not required.
+- `POST /api/v1/plugin/bundles/direct-send`: authenticated + verified user required.
 - `POST /api/v1/plugin/resolve`: authenticated + verified user required.
 - `POST /api/v1/plugin/outcomes`: authenticated + verified user required.
 - `POST /api/v1/plugin/overrides`: authenticated + verified user required.
@@ -224,7 +225,93 @@ Response example:
 }
 ```
 
-### 2) Resolve Draft (Preflight)
+### 2) Get Direct-Send Policy Bundle
+
+Endpoint:
+
+```http
+POST /api/v1/plugin/bundles/direct-send
+```
+
+Request body:
+
+```json
+{
+  "sender_connection_id": "conn_sender",
+  "recipient": "alice",
+  "recipient_type": "user",
+  "declared_selectors": {
+    "direction": "outbound",
+    "resource": "location.current",
+    "action": "share"
+  }
+}
+```
+
+Request notes:
+
+- `sender_connection_id` is optional; when omitted, server picks the highest-priority active connection for the authenticated user.
+- `recipient_type=user` is currently required for this direct-send bundle. Group fan-out uses a separate contract.
+- The bundle intentionally excludes prompt/advisory fields from `/plugin/context` and does not resolve delivery routing.
+- `applicable_policies` are already filtered by server-side recipient identity, role membership, selector context, and lifecycle eligibility.
+- `bundle_metadata.resolution_id` is the send/report correlation handle for later local-decision commit work.
+
+Response example:
+
+```json
+{
+  "contract_version": "1.0.0",
+  "bundle_type": "direct_send",
+  "bundle_metadata": {
+    "bundle_id": "bundle_123",
+    "resolution_id": "res_123",
+    "issued_at": "2026-03-14T10:30:00.000Z",
+    "expires_at": "2026-03-14T10:35:00.000Z"
+  },
+  "authenticated_identity": {
+    "sender_user_id": "usr_sender",
+    "sender_connection_id": "conn_sender"
+  },
+  "selector_context": {
+    "action": "share",
+    "direction": "outbound",
+    "resource": "location.current"
+  },
+  "recipient": {
+    "id": "usr_alice",
+    "type": "user",
+    "username": "alice"
+  },
+  "applicable_policies": [
+    {
+      "id": "pol_role_1",
+      "scope": "role",
+      "target_id": "close_friends",
+      "direction": "outbound",
+      "resource": "location.current",
+      "action": "share",
+      "effect": "ask",
+      "evaluator": "structured",
+      "policy_content": {},
+      "effective_from": null,
+      "expires_at": null,
+      "max_uses": null,
+      "remaining_uses": null,
+      "source": "user_created",
+      "derived_from_message_id": null,
+      "learning_provenance": null,
+      "priority": 80,
+      "created_at": "2026-03-14T10:00:00.000Z"
+    }
+  ],
+  "llm": {
+    "subject": "alice",
+    "provider_defaults": null
+  }
+}
+```
+
+### 3) Resolve Draft (Preflight)
 
 Endpoint:
 
@@ -315,7 +402,7 @@ Group preflight note:
 
 - For `recipient_type=group`, response currently returns a single aggregate `recipient_results` entry for the group target (not per-member fan-out rows).
 
-### 3) Final Send
+### 4) Final Send
 
 Endpoint:
 
@@ -394,7 +481,7 @@ Idempotency replay example:
 }
 ```
 
-### 4) Report Outcome
+### 5) Report Outcome
 
 Endpoint:
 
@@ -452,7 +539,7 @@ Deduplicated retry response:
 }
 ```
 
-### 5) Create Override
+### 6) Create Override
 
 Endpoint:
 
@@ -504,7 +591,7 @@ Success response (`201`):
 
 ---
 
-### 6) Query Review Queue
+### 7) Query Review Queue
 
 Endpoint:
 
@@ -571,7 +658,7 @@ Success response:
 }
 ```
 
-### 7) Query Blocked Events
+### 8) Query Blocked Events
 
 Endpoint:
 
