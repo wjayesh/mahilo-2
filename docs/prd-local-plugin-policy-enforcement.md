@@ -212,7 +212,7 @@ This project is done when all of the following are true:
   - 2026-03-14T11:39:19.171Z: LPE-001 completed via orchestrator integration.
 ### 0.2 Extract Shared Selector and Filtering Primitives
 - **ID**: `LPE-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-001`
 - **Description**:
@@ -225,6 +225,8 @@ This project is done when all of the following are true:
   - [ ] Plugin advisory-only selector normalization is no longer a separate source of truth
   - [ ] Unit tests cover selector normalization and candidate filtering parity
 
+- **Notes**:
+  - 2026-03-14T12:44:27.513Z: LPE-002 completed via orchestrator integration.
 ### 0.3 Extract Deterministic Resolution Semantics
 - **ID**: `LPE-003`
 - **Status**: `pending`
