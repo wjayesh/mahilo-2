@@ -355,7 +355,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 5.1 Delivery-Log and Activity Data Layer
 - **ID**: `DASH-050`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-010`
 - **Description**:
@@ -365,6 +365,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Outbound/inbound, review, blocked, and delivered states can be filtered consistently
   - [ ] Delivery-log normalization preserves selectors, reason codes, correlation IDs, and timestamps
 
+- **Notes**:
+  - 2026-03-14T14:19:26.256Z: DASH-050 completed via orchestrator integration.
 ### 5.2 Review Queue and Blocked-Event UI Inside Delivery Logs
 - **ID**: `DASH-051`
 - **Status**: `pending`
