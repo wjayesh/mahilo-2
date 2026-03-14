@@ -797,6 +797,21 @@ function assertResolutionBoundMessageMatchesRequest(
   }
 }
 
+function assertNonTrustedResolutionResumesCommittedLocalAllow(
+  resolutionId: string | undefined,
+  committedLocalAllowMessage: schema.Message | null,
+): void {
+  if (!resolutionId || config.trustedMode || committedLocalAllowMessage) {
+    return;
+  }
+
+  throw new AppError(
+    "Non-trusted sends with resolution_id must resume a committed local allow. Preview and advisory resolutions cannot authorize transport.",
+    409,
+    "LOCAL_DECISION_REQUIRED",
+  );
+}
+
 // Send message
 const sendMessageSchema = z.object({
   recipient: z.string().min(1), // username or group_id
@@ -1730,6 +1745,11 @@ messageRoutes.post(
         committedLocalAllowMessage = existingByResolution;
       }
     }
+
+    assertNonTrustedResolutionResumesCommittedLocalAllow(
+      data.resolution_id,
+      committedLocalAllowMessage,
+    );
 
     let userPolicyEvaluation: string | null = null;
     let userPolicyResult: PolicyResult | null = null;

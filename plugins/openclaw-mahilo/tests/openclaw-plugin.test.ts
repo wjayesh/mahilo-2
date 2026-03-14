@@ -5470,6 +5470,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     const prompt = promptValue;
     expect(prompt).toContain("[MahiloContext/v1]");
+    expect(prompt).toContain("authority=advisory_only");
     expect(prompt).toContain("guidance=ask:context.ask.role.structured");
     expect(prompt).toContain(
       "recipient=name=alice; relationship=friend; roles=close_friends,trusted,long_list_role",

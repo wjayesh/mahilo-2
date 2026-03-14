@@ -1239,6 +1239,119 @@ describe("native contract tools", () => {
     expect(state.sendCalls).toHaveLength(0);
   });
 
+  it("keeps advisory context and preview separate from live local send enforcement", async () => {
+    const { client, state } = createMockClient({
+      promptContextResponse: {
+        policy_guidance: {
+          default_decision: "allow",
+          reason_code: "context.allow.preview",
+          summary: "Advisory only. This does not authorize a live send.",
+        },
+        recipient: {
+          relationship: "friend",
+          username: "alice",
+        },
+        suggested_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current",
+        },
+      },
+      resolveResponse: {
+        agent_guidance:
+          "Preview only. Do not treat this as send authorization.",
+        decision: "allow",
+        delivery_mode: "full_send",
+        reason_code: "plugin.resolve.preview_only",
+        resolution_id: "res_preview_only",
+        resolution_summary:
+          "Preview only. Live non-trusted sends require bundle evaluation and local decision commit before transport.",
+        server_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current",
+        },
+      },
+    });
+    const localRuntime = {
+      evaluateDirectSend: async () =>
+        createLocalDirectResult("ask", {
+          bundle_metadata: {
+            bundle_id: "bundle_local_live_review",
+            expires_at: "2026-03-14T10:35:00.000Z",
+            issued_at: "2026-03-14T10:30:00.000Z",
+            resolution_id: "res_local_live_review",
+          },
+          recipient: {
+            id: "usr_alice",
+            type: "user",
+            username: "alice",
+          },
+        }),
+    };
+
+    const contextResult = await getMahiloContext(client, {
+      declaredSelectors: {
+        action: "share",
+        resource: "location.current",
+      },
+      recipient: "alice",
+      senderConnectionId: "conn_sender",
+    });
+    const previewResult = await previewMahiloSend(
+      client,
+      {
+        declaredSelectors: {
+          action: "share",
+          resource: "location.current",
+        },
+        message: "Alice is at home right now.",
+        recipient: "alice",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+    );
+    const sendResult = await talkToAgent(
+      client,
+      {
+        declaredSelectors: {
+          action: "share",
+          resource: "location.current",
+        },
+        message: "Alice is at home right now.",
+        recipient: "alice",
+      },
+      {
+        senderConnectionId: "conn_sender",
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never,
+        },
+      },
+    );
+
+    expect(contextResult.context?.guidance.decision).toBe("allow");
+    expect(previewResult).toMatchObject({
+      decision: "allow",
+      reasonCode: "plugin.resolve.preview_only",
+      resolutionId: "res_preview_only",
+    });
+    expect(sendResult).toMatchObject({
+      decision: "ask",
+      resolutionId: "res_local_live_review",
+      status: "review_required",
+    });
+    expect(state.promptContextCalls).toHaveLength(1);
+    expect(state.resolveCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls[0]?.payload.resolution_id).toBe(
+      "res_local_live_review",
+    );
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
   it("creates overrides with normalized selectors and idempotency key", async () => {
     const { client, state } = createMockClient({
       overrideResponse: {

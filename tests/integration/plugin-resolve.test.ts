@@ -215,6 +215,82 @@ describe("Plugin draft resolution endpoint (SRV-041)", () => {
       }),
     );
   });
+
+  it("marks non-trusted previews as preview-only and rejects preview resolution ids on send", async () => {
+    setTrustedMode(false);
+    app = createApp();
+
+    const {
+      sender,
+      senderKey,
+      senderConnection,
+      recipient,
+      recipientConnection,
+    } = await setupParticipants("plugin_resolve_preview_only");
+
+    await insertCanonicalPolicy({
+      action: "share",
+      direction: "outbound",
+      effect: "deny",
+      evaluator: "structured",
+      policy_content: {},
+      priority: 110,
+      resource: "location.current",
+      scope: "user",
+      target_id: recipient.id,
+      user_id: sender.id,
+    });
+
+    const payload = {
+      sender_connection_id: senderConnection.id,
+      recipient: recipient.username,
+      recipient_type: "user",
+      recipient_connection_id: recipientConnection.id,
+      message: "Do not share exact location",
+      context: "Preview should not authorize the live send path",
+      declared_selectors: {
+        direction: "outbound",
+        resource: "location.current",
+        action: "share",
+      },
+    };
+
+    const previewResponse = await app.request("/api/v1/plugin/resolve", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    expect(previewResponse.status).toBe(200);
+    const previewBody = await previewResponse.json();
+
+    expect(previewBody.decision).toBe("allow");
+    expect(previewBody.reason_code).toBe("plugin.resolve.preview_only");
+    expect(previewBody.resolution_summary).toContain("Preview only.");
+    expect(previewBody.agent_guidance).toContain(
+      "Do not treat this as send authorization.",
+    );
+
+    const sendResponse = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...payload,
+        resolution_id: previewBody.resolution_id,
+      }),
+    });
+
+    expect(sendResponse.status).toBe(409);
+    const sendBody = await sendResponse.json();
+    expect(sendBody.code).toBe("LOCAL_DECISION_REQUIRED");
+    expect(String(sendBody.error)).toContain("committed local allow");
+  });
 });
 
 async function setupParticipants(suffix: string) {

@@ -655,7 +655,7 @@ Request notes:
 
 - `sender_connection_id` is optional; when omitted, server picks the highest-priority active connection for the authenticated user.
 - `declared_selectors` takes precedence over top-level `direction/resource/action`.
-- Policy preflight runs only when `trustedMode=true` and `payload_type != application/mahilo+ciphertext`; otherwise decision defaults to `allow`.
+- Policy preflight runs only when `trustedMode=true` and `payload_type != application/mahilo+ciphertext`; otherwise decision defaults to `allow`, `reason_code` becomes `plugin.resolve.preview_only`, and the summary/guidance explicitly mark the response as preview-only.
 - Agent-facing preflight responses intentionally expose only outcome-safe explanation fields (`decision`, `delivery_mode`, `reason_code`, summary) and omit detailed policy internals.
 - No message or delivery record is created.
 - The returned `resolution_id` is preview-scoped. Plugin clients must not reuse it for non-trusted local commit/send; fetch a bundle to obtain the authoritative local-enforcement `resolution_id`.
@@ -725,6 +725,7 @@ Transport rules:
 - Local `ask` and `deny` decisions do not call `/messages/send`; the commit response is already the terminal pre-delivery artifact.
 - Direct local sends must reuse the committed `resolution_id`.
 - Local group fan-out does not send the original group target back through `/messages/send` after commit. It sends each allowed member separately as `recipient_type=user` with that member `resolution_id`.
+- In non-trusted mode, a supplied `resolution_id` must already be bound to a committed local `allow` artifact or the server returns `LOCAL_DECISION_REQUIRED`. Preview `resolution_id` values are not valid send tokens.
 - When a `resolution_id` is already bound to a committed local artifact, sender connection, recipient, recipient connection (when already bound), selectors, payload, payload type, and context must match that artifact or the server returns `LOCAL_DECISION_CONFLICT`.
 - Replays with the same committed `resolution_id` deduplicate to the existing message, even if a later retry supplies a different `idempotency_key`.
 

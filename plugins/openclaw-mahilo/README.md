@@ -126,7 +126,7 @@ The plugin keeps the model-facing surface intentionally small:
 
 - `send_message`
   - `action=send` (default): send a policy-aware message to a user or group
-  - `action=preview`: resolve a draft without sending it; dry-run only, not live authorization
+  - `action=preview`: resolve a draft without sending it; dry-run only, not live authorization, and preview `resolution_id` values are never reused for local commit/send
   - `action=context`: fetch compact Mahilo context and prompt guidance for a contact; advisory only
 - `manage_network`
   - `action=list`: list contacts, pending requests, sender connections, recent Mahilo activity, and lightweight seven-day product signals from Mahilo/OpenClaw runtime state
@@ -140,7 +140,7 @@ The plugin keeps the model-facing surface intentionally small:
 
 Operational and debug workflows stay on commands instead of expanding the tool list.
 
-In non-trusted mode, live `send_message` and `ask_network` enforcement comes from server-issued bundles evaluated locally before transport. Prompt context and preview remain advisory/dry-run surfaces.
+In non-trusted mode, live `send_message` and `ask_network` enforcement comes from server-issued bundles evaluated locally before transport. Prompt context and preview remain advisory/dry-run surfaces. If you preview first, the later live path still fetches a fresh bundle, evaluates locally, commits the decision, and only then transports committed `allow` recipients.
 
 ## Default Sender Resolution
 

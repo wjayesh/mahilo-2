@@ -141,6 +141,7 @@ describe("fetchMahiloPromptContext", () => {
     expect(result.injection).toBe(
       [
         "[MahiloContext/v1]",
+        "authority=advisory_only",
         "recipient=name=Alice Liddell; relationship=friend; roles=close_friends,teammate,vip",
         "guidance=ask:context.ask.role.structured",
         "summary=Share only city-level location details for close_friends unless explicit consent is present.",
@@ -292,12 +293,13 @@ describe("formatMahiloPromptInjection", () => {
     const lines = injection.split("\n");
 
     expect(lines[0]).toBe("[MahiloContext/v1]");
-    expect(lines[1]).toBe("recipient=name=Carol; relationship=teammate");
-    expect(lines[2]).toContain("guidance=ask:");
-    expect(lines[2]?.length).toBeLessThanOrEqual("guidance=ask:".length + 72);
-    expect(lines[3]?.length).toBeLessThanOrEqual("summary=".length + 180);
-    expect(lines[4]).toBe("selectors=outbound/location.current/share");
-    expect(lines).toHaveLength(6);
-    expect(lines[5]?.length).toBeLessThanOrEqual("recent_1=".length + 140);
+    expect(lines[1]).toBe("authority=advisory_only");
+    expect(lines[2]).toBe("recipient=name=Carol; relationship=teammate");
+    expect(lines[3]).toContain("guidance=ask:");
+    expect(lines[3]?.length).toBeLessThanOrEqual("guidance=ask:".length + 72);
+    expect(lines[4]?.length).toBeLessThanOrEqual("summary=".length + 180);
+    expect(lines[5]).toBe("selectors=outbound/location.current/share");
+    expect(lines).toHaveLength(7);
+    expect(lines[6]?.length).toBeLessThanOrEqual("recent_1=".length + 140);
   });
 });

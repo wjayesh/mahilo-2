@@ -71,6 +71,7 @@ describe("README install docs", () => {
     expect(readme).toContain("manage_network");
     expect(readme).toContain("set_boundaries");
     expect(readme).toContain("dry-run only, not live authorization");
+    expect(readme).toContain("preview `resolution_id` values are never reused");
     expect(readme).toContain("advisory only");
     expect(readme).toContain("evaluated locally before transport");
     expect(readme).toContain("opinions/recommendations");

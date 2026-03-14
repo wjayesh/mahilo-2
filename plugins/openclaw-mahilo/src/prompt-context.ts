@@ -151,6 +151,7 @@ export function formatMahiloPromptInjection(
 ): string {
   const lines = [
     "[MahiloContext/v1]",
+    "authority=advisory_only",
     `recipient=${formatRecipient(context.recipient)}`,
     `guidance=${formatGuidance(context.guidance)}`,
     `summary=${compactText(context.guidance.summary ?? "none", MAX_SUMMARY_LENGTH)}`,

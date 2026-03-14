@@ -530,10 +530,28 @@ function defaultReasonCode(decision: ContextDecision): string {
   return "policy.allow.resolved";
 }
 
+function resolvePreviewReasonCode(
+  decision: ContextDecision,
+  authoritative: boolean,
+): string {
+  if (!authoritative) {
+    return "plugin.resolve.preview_only";
+  }
+
+  return defaultReasonCode(decision);
+}
+
 function buildAgentResolutionSummary(
   decision: ContextDecision,
   deliveryMode: DeliveryMode,
+  options: {
+    authoritative?: boolean;
+  } = {},
 ): string {
+  if (options.authoritative === false) {
+    return "Preview only. Live non-trusted sends require bundle evaluation and local decision commit before transport.";
+  }
+
   if (decision === "ask") {
     return deliveryMode === "hold_for_approval"
       ? "Message held for approval before delivery."
@@ -548,7 +566,14 @@ function buildAgentResolutionSummary(
 function buildAgentGuidance(
   decision: ContextDecision,
   deliveryMode: DeliveryMode,
+  options: {
+    authoritative?: boolean;
+  } = {},
 ): string {
+  if (options.authoritative === false) {
+    return "Preview only. Do not treat this as send authorization. For live non-trusted sends, fetch a policy bundle, evaluate locally, commit the decision, and transport only committed allow recipients.";
+  }
+
   if (decision === "allow") {
     return "Proceed with final send. Mahilo will evaluate policies again at send time.";
   }
@@ -2592,9 +2617,13 @@ pluginRoutes.post(
 
     const decision: ContextDecision = policyResult?.effect ?? "allow";
     const deliveryMode = resolveDeliveryMode(decision, direction);
+    const authoritativePreview = evaluatePolicy;
     const resolutionSummary = buildAgentResolutionSummary(
       decision,
       deliveryMode,
+      {
+        authoritative: authoritativePreview,
+      },
     );
     const resolutionId = `res_${nanoid(18)}`;
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
@@ -2605,8 +2634,12 @@ pluginRoutes.post(
       decision,
       delivery_mode: deliveryMode,
       resolution_summary: resolutionSummary,
-      agent_guidance: buildAgentGuidance(decision, deliveryMode),
-      reason_code: policyResult?.reason_code || defaultReasonCode(decision),
+      agent_guidance: buildAgentGuidance(decision, deliveryMode, {
+        authoritative: authoritativePreview,
+      }),
+      reason_code:
+        policyResult?.reason_code ||
+        resolvePreviewReasonCode(decision, authoritativePreview),
       server_selectors: {
         action: selectors.action,
         direction,
