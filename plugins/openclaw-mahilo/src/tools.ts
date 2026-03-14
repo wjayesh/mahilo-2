@@ -1,3 +1,4 @@
+import { normalizeSelectorDirection } from "@mahilo/policy-core";
 import {
   MahiloRequestError,
   type MahiloAgentConnectionSummary,
@@ -1290,7 +1291,7 @@ function readRecipientType(value: unknown): "group" | "user" | undefined {
 }
 
 function readSelectorDirection(value: unknown): DeclaredSelectors["direction"] | undefined {
-  return value === "inbound" || value === "outbound" ? value : undefined;
+  return normalizeSelectorDirection(typeof value === "string" ? value : undefined);
 }
 
 function readString(value: unknown): string | undefined {

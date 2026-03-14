@@ -1,3 +1,4 @@
+import { normalizeSelectorDirection } from "@mahilo/policy-core";
 import type { MahiloContractClient } from "./client";
 import {
   normalizeDeclaredSelectors,
@@ -388,7 +389,7 @@ function compactText(value: string, maxLength: number): string {
 }
 
 function parseSelectorDirection(value: unknown): DeclaredSelectors["direction"] | undefined {
-  return value === "inbound" || value === "outbound" ? value : undefined;
+  return normalizeSelectorDirection(typeof value === "string" ? value : undefined);
 }
 
 function parsePolicyDecision(value: unknown): PolicyDecision | undefined;

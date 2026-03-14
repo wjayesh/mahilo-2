@@ -3,6 +3,12 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq, and, or, desc, gt, ne, inArray } from "drizzle-orm";
+import {
+  isInboundSelectorDirection,
+  normalizeSelectorContext,
+  normalizeSelectorDirection,
+  SELECTOR_DIRECTIONS,
+} from "@mahilo/policy-core";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireActive, requireAuth } from "../middleware/auth";
@@ -31,16 +37,6 @@ export const messageRoutes = new Hono<AppEnv>();
 
 // Use auth middleware for all routes
 messageRoutes.use("*", requireAuth());
-
-const messageSelectorDirections = [
-  "outbound",
-  "inbound",
-  "request",
-  "response",
-  "notification",
-  "error",
-] as const;
-const knownMessageSelectorDirections = new Set<string>(messageSelectorDirections);
 
 const knownMessageSelectorResources = new Set<string>([
   "message.general",
@@ -79,14 +75,16 @@ const selectorTokenSchema = z
   .regex(/^[a-z0-9._-]+$/i);
 
 const selectorInputSchema = z.object({
-  direction: z.enum(messageSelectorDirections).optional(),
+  direction: z.enum(SELECTOR_DIRECTIONS).optional(),
   resource: selectorTokenSchema.optional(),
   action: selectorTokenSchema.optional(),
 });
 
 const outcomeDetailsSchema = z.union([z.string(), z.record(z.unknown()), z.array(z.unknown())]);
 
-type MessageDirection = (typeof messageSelectorDirections)[number];
+const messageSelectorDirections = SELECTOR_DIRECTIONS;
+
+type MessageDirection = (typeof SELECTOR_DIRECTIONS)[number];
 type PolicyDecision = PolicyResult["effect"];
 type DeliveryMode = "full_send" | "review_required" | "hold_for_approval" | "blocked";
 type MessageRecordStatus =
@@ -176,14 +174,6 @@ function parseOptionalJsonText(value: string | null): unknown {
   }
 }
 
-function normalizeSelectorToken(value: string | undefined, fallback: string): string {
-  if (!value) {
-    return fallback;
-  }
-  const normalized = value.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : fallback;
-}
-
 function isNamespacedSelectorToken(value: string): boolean {
   return value.includes(".");
 }
@@ -200,7 +190,7 @@ function validateMessageSelectors(selectors: {
   resource: string;
   action: string;
 }) {
-  if (!knownMessageSelectorDirections.has(selectors.direction)) {
+  if (!SELECTOR_DIRECTIONS.includes(selectors.direction)) {
     throw new AppError(
       `Unknown direction selector '${selectors.direction}'`,
       400,
@@ -240,7 +230,7 @@ function serializePolicyEvaluation(
 }
 
 function isInboundDirection(direction: MessageDirection): boolean {
-  return direction === "inbound" || direction === "request";
+  return isInboundSelectorDirection(direction);
 }
 
 function resolveDeliveryMode(decision: PolicyDecision, direction: MessageDirection): DeliveryMode {
@@ -470,17 +460,10 @@ function parseDecisionCandidate(value: unknown): PolicyDecision | null {
 }
 
 function parseDirectionCandidate(value: unknown): MessageDirection {
-  if (
-    value === "outbound" ||
-    value === "inbound" ||
-    value === "request" ||
-    value === "response" ||
-    value === "notification" ||
-    value === "error"
-  ) {
-    return value;
-  }
-  return defaultMessageSelectors.direction;
+  return normalizeSelectorDirection(
+    typeof value === "string" ? value : undefined,
+    defaultMessageSelectors.direction
+  )!;
 }
 
 function buildStoredMessageResolution(
@@ -585,20 +568,19 @@ type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
 function resolveMessageSelectors(data: SendMessageInput) {
   const selectorSource = data.declared_selectors;
-  return {
-    direction:
-      selectorSource?.direction ||
-      data.direction ||
-      defaultMessageSelectors.direction,
-    resource: normalizeSelectorToken(
-      selectorSource?.resource || data.resource,
-      defaultMessageSelectors.resource
-    ),
-    action: normalizeSelectorToken(
-      selectorSource?.action || data.action,
-      defaultMessageSelectors.action
-    ),
-  };
+  return normalizeSelectorContext(
+    {
+      action: selectorSource?.action ?? data.action,
+      direction: selectorSource?.direction ?? data.direction,
+      resource: selectorSource?.resource ?? data.resource,
+    },
+    {
+      fallbackAction: defaultMessageSelectors.action,
+      fallbackDirection: defaultMessageSelectors.direction,
+      fallbackResource: defaultMessageSelectors.resource,
+      normalizeSeparators: true,
+    }
+  );
 }
 
 function resolveOutcomeMetadata(data: SendMessageInput) {

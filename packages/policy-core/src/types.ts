@@ -46,10 +46,28 @@ export interface AuthenticatedSenderIdentity {
   sender_connection_id: string;
 }
 
+export interface PolicySelectorInput {
+  direction?: string | null;
+  resource?: string | null;
+  action?: string | null;
+}
+
 export interface PolicySelectorContext {
   direction?: PolicyDirection;
   resource?: string;
   action?: string;
+}
+
+export interface ResolvedPolicySelectorContext {
+  direction: PolicyDirection;
+  resource: string;
+  action: string;
+}
+
+export interface SelectorFilterCandidate {
+  direction?: string | null;
+  resource?: string | null;
+  action?: string | null;
 }
 
 export interface PolicyLifecycleProvenance {

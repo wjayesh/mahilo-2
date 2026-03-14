@@ -3636,6 +3636,48 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
+  it("treats request hook directions as inbound-like for prompt context recipient resolution", async () => {
+    const { client, state } = createMockContractClient({
+      agentConnectionsResponse: [
+        {
+          active: true,
+          framework: "openclaw",
+          id: "conn_sender_default",
+          label: "primary",
+        },
+      ],
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, hooks } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const hook = findHook(hooks, "before_prompt_build");
+    await hook.execute({
+      message: {
+        recipient: "ignored_recipient",
+        sender: "alice",
+        selectors: {
+          action: "request",
+          direction: "request",
+          resource: "message.general",
+        },
+      },
+      prompt: "You are a helpful assistant.",
+    });
+
+    expect(state.promptContextCalls[0]).toMatchObject({
+      recipient: "alice",
+      recipient_type: "user",
+      sender_connection_id: "conn_sender_default",
+    });
+  });
+
   it("does not register prompt hook when promptContextEnabled is false", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({

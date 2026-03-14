@@ -4,6 +4,12 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { createHash } from "crypto";
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  isInboundSelectorDirection,
+  normalizeSelectorContext,
+  normalizeSelectorDirection,
+  SELECTOR_DIRECTIONS,
+} from "@mahilo/policy-core";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireActive, requireAuth } from "../middleware/auth";
@@ -32,15 +38,6 @@ import {
 } from "../services/policySchema";
 
 const CONTRACT_VERSION = "1.0.0";
-
-const selectorDirections = [
-  "outbound",
-  "inbound",
-  "request",
-  "response",
-  "notification",
-  "error",
-] as const;
 
 const knownSelectorResources = new Set<string>([
   "message.general",
@@ -73,10 +70,12 @@ const selectorTokenSchema = z
   .regex(/^[a-z0-9._-]+$/i);
 
 const selectorInputSchema = z.object({
-  direction: z.enum(selectorDirections).optional(),
+  direction: z.enum(SELECTOR_DIRECTIONS).optional(),
   resource: selectorTokenSchema.optional(),
   action: selectorTokenSchema.optional(),
 });
+
+const selectorDirections = SELECTOR_DIRECTIONS;
 
 const pluginContextRequestSchema = z.object({
   sender_connection_id: z.string().min(1),
@@ -197,15 +196,6 @@ const defaultSelectors = {
 
 export const pluginRoutes = new Hono<AppEnv>();
 pluginRoutes.use("*", requireAuth());
-
-function normalizeSelectorToken(value: string | undefined, fallback: string): string {
-  if (!value) {
-    return fallback;
-  }
-  const normalized = value.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : fallback;
-}
-
 function isNamespacedSelectorToken(value: string): boolean {
   return value.includes(".");
 }
@@ -219,7 +209,7 @@ function validateSelectors(selectors: {
   resource: string;
   action: string;
 }) {
-  if (!selectorDirections.includes(selectors.direction)) {
+  if (!SELECTOR_DIRECTIONS.includes(selectors.direction)) {
     throw new AppError(
       `Unknown direction selector '${selectors.direction}'`,
       400,
@@ -238,56 +228,44 @@ function validateSelectors(selectors: {
   );
 }
 
-function resolveDirectionCandidates(direction: PolicyDirection): PolicyDirection[] {
-  if (direction === "inbound" || direction === "request") {
-    return ["inbound", "request"];
-  }
-  return [direction];
-}
-
 function resolveContextSelectors(data: PluginContextRequest) {
   const selectorSource = data.draft_selectors || data.declared_selectors;
-  const direction = selectorSource?.direction || defaultSelectors.direction;
-  const resource = normalizeSelectorToken(selectorSource?.resource, defaultSelectors.resource);
-  const action = normalizeSelectorToken(selectorSource?.action, defaultSelectors.action);
-  const selectors = {
-    action,
-    direction,
-    resource,
-  };
+  const selectors = normalizeSelectorContext(selectorSource, {
+    fallbackAction: defaultSelectors.action,
+    fallbackDirection: defaultSelectors.direction,
+    fallbackResource: defaultSelectors.resource,
+    normalizeSeparators: true,
+  });
   validateSelectors(selectors);
   return selectors;
 }
 
 function resolveDraftSelectors(data: PluginResolveRequest) {
   const selectorSource = data.declared_selectors;
-  const direction = selectorSource?.direction || data.direction || defaultSelectors.direction;
-  const resource = normalizeSelectorToken(
-    selectorSource?.resource || data.resource,
-    defaultSelectors.resource
+  const selectors = normalizeSelectorContext(
+    {
+      action: selectorSource?.action ?? data.action,
+      direction: selectorSource?.direction ?? data.direction,
+      resource: selectorSource?.resource ?? data.resource,
+    },
+    {
+      fallbackAction: defaultSelectors.action,
+      fallbackDirection: defaultSelectors.direction,
+      fallbackResource: defaultSelectors.resource,
+      normalizeSeparators: true,
+    }
   );
-  const action = normalizeSelectorToken(
-    selectorSource?.action || data.action,
-    defaultSelectors.action
-  );
-  const selectors = {
-    action,
-    direction,
-    resource,
-  };
   validateSelectors(selectors);
   return selectors;
 }
 
 function resolveOverrideSelectors(data: PluginOverrideRequest) {
-  const direction = data.selectors.direction || defaultSelectors.direction;
-  const resource = normalizeSelectorToken(data.selectors.resource, defaultSelectors.resource);
-  const action = normalizeSelectorToken(data.selectors.action, defaultSelectors.action);
-  const selectors = {
-    action,
-    direction,
-    resource,
-  };
+  const selectors = normalizeSelectorContext(data.selectors, {
+    fallbackAction: defaultSelectors.action,
+    fallbackDirection: defaultSelectors.direction,
+    fallbackResource: defaultSelectors.resource,
+    normalizeSeparators: true,
+  });
   validateSelectors(selectors);
   return selectors;
 }
@@ -410,21 +388,14 @@ function resolveOverrideLifecycle(data: PluginOverrideRequest): {
 }
 
 function parseDirectionCandidate(value: unknown): PolicyDirection {
-  if (
-    value === "outbound" ||
-    value === "inbound" ||
-    value === "request" ||
-    value === "response" ||
-    value === "notification" ||
-    value === "error"
-  ) {
-    return value;
-  }
-  return defaultSelectors.direction;
+  return normalizeSelectorDirection(
+    typeof value === "string" ? value : undefined,
+    defaultSelectors.direction
+  )!;
 }
 
 function isInboundDirection(direction: PolicyDirection): boolean {
-  return direction === "inbound" || direction === "request";
+  return isInboundSelectorDirection(direction);
 }
 
 function resolveDeliveryMode(decision: ContextDecision, direction: PolicyDirection): DeliveryMode {

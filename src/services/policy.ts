@@ -1,6 +1,7 @@
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   POLICY_RESOLVER_ORDER,
+  filterPolicyCandidatesBySelectors,
   normalizeSelectorToken,
   reasonCodeToken,
   resolveDirectionCandidates,
@@ -106,7 +107,11 @@ export async function loadApplicablePolicies(
     )
     .orderBy(desc(schema.policies.priority));
 
-  return policies.map((policy) => dbPolicyToCanonical(policy));
+  // Lifecycle and scope ownership stay server-side in SQL; the shared selector
+  // filter is reapplied here so future bundle consumers reuse identical matching.
+  return filterPolicyCandidatesBySelectors(policies, selectors).map((policy) =>
+    dbPolicyToCanonical(policy)
+  );
 }
 
 function createServerLLMPolicyEvaluator(): LLMPolicyEvaluator | undefined {

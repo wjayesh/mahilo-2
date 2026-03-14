@@ -1,14 +1,17 @@
-import { stricterEffect, type PolicyEffect } from "@mahilo/policy-core";
+import {
+  isInboundSelectorDirection,
+  normalizeSelectorContext,
+  stricterEffect,
+  type PolicyDirection,
+  type PolicyEffect,
+  type ResolvedPolicySelectorContext,
+} from "@mahilo/policy-core";
 import type { ReviewMode } from "./config";
 
 export type PolicyDecision = PolicyEffect;
-export type SelectorDirection = "inbound" | "outbound";
+export type SelectorDirection = PolicyDirection;
 
-export interface DeclaredSelectors {
-  action: string;
-  direction: SelectorDirection;
-  resource: string;
-}
+export interface DeclaredSelectors extends ResolvedPolicySelectorContext {}
 
 export interface LocalPolicyGuardInput {
   message: string;
@@ -29,15 +32,13 @@ export function normalizeDeclaredSelectors(
   selectors: Partial<DeclaredSelectors> | undefined,
   fallbackDirection: SelectorDirection = "outbound"
 ): DeclaredSelectors {
-  const direction = parseDirection(selectors?.direction, fallbackDirection);
-  const resource = normalizeToken(selectors?.resource, "message.general");
-  const action = normalizeToken(selectors?.action, direction === "outbound" ? "share" : "notify");
-
-  return {
-    action,
-    direction,
-    resource
-  };
+  return normalizeSelectorContext(selectors, {
+    fallbackDirection,
+    fallbackResource: "message.general",
+    normalizeSeparators: true,
+    resolveFallbackAction: (direction) =>
+      isInboundSelectorDirection(direction) ? "notify" : "share",
+  });
 }
 
 export function extractDecision(value: unknown, fallback: PolicyDecision = "allow"): PolicyDecision {
@@ -145,24 +146,6 @@ export function applyLocalPolicyGuard(input: LocalPolicyGuardInput): LocalPolicy
   return {
     decision: "allow"
   };
-}
-
-function parseDirection(value: unknown, fallback: SelectorDirection): SelectorDirection {
-  if (value === "inbound" || value === "outbound") {
-    return value;
-  }
-
-  return fallback;
-}
-
-function normalizeToken(value: unknown, fallback: string): string {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9.]+/giu, ".");
-  const collapsed = normalized.replace(/\.+/gu, ".").replace(/^\.|\.$/gu, "");
-  return collapsed.length > 0 ? collapsed : fallback;
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {

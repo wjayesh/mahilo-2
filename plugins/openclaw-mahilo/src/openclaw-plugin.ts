@@ -1,4 +1,9 @@
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import {
+  isInboundSelectorDirection,
+  normalizePartialSelectorContext,
+  normalizeSelectorDirection,
+} from "@mahilo/policy-core";
 
 import { MahiloRequestError, type MahiloContractClient } from "./client";
 import {
@@ -934,44 +939,30 @@ function parseDeclaredSelectors(
     return undefined;
   }
 
-  const parsed: Partial<DeclaredSelectors> = {};
-  const action = readOptionalString(selectors.action);
-  const direction = readOptionalString(selectors.direction);
-  const resource = readOptionalString(selectors.resource);
-
-  if (action) {
-    parsed.action = action;
-  }
-
-  if (direction) {
-    parsed.direction = direction as DeclaredSelectors["direction"];
-  }
-
-  if (resource) {
-    parsed.resource = resource;
-  }
-
-  return Object.keys(parsed).length > 0 ? parsed : undefined;
+  return normalizePartialSelectorContext(
+    {
+      action: readOptionalString(selectors.action),
+      direction: readOptionalString(selectors.direction),
+      resource: readOptionalString(selectors.resource),
+    },
+    {
+      normalizeSeparators: true,
+    }
+  );
 }
 
 function buildSelectorsFromTopLevel(
   input: Record<string, unknown>,
 ): Partial<DeclaredSelectors> | undefined {
-  const resource = readOptionalString(input.resource);
-  const action = readOptionalString(input.action);
-
-  if (!resource && !action) {
-    return undefined;
-  }
-
-  const parsed: Partial<DeclaredSelectors> = {};
-  if (resource) {
-    parsed.resource = resource;
-  }
-  if (action) {
-    parsed.action = action;
-  }
-  return parsed;
+  return normalizePartialSelectorContext(
+    {
+      action: readOptionalString(input.action),
+      resource: readOptionalString(input.resource),
+    },
+    {
+      normalizeSeparators: true,
+    }
+  );
 }
 
 function readInputObject(rawInput: unknown): Record<string, unknown> {
@@ -2369,24 +2360,18 @@ function parseHookSelectors(
       continue;
     }
 
-    const parsed: Partial<DeclaredSelectors> = {};
-    const action = readOptionalString(candidate.action);
-    const direction = readOptionalString(candidate.direction);
-    const resource = readOptionalString(candidate.resource);
+    const parsed = normalizePartialSelectorContext(
+      {
+        action: readOptionalString(candidate.action),
+        direction: readOptionalString(candidate.direction),
+        resource: readOptionalString(candidate.resource),
+      },
+      {
+        normalizeSeparators: true,
+      }
+    );
 
-    if (action) {
-      parsed.action = action;
-    }
-
-    if (direction === "inbound" || direction === "outbound") {
-      parsed.direction = direction;
-    }
-
-    if (resource) {
-      parsed.resource = resource;
-    }
-
-    if (Object.keys(parsed).length > 0) {
+    if (parsed) {
       return parsed;
     }
   }
@@ -2398,17 +2383,21 @@ function readHookDirection(
   sources: Record<string, unknown>[],
   declaredSelectors: Partial<DeclaredSelectors> | undefined,
 ): "inbound" | "outbound" | undefined {
-  if (
-    declaredSelectors?.direction === "inbound" ||
-    declaredSelectors?.direction === "outbound"
-  ) {
-    return declaredSelectors.direction;
+  const declaredDirection = normalizeSelectorDirection(declaredSelectors?.direction);
+  if (declaredDirection === "outbound") {
+    return declaredDirection;
   }
 
-  const direction = readFirstString(sources, "direction");
-  return direction === "inbound" || direction === "outbound"
-    ? direction
-    : undefined;
+  if (isInboundSelectorDirection(declaredDirection)) {
+    return "inbound";
+  }
+
+  const direction = normalizeSelectorDirection(readFirstString(sources, "direction"));
+  if (direction === "outbound") {
+    return direction;
+  }
+
+  return isInboundSelectorDirection(direction) ? "inbound" : undefined;
 }
 
 function normalizeRecipientType(

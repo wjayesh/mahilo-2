@@ -202,6 +202,38 @@ describe("fetchMahiloPromptContext", () => {
     expect(second.context).toEqual(first.context);
   });
 
+  it("preserves request directions returned by Mahilo prompt context responses", async () => {
+    const { client } = createContextClient({
+      response: {
+        policy_guidance: {
+          default_decision: "ask",
+          reason_code: "context.ask.role.structured"
+        },
+        recipient: {
+          username: "alice"
+        },
+        recent_interactions: [],
+        suggested_selectors: {
+          action: "request",
+          direction: "request",
+          resource: "message.general"
+        }
+      }
+    });
+
+    const result = await fetchMahiloPromptContext(client, {
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result.context?.selectors).toEqual({
+      action: "request",
+      direction: "request",
+      resource: "message.general"
+    });
+    expect(result.injection).toContain("selectors=request/message.general/request");
+  });
+
   it("degrades gracefully when context fetch fails", async () => {
     const { client } = createContextClient({
       error: new Error("request timeout")

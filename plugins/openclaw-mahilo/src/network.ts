@@ -1,3 +1,4 @@
+import { normalizePartialSelectorContext } from "@mahilo/policy-core";
 import {
   MahiloRequestError,
   type MahiloContractClient,
@@ -234,7 +235,9 @@ async function executeMahiloAskAroundAction(
     );
   }
 
-  const declaredSelectors = normalizeDeclaredSelectors(input.declaredSelectors);
+  const declaredSelectors = normalizePartialSelectorContext(input.declaredSelectors, {
+    normalizeSeparators: true,
+  });
   const correlationId = normalizeToken(input.correlationId) ?? createAskAroundCorrelationId();
   const roles = normalizeRoles(input.role, input.roles);
   const groupRef =
@@ -664,33 +667,6 @@ function formatQuotedGroupList(groups: Pick<MahiloGroupSummary, "groupId" | "nam
   return groups
     .map((group) => formatQuotedLabel(group.name || group.groupId))
     .join(", ");
-}
-
-function normalizeDeclaredSelectors(
-  selectors: Partial<DeclaredSelectors> | undefined
-): Partial<DeclaredSelectors> | undefined {
-  if (!selectors) {
-    return undefined;
-  }
-
-  const normalized: Partial<DeclaredSelectors> = {};
-  const action = normalizeToken(selectors.action);
-  const direction = normalizeToken(selectors.direction);
-  const resource = normalizeToken(selectors.resource);
-
-  if (action) {
-    normalized.action = action;
-  }
-
-  if (direction === "inbound" || direction === "outbound") {
-    normalized.direction = direction;
-  }
-
-  if (resource) {
-    normalized.resource = resource;
-  }
-
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function normalizeRoles(

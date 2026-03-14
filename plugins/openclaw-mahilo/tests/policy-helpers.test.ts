@@ -40,6 +40,18 @@ describe("policy helpers", () => {
     });
   });
 
+  it("preserves request directions and treats them as inbound-like for defaults", () => {
+    expect(
+      normalizeDeclaredSelectors({
+        direction: "request"
+      })
+    ).toEqual({
+      action: "notify",
+      direction: "request",
+      resource: "message.general"
+    });
+  });
+
   it("keeps the strictest decision when merging", () => {
     expect(mergePolicyDecisions("allow", "ask")).toBe("ask");
     expect(mergePolicyDecisions("allow", "deny", "ask")).toBe("deny");

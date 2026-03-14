@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  filterPolicyCandidatesBySelectors,
+  normalizePartialSelectorContext,
+  normalizeSelectorContext,
   resolvePolicySet,
+  selectorDirectionsEquivalent,
   type CorePolicy,
   type LLMPolicyEvaluator,
 } from "@mahilo/policy-core";
@@ -138,5 +142,106 @@ describe("policy core resolver", () => {
     expect(result.reason_code).toBe("policy.deny.global.llm");
     expect(result.winning_policy_id).toBe("pol_llm");
     expect(result.winning_policy?.reason).toBe("LLM matched the policy");
+  });
+
+  it("normalizes selector contexts with canonical token folding", () => {
+    expect(
+      normalizeSelectorContext(
+        {
+          action: " Request ",
+          direction: " request ",
+          resource: "Message General",
+        },
+        {
+          fallbackAction: "share",
+          fallbackDirection: "outbound",
+          fallbackResource: "message.general",
+          normalizeSeparators: true,
+        }
+      )
+    ).toEqual({
+      action: "request",
+      direction: "request",
+      resource: "message.general",
+    });
+  });
+
+  it("normalizes partial selectors without inventing missing fields", () => {
+    expect(
+      normalizePartialSelectorContext(
+        {
+          direction: " inbound ",
+          resource: "Location Current",
+        },
+        {
+          normalizeSeparators: true,
+        }
+      )
+    ).toEqual({
+      direction: "inbound",
+      resource: "location.current",
+    });
+  });
+
+  it("treats inbound and request as equivalent directions", () => {
+    expect(selectorDirectionsEquivalent("inbound", "request")).toBe(true);
+    expect(selectorDirectionsEquivalent("request", "inbound")).toBe(true);
+    expect(selectorDirectionsEquivalent("outbound", "request")).toBe(false);
+  });
+
+  it("filters selector candidates with request aliases and wildcard fields", () => {
+    const matchingIds = filterPolicyCandidatesBySelectors(
+      [
+        {
+          action: "request",
+          direction: "inbound",
+          id: "pol_inbound_alias",
+          resource: "message.general",
+        },
+        {
+          action: "request",
+          direction: "request",
+          id: "pol_request_exact",
+          resource: "message.general",
+        },
+        {
+          action: null,
+          direction: "request",
+          id: "pol_any_action",
+          resource: "message.general",
+        },
+        {
+          action: "request",
+          direction: "request",
+          id: "pol_any_resource",
+          resource: null,
+        },
+        {
+          action: "request",
+          direction: null,
+          id: "pol_any_direction",
+          resource: "message.general",
+        },
+        {
+          action: "request",
+          direction: "outbound",
+          id: "pol_outbound",
+          resource: "message.general",
+        },
+      ],
+      {
+        action: " Request ",
+        direction: "request",
+        resource: " Message.General ",
+      }
+    ).map((policy) => policy.id);
+
+    expect(matchingIds).toEqual([
+      "pol_inbound_alias",
+      "pol_request_exact",
+      "pol_any_action",
+      "pol_any_resource",
+      "pol_any_direction",
+    ]);
   });
 });
