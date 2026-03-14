@@ -123,6 +123,7 @@ const State = {
   availableRolesByName: new Map(),
   availableRolesStatus: "idle",
   availableRolesError: null,
+  developerApiKeyVisible: false,
 
   // Initialize state from localStorage
   init() {
@@ -210,6 +211,7 @@ const State = {
     this.availableRolesByName = new Map();
     this.availableRolesStatus = "idle";
     this.availableRolesError = null;
+    this.developerApiKeyVisible = false;
     localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
 };
@@ -680,6 +682,19 @@ const Helpers = {
   truncate(value, limit = 120) {
     const text = this.string(value);
     return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+  },
+
+  maskSecret(value, prefixLength = 18, suffixLength = 8) {
+    const text = this.string(value);
+    if (!text) {
+      return "Unavailable";
+    }
+
+    if (text.length <= prefixLength + suffixLength + 3) {
+      return text;
+    }
+
+    return `${text.slice(0, prefixLength)}...${text.slice(-suffixLength)}`;
   },
 
   pluralize(count, singular, plural = `${singular}s`) {
@@ -3711,6 +3726,8 @@ const DataLoader = {
       UI.updateAgentCount(State.agents.length);
       UI.renderAgents();
       UI.renderOverviewAgents();
+      UI.renderDevDiagnostics();
+      UI.renderDevMessagingSummary();
     } catch (error) {
       console.error("Failed to load agents:", error);
     }
@@ -3758,9 +3775,20 @@ const DataLoader = {
       UI.renderOverviewFriends();
       UI.renderConversations();
       UI.renderDevConversations();
+      UI.renderDevMessagingSummary();
       if (State.selectedChat) {
         UI.renderChat(State.selectedChat);
-        UI.renderDevChat(State.selectedChat);
+        const selectedDeveloperFriend = State.friends.find(
+          (friend) =>
+            friend.status === "accepted" &&
+            friend.username === State.selectedChat,
+        );
+        if (selectedDeveloperFriend) {
+          UI.renderDevChat(State.selectedChat);
+        }
+      }
+      if (State.currentView === "developer") {
+        UI.renderDeveloperConsole();
       }
       if (State.currentView === "boundaries") {
         UI.renderPolicies();
@@ -4318,9 +4346,21 @@ const UI = {
       });
 
     document
+      .getElementById("dev-toggle-api-key")
+      ?.addEventListener("click", () => {
+        this.toggleDevApiKeyVisibility();
+      });
+
+    document
       .getElementById("dev-rotate-api-key")
       ?.addEventListener("click", () => {
         this.handleRotateKey();
+      });
+
+    document
+      .getElementById("dev-open-connections-btn")
+      ?.addEventListener("click", () => {
+        this.switchView("connections");
       });
 
     // Landing page: hamburger menu
@@ -4493,6 +4533,7 @@ const UI = {
       State.save();
 
       document.getElementById("new-api-key").textContent = result.api_key;
+      this.renderDevApiKey();
       this.hideModals();
       this.showModal("api-key-modal");
 
@@ -4500,7 +4541,7 @@ const UI = {
       WebSocketManager.disconnect();
       WebSocketManager.connect();
 
-      this.showToast("API key rotated successfully", "success");
+      this.showToast("API key regenerated successfully", "success");
     } catch (error) {
       this.showToast("Failed to rotate API key", "error");
     }
@@ -6115,19 +6156,27 @@ const UI = {
   async handleSendTestMessage() {
     const input = document.getElementById("dev-chat-input");
     const message = input.value.trim();
+    const sender = this.getDefaultSenderCandidate();
 
     if (!message || !State.selectedChat) return;
+    if (!sender) {
+      this.showToast(
+        "Add or activate a sender connection before running a developer test message.",
+        "error",
+      );
+      return;
+    }
 
     try {
       const result = await API.messages.send({
         recipient: State.selectedChat,
         message,
-        context: "Test message from Developer",
+        context: "Developer console test message",
       });
 
       input.value = "";
       await DataLoader.loadLogFeed();
-      this.showToast(`Test message sent: ${result.status}`, "success");
+      this.showToast(`Test message queued: ${result.status}`, "success");
     } catch (error) {
       this.showToast(error.message || "Failed to send test message", "error");
     }
@@ -6272,9 +6321,34 @@ const UI = {
     } else if (resolvedView === "settings") {
       DataLoader.loadPreferences();
     } else if (resolvedView === "developer") {
-      this.renderDevConversations();
-      this.renderDevApiKey();
+      this.renderDeveloperConsole();
     }
+  },
+
+  renderDeveloperConsole() {
+    this.renderDevApiKey();
+    this.renderDevDiagnostics();
+    this.renderDevMessagingSummary();
+    this.renderDevConversations();
+
+    const selectedFriend = State.friends.find(
+      (friend) =>
+        friend.status === "accepted" && friend.username === State.selectedChat,
+    );
+    const placeholder = document.getElementById("dev-chat-placeholder");
+    const container = document.getElementById("dev-chat-container");
+
+    if (!placeholder || !container) {
+      return;
+    }
+
+    if (selectedFriend) {
+      this.selectDevChat(selectedFriend.username);
+      return;
+    }
+
+    placeholder.classList.remove("hidden");
+    container.classList.add("hidden");
   },
 
   // Show landing page
@@ -8496,6 +8570,8 @@ const UI = {
 
       this.renderAgents();
       this.renderOverviewAgents();
+      this.renderDevDiagnostics();
+      this.renderDevMessagingSummary();
 
       if (State.selectedAgentId === id) {
         this.showAgentDetails(id);
@@ -10382,6 +10458,9 @@ const UI = {
 
   renderDevConversations() {
     const list = document.getElementById("dev-conversations-list");
+    if (!list) {
+      return;
+    }
 
     const acceptedFriends = State.friends.filter(
       (f) => f.status === "accepted",
@@ -10431,14 +10510,18 @@ const UI = {
       name[0].toUpperCase();
     document.getElementById("dev-chat-recipient-name").textContent = name;
     document.getElementById("dev-chat-recipient-status").textContent =
-      "Test Mode";
+      "Accepted network contact";
 
+    this.renderDevMessagingSummary();
     this.renderDevConversations();
     this.renderDevChat(username);
   },
 
   renderDevChat(username) {
     const container = document.getElementById("dev-chat-messages");
+    if (!container) {
+      return;
+    }
     const messages = State.conversations.get(username) || [];
 
     container.innerHTML = messages
@@ -10460,15 +10543,215 @@ const UI = {
 
   renderDevApiKey() {
     const display = document.getElementById("dev-api-key-display");
-    if (display && State.apiKey) {
-      // Show first 20 chars and last 10 chars, mask the middle
-      const key = State.apiKey;
-      const masked =
-        key.length > 30
-          ? `${key.substring(0, 20)}...${key.substring(key.length - 10)}`
-          : key;
-      display.textContent = masked;
+    const context = document.getElementById("dev-api-key-context");
+    const footnote = document.getElementById("dev-api-key-footnote");
+    const toggle = document.getElementById("dev-toggle-api-key");
+
+    if (!display || !context || !footnote || !toggle) {
+      return;
     }
+
+    const key = Helpers.nullableString(State.apiKey);
+    if (!key) {
+      display.textContent = "No API key loaded";
+      context.textContent =
+        "Sign in with an API key to enable developer utilities.";
+      footnote.textContent =
+        "Mahilo only returns a fresh key when you regenerate it.";
+      toggle.disabled = true;
+      toggle.innerHTML = "<span>👁️</span> Reveal";
+      return;
+    }
+
+    display.textContent = State.developerApiKeyVisible
+      ? key
+      : Helpers.maskSecret(key);
+    context.textContent = State.developerApiKeyVisible
+      ? "Visible because you intentionally revealed it in this dashboard session."
+      : "Loaded from this dashboard session. Copy works without revealing it on screen.";
+    footnote.textContent =
+      "Mahilo can regenerate this key, but it cannot recover an older lost key.";
+    toggle.disabled = false;
+    toggle.innerHTML = State.developerApiKeyVisible
+      ? "<span>🙈</span> Hide"
+      : "<span>👁️</span> Reveal";
+  },
+
+  toggleDevApiKeyVisibility() {
+    if (!State.apiKey) {
+      this.showToast("No API key is loaded in this dashboard session.", "error");
+      return;
+    }
+
+    State.developerApiKeyVisible = !State.developerApiKeyVisible;
+    this.renderDevApiKey();
+  },
+
+  renderDevDiagnostics() {
+    const summary = document.getElementById("dev-diagnostics-summary");
+    const list = document.getElementById("dev-diagnostics-list");
+
+    if (!summary || !list) {
+      return;
+    }
+
+    const connections = this.getSenderConnectionWorkspaceItems();
+    const activeConnections = connections.filter(
+      (connection) =>
+        Helpers.string(connection?.status).toLowerCase() === "active",
+    );
+    const healthyConnections = connections.filter(
+      (connection) => connection.health?.tone === "healthy",
+    );
+    const defaultSender =
+      connections.find((connection) => connection.isDefaultSenderCandidate) ||
+      null;
+
+    summary.innerHTML = [
+      {
+        label: "Default sender",
+        tone: defaultSender ? "default" : "warning",
+        value: defaultSender ? defaultSender.label : "No active sender",
+        detail: defaultSender
+          ? `${defaultSender.modeLabel} route selected first`
+          : "Add or activate a connection",
+      },
+      {
+        label: "Connections",
+        tone: connections.length ? "success" : "warning",
+        value: `${connections.length} total`,
+        detail: `${activeConnections.length} active for auto-selection`,
+      },
+      {
+        label: "Healthy checks",
+        tone: healthyConnections.length ? "success" : "warning",
+        value: healthyConnections.length
+          ? `${healthyConnections.length} reporting healthy`
+          : "No successful checks yet",
+        detail: healthyConnections.length
+          ? "Latest ping or polling inbox signal is healthy"
+          : "Run a connection check from Developer",
+      },
+    ]
+      .map(
+        (item) => `
+          <article class="developer-summary-chip ${Helpers.escapeHtml(item.tone)}">
+            <span class="developer-summary-label">${Helpers.escapeHtml(item.label)}</span>
+            <strong class="developer-summary-value">${Helpers.escapeHtml(item.value)}</strong>
+            <p>${Helpers.escapeHtml(item.detail)}</p>
+          </article>
+        `,
+      )
+      .join("");
+
+    if (!connections.length) {
+      list.innerHTML = `
+        <div class="empty-state small" style="padding: 32px 20px;">
+          <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">🤖</div>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No sender connections yet</p>
+          <p class="hint" style="font-size: 0.9rem;">Add a sender connection before running diagnostics.</p>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = connections
+      .map(
+        (connection) => `
+          <article class="developer-diagnostic-card ${Helpers.escapeHtml(connection.health.tone)}">
+            <div class="developer-diagnostic-header">
+              <div>
+                <div class="developer-diagnostic-title">${Helpers.escapeHtml(connection.label)}</div>
+                <p class="developer-diagnostic-copy">${Helpers.escapeHtml(Helpers.titleizeToken(connection.framework, "Unknown framework"))} • ${Helpers.escapeHtml(connection.modeLabel)}</p>
+                <div class="developer-diagnostic-badges">
+                  <span class="status-badge ${Helpers.escapeHtml(connection.status)}">${Helpers.escapeHtml(Helpers.titleizeToken(connection.status, "Unknown"))}</span>
+                  <span class="status-badge ${Helpers.escapeHtml(connection.mode)}">${Helpers.escapeHtml(connection.modeLabel)}</span>
+                  ${
+                    connection.isDefaultSenderCandidate
+                      ? '<span class="status-badge default">Default sender</span>'
+                      : ""
+                  }
+                </div>
+              </div>
+              <button class="squishy-btn btn-secondary btn-small" onclick="UI.handlePingAgent('${Helpers.escapeHtml(connection.id)}')">
+                <span>🔎</span> ${connection.mode === "polling" ? "Check Inbox" : "Check Health"}
+              </button>
+            </div>
+            <div class="developer-diagnostic-meta">
+              <div class="developer-diagnostic-meta-item">
+                <span>Routing</span>
+                <strong>${Helpers.escapeHtml(connection.routing.badge)}</strong>
+                <p>${Helpers.escapeHtml(connection.routing.detail)}</p>
+              </div>
+              <div class="developer-diagnostic-meta-item">
+                <span>Health</span>
+                <strong>${Helpers.escapeHtml(connection.health.label)}</strong>
+                <p>${Helpers.escapeHtml(connection.health.detail)}</p>
+              </div>
+              <div class="developer-diagnostic-meta-item">
+                <span>Last seen</span>
+                <strong>${Helpers.escapeHtml(connection.lastSeenLabel)}</strong>
+                <p>Last callback or registration activity.</p>
+              </div>
+            </div>
+          </article>
+        `,
+      )
+      .join("");
+  },
+
+  renderDevMessagingSummary() {
+    const summary = document.getElementById("dev-test-messaging-summary");
+    if (!summary) {
+      return;
+    }
+
+    const acceptedFriends = State.friends.filter(
+      (friend) => friend.status === "accepted",
+    );
+    const selectedFriend = acceptedFriends.find(
+      (friend) => friend.username === State.selectedChat,
+    );
+    const sender = this.getDefaultSenderCandidate();
+
+    summary.innerHTML = [
+      {
+        label: "Selected sender",
+        tone: sender ? "default" : "warning",
+        value: sender ? sender.label : "No active sender",
+        detail: sender
+          ? `${Helpers.connectionModeLabel(sender.mode || Helpers.connectionMode(sender.callbackUrl))} route used for dashboard debug sends`
+          : "Add or activate a sender connection first",
+      },
+      {
+        label: "Test target",
+        tone: selectedFriend ? "success" : "warning",
+        value: selectedFriend
+          ? selectedFriend.displayName || selectedFriend.username
+          : "No contact selected",
+        detail: selectedFriend
+          ? "Accepted network contact selected for a direct send check"
+          : "Choose an accepted contact from the left column",
+      },
+      {
+        label: "Eligible contacts",
+        tone: acceptedFriends.length ? "success" : "warning",
+        value: Helpers.pluralize(acceptedFriends.length, "contact"),
+        detail: acceptedFriends.length
+          ? "Developer test sends stay limited to accepted network contacts"
+          : "Build your network before using test messaging",
+      },
+    ]
+      .map(
+        (item) => `
+          <article class="developer-summary-chip ${Helpers.escapeHtml(item.tone)}">
+            <span class="developer-summary-label">${Helpers.escapeHtml(item.label)}</span>
+            <strong class="developer-summary-value">${Helpers.escapeHtml(item.value)}</strong>
+            <p>${Helpers.escapeHtml(item.detail)}</p>
+          </article>
+        `,
+      )
+      .join("");
   },
 
   renderOverviewAgents() {

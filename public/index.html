@@ -1228,106 +1228,241 @@
                   <p>
                     Developer keeps API-key utilities, diagnostics, and test
                     flows available without crowding the primary product path.
-                    Use the <code>talk_to_agent</code> tool in your agent
-                    framework for normal messaging.
+                    Use <code>talk_to_agent</code> in your agent framework for
+                    normal messaging and keep this surface for setup,
+                    verification, and debugging.
                   </p>
                 </div>
               </div>
 
-              <!-- API Key Section -->
-              <div class="dev-api-key-section">
-                <h4>🔑 Your API Key</h4>
-                <div class="api-key-box">
-                  <code id="dev-api-key-display">mhl_...</code>
-                  <button
-                    class="squishy-btn btn-secondary btn-small"
-                    id="dev-copy-api-key"
-                  >
-                    <span>📋</span> Copy
-                  </button>
-                  <button
-                    class="squishy-btn btn-primary btn-small"
-                    id="dev-rotate-api-key"
-                  >
-                    <span>🔄</span> Rotate
-                  </button>
+              <div class="developer-grid">
+                <section class="developer-panel dev-api-key-section">
+                  <div class="developer-section-header">
+                    <div>
+                      <p class="developer-section-eyebrow">Runtime access</p>
+                      <h4>Current dashboard API key</h4>
+                      <p>
+                        Reveal or copy the key loaded into this dashboard
+                        session, then regenerate it when you need a fresh
+                        credential for your agent runtime.
+                      </p>
+                    </div>
+                    <span class="status-badge default">Advanced</span>
+                  </div>
+                  <div class="api-key-box">
+                    <code id="dev-api-key-display">mhl_...</code>
+                    <div class="developer-action-row">
+                      <button
+                        class="squishy-btn btn-secondary btn-small"
+                        id="dev-toggle-api-key"
+                      >
+                        <span>👁️</span> Reveal
+                      </button>
+                      <button
+                        class="squishy-btn btn-secondary btn-small"
+                        id="dev-copy-api-key"
+                      >
+                        <span>📋</span> Copy
+                      </button>
+                      <button
+                        class="squishy-btn btn-primary btn-small"
+                        id="dev-rotate-api-key"
+                      >
+                        <span>🔄</span> Regenerate
+                      </button>
+                    </div>
+                  </div>
+                  <div class="developer-inline-meta">
+                    <p id="dev-api-key-context">
+                      Loaded from this dashboard session. Copy works without
+                      revealing it on screen.
+                    </p>
+                    <p id="dev-api-key-footnote">
+                      Mahilo can regenerate this key, but it cannot recover an
+                      older lost key.
+                    </p>
+                  </div>
+                  <p class="api-key-hint">
+                    Use this key in your agent runtime config:
+                    <code>mahilo_api_key: "..."</code>
+                  </p>
+                </section>
+
+                <div class="developer-stack">
+                  <section class="developer-panel">
+                    <div class="developer-section-header">
+                      <div>
+                        <p class="developer-section-eyebrow">Diagnostics</p>
+                        <h4>Sender connection health</h4>
+                        <p>
+                          Verify which sender Mahilo will choose, inspect
+                          current health signals, and run connection checks
+                          without leaving the advanced workspace.
+                        </p>
+                      </div>
+                      <button
+                        class="squishy-btn btn-secondary btn-small"
+                        id="dev-open-connections-btn"
+                      >
+                        Open Sender Connections
+                      </button>
+                    </div>
+                    <div
+                      class="developer-summary-strip"
+                      id="dev-diagnostics-summary"
+                    ></div>
+                    <div
+                      class="developer-diagnostics-list"
+                      id="dev-diagnostics-list"
+                    >
+                      <div class="empty-state small">
+                        <div class="empty-icon">🤖</div>
+                        <p>No sender connections yet</p>
+                        <p class="hint">
+                          Add a sender connection before running diagnostics
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="developer-panel">
+                    <div class="developer-section-header">
+                      <div>
+                        <p class="developer-section-eyebrow">
+                          Unavailable here
+                        </p>
+                        <h4>Controls intentionally kept out of the dashboard</h4>
+                        <p>
+                          Unsupported or operator-only workflows stay explicit
+                          instead of looking like broken buttons.
+                        </p>
+                      </div>
+                    </div>
+                    <div class="developer-unavailable-list">
+                      <article class="developer-unavailable-item">
+                        <h5>Recover a lost API key</h5>
+                        <p>
+                          Mahilo only returns a new key when you regenerate it.
+                          If the current key is gone, rotate it and update your
+                          agent runtime.
+                        </p>
+                      </article>
+                      <article class="developer-unavailable-item">
+                        <h5>Admin-only account resets</h5>
+                        <p>
+                          Creating users, resetting other users, and invite
+                          administration stay off the user dashboard and require
+                          operator access.
+                        </p>
+                      </article>
+                      <article class="developer-unavailable-item">
+                        <h5>Normal agent-tool conversations</h5>
+                        <p>
+                          Use <code>talk_to_agent</code> in your agent
+                          framework for normal product behavior. The dashboard
+                          console stays limited to direct debugging flows.
+                        </p>
+                      </article>
+                    </div>
+                  </section>
                 </div>
-                <p class="api-key-hint">
-                  Use this key in your Clawdbot config:
-                  <code>mahilo_api_key: "..."</code>
-                </p>
               </div>
 
-              <div class="messages-layout">
-                <div class="conversations-sidebar">
-                  <div class="dev-sidebar-header">
-                    <h4>🔧 Test Messaging</h4>
-                    <p>Select a network contact to send test messages</p>
-                  </div>
-                  <div class="conversations-list" id="dev-conversations-list">
-                    <div class="empty-state small">
-                      <div class="empty-icon">💬</div>
-                      <p>No network contacts available</p>
-                      <p class="hint">
-                        Build your network first to test messaging
-                      </p>
-                    </div>
+              <section class="developer-panel developer-test-panel">
+                <div class="developer-section-header">
+                  <div>
+                    <p class="developer-section-eyebrow">Test messaging</p>
+                    <h4>Direct send checks</h4>
+                    <p>
+                      Send a controlled message through
+                      <code>/api/v1/messages/send</code> to verify routing,
+                      policy outcomes, and delivery logs from the dashboard.
+                    </p>
                   </div>
                 </div>
-                <div class="chat-area">
-                  <div class="chat-placeholder" id="dev-chat-placeholder">
-                    <div class="placeholder-content">
-                      <div class="placeholder-icon">🧪</div>
-                      <h3>Debug Console</h3>
-                      <p>Select a network contact to send test messages</p>
-                      <p class="hint">
-                        Messages sent here bypass normal agent flows
+                <div
+                  class="developer-summary-strip"
+                  id="dev-test-messaging-summary"
+                ></div>
+
+                <div class="messages-layout">
+                  <div class="conversations-sidebar">
+                    <div class="dev-sidebar-header">
+                      <h4>🔧 Test Targets</h4>
+                      <p>
+                        Accepted network contacts only. Delivery still depends
+                        on sender and recipient readiness.
                       </p>
                     </div>
-                  </div>
-                  <div class="chat-container hidden" id="dev-chat-container">
-                    <div class="chat-header">
-                      <div class="chat-recipient">
-                        <div
-                          class="recipient-avatar"
-                          id="dev-chat-recipient-avatar"
-                        >
-                          A
-                        </div>
-                        <div class="recipient-info">
-                          <span
-                            class="recipient-name"
-                            id="dev-chat-recipient-name"
-                            >Alice</span
-                          >
-                          <span
-                            class="recipient-status"
-                            id="dev-chat-recipient-status"
-                            >Test Mode</span
-                          >
-                        </div>
-                      </div>
-                    </div>
-                    <div class="chat-messages" id="dev-chat-messages"></div>
-                    <div class="chat-input-area">
-                      <div class="chat-input-wrapper">
-                        <input
-                          type="text"
-                          placeholder="Type a test message..."
-                          class="squishy-input"
-                          id="dev-chat-input"
-                        />
-                        <button
-                          class="squishy-btn btn-primary"
-                          id="dev-send-message-btn"
-                        >
-                          <span>🧪</span> Send Test
-                        </button>
+                    <div class="conversations-list" id="dev-conversations-list">
+                      <div class="empty-state small">
+                        <div class="empty-icon">💬</div>
+                        <p>No network contacts available</p>
+                        <p class="hint">
+                          Build your network first to test messaging
+                        </p>
                       </div>
                     </div>
                   </div>
+                  <div class="chat-area">
+                    <div class="chat-placeholder" id="dev-chat-placeholder">
+                      <div class="placeholder-content">
+                        <div class="placeholder-icon">🧪</div>
+                        <h3>Direct Send Check</h3>
+                        <p>
+                          Select an accepted network contact to run a controlled
+                          delivery test
+                        </p>
+                        <p class="hint">
+                          Use this to verify routing, policy outcomes, and
+                          delivery logs without switching tools
+                        </p>
+                      </div>
+                    </div>
+                    <div class="chat-container hidden" id="dev-chat-container">
+                      <div class="chat-header">
+                        <div class="chat-recipient">
+                          <div
+                            class="recipient-avatar"
+                            id="dev-chat-recipient-avatar"
+                          >
+                            A
+                          </div>
+                          <div class="recipient-info">
+                            <span
+                              class="recipient-name"
+                              id="dev-chat-recipient-name"
+                              >Alice</span
+                            >
+                            <span
+                              class="recipient-status"
+                              id="dev-chat-recipient-status"
+                              >Accepted network contact</span
+                            >
+                          </div>
+                        </div>
+                      </div>
+                      <div class="chat-messages" id="dev-chat-messages"></div>
+                      <div class="chat-input-area">
+                        <div class="chat-input-wrapper">
+                          <input
+                            type="text"
+                            placeholder="Type a developer test message..."
+                            class="squishy-input"
+                            id="dev-chat-input"
+                          />
+                          <button
+                            class="squishy-btn btn-primary"
+                            id="dev-send-message-btn"
+                          >
+                            <span>🧪</span> Send Test
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </section>
             </div>
 
             <!-- Boundaries View -->
@@ -1783,21 +1918,22 @@
           </div>
         </div>
 
-        <!-- API Key Modal (simplified — no Twitter verification) -->
+        <!-- API Key Modal -->
         <div class="modal hidden" id="api-key-modal">
           <div class="modal-header">
-            <h3>Account Created!</h3>
+            <h3>Your New API Key</h3>
             <button class="modal-close">✕</button>
           </div>
           <div class="modal-body">
             <div class="verification-step">
-              <h4>Save Your API Key</h4>
+              <h4>Save This Key Before Closing</h4>
               <div class="key-box">
                 <code id="new-api-key">mhl_xxx_xxxxxxxx</code>
                 <button class="copy-btn" id="copy-api-key">Copy</button>
               </div>
               <p class="key-warning">
-                This key will only be shown once! Save it now.
+                This value will only be shown once after regeneration. Update
+                your agent runtime before discarding the old key.
               </p>
             </div>
           </div>

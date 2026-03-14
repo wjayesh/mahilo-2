@@ -75,12 +75,14 @@ type DashboardInternals = {
     handleJoinGroup: (groupId: string) => Promise<void>;
     handleLeaveGroup: (groupId: string) => Promise<void>;
     handlePingAgent: (id: string) => Promise<void>;
+    handleRotateKey: () => Promise<void>;
     handleRegister: () => Promise<void>;
     handleRejectFriend: (id: string) => Promise<void>;
     handleRemoveFriendRole: (
       friendshipId: string,
       roleName: string,
     ) => Promise<void>;
+    handleSendTestMessage: () => Promise<void>;
     openBoundaryEditor: (policy?: Record<string, unknown> | null) => void;
     populateBoundaryPresetOptions: (
       category: string,
@@ -99,10 +101,13 @@ type DashboardInternals = {
     handleUnfriend: (id: string) => Promise<void>;
     getSenderConnectionWorkspaceItems: () => Array<Record<string, any>>;
     openAgentEditor: (agent?: string | Record<string, unknown> | null) => void;
+    renderDeveloperConsole: () => void;
     renderPolicies: (scope?: string) => void;
     selectChat: (username: string) => void;
+    selectDevChat: (username: string) => void;
     showAgentDetails: (agentId: string) => void;
     switchView: (view: string) => void;
+    toggleDevApiKeyVisibility: () => void;
   };
 };
 
@@ -1255,6 +1260,218 @@ describe("Dashboard agent add/edit UX aligned to the current API (DASH-031)", ()
 
     expect(html).not.toContain("rotate_callback_secret: true");
     expect(html).toContain("Generate a fresh callback secret on save");
+  });
+});
+
+describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("renders developer API-key utilities, diagnostics, and explicit unavailable controls", async () => {
+    const html = readFileSync("public/index.html", "utf8");
+    expect(html).toContain("Current dashboard API key");
+    expect(html).toContain("Sender connection health");
+    expect(html).toContain("Controls intentionally kept out of the dashboard");
+    expect(html).toContain("Recover a lost API key");
+
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_dev_console_viewer",
+      "Developer Viewer",
+    );
+    const { user: alice } = await createTestUser(
+      "dashboard_dev_console_alice",
+      "Alice",
+    );
+    await createAgentConnection(viewer.id, {
+      framework: "openclaw",
+      label: "primary-sender",
+    });
+    await createFriendship(viewer.id, alice.id, "accepted");
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+    harness.dashboard.UI.switchView("developer");
+
+    const maskedKey = harness.getElement("dev-api-key-display").textContent;
+    expect(maskedKey).not.toBe(apiKey);
+    expect(maskedKey).toContain(apiKey.slice(0, 12));
+    expect(maskedKey).toContain(apiKey.slice(-6));
+    expect(harness.getElement("dev-api-key-context").textContent).toContain(
+      "Loaded from this dashboard session",
+    );
+    expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
+      "primary-sender",
+    );
+    expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
+      "Default sender",
+    );
+    expect(harness.getElement("dev-test-messaging-summary").innerHTML).toContain(
+      "Eligible contacts",
+    );
+  });
+
+  it("regenerates the current API key and updates the developer display", async () => {
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_dev_rotate_viewer",
+      "Rotate Viewer",
+    );
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+    harness.dashboard.UI.switchView("developer");
+    harness.dashboard.UI.toggleDevApiKeyVisibility();
+
+    expect(harness.getElement("dev-api-key-display").textContent).toBe(apiKey);
+
+    await harness.dashboard.UI.handleRotateKey();
+    await flushDashboardWork();
+
+    const rotatedKey = String(harness.dashboard.State.apiKey);
+    expect(rotatedKey).not.toBe(apiKey);
+    expect(harness.getElement("new-api-key").textContent).toBe(rotatedKey);
+    expect(harness.getElement("dev-api-key-display").textContent).toBe(
+      rotatedKey,
+    );
+    expect(
+      harness.getElement("api-key-modal").classList.contains("hidden"),
+    ).toBe(false);
+  });
+
+  it("refreshes developer diagnostics after a connection health check and keeps test sends on the real message route", async () => {
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_dev_ping_viewer",
+      "Ping Viewer",
+    );
+    const { user: target } = await createTestUser(
+      "dashboard_dev_ping_target",
+      "Target",
+    );
+    const connection = await createAgentConnection(viewer.id, {
+      framework: "openclaw",
+      label: "webhook-debug",
+      callbackUrl: "https://agent.example/debug",
+    });
+    await createAgentConnection(target.id, {
+      framework: "openclaw",
+      label: "target-receiver",
+    });
+    await createFriendship(viewer.id, target.id, "accepted");
+
+    const app = createApp();
+    let sendPayload: Record<string, unknown> | null = null;
+    const harness = createDashboardHarness({
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+      fetchImpl: async (url, requestOptions) => {
+        const requestUrl = new URL(url);
+        const path = `${requestUrl.pathname}${requestUrl.search}`;
+
+        if (
+          path === `/api/v1/agents/${connection.id}/ping` &&
+          requestOptions?.method === "POST"
+        ) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                error: null,
+                last_seen: "2026-03-14T16:10:00.000Z",
+                latency_ms: 123,
+                message: "Connection responded to dashboard ping.",
+                mode: "webhook",
+                status_code: 200,
+                success: true,
+              };
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        if (
+          path === "/api/v1/messages/send" &&
+          requestOptions?.method === "POST"
+        ) {
+          sendPayload = JSON.parse(String(requestOptions.body));
+        }
+
+        const response = await app.request(path, requestOptions);
+        return {
+          ok: response.ok,
+          status: response.status,
+          async json() {
+            return await response.clone().json();
+          },
+          async text() {
+            return await response.clone().text();
+          },
+        };
+      },
+    });
+
+    await harness.boot();
+    harness.dashboard.UI.switchView("developer");
+
+    expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
+      "Not checked",
+    );
+
+    await harness.dashboard.UI.handlePingAgent(connection.id);
+    await flushDashboardWork();
+
+    expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
+      "Healthy",
+    );
+    expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
+      "123ms",
+    );
+
+    harness.dashboard.UI.selectDevChat(target.username);
+    harness.getElement("dev-chat-input").value = "Developer route smoke test";
+    await harness.dashboard.UI.handleSendTestMessage();
+
+    expect(sendPayload).toEqual(
+      expect.objectContaining({
+        context: "Developer console test message",
+        message: "Developer route smoke test",
+        recipient: target.username,
+      }),
+    );
   });
 });
 
