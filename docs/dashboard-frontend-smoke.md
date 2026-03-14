@@ -38,6 +38,7 @@ Steps:
 7. Check **Network** and confirm accepted, pending, and blocked relationship states load from real friendship data.
 8. Check **Boundaries** and confirm common categories render with audience/effect labels while unmatched selectors fall back to `Advanced/custom boundary`.
 9. Check **Delivery Logs** and confirm delivered, review-required or approval-pending, and blocked items render with consistent filters and audit detail.
-10. Log out and confirm the UI returns to the signed-out landing state.
+10. Check **Developer** and confirm **Recent sign-in attempts** shows the latest browser code plus the current outcome or last failure reason without inspecting raw tables.
+11. Log out and confirm the UI returns to the signed-out landing state.
 
 If agent-backed sign-in is unavailable for the environment, use the advanced API-key fallback only to verify that an existing invite-backed account can still boot the dashboard shell.

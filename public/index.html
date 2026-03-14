@@ -1519,6 +1519,43 @@
                   <section class="developer-panel">
                     <div class="developer-section-header">
                       <div>
+                        <p class="developer-section-eyebrow">Browser access</p>
+                        <h4>Recent sign-in attempts</h4>
+                        <p>
+                          Inspect recent browser-login codes, replay blocks,
+                          expiry outcomes, and throttled approvals without
+                          opening raw database state.
+                        </p>
+                      </div>
+                      <button
+                        class="squishy-btn btn-secondary btn-small"
+                        id="dev-refresh-browser-logins-btn"
+                      >
+                        Refresh sign-ins
+                      </button>
+                    </div>
+                    <div
+                      class="developer-summary-strip"
+                      id="dev-browser-login-summary"
+                    ></div>
+                    <div
+                      class="developer-diagnostics-list developer-browser-login-list"
+                      id="dev-browser-login-list"
+                    >
+                      <div class="empty-state small">
+                        <div class="empty-icon">🔐</div>
+                        <p>No browser sign-ins yet</p>
+                        <p class="hint">
+                          Recent approval codes and login outcomes will appear
+                          here
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="developer-panel">
+                    <div class="developer-section-header">
+                      <div>
                         <p class="developer-section-eyebrow">
                           Unavailable here
                         </p>

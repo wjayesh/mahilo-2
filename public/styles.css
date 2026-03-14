@@ -6101,6 +6101,10 @@ body {
   margin-top: 6px;
 }
 
+.developer-browser-login-list .developer-diagnostic-title {
+  word-break: break-word;
+}
+
 .developer-diagnostic-badges {
   display: flex;
   flex-wrap: wrap;

@@ -690,6 +690,340 @@ describe("Auth Routes Integration", () => {
       const data = await redeem.json();
       expect(data.code).toBe("LOGIN_ATTEMPT_EXPIRED");
     });
+
+    it("supersedes an older live code when a newer browser-login attempt is issued", async () => {
+      const { user } = await createTestUser("browser_superseded");
+
+      const firstStart = await app.request("/api/v1/auth/browser-login/attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username }),
+      });
+      expect(firstStart.status).toBe(201);
+      const firstAttempt = await firstStart.json();
+
+      const secondStart = await app.request(
+        "/api/v1/auth/browser-login/attempts",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: user.username }),
+        },
+      );
+      expect(secondStart.status).toBe(201);
+
+      const firstStatus = await app.request(
+        `/api/v1/auth/browser-login/attempts/${firstAttempt.attempt_id}`,
+        {
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: firstAttempt.browser_token,
+          },
+        },
+      );
+
+      expect(firstStatus.status).toBe(200);
+      expect(await firstStatus.json()).toEqual(
+        expect.objectContaining({
+          attempt_id: firstAttempt.attempt_id,
+          failure_code: "LOGIN_ATTEMPT_SUPERSEDED",
+          failure_state: "superseded",
+          status: "expired",
+        }),
+      );
+    });
+
+    it("returns explicit replay and rate-limit failures for approval and redeem actions", async () => {
+      const originalApproveLimit = config.authBrowserLoginApproveRateLimitPerMinute;
+      const originalRedeemLimit = config.authBrowserLoginRedeemRateLimitPerMinute;
+      (config as any).authBrowserLoginApproveRateLimitPerMinute = 1;
+      (config as any).authBrowserLoginRedeemRateLimitPerMinute = 1;
+
+      try {
+        const { user, apiKey } = await createTestUser(
+          "browser_rate_limit_user",
+          "Browser Rate Limit User",
+        );
+
+        const firstStart = await app.request(
+          "/api/v1/auth/browser-login/attempts",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: user.username }),
+          },
+        );
+        const firstAttempt = await firstStart.json();
+
+        const firstApprove = await app.request("/api/v1/auth/browser-login/approve", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            attempt_id: firstAttempt.attempt_id,
+            approval_code: firstAttempt.approval_code,
+          }),
+        });
+        expect(firstApprove.status).toBe(200);
+
+        const replayApprove = await app.request(
+          "/api/v1/auth/browser-login/approve",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              attempt_id: firstAttempt.attempt_id,
+              approval_code: firstAttempt.approval_code,
+            }),
+          },
+        );
+        expect(replayApprove.status).toBe(409);
+        expect(await replayApprove.json()).toEqual(
+          expect.objectContaining({
+            code: "LOGIN_ATTEMPT_ALREADY_APPROVED",
+            failure_state: "replayed",
+          }),
+        );
+
+        const secondStart = await app.request(
+          "/api/v1/auth/browser-login/attempts",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: user.username }),
+          },
+        );
+        const secondAttempt = await secondStart.json();
+
+        const secondApprove = await app.request(
+          "/api/v1/auth/browser-login/approve",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              attempt_id: secondAttempt.attempt_id,
+              approval_code: secondAttempt.approval_code,
+            }),
+          },
+        );
+        expect(secondApprove.status).toBe(429);
+        expect(await secondApprove.json()).toEqual(
+          expect.objectContaining({
+            code: "BROWSER_LOGIN_APPROVE_RATE_LIMITED",
+            failure_state: "rate_limited",
+            rate_limit_scope: "browser_login_approve",
+            retry_after_seconds: expect.any(Number),
+          }),
+        );
+        expect(secondApprove.headers.get("retry-after")).toBeTruthy();
+
+        (config as any).authBrowserLoginApproveRateLimitPerMinute = originalApproveLimit;
+
+        const redeemUser = await createTestUser(
+          "browser_redeem_limit",
+          "Browser Redeem Limit",
+        );
+        const redeemHeaders = {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": "203.0.113.77",
+        };
+
+        const redeemStartOne = await app.request(
+          "/api/v1/auth/browser-login/attempts",
+          {
+            method: "POST",
+            headers: redeemHeaders,
+            body: JSON.stringify({ username: redeemUser.user.username }),
+          },
+        );
+        const redeemAttemptOne = await redeemStartOne.json();
+        const redeemApproveOne = await app.request(
+          "/api/v1/auth/browser-login/approve",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${redeemUser.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              attempt_id: redeemAttemptOne.attempt_id,
+              approval_code: redeemAttemptOne.approval_code,
+            }),
+          },
+        );
+        expect(redeemApproveOne.status).toBe(200);
+
+        const redeemOne = await app.request(
+          `/api/v1/auth/browser-login/attempts/${redeemAttemptOne.attempt_id}/redeem`,
+          {
+            method: "POST",
+            headers: {
+              [BROWSER_LOGIN_TOKEN_HEADER]: redeemAttemptOne.browser_token,
+              "X-Forwarded-For": "203.0.113.77",
+            },
+          },
+        );
+        expect(redeemOne.status).toBe(200);
+
+        const redeemStartTwo = await app.request(
+          "/api/v1/auth/browser-login/attempts",
+          {
+            method: "POST",
+            headers: redeemHeaders,
+            body: JSON.stringify({ username: redeemUser.user.username }),
+          },
+        );
+        const redeemAttemptTwo = await redeemStartTwo.json();
+        const redeemApproveTwo = await app.request(
+          "/api/v1/auth/browser-login/approve",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${redeemUser.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              attempt_id: redeemAttemptTwo.attempt_id,
+              approval_code: redeemAttemptTwo.approval_code,
+            }),
+          },
+        );
+        expect(redeemApproveTwo.status).toBe(200);
+
+        const redeemTwo = await app.request(
+          `/api/v1/auth/browser-login/attempts/${redeemAttemptTwo.attempt_id}/redeem`,
+          {
+            method: "POST",
+            headers: {
+              [BROWSER_LOGIN_TOKEN_HEADER]: redeemAttemptTwo.browser_token,
+              "X-Forwarded-For": "203.0.113.77",
+            },
+          },
+        );
+        expect(redeemTwo.status).toBe(429);
+        expect(await redeemTwo.json()).toEqual(
+          expect.objectContaining({
+            code: "BROWSER_LOGIN_REDEEM_RATE_LIMITED",
+            failure_state: "rate_limited",
+            rate_limit_scope: "browser_login_redeem",
+            retry_after_seconds: expect.any(Number),
+          }),
+        );
+        expect(redeemTwo.headers.get("retry-after")).toBeTruthy();
+      } finally {
+        (config as any).authBrowserLoginApproveRateLimitPerMinute = originalApproveLimit;
+        (config as any).authBrowserLoginRedeemRateLimitPerMinute = originalRedeemLimit;
+      }
+    });
+
+    it("surfaces recent browser-login diagnostics for the current user", async () => {
+      const { user, apiKey } = await createTestUser(
+        "browser_diagnostics",
+        "Browser Diagnostics",
+      );
+
+      const deniedStart = await app.request("/api/v1/auth/browser-login/attempts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username }),
+      });
+      const deniedAttempt = await deniedStart.json();
+
+      const deny = await app.request("/api/v1/auth/browser-login/deny", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          attempt_id: deniedAttempt.attempt_id,
+          approval_code: deniedAttempt.approval_code,
+        }),
+      });
+      expect(deny.status).toBe(200);
+
+      const replayedStart = await app.request(
+        "/api/v1/auth/browser-login/attempts",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: user.username }),
+        },
+      );
+      const replayedAttempt = await replayedStart.json();
+
+      const approve = await app.request("/api/v1/auth/browser-login/approve", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          attempt_id: replayedAttempt.attempt_id,
+          approval_code: replayedAttempt.approval_code,
+        }),
+      });
+      expect(approve.status).toBe(200);
+
+      const redeem = await app.request(
+        `/api/v1/auth/browser-login/attempts/${replayedAttempt.attempt_id}/redeem`,
+        {
+          method: "POST",
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: replayedAttempt.browser_token,
+          },
+        },
+      );
+      expect(redeem.status).toBe(200);
+
+      const replay = await app.request(
+        `/api/v1/auth/browser-login/attempts/${replayedAttempt.attempt_id}/redeem`,
+        {
+          method: "POST",
+          headers: {
+            [BROWSER_LOGIN_TOKEN_HEADER]: replayedAttempt.browser_token,
+          },
+        },
+      );
+      expect(replay.status).toBe(409);
+
+      const diagnostics = await app.request(
+        "/api/v1/auth/browser-login/diagnostics?limit=5",
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+        },
+      );
+      expect(diagnostics.status).toBe(200);
+
+      const payload = await diagnostics.json();
+      expect(payload.attempts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            attempt_id: deniedAttempt.attempt_id,
+            approval_code: deniedAttempt.approval_code,
+            failure_code: "LOGIN_ATTEMPT_DENIED",
+            failure_state: "denied",
+            status: "denied",
+          }),
+          expect.objectContaining({
+            attempt_id: replayedAttempt.attempt_id,
+            approval_code: replayedAttempt.approval_code,
+            failure_code: "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+            failure_state: "replayed",
+            status: "redeemed",
+          }),
+        ]),
+      );
+    });
   });
 });
 

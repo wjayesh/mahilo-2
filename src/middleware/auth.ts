@@ -9,54 +9,41 @@ import {
 } from "../services/browserAuth";
 import { config } from "../config";
 import { ACTIVE_USER_STATUS, SUSPENDED_USER_STATUS } from "../services/auth";
+import {
+  consumeFixedWindowRateLimit,
+  readClientRateLimitKey,
+} from "../services/rateLimit";
 
-type RateLimitEntry = {
-  count: number;
-  resetAt: number;
-};
-
-const authenticatedRateLimits = new Map<string, RateLimitEntry>();
-const registrationRateLimits = new Map<string, RateLimitEntry>();
+const authenticatedRateLimits = new Map<
+  string,
+  {
+    count: number;
+    resetAt: number;
+  }
+>();
+const registrationRateLimits = new Map<
+  string,
+  {
+    count: number;
+    resetAt: number;
+  }
+>();
 
 function enforceRateLimit(
-  rateLimits: Map<string, RateLimitEntry>,
+  rateLimits: Map<
+    string,
+    {
+      count: number;
+      resetAt: number;
+    }
+  >,
   key: string,
   limit: number,
 ) {
-  const now = Date.now();
-  const windowMs = 60 * 1000;
-
-  const entry = rateLimits.get(key);
-  if (!entry || entry.resetAt <= now) {
-    rateLimits.set(key, { count: 1, resetAt: now + windowMs });
-    return;
-  }
-
-  if (entry.count >= limit) {
+  const result = consumeFixedWindowRateLimit(rateLimits, key, limit);
+  if (!result.allowed) {
     throw new HTTPException(429, { message: "Rate limit exceeded" });
   }
-
-  entry.count += 1;
-  rateLimits.set(key, entry);
-}
-
-function readClientRateLimitKey(c: {
-  req: { header: (name: string) => string | undefined };
-}): string | null {
-  const headerCandidates = [
-    c.req.header("cf-connecting-ip"),
-    c.req.header("x-real-ip"),
-    c.req.header("x-forwarded-for")?.split(",")[0],
-  ];
-
-  for (const candidate of headerCandidates) {
-    const trimmed = candidate?.trim();
-    if (trimmed) {
-      return `ip:${trimmed}`;
-    }
-  }
-
-  return null;
 }
 
 export function enforceAuthenticatedRateLimit(userId: string) {

@@ -75,6 +75,10 @@ export const browserLoginAttempts = sqliteTable(
     }),
     deniedAt: integer("denied_at", { mode: "timestamp" }),
     redeemedAt: integer("redeemed_at", { mode: "timestamp" }),
+    failureState: text("failure_state"),
+    failureCode: text("failure_code"),
+    failureMessage: text("failure_message"),
+    failureAt: integer("failure_at", { mode: "timestamp" }),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()

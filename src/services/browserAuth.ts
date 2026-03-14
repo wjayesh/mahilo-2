@@ -28,6 +28,20 @@ export type BrowserLoginAttemptStatus =
   | "redeemed"
   | "expired";
 
+export type BrowserLoginAttemptFailureState =
+  | "denied"
+  | "expired"
+  | "rate_limited"
+  | "replayed"
+  | "superseded";
+
+export type BrowserLoginAttemptFailure = {
+  at: Date | null;
+  code: string | null;
+  message: string | null;
+  state: BrowserLoginAttemptFailureState | null;
+};
+
 function hashOpaqueToken(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -78,6 +92,71 @@ export function getBrowserLoginAttemptStatus(
   }
 
   return "pending";
+}
+
+export function getBrowserLoginAttemptFailure(
+  attempt: Pick<
+    schema.BrowserLoginAttempt,
+    | "deniedAt"
+    | "expiresAt"
+    | "failureAt"
+    | "failureCode"
+    | "failureMessage"
+    | "failureState"
+    | "approvedAt"
+    | "redeemedAt"
+  >,
+  now = new Date(),
+): BrowserLoginAttemptFailure {
+  if (
+    attempt.failureCode ||
+    attempt.failureMessage ||
+    attempt.failureState ||
+    attempt.failureAt
+  ) {
+    return {
+      at: attempt.failureAt ?? null,
+      code: attempt.failureCode ?? null,
+      message: attempt.failureMessage ?? null,
+      state: (attempt.failureState as BrowserLoginAttemptFailureState | null) ??
+        null,
+    };
+  }
+
+  const status = getBrowserLoginAttemptStatus(attempt, now);
+  if (status === "denied") {
+    return {
+      at: attempt.deniedAt ?? null,
+      code: "LOGIN_ATTEMPT_DENIED",
+      message: "Configured agent denied this browser sign-in.",
+      state: "denied",
+    };
+  }
+
+  if (status === "expired") {
+    return {
+      at: attempt.expiresAt ?? null,
+      code: "LOGIN_ATTEMPT_EXPIRED",
+      message: "Login attempt expired before sign-in finished.",
+      state: "expired",
+    };
+  }
+
+  return {
+    at: null,
+    code: null,
+    message: null,
+    state: null,
+  };
+}
+
+export function clearBrowserLoginAttemptFailure() {
+  return {
+    failureAt: null,
+    failureCode: null,
+    failureMessage: null,
+    failureState: null,
+  };
 }
 
 export function verifyBrowserLoginToken(

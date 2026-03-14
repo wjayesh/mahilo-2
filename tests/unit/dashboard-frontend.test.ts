@@ -1374,6 +1374,7 @@ describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
     const html = readFileSync("public/index.html", "utf8");
     expect(html).toContain("Current dashboard API key");
     expect(html).toContain("Sender connection health");
+    expect(html).toContain("Recent sign-in attempts");
     expect(html).toContain("Controls intentionally kept out of the dashboard");
     expect(html).toContain("Recover a lost API key");
 
@@ -1405,6 +1406,7 @@ describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
 
     await harness.boot();
     harness.dashboard.UI.switchView("developer");
+    await flushDashboardWork();
 
     const maskedKey = harness.getElement("dev-api-key-display").textContent;
     expect(maskedKey).not.toBe(apiKey);
@@ -1419,8 +1421,88 @@ describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
     expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
       "Default sender",
     );
+    expect(harness.getElement("dev-browser-login-summary").innerHTML).toContain(
+      "Recent attempts",
+    );
     expect(harness.getElement("dev-test-messaging-summary").innerHTML).toContain(
       "Eligible contacts",
+    );
+  });
+
+  it("renders recent browser sign-in diagnostics inside Developer", async () => {
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_dev_browser_logins",
+      "Browser Diagnostics Viewer",
+    );
+    const app = createApp();
+
+    const start = await app.request("/api/v1/auth/browser-login/attempts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: viewer.username }),
+    });
+    expect(start.status).toBe(201);
+    const started = await start.json();
+
+    const approve = await app.request("/api/v1/auth/browser-login/approve", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        attempt_id: started.attempt_id,
+        approval_code: started.approval_code,
+      }),
+    });
+    expect(approve.status).toBe(200);
+
+    const redeem = await app.request(
+      `/api/v1/auth/browser-login/attempts/${started.attempt_id}/redeem`,
+      {
+        method: "POST",
+        headers: {
+          [BROWSER_LOGIN_TOKEN_HEADER]: started.browser_token,
+        },
+      },
+    );
+    expect(redeem.status).toBe(200);
+
+    const replay = await app.request(
+      `/api/v1/auth/browser-login/attempts/${started.attempt_id}/redeem`,
+      {
+        method: "POST",
+        headers: {
+          [BROWSER_LOGIN_TOKEN_HEADER]: started.browser_token,
+        },
+      },
+    );
+    expect(replay.status).toBe(409);
+
+    const harness = createDashboardHarness({
+      app,
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+    harness.dashboard.UI.switchView("developer");
+    await flushDashboardWork();
+
+    expect(harness.getElement("dev-browser-login-list").innerHTML).toContain(
+      started.approval_code,
+    );
+    expect(harness.getElement("dev-browser-login-list").innerHTML).toContain(
+      "Replay blocked",
+    );
+    expect(harness.getElement("dev-browser-login-summary").innerHTML).toContain(
+      "Recent issues",
     );
   });
 
@@ -1444,6 +1526,7 @@ describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
 
     await harness.boot();
     harness.dashboard.UI.switchView("developer");
+    await flushDashboardWork();
     harness.dashboard.UI.toggleDevApiKeyVisibility();
 
     expect(harness.getElement("dev-api-key-display").textContent).toBe(apiKey);
@@ -1544,6 +1627,7 @@ describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
 
     await harness.boot();
     harness.dashboard.UI.switchView("developer");
+    await flushDashboardWork();
 
     expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
       "Not checked",
@@ -2051,6 +2135,61 @@ describe("Dashboard sign in with agent UX (DASH-072)", () => {
     );
     expect(harness.getElement("agent-login-status-copy").textContent).toContain(
       "timed out",
+    );
+  });
+
+  it("shows explicit retry guidance when redeem is throttled", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url: string) => {
+        const path = new URL(url).pathname;
+
+        if (path === "/api/v1/auth/browser-login/attempts/attempt_rate/redeem") {
+          return {
+            ok: false,
+            status: 429,
+            async json() {
+              return {
+                error: "Too many redeem attempts. Wait before trying again.",
+                code: "BROWSER_LOGIN_REDEEM_RATE_LIMITED",
+                failure_state: "rate_limited",
+                retry_after_seconds: 42,
+              };
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch during redeem throttle test: ${url}`);
+      },
+    });
+
+    await harness.boot();
+
+    Object.assign(harness.dashboard.State.browserLogin, {
+      approvalCode: "ABCD23",
+      approvedAt: new Date().toISOString(),
+      attemptId: "attempt_rate",
+      browserToken: "browser_rate_token",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      status: "approved",
+      username: "rate_limit_user",
+    });
+    harness.dashboard.UI.renderBrowserLogin();
+
+    await harness.dashboard.UI.redeemBrowserLoginAttempt();
+    await flushDashboardWork();
+
+    expect(harness.dashboard.State.browserLogin.status).toBe("retry");
+    expect(harness.dashboard.State.browserLogin.failureState).toBe(
+      "rate_limited",
+    );
+    expect(harness.getElement("agent-login-status-title").textContent).toContain(
+      "throttling",
+    );
+    expect(harness.getElement("agent-login-guidance").innerHTML).toContain(
+      "42 seconds",
     );
   });
 });

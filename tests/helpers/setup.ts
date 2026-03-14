@@ -77,6 +77,10 @@ export async function setupTestDatabase() {
       denied_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       denied_at INTEGER,
       redeemed_at INTEGER,
+      failure_state TEXT,
+      failure_code TEXT,
+      failure_message TEXT,
+      failure_at INTEGER,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );

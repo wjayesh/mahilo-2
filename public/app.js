@@ -80,6 +80,7 @@ function createEmptyBrowserLoginState() {
   return {
     status: "idle",
     username: "",
+    createdAt: null,
     attemptId: null,
     browserToken: null,
     approvalCode: null,
@@ -87,8 +88,13 @@ function createEmptyBrowserLoginState() {
     approvedAt: null,
     deniedAt: null,
     redeemedAt: null,
+    failureAt: null,
+    failureCode: null,
+    failureMessage: null,
+    failureState: null,
     errorCode: null,
     errorMessage: null,
+    retryAfterSeconds: null,
   };
 }
 
@@ -149,6 +155,9 @@ const State = {
   availableRolesError: null,
   developerApiKeyVisible: false,
   browserLogin: createEmptyBrowserLoginState(),
+  browserLoginDiagnostics: [],
+  browserLoginDiagnosticsStatus: "idle",
+  browserLoginDiagnosticsError: null,
 
   readStoredSession() {
     const session = localStorage.getItem(CONFIG.STORAGE_KEY);
@@ -252,6 +261,9 @@ const State = {
     this.availableRolesError = null;
     this.developerApiKeyVisible = false;
     this.browserLogin = createEmptyBrowserLoginState();
+    this.browserLoginDiagnostics = [];
+    this.browserLoginDiagnosticsStatus = "idle";
+    this.browserLoginDiagnosticsError = null;
     localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
 };
@@ -339,6 +351,10 @@ const API = {
             [BROWSER_LOGIN_TOKEN_HEADER]: browserToken,
           },
         });
+      },
+
+      async diagnostics(limit = 8) {
+        return API.request(`/auth/browser-login/diagnostics?limit=${limit}`);
       },
     },
 
@@ -3756,6 +3772,52 @@ const Normalizers = {
     };
   },
 
+  browserLoginAttempt(value) {
+    const record = Helpers.record(value);
+    const retryAfterSeconds = Helpers.number(
+      record.retry_after_seconds ?? record.retryAfterSeconds,
+      0,
+    );
+
+    return {
+      attemptId: Helpers.nullableString(record.attempt_id ?? record.attemptId),
+      approvalCode: Helpers.nullableString(
+        record.approval_code ?? record.approvalCode,
+      ),
+      approvedAt: Helpers.iso(record.approved_at ?? record.approvedAt),
+      browserToken: Helpers.nullableString(
+        record.browser_token ?? record.browserToken,
+      ),
+      createdAt: Helpers.iso(record.created_at ?? record.createdAt),
+      deniedAt: Helpers.iso(record.denied_at ?? record.deniedAt),
+      errorCode: Helpers.nullableString(record.error_code ?? record.errorCode),
+      errorMessage: Helpers.nullableString(
+        record.error_message ?? record.errorMessage,
+      ),
+      expiresAt: Helpers.iso(record.expires_at ?? record.expiresAt),
+      failureAt: Helpers.iso(record.failure_at ?? record.failureAt),
+      failureCode: Helpers.nullableString(
+        record.failure_code ?? record.failureCode,
+      ),
+      failureMessage: Helpers.nullableString(
+        record.failure_message ?? record.failureMessage,
+      ),
+      failureState: Helpers.nullableString(
+        record.failure_state ?? record.failureState,
+      ),
+      redeemedAt: Helpers.iso(record.redeemed_at ?? record.redeemedAt),
+      retryAfterSeconds: retryAfterSeconds > 0 ? retryAfterSeconds : null,
+      status: Helpers.string(record.status, "pending"),
+      raw: value,
+    };
+  },
+
+  browserLoginDiagnostics(value) {
+    return Helpers.collection(value, ["attempts", "items", "results", "data"])
+      .map((entry) => this.browserLoginAttempt(entry))
+      .filter((entry) => entry.attemptId);
+  },
+
   agents(value) {
     return Helpers.collection(value, ["agents", "connections", "items"])
       .map((entry) => this.agent(entry))
@@ -4901,6 +4963,63 @@ const DataLoader = {
     ]);
   },
 
+  async loadBrowserLoginDiagnostics(options = {}) {
+    if (!State.user) {
+      State.browserLoginDiagnostics = [];
+      State.browserLoginDiagnosticsError = null;
+      State.browserLoginDiagnosticsStatus = "idle";
+      UI.renderDevBrowserLoginDiagnostics();
+      return;
+    }
+
+    if (
+      State.browserLoginDiagnosticsStatus === "loading" &&
+      options.force !== true
+    ) {
+      return;
+    }
+
+    State.browserLoginDiagnosticsStatus = "loading";
+    State.browserLoginDiagnosticsError = null;
+    if (State.currentView === "developer") {
+      UI.renderDevBrowserLoginDiagnostics();
+    }
+
+    try {
+      State.browserLoginDiagnostics = Normalizers.browserLoginDiagnostics(
+        await API.auth.browserLogin.diagnostics(options.limit || 8),
+      ).sort((left, right) => {
+        const leftTimestamp = Math.max(
+          Helpers.timestampValue(left.failureAt),
+          Helpers.timestampValue(left.redeemedAt),
+          Helpers.timestampValue(left.deniedAt),
+          Helpers.timestampValue(left.approvedAt),
+          Helpers.timestampValue(left.createdAt),
+        );
+        const rightTimestamp = Math.max(
+          Helpers.timestampValue(right.failureAt),
+          Helpers.timestampValue(right.redeemedAt),
+          Helpers.timestampValue(right.deniedAt),
+          Helpers.timestampValue(right.approvedAt),
+          Helpers.timestampValue(right.createdAt),
+        );
+
+        return rightTimestamp - leftTimestamp;
+      });
+      State.browserLoginDiagnosticsStatus = "loaded";
+      State.browserLoginDiagnosticsError = null;
+    } catch (error) {
+      State.browserLoginDiagnosticsStatus = "error";
+      State.browserLoginDiagnosticsError =
+        error.message || "Failed to load browser sign-in diagnostics.";
+      console.error("Failed to load browser sign-in diagnostics:", error);
+    }
+
+    if (State.currentView === "developer") {
+      UI.renderDevBrowserLoginDiagnostics();
+    }
+  },
+
   async loadLogFeed() {
     await Promise.all([
       this.loadMessages(),
@@ -5659,6 +5778,13 @@ const UI = {
         this.switchView("connections");
       });
 
+    document
+      .getElementById("dev-refresh-browser-logins-btn")
+      ?.addEventListener("click", async () => {
+        await DataLoader.loadBrowserLoginDiagnostics({ force: true });
+        this.showToast("Browser sign-in diagnostics refreshed", "success");
+      });
+
     // Landing page: hamburger menu
     document
       .getElementById("landing-hamburger")
@@ -5703,18 +5829,7 @@ const UI = {
   },
 
   normalizeBrowserLoginAttempt(value) {
-    const record = Helpers.record(value);
-
-    return {
-      attemptId: Helpers.nullableString(record.attempt_id),
-      browserToken: Helpers.nullableString(record.browser_token),
-      approvalCode: Helpers.nullableString(record.approval_code),
-      expiresAt: Helpers.iso(record.expires_at),
-      approvedAt: Helpers.iso(record.approved_at),
-      deniedAt: Helpers.iso(record.denied_at),
-      redeemedAt: Helpers.iso(record.redeemed_at),
-      status: Helpers.string(record.status, "pending"),
-    };
+    return Normalizers.browserLoginAttempt(value);
   },
 
   clearBrowserLoginPolling() {
@@ -5860,6 +5975,23 @@ const UI = {
           submitLabel: "Signing in...",
         };
       case "expired":
+        if (login.failureCode === "LOGIN_ATTEMPT_SUPERSEDED") {
+          return {
+            ...base,
+            badge: "Replaced",
+            title: "That approval code was replaced",
+            copy: `A newer browser sign-in code for @${username} replaced ${approvalCode} before this tab finished signing in.`,
+            instructions:
+              "Use the latest code for this username, or start a fresh browser sign-in here.",
+            guidance:
+              "Only one live browser code stays active per account now. If you opened multiple tabs, continue with the newest code or use the advanced API-key fallback.",
+            showPanel: true,
+            showRetry: true,
+            showReset: true,
+            state: "expired",
+          };
+        }
+
         return {
           ...base,
           badge: "Expired",
@@ -5892,6 +6024,13 @@ const UI = {
       case "retry": {
         const missingAccountCodes = ["USER_NOT_FOUND", "USER_NOT_ACTIVE"];
         const reusedAttempt = login.errorCode === "LOGIN_ATTEMPT_ALREADY_REDEEMED";
+        const rateLimited =
+          login.failureState === "rate_limited" ||
+          [
+            "BROWSER_LOGIN_START_RATE_LIMITED",
+            "BROWSER_LOGIN_APPROVE_RATE_LIMITED",
+            "BROWSER_LOGIN_REDEEM_RATE_LIMITED",
+          ].includes(login.errorCode);
         const invalidAttemptCodes = [
           "INVALID_BROWSER_LOGIN_TOKEN",
           "LOGIN_ATTEMPT_NOT_FOUND",
@@ -5911,6 +6050,15 @@ const UI = {
             "Mahilo could not find an active invite-backed account for that username.";
           guidance =
             "Finish invite setup and registration in your configured agent first. If the account already exists, check the exact username or use the advanced API-key fallback.";
+        } else if (rateLimited) {
+          const waitSeconds = Helpers.number(login.retryAfterSeconds, 0);
+          title = "Mahilo is throttling browser sign-in";
+          copy =
+            login.errorMessage ||
+            "Too many browser sign-in requests arrived in a short window.";
+          guidance = waitSeconds
+            ? `Wait about ${waitSeconds} seconds, then try again from this page. If you already have direct access to the invite-backed account, the advanced API-key fallback still works.`
+            : "Wait briefly, then try again from this page. If you already have direct access to the invite-backed account, the advanced API-key fallback still works.";
         } else if (reusedAttempt) {
           title = "That browser code was already used";
           copy =
@@ -6069,6 +6217,7 @@ const UI = {
     const preservedState =
       options.preserveAttempt && State.browserLogin
         ? {
+            createdAt: State.browserLogin.createdAt,
             attemptId: State.browserLogin.attemptId,
             browserToken: State.browserLogin.browserToken,
             approvalCode: State.browserLogin.approvalCode,
@@ -6076,6 +6225,10 @@ const UI = {
             approvedAt: State.browserLogin.approvedAt,
             deniedAt: State.browserLogin.deniedAt,
             redeemedAt: State.browserLogin.redeemedAt,
+            failureAt: State.browserLogin.failureAt,
+            failureCode: State.browserLogin.failureCode,
+            failureMessage: State.browserLogin.failureMessage,
+            failureState: State.browserLogin.failureState,
           }
         : {};
 
@@ -6093,6 +6246,20 @@ const UI = {
       username: options.username || State.browserLogin?.username || "",
       errorCode: error?.code || null,
       errorMessage: error?.message || "Mahilo could not finish browser sign-in.",
+      failureAt: new Date().toISOString(),
+      failureCode: error?.code || null,
+      failureMessage:
+        error?.message || "Mahilo could not finish browser sign-in.",
+      failureState:
+        Helpers.nullableString(error?.data?.failure_state) ||
+        (status === "expired"
+          ? "expired"
+          : status === "denied"
+            ? "denied"
+            : null),
+      retryAfterSeconds: Helpers.number(error?.data?.retry_after_seconds, 0)
+        ? Helpers.number(error?.data?.retry_after_seconds, 0)
+        : null,
     };
 
     this.renderBrowserLogin();
@@ -6125,6 +6292,11 @@ const UI = {
         State.browserLogin.errorCode = "LOGIN_ATTEMPT_ALREADY_REDEEMED";
         State.browserLogin.errorMessage =
           "This approval code has already been redeemed in another browser session.";
+        State.browserLogin.failureAt = new Date().toISOString();
+        State.browserLogin.failureCode = "LOGIN_ATTEMPT_ALREADY_REDEEMED";
+        State.browserLogin.failureMessage =
+          "This approval code has already been redeemed in another browser session.";
+        State.browserLogin.failureState = "replayed";
       }
 
       this.renderBrowserLogin();
@@ -8427,12 +8599,16 @@ const UI = {
       DataLoader.loadPreferences();
     } else if (resolvedView === "developer") {
       this.renderDeveloperConsole();
+      if (State.user) {
+        void DataLoader.loadBrowserLoginDiagnostics();
+      }
     }
   },
 
   renderDeveloperConsole() {
     this.renderDevApiKey();
     this.renderDevDiagnostics();
+    this.renderDevBrowserLoginDiagnostics();
     this.renderDevMessagingSummary();
     this.renderDevConversations();
 
@@ -13153,6 +13329,272 @@ const UI = {
           </article>
         `,
       )
+      .join("");
+  },
+
+  getBrowserLoginDiagnosticPresentation(attempt) {
+    const status = Helpers.string(attempt?.status, "pending").toLowerCase();
+    const failureCode = Helpers.nullableString(attempt?.failureCode);
+
+    const issueMap = {
+      BROWSER_LOGIN_APPROVE_RATE_LIMITED: {
+        label: "Approve throttled",
+        tone: "warning",
+      },
+      BROWSER_LOGIN_REDEEM_RATE_LIMITED: {
+        label: "Redeem throttled",
+        tone: "warning",
+      },
+      BROWSER_LOGIN_START_RATE_LIMITED: {
+        label: "Start throttled",
+        tone: "warning",
+      },
+      LOGIN_ATTEMPT_ALREADY_APPROVED: {
+        label: "Replay blocked",
+        tone: "observed",
+      },
+      LOGIN_ATTEMPT_ALREADY_REDEEMED: {
+        label: "Replay blocked",
+        tone: "warning",
+      },
+      LOGIN_ATTEMPT_DENIED: {
+        label: "Denied",
+        tone: "inactive",
+      },
+      LOGIN_ATTEMPT_EXPIRED: {
+        label: "Expired",
+        tone: "warning",
+      },
+      LOGIN_ATTEMPT_SUPERSEDED: {
+        label: "Superseded",
+        tone: "observed",
+      },
+    };
+
+    let tone = "unknown";
+    let statusLabel = "Pending";
+    let statusTone = "observed";
+    let detail = "Waiting for a configured agent to approve this browser sign-in.";
+
+    switch (status) {
+      case "redeemed":
+        tone = "healthy";
+        statusLabel = "Redeemed";
+        statusTone = "healthy";
+        detail = "Mahilo issued a browser session successfully.";
+        break;
+      case "approved":
+        tone = "observed";
+        statusLabel = "Approved";
+        statusTone = "observed";
+        detail = "Approved and waiting for the browser to redeem the session.";
+        break;
+      case "denied":
+        tone = "inactive";
+        statusLabel = "Denied";
+        statusTone = "inactive";
+        detail = "The configured agent rejected this browser sign-in.";
+        break;
+      case "expired":
+        tone = "warning";
+        statusLabel = "Expired";
+        statusTone = "warning";
+        detail = "The browser code expired before sign-in finished.";
+        break;
+      default:
+        tone = "observed";
+        statusLabel = "Pending";
+        statusTone = "observed";
+    }
+
+    const mappedIssue = failureCode ? issueMap[failureCode] || null : null;
+
+    return {
+      detail: Helpers.string(attempt?.failureMessage || detail),
+      issueLabel: mappedIssue?.label || null,
+      issueTone: mappedIssue?.tone || "warning",
+      statusLabel,
+      statusTone,
+      tone,
+    };
+  },
+
+  renderDevBrowserLoginDiagnostics() {
+    const summary = document.getElementById("dev-browser-login-summary");
+    const list = document.getElementById("dev-browser-login-list");
+
+    if (!summary || !list) {
+      return;
+    }
+
+    const attempts = Array.isArray(State.browserLoginDiagnostics)
+      ? State.browserLoginDiagnostics
+      : [];
+    const openAttempts = attempts.filter((attempt) =>
+      ["pending", "approved"].includes(Helpers.string(attempt?.status).toLowerCase()),
+    );
+    const issueAttempts = attempts.filter(
+      (attempt) =>
+        Boolean(attempt?.failureCode) ||
+        ["denied", "expired"].includes(
+          Helpers.string(attempt?.status).toLowerCase(),
+        ),
+    );
+    const latestSuccess =
+      attempts
+        .filter((attempt) => attempt?.redeemedAt)
+        .slice()
+        .sort((left, right) =>
+          Helpers.compareByTimestampDesc(
+            { createdAt: left?.redeemedAt },
+            { createdAt: right?.redeemedAt },
+          ),
+        )[0] || null;
+
+    summary.innerHTML = [
+      {
+        label: "Recent attempts",
+        tone: attempts.length ? "default" : "warning",
+        value: Helpers.pluralize(attempts.length, "attempt"),
+        detail: attempts.length
+          ? "Latest browser sign-in codes for this account"
+          : "No recent browser login attempts",
+      },
+      {
+        label: "Open codes",
+        tone: openAttempts.length ? "warning" : "success",
+        value: openAttempts.length
+          ? Helpers.pluralize(openAttempts.length, "code")
+          : "None open",
+        detail: openAttempts.length
+          ? "Pending approval or waiting to redeem"
+          : "No live browser approval codes right now",
+      },
+      {
+        label: "Recent issues",
+        tone: issueAttempts.length ? "warning" : "success",
+        value: issueAttempts.length
+          ? Helpers.pluralize(issueAttempts.length, "issue")
+          : "No recent issues",
+        detail: latestSuccess?.redeemedAt
+          ? `Last successful redeem: ${Helpers.formatDateTime(latestSuccess.redeemedAt)}`
+          : "Complete a browser sign-in to verify this path end to end",
+      },
+    ]
+      .map(
+        (item) => `
+          <article class="developer-summary-chip ${Helpers.escapeHtml(item.tone)}">
+            <span class="developer-summary-label">${Helpers.escapeHtml(item.label)}</span>
+            <strong class="developer-summary-value">${Helpers.escapeHtml(item.value)}</strong>
+            <p>${Helpers.escapeHtml(item.detail)}</p>
+          </article>
+        `,
+      )
+      .join("");
+
+    if (State.browserLoginDiagnosticsStatus === "loading") {
+      list.innerHTML = `
+        <div class="empty-state small" style="padding: 32px 20px;">
+          <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">🔐</div>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">Loading browser sign-in diagnostics</p>
+          <p class="hint" style="font-size: 0.9rem;">Mahilo is fetching recent approval and redeem outcomes.</p>
+        </div>
+      `;
+      return;
+    }
+
+    if (State.browserLoginDiagnosticsStatus === "error") {
+      list.innerHTML = `
+        <div class="empty-state small" style="padding: 32px 20px;">
+          <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">⚠️</div>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">Browser sign-in diagnostics are unavailable</p>
+          <p class="hint" style="font-size: 0.9rem;">${Helpers.escapeHtml(State.browserLoginDiagnosticsError || "Mahilo could not load recent browser sign-ins.")}</p>
+        </div>
+      `;
+      return;
+    }
+
+    if (!attempts.length) {
+      list.innerHTML = `
+        <div class="empty-state small" style="padding: 32px 20px;">
+          <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">🔐</div>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No browser sign-ins yet</p>
+          <p class="hint" style="font-size: 0.9rem;">Recent approval codes, replay blocks, and expiry outcomes will appear here after you request browser access.</p>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = attempts
+      .map((attempt) => {
+        const presentation = this.getBrowserLoginDiagnosticPresentation(attempt);
+        const approvalCode = Helpers.string(attempt?.approvalCode, "------");
+        const issuedAt = Helpers.formatDateTime(
+          attempt?.createdAt,
+          "Issue time unavailable",
+        );
+        const expiresAt = Helpers.formatDateTime(
+          attempt?.expiresAt,
+          "Expiry unavailable",
+        );
+        const approvalDetail = attempt?.redeemedAt
+          ? `Redeemed ${Helpers.formatDateTime(attempt.redeemedAt)}`
+          : attempt?.approvedAt
+            ? `Approved ${Helpers.formatDateTime(attempt.approvedAt)}`
+            : attempt?.deniedAt
+              ? `Denied ${Helpers.formatDateTime(attempt.deniedAt)}`
+              : "Awaiting agent decision";
+        const approvalCopy = attempt?.redeemedAt
+          ? "Browser session exchange completed."
+          : attempt?.approvedAt
+            ? "Waiting for the browser to redeem the approved session."
+            : attempt?.deniedAt
+              ? "Configured agent closed this browser sign-in."
+              : "Pending a configured agent response.";
+        const issueStrong = presentation.issueLabel
+          ? presentation.issueLabel
+          : "No recent issue";
+        const issueCopy = attempt?.failureAt
+          ? `${presentation.detail} (${Helpers.formatDateTime(attempt.failureAt)})`
+          : presentation.detail;
+
+        return `
+          <article class="developer-diagnostic-card ${Helpers.escapeHtml(presentation.tone)}">
+            <div class="developer-diagnostic-header">
+              <div>
+                <div class="developer-diagnostic-title">Code ${Helpers.escapeHtml(approvalCode)}</div>
+                <p class="developer-diagnostic-copy">${Helpers.escapeHtml(presentation.statusLabel)} • Started ${Helpers.escapeHtml(issuedAt)}</p>
+                <div class="developer-diagnostic-badges">
+                  <span class="status-badge ${Helpers.escapeHtml(presentation.statusTone)}">${Helpers.escapeHtml(presentation.statusLabel)}</span>
+                  ${
+                    presentation.issueLabel
+                      ? `<span class="status-badge ${Helpers.escapeHtml(presentation.issueTone)}">${Helpers.escapeHtml(presentation.issueLabel)}</span>`
+                      : ""
+                  }
+                  <span class="status-badge default">Browser sign-in</span>
+                </div>
+              </div>
+            </div>
+            <div class="developer-diagnostic-meta">
+              <div class="developer-diagnostic-meta-item">
+                <span>Issued</span>
+                <strong>${Helpers.escapeHtml(issuedAt)}</strong>
+                <p>Expires ${Helpers.escapeHtml(expiresAt)}</p>
+              </div>
+              <div class="developer-diagnostic-meta-item">
+                <span>Decision</span>
+                <strong>${Helpers.escapeHtml(approvalDetail)}</strong>
+                <p>${Helpers.escapeHtml(approvalCopy)}</p>
+              </div>
+              <div class="developer-diagnostic-meta-item">
+                <span>Latest issue</span>
+                <strong>${Helpers.escapeHtml(issueStrong)}</strong>
+                <p>${Helpers.escapeHtml(issueCopy)}</p>
+              </div>
+            </div>
+          </article>
+        `;
+      })
       .join("");
   },
 

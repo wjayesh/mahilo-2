@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
+import { config } from "../config";
 import {
   ACTIVE_USER_STATUS,
   consumeInviteToken,
@@ -18,7 +19,9 @@ import {
   BROWSER_SESSION_COOKIE_NAME,
   BROWSER_SESSION_TTL_MS,
   createBrowserLoginAttemptArtifacts,
+  clearBrowserLoginAttemptFailure,
   generateBrowserSession,
+  getBrowserLoginAttemptFailure,
   getBrowserLoginAttemptStatus,
   parseBrowserSessionToken,
   verifyBrowserLoginToken,
@@ -26,6 +29,10 @@ import {
 } from "../services/browserAuth";
 import { AppError } from "../middleware/error";
 import { createDefaultPoliciesForUser } from "../services/defaultPolicies";
+import {
+  consumeFixedWindowRateLimit,
+  readClientRateLimitKey,
+} from "../services/rateLimit";
 import {
   enforceRegisterRateLimit,
   requireActive,
@@ -55,6 +62,60 @@ const browserLoginApproveSchema = z.object({
   approval_code: z.string().min(4).max(12),
 });
 
+type RateLimitStore = Map<
+  string,
+  {
+    count: number;
+    resetAt: number;
+  }
+>;
+
+const browserLoginStartRateLimits: RateLimitStore = new Map();
+const browserLoginApproveRateLimits: RateLimitStore = new Map();
+const browserLoginRedeemRateLimits: RateLimitStore = new Map();
+
+function browserLoginErrorDetails(
+  failureState: string,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    failure_state: failureState,
+    ...extra,
+  };
+}
+
+function browserLoginRateLimitDetails(
+  scope: string,
+  result: ReturnType<typeof consumeFixedWindowRateLimit>,
+) {
+  return browserLoginErrorDetails("rate_limited", {
+    limit: result.limit,
+    rate_limit_scope: scope,
+    retry_after_seconds: result.retryAfterSeconds,
+  });
+}
+
+async function updateBrowserLoginAttemptFailure(
+  db: ReturnType<typeof getDb>,
+  attemptId: string,
+  update: {
+    at?: Date;
+    code: string;
+    message: string;
+    state: string;
+  },
+) {
+  await db
+    .update(schema.browserLoginAttempts)
+    .set({
+      failureAt: update.at ?? new Date(),
+      failureCode: update.code,
+      failureMessage: update.message,
+      failureState: update.state,
+    })
+    .where(eq(schema.browserLoginAttempts.id, attemptId));
+}
+
 function buildBrowserLoginAttemptPayload(
   attempt: schema.BrowserLoginAttempt,
   options: {
@@ -62,13 +123,20 @@ function buildBrowserLoginAttemptPayload(
     includeApprovalCode?: boolean;
   } = {},
 ) {
+  const failure = getBrowserLoginAttemptFailure(attempt);
+
   return {
     attempt_id: attempt.id,
+    created_at: attempt.createdAt.toISOString(),
     status: getBrowserLoginAttemptStatus(attempt),
     expires_at: attempt.expiresAt.toISOString(),
     approved_at: attempt.approvedAt?.toISOString() ?? null,
     denied_at: attempt.deniedAt?.toISOString() ?? null,
     redeemed_at: attempt.redeemedAt?.toISOString() ?? null,
+    failure_state: failure.state,
+    failure_code: failure.code,
+    failure_message: failure.message,
+    failure_at: failure.at?.toISOString() ?? null,
     ...(options.includeApprovalCode
       ? { approval_code: attempt.approvalCode }
       : {}),
@@ -286,6 +354,23 @@ authRoutes.post(
 
     const db = getDb();
     const normalizedUsername = username.toLowerCase();
+    const startRateLimit = consumeFixedWindowRateLimit(
+      browserLoginStartRateLimits,
+      readClientRateLimitKey(c) || `browser-login-start:${normalizedUsername}`,
+      config.authBrowserLoginStartRateLimitPerMinute,
+    );
+    if (!startRateLimit.allowed) {
+      throw new AppError(
+        "Too many browser sign-in attempts. Wait before requesting another code.",
+        429,
+        "BROWSER_LOGIN_START_RATE_LIMITED",
+        browserLoginRateLimitDetails("browser_login_start", startRateLimit),
+        {
+          "Retry-After": String(startRateLimit.retryAfterSeconds),
+        },
+      );
+    }
+
     const [targetUser] = await db
       .select({
         id: schema.users.id,
@@ -316,14 +401,36 @@ authRoutes.post(
     const { approvalCode, browserToken, browserTokenHash, expiresAt } =
       createBrowserLoginAttemptArtifacts();
     const attemptId = nanoid();
+    const now = new Date();
 
-    await db.insert(schema.browserLoginAttempts).values({
-      id: attemptId,
-      userId: targetUser.id,
-      approvalCode,
-      browserTokenHash,
-      expiresAt,
-      createdAt: new Date(),
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.browserLoginAttempts)
+        .set({
+          expiresAt: now,
+          failureAt: now,
+          failureCode: "LOGIN_ATTEMPT_SUPERSEDED",
+          failureMessage:
+            "A newer browser sign-in code was issued for this account.",
+          failureState: "superseded",
+        })
+        .where(
+          and(
+            eq(schema.browserLoginAttempts.userId, targetUser.id),
+            isNull(schema.browserLoginAttempts.deniedAt),
+            isNull(schema.browserLoginAttempts.redeemedAt),
+            gt(schema.browserLoginAttempts.expiresAt, now),
+          ),
+        );
+
+      await tx.insert(schema.browserLoginAttempts).values({
+        id: attemptId,
+        userId: targetUser.id,
+        approvalCode,
+        browserTokenHash,
+        expiresAt,
+        createdAt: now,
+      });
     });
 
     const [attempt] = await db
@@ -347,6 +454,41 @@ authRoutes.post(
       }),
       201,
     );
+  },
+);
+
+authRoutes.get(
+  "/browser-login/diagnostics",
+  requireAuth(),
+  requireActive(),
+  async (c) => {
+    const user = c.get("user");
+    if (!user) {
+      throw new AppError("Unauthorized", 401, "UNAUTHORIZED");
+    }
+
+    const limitValue = Number.parseInt(c.req.query("limit") || "8", 10);
+    const limit =
+      Number.isFinite(limitValue) && limitValue > 0
+        ? Math.min(limitValue, 20)
+        : 8;
+
+    const db = getDb();
+    const attempts = await db
+      .select()
+      .from(schema.browserLoginAttempts)
+      .where(eq(schema.browserLoginAttempts.userId, user.id))
+      .orderBy(desc(schema.browserLoginAttempts.createdAt))
+      .limit(limit);
+
+    return c.json({
+      attempts: attempts.map((attempt) =>
+        buildBrowserLoginAttemptPayload(attempt, {
+          includeApprovalCode: true,
+        }),
+      ),
+      retrieved_at: new Date().toISOString(),
+    });
   },
 );
 
@@ -399,14 +541,22 @@ authRoutes.post(
         "Login attempt has expired",
         410,
         "LOGIN_ATTEMPT_EXPIRED",
+        browserLoginErrorDetails("expired"),
       );
     }
 
     if (status === "redeemed") {
+      await updateBrowserLoginAttemptFailure(db, attempt.id, {
+        at: now,
+        code: "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+        message: "Login attempt has already been redeemed",
+        state: "replayed",
+      });
       throw new AppError(
         "Login attempt has already been redeemed",
         409,
         "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+        browserLoginErrorDetails("replayed"),
       );
     }
 
@@ -415,81 +565,134 @@ authRoutes.post(
         "Login attempt has been denied",
         409,
         "LOGIN_ATTEMPT_DENIED",
+        browserLoginErrorDetails("denied"),
       );
     }
 
-    if (status !== "approved") {
-      const [approvedAttempt] = await db
-        .update(schema.browserLoginAttempts)
-        .set({
-          approvedAt: now,
-          approvedByUserId: user.id,
-          deniedAt: null,
-          deniedByUserId: null,
-        })
-        .where(
-          and(
-            eq(schema.browserLoginAttempts.id, attempt.id),
-            isNull(schema.browserLoginAttempts.approvedAt),
-            isNull(schema.browserLoginAttempts.deniedAt),
-            isNull(schema.browserLoginAttempts.redeemedAt),
-            gt(schema.browserLoginAttempts.expiresAt, now),
-          ),
-        )
-        .returning();
+    if (status === "approved") {
+      await updateBrowserLoginAttemptFailure(db, attempt.id, {
+        at: now,
+        code: "LOGIN_ATTEMPT_ALREADY_APPROVED",
+        message: "Login attempt has already been approved",
+        state: "replayed",
+      });
+      throw new AppError(
+        "Login attempt has already been approved",
+        409,
+        "LOGIN_ATTEMPT_ALREADY_APPROVED",
+        browserLoginErrorDetails("replayed"),
+      );
+    }
 
-      if (!approvedAttempt) {
-        const [currentAttempt] = await db
-          .select()
-          .from(schema.browserLoginAttempts)
-          .where(eq(schema.browserLoginAttempts.id, attempt.id))
-          .limit(1);
+    const approvalRateLimit = consumeFixedWindowRateLimit(
+      browserLoginApproveRateLimits,
+      user.id,
+      config.authBrowserLoginApproveRateLimitPerMinute,
+    );
+    if (!approvalRateLimit.allowed) {
+      await updateBrowserLoginAttemptFailure(db, attempt.id, {
+        at: now,
+        code: "BROWSER_LOGIN_APPROVE_RATE_LIMITED",
+        message: "Too many approval attempts. Wait before approving again.",
+        state: "rate_limited",
+      });
+      throw new AppError(
+        "Too many approval attempts. Wait before approving again.",
+        429,
+        "BROWSER_LOGIN_APPROVE_RATE_LIMITED",
+        browserLoginRateLimitDetails("browser_login_approve", approvalRateLimit),
+        {
+          "Retry-After": String(approvalRateLimit.retryAfterSeconds),
+        },
+      );
+    }
 
-        if (currentAttempt) {
-          const currentStatus = getBrowserLoginAttemptStatus(currentAttempt);
-          if (currentStatus === "approved") {
-            attempt = currentAttempt;
-            return c.json(
-              buildBrowserLoginAttemptPayload(attempt, {
-                includeApprovalCode: true,
-              }),
-            );
-          }
+    const [approvedAttempt] = await db
+      .update(schema.browserLoginAttempts)
+      .set({
+        approvedAt: now,
+        approvedByUserId: user.id,
+        deniedAt: null,
+        deniedByUserId: null,
+        ...clearBrowserLoginAttemptFailure(),
+      })
+      .where(
+        and(
+          eq(schema.browserLoginAttempts.id, attempt.id),
+          isNull(schema.browserLoginAttempts.approvedAt),
+          isNull(schema.browserLoginAttempts.deniedAt),
+          isNull(schema.browserLoginAttempts.redeemedAt),
+          gt(schema.browserLoginAttempts.expiresAt, now),
+        ),
+      )
+      .returning();
 
-          if (currentStatus === "denied") {
-            throw new AppError(
-              "Login attempt has been denied",
-              409,
-              "LOGIN_ATTEMPT_DENIED",
-            );
-          }
+    if (!approvedAttempt) {
+      const [currentAttempt] = await db
+        .select()
+        .from(schema.browserLoginAttempts)
+        .where(eq(schema.browserLoginAttempts.id, attempt.id))
+        .limit(1);
 
-          if (currentStatus === "expired") {
-            throw new AppError(
-              "Login attempt has expired",
-              410,
-              "LOGIN_ATTEMPT_EXPIRED",
-            );
-          }
-
-          if (currentStatus === "redeemed") {
-            throw new AppError(
-              "Login attempt has already been redeemed",
-              409,
-              "LOGIN_ATTEMPT_ALREADY_REDEEMED",
-            );
-          }
+      if (currentAttempt) {
+        const currentStatus = getBrowserLoginAttemptStatus(currentAttempt, now);
+        if (currentStatus === "approved") {
+          await updateBrowserLoginAttemptFailure(db, attempt.id, {
+            at: now,
+            code: "LOGIN_ATTEMPT_ALREADY_APPROVED",
+            message: "Login attempt has already been approved",
+            state: "replayed",
+          });
+          throw new AppError(
+            "Login attempt has already been approved",
+            409,
+            "LOGIN_ATTEMPT_ALREADY_APPROVED",
+            browserLoginErrorDetails("replayed"),
+          );
         }
 
-        throw new AppError(
-          "Login attempt could not be approved",
-          409,
-          "LOGIN_ATTEMPT_NOT_APPROVABLE",
-        );
+        if (currentStatus === "denied") {
+          throw new AppError(
+            "Login attempt has been denied",
+            409,
+            "LOGIN_ATTEMPT_DENIED",
+            browserLoginErrorDetails("denied"),
+          );
+        }
+
+        if (currentStatus === "expired") {
+          throw new AppError(
+            "Login attempt has expired",
+            410,
+            "LOGIN_ATTEMPT_EXPIRED",
+            browserLoginErrorDetails("expired"),
+          );
+        }
+
+        if (currentStatus === "redeemed") {
+          await updateBrowserLoginAttemptFailure(db, attempt.id, {
+            at: now,
+            code: "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+            message: "Login attempt has already been redeemed",
+            state: "replayed",
+          });
+          throw new AppError(
+            "Login attempt has already been redeemed",
+            409,
+            "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+            browserLoginErrorDetails("replayed"),
+          );
+        }
       }
 
-      attempt = approvedAttempt;
+      throw new AppError(
+        "Login attempt could not be approved",
+        409,
+        "LOGIN_ATTEMPT_NOT_APPROVABLE",
+      );
     }
+
+    attempt = approvedAttempt;
 
     return c.json(
       buildBrowserLoginAttemptPayload(attempt, { includeApprovalCode: true }),
@@ -524,6 +727,7 @@ authRoutes.post(
         "Login attempt has expired",
         410,
         "LOGIN_ATTEMPT_EXPIRED",
+        browserLoginErrorDetails("expired"),
       );
     }
 
@@ -532,6 +736,7 @@ authRoutes.post(
         "Login attempt has already been redeemed",
         409,
         "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+        browserLoginErrorDetails("replayed"),
       );
     }
 
@@ -540,6 +745,7 @@ authRoutes.post(
         "Login attempt has already been approved",
         409,
         "LOGIN_ATTEMPT_ALREADY_APPROVED",
+        browserLoginErrorDetails("replayed"),
       );
     }
 
@@ -549,6 +755,10 @@ authRoutes.post(
         .set({
           deniedAt: now,
           deniedByUserId: user.id,
+          failureAt: now,
+          failureCode: "LOGIN_ATTEMPT_DENIED",
+          failureMessage: "Configured agent denied this browser sign-in.",
+          failureState: "denied",
         })
         .where(
           and(
@@ -584,6 +794,7 @@ authRoutes.post(
               "Login attempt has already been approved",
               409,
               "LOGIN_ATTEMPT_ALREADY_APPROVED",
+              browserLoginErrorDetails("replayed"),
             );
           }
 
@@ -592,6 +803,7 @@ authRoutes.post(
               "Login attempt has expired",
               410,
               "LOGIN_ATTEMPT_EXPIRED",
+              browserLoginErrorDetails("expired"),
             );
           }
 
@@ -600,6 +812,7 @@ authRoutes.post(
               "Login attempt has already been redeemed",
               409,
               "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+              browserLoginErrorDetails("replayed"),
             );
           }
         }
@@ -640,12 +853,14 @@ authRoutes.post("/browser-login/attempts/:attemptId/redeem", async (c) => {
 
   assertBrowserLoginToken(attempt, browserToken);
 
-  const status = getBrowserLoginAttemptStatus(attempt);
+  const now = new Date();
+  const status = getBrowserLoginAttemptStatus(attempt, now);
   if (status === "expired") {
     throw new AppError(
       "Login attempt has expired",
       410,
       "LOGIN_ATTEMPT_EXPIRED",
+      browserLoginErrorDetails("expired"),
     );
   }
 
@@ -662,18 +877,48 @@ authRoutes.post("/browser-login/attempts/:attemptId/redeem", async (c) => {
       "Login attempt has been denied",
       403,
       "LOGIN_ATTEMPT_DENIED",
+      browserLoginErrorDetails("denied"),
     );
   }
 
   if (status === "redeemed") {
+    await updateBrowserLoginAttemptFailure(db, attempt.id, {
+      at: now,
+      code: "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+      message: "Login attempt has already been redeemed",
+      state: "replayed",
+    });
     throw new AppError(
       "Login attempt has already been redeemed",
       409,
       "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+      browserLoginErrorDetails("replayed"),
     );
   }
 
-  const now = new Date();
+  const redeemRateLimit = consumeFixedWindowRateLimit(
+    browserLoginRedeemRateLimits,
+    readClientRateLimitKey(c) || `browser-login-redeem:${attempt.id}`,
+    config.authBrowserLoginRedeemRateLimitPerMinute,
+  );
+  if (!redeemRateLimit.allowed) {
+    await updateBrowserLoginAttemptFailure(db, attempt.id, {
+      at: now,
+      code: "BROWSER_LOGIN_REDEEM_RATE_LIMITED",
+      message: "Too many redeem attempts. Wait before trying again.",
+      state: "rate_limited",
+    });
+    throw new AppError(
+      "Too many redeem attempts. Wait before trying again.",
+      429,
+      "BROWSER_LOGIN_REDEEM_RATE_LIMITED",
+      browserLoginRateLimitDetails("browser_login_redeem", redeemRateLimit),
+      {
+        "Retry-After": String(redeemRateLimit.retryAfterSeconds),
+      },
+    );
+  }
+
   const {
     sessionId,
     sessionToken,
@@ -754,6 +999,7 @@ authRoutes.post("/browser-login/attempts/:attemptId/redeem", async (c) => {
       .update(schema.browserLoginAttempts)
       .set({
         redeemedAt: now,
+        ...clearBrowserLoginAttemptFailure(),
       })
       .where(
         and(
@@ -778,14 +1024,22 @@ authRoutes.post("/browser-login/attempts/:attemptId/redeem", async (c) => {
             "Login attempt has expired",
             410,
             "LOGIN_ATTEMPT_EXPIRED",
+            browserLoginErrorDetails("expired"),
           );
         }
 
         if (currentStatus === "redeemed") {
+          await updateBrowserLoginAttemptFailure(tx, freshAttempt.id, {
+            at: now,
+            code: "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+            message: "Login attempt has already been redeemed",
+            state: "replayed",
+          });
           throw new AppError(
             "Login attempt has already been redeemed",
             409,
             "LOGIN_ATTEMPT_ALREADY_REDEEMED",
+            browserLoginErrorDetails("replayed"),
           );
         }
       }
