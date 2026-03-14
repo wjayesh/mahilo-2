@@ -517,7 +517,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 7.2 Frontend Smoke Coverage and Regression Harness
 - **ID**: `DASH-061`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-043`, `DASH-051`
 - **Description**:
@@ -528,6 +528,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Activity grouping/review queue helpers have coverage for review, blocked, and delivered states
   - [ ] A documented smoke path exists for landing -> sign-in -> dashboard core views
 
+- **Notes**:
+  - 2026-03-14T17:21:04.866Z: DASH-061 completed via orchestrator integration.
 ### 7.3 Surface Dashboard Entry from the Landing Page
 - **ID**: `DASH-090`
 - **Status**: `pending`
