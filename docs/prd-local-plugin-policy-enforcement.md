@@ -643,7 +643,7 @@ This project is done when all of the following are true:
   - 2026-03-14T16:17:47.206Z: LPE-050 completed via orchestrator integration.
 ### 5.2 Add Server Integration Tests for Bundles and Commit Paths
 - **ID**: `LPE-051`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-012`, `LPE-013`
 - **Description**:
@@ -655,6 +655,8 @@ This project is done when all of the following are true:
   - [ ] Commit/report idempotency and lifecycle behavior are covered
   - [ ] Review/blocked artifact creation is covered
 
+- **Notes**:
+  - 2026-03-14T16:35:35.773Z: LPE-051 completed via orchestrator integration.
 ### 5.3 Add Plugin Config and Provider Adapter Tests
 - **ID**: `LPE-052`
 - **Status**: `done`
