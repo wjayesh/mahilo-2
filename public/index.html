@@ -407,10 +407,6 @@
             <span class="nav-text">Groups</span>
             <span class="nav-badge hidden" id="group-count">0</span>
           </button>
-          <button class="nav-item" data-view="messages">
-            <span class="nav-icon">💬</span>
-            <span class="nav-text">Messages</span>
-          </button>
           <button class="nav-item" data-view="logs">
             <span class="nav-icon">📋</span>
             <span class="nav-text">Delivery Logs</span>
@@ -522,15 +518,15 @@
                   </div>
                 </div>
                 <button class="squishy-btn btn-secondary btn-small" id="find-friends-quick">
-                  <span>🔍</span> Find Friends
+                  <span>@</span> Add by Username
                 </button>
               </div>
 
               <!-- Recent Messages -->
               <div class="card card-wide recent-messages-card">
                 <div class="card-header">
-                  <h3>💬 Recent Messages</h3>
-                  <button class="squishy-btn btn-ghost btn-small" id="view-all-messages">View All</button>
+                  <h3>📋 Recent Delivery Activity</h3>
+                  <button class="squishy-btn btn-ghost btn-small" id="view-all-messages">View Logs</button>
                 </div>
                 <div class="message-preview-list" id="overview-message-list">
                   <div class="empty-state small">
@@ -547,7 +543,7 @@
             <div class="view-toolbar">
               <div class="search-box">
                 <span class="search-icon">🔍</span>
-                <input type="text" placeholder="Search agents..." class="squishy-input" id="agent-search">
+                <input type="text" placeholder="Filter connections..." class="squishy-input" id="agent-search">
               </div>
               <button class="squishy-btn btn-primary" id="add-agent-btn">
                 <span>+</span> Add Agent
@@ -571,10 +567,10 @@
               <div class="friends-sidebar">
                 <div class="search-box">
                   <span class="search-icon">🔍</span>
-                  <input type="text" placeholder="Search users..." class="squishy-input" id="user-search">
+                  <input type="text" placeholder="Filter your network..." class="squishy-input" id="user-search">
                 </div>
                 <button class="squishy-btn btn-primary btn-full" id="find-users-btn">
-                  <span>🔍</span> Find Users
+                  <span>@</span> Add by Username
                 </button>
                 <div class="friends-filters">
                   <button class="filter-btn active" data-filter="all">All Friends</button>
@@ -603,7 +599,7 @@
             <div class="view-toolbar">
               <div class="search-box">
                 <span class="search-icon">🔍</span>
-                <input type="text" placeholder="Search groups..." class="squishy-input" id="group-search">
+                <input type="text" placeholder="Filter groups..." class="squishy-input" id="group-search">
               </div>
               <button class="squishy-btn btn-primary" id="create-group-btn">
                 <span>+</span> Create Group
@@ -1065,19 +1061,23 @@
       <!-- Search Users Modal -->
       <div class="modal hidden" id="search-users-modal">
         <div class="modal-header">
-          <h3>🔍 Find Users</h3>
+          <h3>👥 Add by Username</h3>
           <button class="modal-close">✕</button>
         </div>
         <div class="modal-body">
-          <div class="search-box mb-3">
-            <span class="search-icon">🔍</span>
-            <input type="text" class="squishy-input" id="search-username" placeholder="Enter username...">
-          </div>
-          <div class="search-results" id="search-results">
-            <div class="empty-state small">
-              <p>Search for users to add as friends</p>
+          <form id="add-friend-form">
+            <div class="input-group">
+              <label class="input-label">Mahilo Username</label>
+              <input type="text" class="squishy-input" id="add-friend-username" placeholder="alice" autocapitalize="off" autocomplete="off" spellcheck="false">
+              <span class="input-hint">Enter the exact username. Public people search is not part of the active dashboard flow.</span>
             </div>
-          </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="squishy-btn btn-secondary" data-close>Cancel</button>
+          <button class="squishy-btn btn-primary" id="send-friend-request-btn">
+            <span>+</span> Send Request
+          </button>
         </div>
       </div>
 
@@ -1185,9 +1185,6 @@
         </div>
         <div class="modal-footer">
           <button class="squishy-btn btn-secondary" data-close>Close</button>
-          <button class="squishy-btn btn-warning" id="rotate-secret-btn">
-            <span>🔄</span> Rotate Secret
-          </button>
           <button class="squishy-btn btn-danger" id="delete-agent-btn">
             <span>🗑️</span> Delete
           </button>

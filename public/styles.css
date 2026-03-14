@@ -2095,12 +2095,12 @@ body {
   padding: var(--space-lg);
   box-shadow: var(--shadow-md);
   transition: all var(--transition-normal);
-  cursor: pointer;
+  cursor: default;
 }
 
 .group-card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-6px) scale(1.02);
+  box-shadow: var(--shadow-md);
+  transform: none;
 }
 
 .group-icon {
@@ -2131,6 +2131,7 @@ body {
 
 .group-meta {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-md);
   font-size: 0.875rem;
   color: var(--color-text-muted);
@@ -2140,6 +2141,12 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.group-card-actions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-md);
 }
 
 /* ========================================

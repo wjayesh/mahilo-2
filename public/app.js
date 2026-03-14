@@ -1497,17 +1497,21 @@ const UI = {
 
     // Find friends
     document.getElementById('find-users-btn')?.addEventListener('click', () => {
-      this.showModal('search-users-modal');
+      this.openAddFriendModal();
     });
 
     document.getElementById('find-friends-quick')?.addEventListener('click', () => {
       this.switchView('friends');
-      this.showModal('search-users-modal');
+      this.openAddFriendModal();
     });
 
-    // Search users
-    document.getElementById('search-username')?.addEventListener('input', (e) => {
-      this.handleSearchUsers(e.target.value);
+    document.getElementById('add-friend-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.handleAddFriendRequest();
+    });
+
+    document.getElementById('send-friend-request-btn')?.addEventListener('click', () => {
+      this.handleAddFriendRequest();
     });
 
     // Create group
@@ -1573,7 +1577,7 @@ const UI = {
 
     // View all messages (logs)
     document.getElementById('view-all-messages')?.addEventListener('click', () => {
-      this.switchView('messages');
+      this.switchView('logs');
     });
 
     // Refresh logs
@@ -1599,6 +1603,11 @@ const UI = {
     // Save preferences
     document.getElementById('save-preferences-btn')?.addEventListener('click', () => {
       this.handleSavePreferences();
+    });
+
+    document.getElementById('notifications-btn')?.addEventListener('click', () => {
+      this.switchView('logs');
+      this.hideNotificationDot();
     });
 
     // Quiet hours toggle
@@ -1712,47 +1721,10 @@ const UI = {
   },
 
   async handleRegister() {
-    const usernameInput = document.getElementById('reg-username');
-    const displayNameInput = document.getElementById('reg-display-name');
-
-    if (!usernameInput || !displayNameInput) {
-      this.showToast('Dashboard registration inputs are not available on this page.', 'error');
-      return;
-    }
-
-    const username = usernameInput.value.trim();
-    const displayName = displayNameInput.value.trim();
-
-    if (!username || username.length < 3) {
-      this.showToast('Username must be at least 3 characters', 'error');
-      return;
-    }
-
-    try {
-      const result = await API.auth.register(username, displayName);
-      State.apiKey = result.api_key;
-      State.user = Normalizers.user({
-        user_id: result.user_id,
-        username: result.username,
-        display_name: displayName,
-        status: result.status,
-        verified: result.verified,
-      });
-      if (!State.user) {
-        throw new Error('Failed to create dashboard session');
-      }
-      State.save();
-
-      // Show simplified API key modal (no Twitter verification)
-      document.getElementById('new-api-key').textContent = result.api_key;
-      this.showModal('api-key-modal');
-
-      this.showDashboard();
-      await DataLoader.loadAll();
-      WebSocketManager.connect();
-    } catch (error) {
-      this.showToast(error.message || 'Registration failed', 'error');
-    }
+    this.showToast(
+      'Browser signup is not part of the active dashboard flow. Register through your agent with an invite token, then come back here.',
+      'info'
+    );
   },
 
   // Handle save preferences
@@ -1863,23 +1835,14 @@ const UI = {
       ? capabilitiesStr.split(',').map(c => c.trim()).filter(Boolean)
       : [];
 
-    // Generate a key pair if not provided
-    let finalPublicKey = publicKey;
-    let publicKeyAlg = 'ed25519';
-    
-    if (!finalPublicKey) {
-      // In a real app, you'd generate this properly
-      finalPublicKey = 'auto-generated-key-' + Date.now();
-    }
-
     try {
       const result = await API.agents.register({
         framework,
         label,
         description,
         callback_url: callbackUrl,
-        public_key: finalPublicKey,
-        public_key_alg: publicKeyAlg,
+        public_key: publicKey || undefined,
+        public_key_alg: publicKey ? 'ed25519' : undefined,
         capabilities,
       });
 
@@ -1978,41 +1941,60 @@ const UI = {
     }
   },
 
-  // Handle search users
-  async handleSearchUsers(query) {
-    const resultsContainer = document.getElementById('search-results');
-    
-    if (!query || query.length < 2) {
-      resultsContainer.innerHTML = `
-        <div class="empty-state small">
-          <p>Type at least 2 characters to search</p>
-        </div>
-      `;
+  openAddFriendModal() {
+    document.getElementById('add-friend-form')?.reset();
+    this.showModal('search-users-modal');
+  },
+
+  async handleAddFriendRequest() {
+    const usernameInput = document.getElementById('add-friend-username');
+    const submitButton = document.getElementById('send-friend-request-btn');
+
+    if (!usernameInput) {
+      this.showToast('The add-by-username form is unavailable.', 'error');
       return;
     }
 
-    // For demo, show search interface
-    // In real app, you'd have a search API endpoint
-    resultsContainer.innerHTML = `
-      <div class="search-result-item">
-        <div class="search-result-info">
-          <div class="search-result-name">${query}</div>
-          <div class="search-result-username">@${query.toLowerCase()}</div>
-        </div>
-        <button class="squishy-btn btn-primary btn-small" onclick="UI.handleSendFriendRequest('${query.toLowerCase()}')">
-          Add Friend
-        </button>
-      </div>
-    `;
+    const username = usernameInput.value.trim().replace(/^@+/, '');
+
+    if (!username || username.length < 3) {
+      this.showToast('Enter the exact Mahilo username you want to add.', 'error');
+      return;
+    }
+
+    if (State.user?.username?.toLowerCase() === username.toLowerCase()) {
+      this.showToast('You cannot send a request to your own username.', 'error');
+      return;
+    }
+
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
+
+    try {
+      await this.handleSendFriendRequest(username);
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
+    }
   },
 
   // Handle send friend request
   async handleSendFriendRequest(username) {
+    const normalizedUsername = username.trim().replace(/^@+/, '');
+
     try {
-      await API.friends.request(username);
+      const result = await API.friends.request(normalizedUsername);
       this.hideModals();
+      document.getElementById('add-friend-form')?.reset();
       await DataLoader.loadFriends();
-      this.showToast(`Friend request sent to ${username}`, 'success');
+      this.showToast(
+        result.status === 'accepted'
+          ? result.message || `${normalizedUsername} is now part of your network`
+          : `Friend request sent to ${normalizedUsername}`,
+        'success'
+      );
     } catch (error) {
       this.showToast(error.message || 'Failed to send friend request', 'error');
     }
@@ -2133,16 +2115,6 @@ const UI = {
     }
   },
 
-  // Handle rotate callback secret
-  async handleRotateCallbackSecret(id) {
-    try {
-      // This would require an API endpoint
-      this.showToast('Callback secret rotation not yet implemented in API', 'warning');
-    } catch (error) {
-      this.showToast('Failed to rotate secret', 'error');
-    }
-  },
-
   // Show agent details
   showAgentDetails(agent) {
     document.getElementById('detail-agent-icon').textContent = '🤖';
@@ -2246,6 +2218,7 @@ const UI = {
         this.renderChat(State.selectedChat);
       }
     } else if (view === 'logs') {
+      this.hideNotificationDot();
       this.renderLogs();
     } else if (view === 'settings') {
       DataLoader.loadPreferences();
@@ -2476,8 +2449,10 @@ const UI = {
             <button class="squishy-btn btn-primary btn-small" onclick="UI.handleAcceptFriend('${friend.id}')">Accept</button>
             <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleRejectFriend('${friend.id}')">Reject</button>
           ` : friend.status === 'accepted' ? `
-            <button class="squishy-btn btn-secondary btn-small" onclick="UI.switchView('messages'); UI.selectChat('${friend.username}')">Message</button>
+            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleBlockFriend('${friend.id}')">Block</button>
             <button class="squishy-btn btn-danger btn-small" onclick="UI.handleUnfriend('${friend.id}')">Unfriend</button>
+          ` : friend.status === 'blocked' ? `
+            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friend.id}')">Remove</button>
           ` : `
             <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleUnfriend('${friend.id}')">Cancel</button>
           `}
@@ -2507,15 +2482,24 @@ const UI = {
     }
 
     grid.innerHTML = State.groups.map(group => `
-      <div class="group-card" onclick="UI.handleJoinGroup('${group.id}')">
+      <div class="group-card">
         <div class="group-icon">🏘️</div>
         <div class="group-name">${group.name}</div>
         <div class="group-description">${group.description || 'No description'}</div>
         <div class="group-meta">
           <span>👥 ${group.memberCount || 0} members</span>
           <span>${group.inviteOnly ? '🔒 Invite only' : '🌐 Public'}</span>
-          <span>${group.status === 'invited' ? '✉️ Tap to join' : `Role: ${group.role || 'member'}`}</span>
+          <span>${group.status === 'invited' ? '✉️ Invited' : `Role: ${group.role || 'member'}`}</span>
         </div>
+        ${group.status === 'invited' ? `
+          <div class="group-card-actions">
+            <button class="squishy-btn btn-primary btn-small" onclick="UI.handleJoinGroup('${group.id}')">Join Invite</button>
+          </div>
+        ` : group.status === 'active' && group.role !== 'owner' ? `
+          <div class="group-card-actions">
+            <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleLeaveGroup('${group.id}')">Leave Group</button>
+          </div>
+        ` : ''}
       </div>
     `).join('');
   },
@@ -2539,12 +2523,28 @@ const UI = {
       return;
     }
 
-    this.showToast(
-      group.status === 'active'
-        ? `${group.name} is already active in your network`
-        : `${group.name} is currently ${group.status || 'inactive'}`,
-      'info'
-    );
+    this.showToast('Only invited groups can be joined from this view.', 'info');
+  },
+
+  async handleLeaveGroup(groupId) {
+    const group = State.groups.find((entry) => entry.id === groupId);
+
+    if (!group) {
+      this.showToast('Group not found', 'error');
+      return;
+    }
+
+    if (!confirm(`Leave ${group.name}?`)) {
+      return;
+    }
+
+    try {
+      await API.groups.leave(groupId);
+      await DataLoader.loadGroups();
+      this.showToast(`Left ${group.name}`, 'success');
+    } catch (error) {
+      this.showToast(error.message || 'Failed to leave group', 'error');
+    }
   },
 
   renderPolicies(scope = 'all') {
@@ -3124,6 +3124,10 @@ const UI = {
   // Show notification dot
   showNotificationDot() {
     document.getElementById('notification-dot').classList.remove('hidden');
+  },
+
+  hideNotificationDot() {
+    document.getElementById('notification-dot').classList.add('hidden');
   },
 
   // Copy to clipboard

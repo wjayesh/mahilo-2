@@ -56,6 +56,9 @@ type DashboardInternals = {
   };
   State: Record<string, any>;
   UI: {
+    handleAddFriendRequest: () => Promise<void>;
+    handleRegister: () => Promise<void>;
+    handleSaveAgent: () => Promise<void>;
     handleSendMessage: () => Promise<void>;
     selectChat: (username: string) => void;
   };
@@ -747,5 +750,243 @@ describe("Dashboard frontend data adapter (DASH-001)", () => {
     expect(harness.getElement("overview-message-list").innerHTML.length).toBeGreaterThan(
       0,
     );
+  });
+});
+
+describe("Dashboard dead-end action cleanup (DASH-002)", () => {
+  beforeEach(async () => {
+    await setupTestDatabase();
+  });
+
+  afterEach(() => {
+    cleanupTestDatabase();
+  });
+
+  it("submits the add-by-username modal through the real friend-request API", async () => {
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_add_viewer",
+      "Viewer",
+    );
+    const { user: peer } = await createTestUser("dashboard_add_peer", "Peer");
+    const app = createApp();
+
+    const harness = createDashboardHarness({
+      app,
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    const initialCallCount = harness.fetchCalls.length;
+    harness.getElement("add-friend-username").value = `@${peer.username}`;
+
+    await harness.dashboard.UI.handleAddFriendRequest();
+
+    expect(harness.fetchCalls.slice(initialCallCount)).toEqual(
+      expect.arrayContaining([
+        "/api/v1/friends/request",
+        "/api/v1/friends?status=accepted",
+        "/api/v1/friends?status=blocked",
+        "/api/v1/friends?status=pending",
+      ]),
+    );
+    expect(harness.dashboard.State.friends).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          direction: "sent",
+          status: "pending",
+          username: peer.username,
+        }),
+      ]),
+    );
+  });
+
+  it("gates the stale browser register path instead of calling the invite-only register API", async () => {
+    const harness = createDashboardHarness({
+      fetchImpl: async (url) => {
+        throw new Error(`Unexpected fetch from gated browser register path: ${url}`);
+      },
+    });
+
+    await harness.boot();
+
+    harness.getElement("reg-username").value = "browseruser";
+    harness.getElement("reg-display-name").value = "Browser User";
+
+    await harness.dashboard.UI.handleRegister();
+
+    const toastContainer = harness.getElement("toast-container");
+    expect(toastContainer.children).toHaveLength(1);
+    expect(toastContainer.children[0]?.innerHTML).toContain(
+      "Browser signup is not part of the active dashboard flow",
+    );
+  });
+
+  it("removes legacy message routing from friends and renders explicit group actions", async () => {
+    const db = getTestDb();
+    const { user: viewer, apiKey } = await createTestUser(
+      "dashboard_cta_viewer",
+      "Viewer",
+    );
+    const { user: peer } = await createTestUser("dashboard_cta_peer", "Peer");
+    const { user: owner } = await createTestUser("dashboard_group_owner", "Owner");
+
+    await createFriendship(viewer.id, peer.id, "accepted");
+
+    const activeGroupId = nanoid();
+    await db.insert(schema.groups).values({
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      description: "Active project group",
+      id: activeGroupId,
+      inviteOnly: true,
+      name: "active_project_group",
+      ownerUserId: owner.id,
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+    });
+    await db.insert(schema.groupMemberships).values([
+      {
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        groupId: activeGroupId,
+        id: nanoid(),
+        invitedByUserId: null,
+        role: "owner",
+        status: "active",
+        userId: owner.id,
+      },
+      {
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+        groupId: activeGroupId,
+        id: nanoid(),
+        invitedByUserId: owner.id,
+        role: "member",
+        status: "active",
+        userId: viewer.id,
+      },
+    ]);
+
+    const invitedGroupId = nanoid();
+    await db.insert(schema.groups).values({
+      createdAt: new Date("2026-03-02T00:00:00.000Z"),
+      description: "Invite-only community",
+      id: invitedGroupId,
+      inviteOnly: true,
+      name: "invite_only_circle",
+      ownerUserId: owner.id,
+      updatedAt: new Date("2026-03-02T00:00:00.000Z"),
+    });
+    await db.insert(schema.groupMemberships).values([
+      {
+        createdAt: new Date("2026-03-02T00:00:00.000Z"),
+        groupId: invitedGroupId,
+        id: nanoid(),
+        invitedByUserId: null,
+        role: "owner",
+        status: "active",
+        userId: owner.id,
+      },
+      {
+        createdAt: new Date("2026-03-02T00:00:00.000Z"),
+        groupId: invitedGroupId,
+        id: nanoid(),
+        invitedByUserId: owner.id,
+        role: "member",
+        status: "invited",
+        userId: viewer.id,
+      },
+    ]);
+
+    const harness = createDashboardHarness({
+      app: createApp(),
+      apiKey,
+      sessionUser: {
+        display_name: viewer.displayName,
+        status: viewer.status,
+        user_id: viewer.id,
+        username: viewer.username,
+        verified_at: viewer.verifiedAt?.toISOString() ?? null,
+      },
+    });
+
+    await harness.boot();
+
+    expect(harness.getElement("friends-list").innerHTML).not.toContain(
+      "switchView('messages')",
+    );
+    expect(harness.getElement("friends-list").innerHTML).toContain(
+      "handleBlockFriend",
+    );
+    expect(harness.getElement("groups-grid").innerHTML).toContain("Join Invite");
+    expect(harness.getElement("groups-grid").innerHTML).toContain("Leave Group");
+    expect(harness.getElement("groups-grid").innerHTML).not.toContain(
+      '<div class="group-card" onclick=',
+    );
+    expect(harness.getElement("groups-grid").innerHTML).not.toContain("Tap to join");
+  });
+
+  it("stops fabricating placeholder public keys in the primary agent flow", async () => {
+    let registerPayload: Record<string, unknown> | null = null;
+
+    const harness = createDashboardHarness({
+      fetchImpl: async (url, requestOptions) => {
+        const requestUrl = new URL(url);
+        const path = `${requestUrl.pathname}${requestUrl.search}`;
+
+        if (path === "/api/v1/agents" && requestOptions?.method === "POST") {
+          registerPayload = JSON.parse(String(requestOptions.body));
+          return {
+            ok: true,
+            status: 201,
+            async json() {
+              return { connection_id: "conn_dashboard_test" };
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        if (path === "/api/v1/agents") {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return [];
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch while saving agent: ${path}`);
+      },
+    });
+
+    harness.getElement("agent-framework").value = "openclaw";
+    harness.getElement("agent-label").value = "default";
+    harness.getElement("agent-description").value = "Primary sender";
+    harness.getElement("agent-callback").value = "https://agent.example/callback";
+    harness.getElement("agent-public-key").value = "";
+    harness.getElement("agent-capabilities").value = "calendar, ask-around";
+
+    await harness.dashboard.UI.handleSaveAgent();
+
+    expect(registerPayload).toEqual(
+      expect.objectContaining({
+        callback_url: "https://agent.example/callback",
+        capabilities: ["calendar", "ask-around"],
+        framework: "openclaw",
+        label: "default",
+      }),
+    );
+    expect(registerPayload?.public_key).toBeUndefined();
+    expect(registerPayload?.public_key_alg).toBeUndefined();
   });
 });
