@@ -339,7 +339,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T15:09:19.094Z: DASH-043 completed via orchestrator integration.
 ### 4.5 Advanced Canonical Policy Inspector
 - **ID**: `DASH-044`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-041`
 - **Description**:
@@ -349,6 +349,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Unmatched/custom policies are still inspectable
   - [ ] The primary Boundaries surface remains uncluttered by advanced fields
 
+- **Notes**:
+  - 2026-03-14T15:50:43.731Z: DASH-044 completed via orchestrator integration.
 ### 4.6 Promotion Suggestions from Repeated Overrides
 - **ID**: `DASH-045`
 - **Status**: `pending`
