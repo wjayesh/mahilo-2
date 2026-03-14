@@ -421,7 +421,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 6.1 Invite-Only Browser Access Cleanup
 - **ID**: `DASH-070`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-002`
 - **Description**:
@@ -433,6 +433,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] The browser auth surface distinguishes primary agent-approved sign-in from advanced API-key fallback
   - [ ] Stale register forms, modals, or CTA paths are removed from the normal user journey
 
+- **Notes**:
+  - 2026-03-14T16:35:37.302Z: DASH-070 completed via orchestrator integration.
 ### 6.2 Agent-Approved Browser Login Contract
 - **ID**: `DASH-071`
 - **Status**: `pending`
