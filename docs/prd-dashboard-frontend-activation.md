@@ -123,7 +123,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 1.1 Product-Aligned Navigation and View Model
 - **ID**: `DASH-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-002`
 - **Description**:
@@ -135,6 +135,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] "Delivery Logs" remains available as an audit-oriented surface enriched with review, blocked, and ask-around visibility
   - [ ] Developer remains available as an advanced configuration/tools area, including API-key and diagnostics flows, without dominating the primary navigation
 
+- **Notes**:
+  - 2026-03-14T13:08:02.460Z: DASH-010 completed via orchestrator integration.
 ### 1.2 Overview Becomes a Readiness Dashboard
 - **ID**: `DASH-011`
 - **Status**: `pending`
