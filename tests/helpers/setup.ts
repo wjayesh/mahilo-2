@@ -50,6 +50,21 @@ export async function setupTestDatabase() {
     CREATE INDEX IF NOT EXISTS idx_users_api_key_id ON users(api_key_id);
     CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      preferred_channel TEXT,
+      urgent_behavior TEXT NOT NULL DEFAULT 'preferred_only',
+      quiet_hours_enabled INTEGER NOT NULL DEFAULT 0,
+      quiet_hours_start TEXT DEFAULT '22:00',
+      quiet_hours_end TEXT DEFAULT '07:00',
+      quiet_hours_timezone TEXT DEFAULT 'UTC',
+      default_llm_provider TEXT,
+      default_llm_model TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_preferences_user ON user_preferences(user_id);
+
     CREATE TABLE IF NOT EXISTS invite_tokens (
       id TEXT PRIMARY KEY,
       token_hash TEXT NOT NULL,

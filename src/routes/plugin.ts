@@ -26,6 +26,7 @@ import { getDb, schema } from "../db";
 import { requireActive, requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { getRolesForFriend, isValidRole } from "../services/roles";
+import { loadUserLLMProviderDefaults } from "../services/preferences";
 import { generatePolicySummary } from "../services/policySummary";
 import { config } from "../config";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
@@ -1858,6 +1859,7 @@ function toBundlePolicy(policy: CanonicalPolicy) {
 function buildBundleLLMContext(
   applicablePolicies: CanonicalPolicy[],
   subject: string,
+  providerDefaults: Awaited<ReturnType<typeof loadUserLLMProviderDefaults>>,
 ) {
   const hasApplicableLLMPolicy = applicablePolicies.some(
     (policy) => policy.evaluator === "llm",
@@ -1865,12 +1867,7 @@ function buildBundleLLMContext(
 
   return {
     subject,
-    provider_defaults: hasApplicableLLMPolicy
-      ? {
-          provider: "anthropic",
-          model: config.llm.model,
-        }
-      : null,
+    provider_defaults: hasApplicableLLMPolicy ? providerDefaults : null,
   };
 }
 
@@ -2340,6 +2337,7 @@ pluginRoutes.post(
         resource: selectors.resource,
       },
     );
+    const llmProviderDefaults = await loadUserLLMProviderDefaults(user.id);
     const issuedAt = new Date();
 
     return c.json({
@@ -2366,7 +2364,11 @@ pluginRoutes.post(
         username: recipient.username,
       },
       applicable_policies: applicablePolicies.map(toBundlePolicy),
-      llm: buildBundleLLMContext(applicablePolicies, recipient.username),
+      llm: buildBundleLLMContext(
+        applicablePolicies,
+        recipient.username,
+        llmProviderDefaults,
+      ),
     });
   },
 );
@@ -2390,6 +2392,7 @@ pluginRoutes.post(
     );
     const issuedAt = new Date();
     const resolutionId = `res_${nanoid(18)}`;
+    const llmProviderDefaults = await loadUserLLMProviderDefaults(user.id);
     const groupOverlayPolicies = await loadGroupOverlayPolicies(
       user.id,
       group.id,
@@ -2427,7 +2430,11 @@ pluginRoutes.post(
           resolution_id: `${resolutionId}_${member.userId}`,
           member_applicable_policies:
             memberApplicablePolicies.map(toBundlePolicy),
-          llm: buildBundleLLMContext(applicablePolicies, member.username),
+          llm: buildBundleLLMContext(
+            applicablePolicies,
+            member.username,
+            llmProviderDefaults,
+          ),
         };
       }),
     );

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { eq } from "drizzle-orm";
 import { createApp } from "../../src/server";
-import { config } from "../../src/config";
 import {
   addRoleToFriendship,
   cleanupTestDatabase,
@@ -217,10 +216,7 @@ describe("Plugin direct-send policy bundle endpoint (LPE-010)", () => {
     expect(body.applicable_policies[0].updated_at).toBeUndefined();
     expect(body.llm).toEqual({
       subject: recipient.username,
-      provider_defaults: {
-        provider: "anthropic",
-        model: config.llm.model,
-      },
+      provider_defaults: null,
     });
 
     const providerCalls: Array<{
@@ -299,6 +295,127 @@ describe("Plugin direct-send policy bundle endpoint (LPE-010)", () => {
       .select({ id: schema.messages.id })
       .from(schema.messages);
     expect(storedMessages).toHaveLength(0);
+  });
+
+  it("surfaces configured provider and model defaults from user preferences for local llm evaluation", async () => {
+    const { sender, senderKey, senderConnection, recipient } =
+      await setupActiveParticipants("bundle_llm_defaults");
+
+    await insertCanonicalPolicy({
+      action: "share",
+      direction: "outbound",
+      effect: "deny",
+      evaluator: "llm",
+      policy_content: "Never share private medical details.",
+      priority: 100,
+      resource: "health.summary",
+      scope: "user",
+      target_id: recipient.id,
+      user_id: sender.id,
+    });
+    await insertUserPreferences(sender.id, {
+      defaultLlmModel: "gpt-4o-mini",
+      defaultLlmProvider: "openai",
+    });
+
+    const response = await app.request("/api/v1/plugin/bundles/direct-send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        sender_connection_id: senderConnection.id,
+        declared_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "health.summary",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(body.llm).toEqual({
+      subject: recipient.username,
+      provider_defaults: {
+        provider: "openai",
+        model: "gpt-4o-mini",
+      },
+    });
+    expect(body.llm.provider_defaults.apiKey).toBeUndefined();
+    expect(body.llm.provider_defaults.api_key).toBeUndefined();
+  });
+
+  it("keeps deterministic-only local evaluation working when llm defaults are missing", async () => {
+    const { sender, senderKey, senderConnection, recipient } =
+      await setupActiveParticipants("bundle_deterministic_defaults");
+
+    const userAskPolicyId = await insertCanonicalPolicy({
+      action: "share",
+      direction: "outbound",
+      effect: "ask",
+      evaluator: "structured",
+      policy_content: { intent: "manual_review" },
+      priority: 75,
+      resource: "location.current",
+      scope: "user",
+      target_id: recipient.id,
+      user_id: sender.id,
+    });
+
+    const response = await app.request("/api/v1/plugin/bundles/direct-send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        recipient: recipient.username,
+        sender_connection_id: senderConnection.id,
+        declared_selectors: {
+          action: "share",
+          direction: "outbound",
+          resource: "location.current",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(body.llm).toEqual({
+      subject: recipient.username,
+      provider_defaults: null,
+    });
+
+    const localResult = await evaluateDirectSendBundleLocally(
+      body as DirectSendPolicyBundle,
+      {
+        message: "Alice is nearby.",
+      },
+      {},
+    );
+
+    expect(localResult.local_decision).toEqual(
+      expect.objectContaining({
+        decision: "ask",
+        reason_code: "policy.ask.user.structured",
+        winning_policy_id: userAskPolicyId,
+      }),
+    );
+    expect(localResult.recipient_results).toEqual([
+      expect.objectContaining({
+        local_decision: expect.objectContaining({
+          decision: "ask",
+          matched_policy_ids: [userAskPolicyId],
+        }),
+        should_send: false,
+        transport_action: "hold",
+      }),
+    ]);
   });
 });
 
@@ -395,4 +512,22 @@ async function insertCanonicalPolicy(input: {
   });
 
   return policyId;
+}
+
+async function insertUserPreferences(
+  userId: string,
+  input: {
+    defaultLlmModel?: string | null;
+    defaultLlmProvider?: string | null;
+  },
+) {
+  const db = getTestDb();
+
+  await db.insert(schema.userPreferences).values({
+    userId,
+    defaultLlmModel: input.defaultLlmModel ?? null,
+    defaultLlmProvider: input.defaultLlmProvider ?? null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 }
