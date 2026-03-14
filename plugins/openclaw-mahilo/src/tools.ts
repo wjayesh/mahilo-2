@@ -13,6 +13,12 @@ import {
   type DeclaredSelectors,
   type PolicyDecision
 } from "./policy-helpers";
+import type {
+  LocalDirectPolicyRuntimeResult,
+  LocalGroupPolicyRuntimeResult,
+  LocalPolicyTransportPayload,
+  MahiloLocalPolicyRuntime,
+} from "./local-policy-runtime";
 import {
   fetchMahiloPromptContext,
   type FetchMahiloPromptContextOptions,
@@ -23,6 +29,14 @@ import { resolveMahiloSenderConnection } from "./sender-resolution";
 export interface MahiloToolContext {
   agentSessionId?: string;
   senderConnectionId?: string;
+}
+
+export interface MahiloLocalSendPolicyOptions {
+  runtime: MahiloLocalPolicyRuntime;
+}
+
+export interface MahiloSendExecutionOptions {
+  localPolicy?: MahiloLocalSendPolicyOptions;
 }
 
 export interface MahiloSendToolInput {
@@ -177,17 +191,19 @@ export interface MahiloSendOutcomeSummary {
 export async function talkToAgent(
   client: MahiloContractClient,
   input: MahiloSendToolInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  options: MahiloSendExecutionOptions = {}
 ): Promise<MahiloToolResult> {
-  return executeSendTool(client, "user", input, context);
+  return executeSendTool(client, "user", input, context, options);
 }
 
 export async function talkToGroup(
   client: MahiloContractClient,
   input: TalkToGroupInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  options: MahiloSendExecutionOptions = {}
 ): Promise<MahiloToolResult> {
-  return executeSendTool(client, "group", input, context);
+  return executeSendTool(client, "group", input, context, options);
 }
 
 export async function listMahiloContacts(provider?: ContactsProvider): Promise<MahiloContact[]>;
@@ -619,31 +635,524 @@ async function executeSendTool(
   client: MahiloContractClient,
   recipientType: "group" | "user",
   input: MahiloSendToolInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  options: MahiloSendExecutionOptions = {}
 ): Promise<MahiloToolResult> {
   const normalizedSelectors = normalizeDeclaredSelectors(input.declaredSelectors, "outbound");
   const sendPayload = buildSendPayload(recipientType, input, context, normalizedSelectors);
 
-  const sendResponse = await client.sendMessage(sendPayload, input.idempotencyKey);
-  const sendDecision = extractDecision(sendResponse);
-  const resolutionId = extractResolutionId(sendResponse);
-  const messageId = extractMessageId(sendResponse);
-  const deduplicated = extractDeduplicated(sendResponse);
-  const sendOutcomeSummary = summarizeMahiloSendOutcome(
-    sendResponse,
-    sendDecision,
-    input.recipient
+  if (options.localPolicy) {
+    const localRuntimeInput = {
+      context: input.context,
+      correlationId: input.correlationId,
+      declaredSelectors: normalizedSelectors,
+      idempotencyKey: input.idempotencyKey,
+      message: input.message,
+      payloadType: input.payloadType,
+      recipient: input.recipient,
+      senderConnectionId: context.senderConnectionId
+    };
+
+    if (recipientType === "group") {
+      const localResult = await options.localPolicy.runtime.evaluateGroupFanout(
+        localRuntimeInput
+      );
+      return executeGroupLocalSend(
+        client,
+        input,
+        sendPayload,
+        localResult
+      );
+    }
+
+    const localResult = await options.localPolicy.runtime.evaluateDirectSend(
+      localRuntimeInput
+    );
+    return executeDirectLocalSend(
+      client,
+      input,
+      sendPayload,
+      localResult
+    );
+  }
+
+  return sendMahiloTransportMessage(client, sendPayload, {
+    fallbackDecision: "allow",
+    fallbackRecipient: input.recipient,
+    idempotencyKey: input.idempotencyKey,
+  });
+}
+
+async function executeDirectLocalSend(
+  client: MahiloContractClient,
+  input: MahiloSendToolInput,
+  sendPayload: Record<string, unknown>,
+  localResult: LocalDirectPolicyRuntimeResult
+): Promise<MahiloToolResult> {
+  const commitResponse = await client.commitLocalDecision(
+    localResult.commit_payload as unknown as Record<string, unknown>,
+    input.idempotencyKey
   );
+
+  if (localResult.local_decision.decision !== "allow") {
+    return buildMahiloToolResult({
+      fallbackDecision: localResult.local_decision.decision,
+      fallbackRecipient: localResult.recipient.username,
+      includeMessageId: false,
+      response: commitResponse,
+      resolutionId: localResult.bundle_metadata.resolution_id,
+    });
+  }
+
+  return sendMahiloTransportMessage(
+    client,
+    mergeLocalTransportPayload(sendPayload, localResult.transport_payload),
+    {
+      fallbackDecision: localResult.local_decision.decision,
+      fallbackRecipient: localResult.recipient.username,
+      idempotencyKey: input.idempotencyKey,
+      resolutionId: localResult.bundle_metadata.resolution_id,
+    }
+  );
+}
+
+interface LocalGroupRecipientExecutionResult {
+  deliveryStatus: string;
+  localResult: LocalGroupPolicyRuntimeResult["recipient_results"][number];
+  messageId?: string;
+  response?: unknown;
+  transportError?: string;
+  transported: boolean;
+}
+
+async function executeGroupLocalSend(
+  client: MahiloContractClient,
+  input: MahiloSendToolInput,
+  sendPayload: Record<string, unknown>,
+  localResult: LocalGroupPolicyRuntimeResult
+): Promise<MahiloToolResult> {
+  const committedRecipients: Array<{
+    idempotencyKey?: string;
+    localResult: LocalGroupPolicyRuntimeResult["recipient_results"][number];
+    response: unknown;
+  }> = [];
+
+  for (const recipientResult of localResult.recipient_results) {
+    const idempotencyKey = deriveRecipientIdempotencyKey(
+      input.idempotencyKey,
+      recipientResult.recipient
+    );
+    const commitResponse = await client.commitLocalDecision(
+      buildLocalGroupCommitPayload(
+        localResult,
+        recipientResult,
+        input,
+        idempotencyKey
+      ),
+      idempotencyKey
+    );
+
+    committedRecipients.push({
+      idempotencyKey,
+      localResult: recipientResult,
+      response: commitResponse,
+    });
+  }
+
+  const recipientResults: LocalGroupRecipientExecutionResult[] = [];
+
+  for (const recipient of committedRecipients) {
+    if (recipient.localResult.local_decision.decision !== "allow") {
+      recipientResults.push({
+        deliveryStatus:
+          readDeliveryStatus(recipient.response) ??
+          localDecisionDeliveryStatus(recipient.localResult.local_decision.decision),
+        localResult: recipient.localResult,
+        response: recipient.response,
+        transported: false,
+      });
+      continue;
+    }
+
+    try {
+      const response = await client.sendMessage(
+        buildLocalGroupRecipientTransportPayload(
+          sendPayload,
+          localResult.selector_context,
+          recipient.localResult,
+          recipient.idempotencyKey
+        ),
+        recipient.idempotencyKey
+      );
+
+      recipientResults.push({
+        deliveryStatus: readDeliveryStatus(response) ?? "delivered",
+        localResult: recipient.localResult,
+        messageId: extractMessageId(response),
+        response,
+        transported: true,
+      });
+    } catch (error) {
+      recipientResults.push({
+        deliveryStatus: "failed",
+        localResult: recipient.localResult,
+        response: recipient.response,
+        transportError: toErrorMessage(error),
+        transported: true,
+      });
+    }
+  }
+
+  const syntheticResponse = buildSyntheticLocalGroupResponse(localResult, recipientResults);
+  const includeReason =
+    localResult.aggregate.partial_delivery ||
+    recipientResults.some((result) => result.deliveryStatus !== "delivered");
+
+  return buildMahiloToolResult({
+    fallbackDecision: localResult.aggregate.decision,
+    fallbackRecipient: input.recipient,
+    includeMessageId: false,
+    reason: includeReason
+      ? readResolutionSummary(readObject(syntheticResponse))
+      : undefined,
+    response: syntheticResponse,
+    resolutionId: localResult.bundle_metadata.resolution_id,
+  });
+}
+
+async function sendMahiloTransportMessage(
+  client: MahiloContractClient,
+  payload: Record<string, unknown>,
+  options: {
+    fallbackDecision: PolicyDecision;
+    fallbackRecipient: string;
+    idempotencyKey?: string;
+    reason?: string;
+    resolutionId?: string;
+  }
+): Promise<MahiloToolResult> {
+  const sendResponse = await client.sendMessage(payload, options.idempotencyKey);
+
+  return buildMahiloToolResult({
+    fallbackDecision: options.fallbackDecision,
+    fallbackRecipient: options.fallbackRecipient,
+    reason: options.reason,
+    resolutionId: options.resolutionId,
+    response: sendResponse,
+  });
+}
+
+function buildMahiloToolResult(options: {
+  fallbackDecision: PolicyDecision;
+  fallbackRecipient: string;
+  includeMessageId?: boolean;
+  reason?: string;
+  resolutionId?: string;
+  response?: unknown;
+}): MahiloToolResult {
+  const sendDecision = extractDecision(options.response, options.fallbackDecision);
+  const sendOutcomeSummary = summarizeMahiloSendOutcome(
+    options.response,
+    sendDecision,
+    options.fallbackRecipient
+  );
+
+  const messageId =
+    options.includeMessageId === false ? undefined : extractMessageId(options.response);
 
   return {
     decision: sendDecision,
-    deduplicated,
-    messageId,
-    reason: sendOutcomeSummary.reason,
-    resolutionId,
-    response: sendResponse,
+    deduplicated: extractDeduplicated(options.response),
+    ...(messageId ? { messageId } : {}),
+    reason: options.reason ?? sendOutcomeSummary.reason,
+    resolutionId: extractResolutionId(options.response) ?? options.resolutionId,
+    response: options.response,
     status: sendOutcomeSummary.status
   };
+}
+
+function mergeLocalTransportPayload(
+  sendPayload: Record<string, unknown>,
+  transportPayload: LocalPolicyTransportPayload
+): Record<string, unknown> {
+  return compactObject({
+    ...sendPayload,
+    context: transportPayload.context,
+    correlation_id: transportPayload.correlation_id,
+    declared_selectors: transportPayload.declared_selectors,
+    idempotency_key: transportPayload.idempotency_key,
+    in_response_to: transportPayload.in_response_to,
+    message: transportPayload.message,
+    payload_type: transportPayload.payload_type,
+    recipient: transportPayload.recipient,
+    recipient_type: transportPayload.recipient_type,
+    resolution_id: transportPayload.resolution_id,
+    sender_connection_id: transportPayload.sender_connection_id
+  });
+}
+
+function buildSyntheticLocalGroupResponse(
+  localResult: LocalGroupPolicyRuntimeResult,
+  recipientResults: LocalGroupRecipientExecutionResult[]
+): Record<string, unknown> {
+  const responseRecipientResults = recipientResults.map((result) =>
+    compactObject({
+      recipient: result.localResult.recipient,
+      decision: result.localResult.local_decision.decision,
+      delivery_mode: result.localResult.local_decision.delivery_mode,
+      delivery_status: result.deliveryStatus,
+      error: result.transportError,
+      message_id: result.transported ? result.messageId : undefined,
+    })
+  );
+  const counts = countLocalGroupDeliveryStatuses(recipientResults);
+  const recipientsTotal = responseRecipientResults.length;
+  const distinctDecisions = new Set(
+    responseRecipientResults.map((result) => result.decision)
+  );
+  const distinctStatuses = new Set(
+    responseRecipientResults.map((result) => result.delivery_status)
+  );
+  const partialDelivery =
+    recipientsTotal > 0 &&
+    (distinctDecisions.size > 1 || distinctStatuses.size > 1);
+  const aggregateDecision = localResult.aggregate.decision;
+  const aggregateDeliveryMode = resolveAggregateDeliveryMode(aggregateDecision);
+  const representative = recipientResults.find(
+    (result) => result.localResult.local_decision.decision === aggregateDecision
+  );
+  const summary =
+    recipientsTotal === 0
+      ? localResult.aggregate_metadata.empty_group_summary
+      : partialDelivery
+        ? formatAggregateSummary(
+            localResult.aggregate_metadata.partial_summary_template,
+            counts
+          )
+        : representative?.localResult.local_decision.summary ??
+          localResult.aggregate.summary;
+  const reasonCode = partialDelivery
+    ? localResult.aggregate_metadata.partial_reason_code
+    : representative?.localResult.local_decision.reason_code ??
+      localResult.aggregate.reason_code;
+
+  let status = "delivered";
+  if (counts.pending > 0) {
+    status = "pending";
+  } else if (counts.delivered > 0) {
+    status = "delivered";
+  } else if (counts.review_required > 0) {
+    status = "review_required";
+  } else if (
+    counts.denied > 0 &&
+    counts.denied + counts.failed === recipientsTotal
+  ) {
+    status = "rejected";
+  } else if (counts.failed > 0) {
+    status = "failed";
+  }
+
+  let deliveryStatus = "delivered";
+  if (counts.pending > 0) {
+    deliveryStatus = "pending";
+  } else if (recipientsTotal > 0 && counts.delivered === 0) {
+    deliveryStatus = "failed";
+  }
+
+  return compactObject({
+    delivery_status: deliveryStatus,
+    delivered: counts.delivered,
+    denied: counts.denied,
+    failed: counts.failed,
+    pending: counts.pending,
+    recipients: recipientsTotal,
+    recipient_results: responseRecipientResults,
+    review_required: counts.review_required,
+    resolution: compactObject({
+      decision: aggregateDecision,
+      delivery_mode: aggregateDeliveryMode,
+      reason_code: reasonCode,
+      resolution_id: localResult.bundle_metadata.resolution_id,
+      summary,
+    }),
+    status,
+  });
+}
+
+function countLocalGroupDeliveryStatuses(
+  recipientResults: LocalGroupRecipientExecutionResult[]
+): {
+  delivered: number;
+  denied: number;
+  failed: number;
+  pending: number;
+  review_required: number;
+} {
+  return recipientResults.reduce(
+    (counts, result) => {
+      switch (result.deliveryStatus) {
+        case "delivered":
+          counts.delivered += 1;
+          break;
+        case "pending":
+          counts.pending += 1;
+          break;
+        case "rejected":
+          counts.denied += 1;
+          break;
+        case "review_required":
+        case "approval_pending":
+          counts.review_required += 1;
+          break;
+        default:
+          counts.failed += 1;
+          break;
+      }
+
+      return counts;
+    },
+    {
+      delivered: 0,
+      denied: 0,
+      failed: 0,
+      pending: 0,
+      review_required: 0,
+    }
+  );
+}
+
+function formatAggregateSummary(
+  template: string,
+  counts: {
+    delivered: number;
+    denied: number;
+    failed: number;
+    pending: number;
+    review_required: number;
+  }
+): string {
+  return template
+    .replace("{delivered}", String(counts.delivered))
+    .replace("{pending}", String(counts.pending))
+    .replace("{denied}", String(counts.denied))
+    .replace("{review_required}", String(counts.review_required))
+    .replace("{failed}", String(counts.failed));
+}
+
+function resolveAggregateDeliveryMode(decision: PolicyDecision): string {
+  if (decision === "deny") {
+    return "blocked";
+  }
+
+  if (decision === "ask") {
+    return "review_required";
+  }
+
+  return "full_send";
+}
+
+function buildLocalGroupCommitPayload(
+  localResult: LocalGroupPolicyRuntimeResult,
+  recipientResult: LocalGroupPolicyRuntimeResult["recipient_results"][number],
+  input: MahiloSendToolInput,
+  idempotencyKey?: string
+): Record<string, unknown> {
+  return compactObject({
+    context: input.context,
+    correlation_id: input.correlationId,
+    declared_selectors: localResult.selector_context,
+    idempotency_key: idempotencyKey,
+    local_decision: recipientResult.local_decision,
+    message: input.message,
+    payload_type: input.payloadType ?? "text/plain",
+    recipient: recipientResult.recipient,
+    recipient_type: "user",
+    resolution_id: recipientResult.resolution_id,
+    sender_connection_id: localResult.authenticated_identity.sender_connection_id,
+  });
+}
+
+function buildLocalGroupRecipientTransportPayload(
+  sendPayload: Record<string, unknown>,
+  selectorContext: DeclaredSelectors,
+  recipientResult: LocalGroupPolicyRuntimeResult["recipient_results"][number],
+  idempotencyKey?: string
+): Record<string, unknown> {
+  return compactObject({
+    ...sendPayload,
+    declared_selectors: selectorContext,
+    idempotency_key: idempotencyKey,
+    recipient: recipientResult.recipient,
+    recipient_connection_id: undefined,
+    recipient_type: "user",
+    resolution_id: recipientResult.resolution_id,
+  });
+}
+
+function localDecisionDeliveryStatus(decision: PolicyDecision): string {
+  if (decision === "deny") {
+    return "rejected";
+  }
+
+  if (decision === "ask") {
+    return "review_required";
+  }
+
+  return "pending";
+}
+
+function deriveRecipientIdempotencyKey(
+  baseKey: string | undefined,
+  recipient: string
+): string | undefined {
+  const normalizedBaseKey = readString(baseKey);
+  if (!normalizedBaseKey) {
+    return undefined;
+  }
+
+  const normalizedRecipient = recipient.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "_");
+  return `${normalizedBaseKey}:${normalizedRecipient}`;
+}
+
+function readDeliveryStatus(response: unknown): string | undefined {
+  const root = readObject(response);
+  if (!root) {
+    return undefined;
+  }
+
+  const recipientResults = Array.isArray(root.recipient_results)
+    ? root.recipient_results
+    : [];
+  const firstRecipientResult =
+    recipientResults.length > 0 ? readObject(recipientResults[0]) : undefined;
+  if (firstRecipientResult) {
+    const deliveryStatus = readString(firstRecipientResult.delivery_status);
+    if (deliveryStatus) {
+      return deliveryStatus;
+    }
+  }
+
+  const nestedResult = readObject(root.result);
+  const nestedRecipientResults = Array.isArray(nestedResult?.recipient_results)
+    ? nestedResult.recipient_results
+    : [];
+  const firstNestedRecipientResult =
+    nestedRecipientResults.length > 0
+      ? readObject(nestedRecipientResults[0])
+      : undefined;
+  if (firstNestedRecipientResult) {
+    const deliveryStatus = readString(firstNestedRecipientResult.delivery_status);
+    if (deliveryStatus) {
+      return deliveryStatus;
+    }
+  }
+
+  return (
+    readString(root.delivery_status) ??
+    readString(nestedResult?.delivery_status) ??
+    readString(root.status) ??
+    readString(nestedResult?.status)
+  );
 }
 
 function buildSendPayload(
@@ -1292,6 +1801,14 @@ function readRecipientType(value: unknown): "group" | "user" | undefined {
 
 function readSelectorDirection(value: unknown): DeclaredSelectors["direction"] | undefined {
   return normalizeSelectorDirection(typeof value === "string" ? value : undefined);
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 function readString(value: unknown): string | undefined {

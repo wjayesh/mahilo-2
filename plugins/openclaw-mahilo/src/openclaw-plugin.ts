@@ -26,6 +26,8 @@ import {
   parseMahiloPluginConfig,
   type MahiloPluginConfig,
 } from "./config";
+import { createOpenAILocalPolicyEvaluatorFactory } from "./local-policy-openai";
+import { createMahiloLocalPolicyRuntime } from "./local-policy-runtime";
 import type { DeclaredSelectors } from "./policy-helpers";
 import { fetchMahiloPromptContext } from "./prompt-context";
 import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
@@ -229,9 +231,21 @@ export function registerMahiloOpenClawPlugin(
     logger: options.diagnosticsCommands?.logger ?? api.logger,
     pluginState,
   };
+  const localPolicyRuntime = createMahiloLocalPolicyRuntime({
+    client,
+    llmErrorMode: "ask",
+    llmEvaluatorFactory: createOpenAILocalPolicyEvaluatorFactory(config),
+    llmSkipMode: "ask",
+    llmUnavailableMode: "ask",
+  });
 
   api.registerTool(
-    createSendMessageTool(client, isBootstrapReady, resolveNotConfiguredMessage),
+    createSendMessageTool(
+      client,
+      isBootstrapReady,
+      resolveNotConfiguredMessage,
+      localPolicyRuntime,
+    ),
   );
   api.registerTool(
     createManageNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
@@ -268,6 +282,7 @@ function createSendMessageTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
   resolveNotConfiguredMessage: () => string,
+  localPolicyRuntime: ReturnType<typeof createMahiloLocalPolicyRuntime>,
 ): AnyAgentTool {
   return {
     description:
@@ -283,8 +298,17 @@ function createSendMessageTool(
           const context = parseToolContext(rawInput);
           const result =
             recipientType === "group"
-              ? await talkToGroup(client, input as TalkToGroupInput, context)
-              : await talkToAgent(client, input, context);
+              ? await talkToGroup(
+                  client,
+                  input as TalkToGroupInput,
+                  context,
+                  {
+                    localPolicy: { runtime: localPolicyRuntime },
+                  },
+                )
+              : await talkToAgent(client, input, context, {
+                  localPolicy: { runtime: localPolicyRuntime },
+                });
 
           return toAgentToolResult(
             result,

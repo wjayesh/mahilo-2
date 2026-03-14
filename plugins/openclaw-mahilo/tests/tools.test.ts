@@ -7,7 +7,9 @@ import {
   listMahiloContacts,
   previewMahiloSend,
   talkToAgent,
-  talkToGroup
+  talkToGroup,
+  type LocalDirectPolicyRuntimeResult,
+  type LocalGroupPolicyRuntimeResult
 } from "../src";
 
 type Decision = "allow" | "ask" | "deny";
@@ -19,6 +21,7 @@ interface MockClientState {
   friendConnectionsByUsername: Record<string, unknown[]>;
   friendshipCalls: Array<{ status?: string }>;
   friendshipsResponse: unknown;
+  localDecisionCommitCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   overrideCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
   overrideResponse: unknown;
   outcomeCalls: Array<{ idempotencyKey?: string; payload: Record<string, unknown> }>;
@@ -35,6 +38,7 @@ function createMockClient(options: {
   agentConnectionsResponse?: unknown;
   friendConnectionsByUsername?: Record<string, unknown[]>;
   friendshipsResponse?: unknown;
+  localDecisionCommitResponse?: unknown;
   overrideResponse?: unknown;
   promptContextResponse?: unknown;
   reportOutcomeError?: Error;
@@ -69,6 +73,7 @@ function createMockClient(options: {
           username: "alice"
         }
       ],
+    localDecisionCommitCalls: [],
     overrideCalls: [],
     overrideResponse: options.overrideResponse ?? {
       created: true,
@@ -108,6 +113,10 @@ function createMockClient(options: {
   };
 
   const client = {
+    commitLocalDecision: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
+      state.localDecisionCommitCalls.push({ idempotencyKey, payload });
+      return options.localDecisionCommitResponse ?? buildLocalDecisionCommitResponse(payload);
+    },
     createOverride: async (payload: Record<string, unknown>, idempotencyKey?: string) => {
       state.overrideCalls.push({ idempotencyKey, payload });
       return state.overrideResponse;
@@ -162,6 +171,332 @@ function createResolveResponse(decision: Decision) {
   return {
     decision,
     resolution_id: "res_123"
+  };
+}
+
+function buildLocalDecisionCommitResponse(payload: Record<string, unknown>) {
+  const localDecision = payload.local_decision as Record<string, unknown> | undefined;
+  const decision = (localDecision?.decision as Decision | undefined) ?? "allow";
+  const deliveryMode =
+    (localDecision?.delivery_mode as string | undefined) ??
+    (decision === "allow"
+      ? "full_send"
+      : decision === "ask"
+        ? "review_required"
+        : "blocked");
+  const status =
+    decision === "allow"
+      ? "pending"
+      : decision === "ask"
+        ? "review_required"
+        : "rejected";
+  const deliveryStatus =
+    decision === "allow"
+      ? "pending"
+      : decision === "ask"
+        ? "review_required"
+        : "rejected";
+  const resolutionId = String(payload.resolution_id ?? "res_local_1");
+  const recipient = String(payload.recipient ?? "alice");
+
+  return {
+    committed: true,
+    message_id: `msg_commit_${resolutionId}`,
+    recorded: true,
+    recipient_results: [
+      {
+        decision,
+        delivery_mode: deliveryMode,
+        delivery_status: deliveryStatus,
+        recipient
+      }
+    ],
+    resolution: {
+      decision,
+      delivery_mode: deliveryMode,
+      reason_code:
+        typeof localDecision?.reason_code === "string"
+          ? localDecision.reason_code
+          : undefined,
+      resolution_id: resolutionId,
+      summary:
+        typeof localDecision?.summary === "string"
+          ? localDecision.summary
+          : typeof localDecision?.reason === "string"
+            ? localDecision.reason
+            : undefined
+    },
+    status
+  };
+}
+
+function createLocalDirectResult(
+  decision: Decision,
+  overrides: Partial<LocalDirectPolicyRuntimeResult> = {}
+): LocalDirectPolicyRuntimeResult {
+  const deliveryMode =
+    decision === "allow"
+      ? "full_send"
+      : decision === "ask"
+        ? "review_required"
+        : "blocked";
+  const summary =
+    decision === "allow"
+      ? "Message allowed by policy."
+      : decision === "ask"
+        ? "Message requires review before delivery."
+        : "Message blocked by policy.";
+  const resolutionId = overrides.bundle_metadata?.resolution_id ?? "res_local_direct_1";
+  const recipient = overrides.recipient?.username ?? "alice";
+  const senderConnectionId =
+    overrides.authenticated_identity?.sender_connection_id ?? "conn_sender";
+
+  return {
+    authenticated_identity: {
+      sender_connection_id: senderConnectionId,
+      sender_user_id: "usr_sender",
+      ...overrides.authenticated_identity
+    },
+    bundle_metadata: {
+      bundle_id: "bundle_local_direct_1",
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: resolutionId,
+      ...overrides.bundle_metadata
+    },
+    bundle_type: "direct_send",
+    commit_payload: {
+      declared_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general"
+      },
+      local_decision: {
+        decision,
+        delivery_mode: deliveryMode,
+        evaluated_policies: [],
+        matched_policy_ids: [],
+        reason_code:
+          decision === "allow"
+            ? "policy.allow.resolved"
+            : decision === "ask"
+              ? "policy.ask.user.structured"
+              : "policy.deny.user.structured",
+        resolution_explanation: summary,
+        summary
+      },
+      message: "hello",
+      payload_type: "text/plain",
+      recipient,
+      recipient_type: "user",
+      resolution_id: resolutionId,
+      sender_connection_id: senderConnectionId
+    },
+    contract_version: "1.0.0",
+    llm: {
+      provider_defaults: null,
+      subject: recipient
+    },
+    local_decision: {
+      decision,
+      delivery_mode: deliveryMode,
+      evaluated_policies: [],
+      matched_policy_ids: [],
+      reason_code:
+        decision === "allow"
+          ? "policy.allow.resolved"
+          : decision === "ask"
+            ? "policy.ask.user.structured"
+            : "policy.deny.user.structured",
+      resolution_explanation: summary,
+      summary
+    },
+    recipient: {
+      id: "usr_alice",
+      type: "user",
+      username: recipient,
+      ...overrides.recipient
+    },
+    recipient_results: [
+      {
+        llm: {
+          provider_defaults: null,
+          subject: recipient
+        },
+        local_decision: {
+          decision,
+          delivery_mode: deliveryMode,
+          evaluated_policies: [],
+          matched_policy_ids: [],
+          reason_code:
+            decision === "allow"
+              ? "policy.allow.resolved"
+              : decision === "ask"
+                ? "policy.ask.user.structured"
+                : "policy.deny.user.structured",
+          resolution_explanation: summary,
+          summary
+        },
+        recipient,
+        recipient_id: "usr_alice",
+        recipient_type: "user",
+        resolution_id: resolutionId,
+        roles: [],
+        should_send: decision === "allow",
+        transport_action:
+          decision === "allow"
+            ? "send"
+            : decision === "ask"
+              ? "hold"
+              : "block"
+      }
+    ],
+    selector_context: {
+      action: "share",
+      direction: "outbound",
+      resource: "message.general"
+    },
+    transport_payload: {
+      declared_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general"
+      },
+      message: "hello",
+      payload_type: "text/plain",
+      recipient,
+      recipient_type: "user",
+      resolution_id: resolutionId,
+      sender_connection_id: senderConnectionId
+    },
+    ...overrides
+  };
+}
+
+function createLocalGroupResult(options: {
+  recipientDecisions: Decision[];
+  resolutionId?: string;
+}): LocalGroupPolicyRuntimeResult {
+  const resolutionId = options.resolutionId ?? "res_local_group_1";
+  const recipientResults = options.recipientDecisions.map((decision, index) => {
+    const recipient = `friend_${index + 1}`;
+    const summary =
+      decision === "allow"
+        ? "Message allowed by policy."
+        : decision === "ask"
+          ? "Message requires review before delivery."
+          : "Message blocked by policy.";
+
+    return {
+      llm: {
+        provider_defaults: null,
+        subject: recipient
+      },
+      local_decision: {
+        decision,
+        delivery_mode:
+          decision === "allow"
+            ? "full_send"
+            : decision === "ask"
+              ? "review_required"
+              : "blocked",
+        evaluated_policies: [],
+        matched_policy_ids: [],
+        reason_code:
+          decision === "allow"
+            ? "policy.allow.resolved"
+            : decision === "ask"
+              ? "policy.ask.user.structured"
+              : "policy.deny.user.structured",
+        resolution_explanation: summary,
+        summary
+      },
+      recipient,
+      recipient_id: `usr_${recipient}`,
+      recipient_type: "user" as const,
+      resolution_id: `${resolutionId}_${recipient}`,
+      roles: [],
+      should_send: decision === "allow",
+      transport_action:
+        decision === "allow"
+          ? "send"
+          : decision === "ask"
+            ? "hold"
+            : "block"
+    };
+  });
+  const partialDelivery = new Set(options.recipientDecisions).size > 1;
+
+  return {
+    aggregate: {
+      counts: {
+        delivered: recipientResults.filter((result) => result.should_send).length,
+        denied: recipientResults.filter(
+          (result) => result.local_decision.decision === "deny"
+        ).length,
+        failed: 0,
+        pending: 0,
+        review_required: recipientResults.filter(
+          (result) => result.local_decision.decision === "ask"
+        ).length,
+      },
+      decision: partialDelivery ? "allow" : options.recipientDecisions[0] ?? "allow",
+      has_sendable_recipients: recipientResults.some((result) => result.should_send),
+      partial_delivery: partialDelivery,
+      reason_code: partialDelivery
+        ? "policy.partial.group_fanout"
+        : recipientResults[0]?.local_decision.reason_code ?? "policy.allow.resolved",
+      summary: partialDelivery
+        ? "Partial group delivery: 1 delivered, 0 pending, 1 denied, 0 review-required, 0 failed."
+        : recipientResults[0]?.local_decision.summary ?? "No active recipients in group.",
+    },
+    aggregate_metadata: {
+      empty_group_summary: "No active recipients in group.",
+      fanout_mode: "per_recipient",
+      mixed_decision_priority: ["allow", "ask", "deny"],
+      partial_reason_code: "policy.partial.group_fanout",
+      partial_summary_template:
+        "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.",
+      policy_evaluation_mode: "group_outbound_fanout"
+    },
+    authenticated_identity: {
+      sender_connection_id: "conn_sender",
+      sender_user_id: "usr_sender"
+    },
+    bundle_metadata: {
+      bundle_id: "bundle_local_group_1",
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: resolutionId
+    },
+    bundle_type: "group_fanout",
+    contract_version: "1.0.0",
+    group: {
+      id: "grp_hiking",
+      member_count: recipientResults.length,
+      name: "Hiking Crew",
+      type: "group"
+    },
+    group_overlay_policies: [],
+    recipient_results: recipientResults,
+    selector_context: {
+      action: "share",
+      direction: "outbound",
+      resource: "message.general"
+    },
+    transport_payload: {
+      declared_selectors: {
+        action: "share",
+        direction: "outbound",
+        resource: "message.general"
+      },
+      message: "hello group",
+      payload_type: "text/plain",
+      recipient: "grp_hiking",
+      recipient_type: "group",
+      resolution_id: resolutionId,
+      sender_connection_id: "conn_sender"
+    }
   };
 }
 
@@ -398,6 +733,246 @@ describe("send tools", () => {
     expect(result.status).toBe("sent");
     expect(state.sendCalls).toHaveLength(1);
     expect(state.sendCalls[0].payload.recipient_type).toBe("group");
+  });
+
+  it("commits local direct review decisions and skips transport", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateDirectSend: async () => createLocalDirectResult("ask"),
+    };
+
+    const result = await talkToAgent(
+      client,
+      {
+        message: "share location",
+        recipient: "alice"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never
+        }
+      }
+    );
+
+    expect(result).toMatchObject({
+      decision: "ask",
+      reason: "Message requires review before delivery.",
+      resolutionId: "res_local_direct_1",
+      status: "review_required"
+    });
+    expect(result.messageId).toBeUndefined();
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("commits local direct denies and skips transport", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateDirectSend: async () => createLocalDirectResult("deny"),
+    };
+
+    const result = await talkToAgent(
+      client,
+      {
+        message: "share ssn",
+        recipient: "alice"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never
+        }
+      }
+    );
+
+    expect(result).toMatchObject({
+      decision: "deny",
+      reason: "Message blocked by policy.",
+      resolutionId: "res_local_direct_1",
+      status: "denied"
+    });
+    expect(result.messageId).toBeUndefined();
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
+  });
+
+  it("commits local direct allows before transport and reuses the local resolution id", async () => {
+    const { client, state } = createMockClient({
+      sendResponse: {
+        message_id: "msg_local_allow",
+        resolution: {
+          decision: "allow",
+          resolution_id: "res_local_direct_allow",
+        },
+        status: "delivered"
+      }
+    });
+    const localRuntime = {
+      evaluateDirectSend: async () =>
+        createLocalDirectResult("allow", {
+          bundle_metadata: {
+            bundle_id: "bundle_local_direct_allow",
+            expires_at: "2026-03-14T10:35:00.000Z",
+            issued_at: "2026-03-14T10:30:00.000Z",
+            resolution_id: "res_local_direct_allow"
+          },
+          recipient: {
+            id: "usr_alice",
+            type: "user",
+            username: "alice"
+          }
+        }),
+    };
+
+    const result = await talkToAgent(
+      client,
+      {
+        message: "hello",
+        recipient: "Alice ",
+        recipientConnectionId: "conn_alice",
+        routingHints: { labels: ["friends"] }
+      },
+      {
+        senderConnectionId: "conn_sender"
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never
+        }
+      }
+    );
+
+    expect(result).toMatchObject({
+      decision: "allow",
+      messageId: "msg_local_allow",
+      resolutionId: "res_local_direct_allow",
+      status: "sent"
+    });
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      recipient: "alice",
+      recipient_connection_id: "conn_alice",
+      resolution_id: "res_local_direct_allow",
+      routing_hints: { labels: ["friends"] },
+      sender_connection_id: "conn_sender"
+    });
+  });
+
+  it("fans out only locally allowed group recipients and skips held or denied members", async () => {
+    const { client, state } = createMockClient();
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["allow", "ask", "deny"],
+          resolutionId: "res_local_group_partial"
+        }),
+    };
+
+    const result = await talkToGroup(
+      client,
+      {
+        idempotencyKey: "idem_group_partial",
+        message: "hello group",
+        recipient: "grp_hiking"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never
+        }
+      }
+    );
+
+    expect(result).toMatchObject({
+      decision: "allow",
+      reason: "Partial group delivery: 1 delivered, 0 pending, 1 denied, 1 review-required, 0 failed.",
+      resolutionId: "res_local_group_partial",
+      status: "sent"
+    });
+    expect(result.messageId).toBeUndefined();
+    expect(state.localDecisionCommitCalls).toHaveLength(3);
+    expect(state.localDecisionCommitCalls.map((call) => call.idempotencyKey)).toEqual([
+      "idem_group_partial:friend_1",
+      "idem_group_partial:friend_2",
+      "idem_group_partial:friend_3",
+    ]);
+    expect(state.sendCalls).toHaveLength(1);
+    expect(state.sendCalls[0]).toMatchObject({
+      idempotencyKey: "idem_group_partial:friend_1",
+      payload: {
+        recipient: "friend_1",
+        recipient_type: "user",
+        resolution_id: "res_local_group_partial_friend_1",
+        sender_connection_id: "conn_sender"
+      }
+    });
+  });
+
+  it("commits and transports each allowed group recipient with member resolution ids", async () => {
+    const { client, state } = createMockClient({
+      sendResponse: {
+        message_id: "msg_group_allowed",
+        resolution: {
+          decision: "allow",
+          resolution_id: "res_local_group_allowed",
+        },
+        status: "delivered"
+      }
+    });
+    const localRuntime = {
+      evaluateGroupFanout: async () =>
+        createLocalGroupResult({
+          recipientDecisions: ["allow", "allow"],
+          resolutionId: "res_local_group_allowed"
+        }),
+    };
+
+    const result = await talkToGroup(
+      client,
+      {
+        message: "hello group",
+        recipient: "team-hiking"
+      },
+      {
+        senderConnectionId: "conn_sender"
+      },
+      {
+        localPolicy: {
+          runtime: localRuntime as never
+        }
+      }
+    );
+
+    expect(result).toMatchObject({
+      decision: "allow",
+      resolutionId: "res_local_group_allowed",
+      status: "sent"
+    });
+    expect(result.messageId).toBeUndefined();
+    expect(state.localDecisionCommitCalls).toHaveLength(2);
+    expect(state.sendCalls).toHaveLength(2);
+    expect(state.sendCalls.map((call) => call.payload)).toEqual([
+      expect.objectContaining({
+        recipient: "friend_1",
+        recipient_type: "user",
+        resolution_id: "res_local_group_allowed_friend_1",
+        sender_connection_id: "conn_sender"
+      }),
+      expect.objectContaining({
+        recipient: "friend_2",
+        recipient_type: "user",
+        resolution_id: "res_local_group_allowed_friend_2",
+        sender_connection_id: "conn_sender"
+      }),
+    ]);
   });
 });
 

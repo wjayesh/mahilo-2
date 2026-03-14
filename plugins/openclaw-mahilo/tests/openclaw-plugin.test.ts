@@ -23,14 +23,20 @@ interface MockClientState {
   agentConnectionsResponse: unknown;
   blockedEventCalls: number[];
   currentIdentityCalls: number;
+  directSendBundleCalls: Array<Record<string, unknown>>;
   friendConnectionCalls: string[];
   friendRequestCalls: string[];
   friendConnectionsByUsername: Record<string, unknown[]>;
   friendshipCalls: Array<{ status?: string }>;
   friendshipsResponse: unknown;
+  groupFanoutBundleCalls: Array<Record<string, unknown>>;
   groupCalls: number;
   groupsResponse: unknown;
   listReviewCalls: Array<{ limit?: number; status?: string }>;
+  localDecisionCommitCalls: Array<{
+    idempotencyKey?: string;
+    payload: Record<string, unknown>;
+  }>;
   overrideCalls: Array<{
     idempotencyKey?: string;
     payload: Record<string, unknown>;
@@ -93,6 +99,212 @@ interface RecordedHeartbeatRequest {
   sessionKey?: string;
 }
 
+function buildDefaultDirectSendBundle(payload: Record<string, unknown>) {
+  const recipient =
+    typeof payload.recipient === "string" && payload.recipient.trim().length > 0
+      ? payload.recipient.trim().toLowerCase()
+      : "alice";
+  const senderConnectionId =
+    typeof payload.sender_connection_id === "string" &&
+    payload.sender_connection_id.length > 0
+      ? payload.sender_connection_id
+      : "conn_sender_default";
+  const declaredSelectors =
+    payload.declared_selectors &&
+    typeof payload.declared_selectors === "object" &&
+    !Array.isArray(payload.declared_selectors)
+      ? (payload.declared_selectors as Record<string, unknown>)
+      : {
+          action: "share",
+          direction: "outbound",
+          resource: "message.general",
+        };
+
+  return {
+    applicable_policies: [],
+    authenticated_identity: {
+      sender_connection_id: senderConnectionId,
+      sender_user_id: "usr_sender",
+    },
+    bundle_metadata: {
+      bundle_id: "bundle_direct_default",
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: "res_direct_default",
+    },
+    bundle_type: "direct_send",
+    contract_version: "1.0.0",
+    llm: {
+      provider_defaults: null,
+      subject: recipient,
+    },
+    recipient: {
+      id: `usr_${recipient}`,
+      type: "user",
+      username: recipient,
+    },
+    selector_context: {
+      action:
+        typeof declaredSelectors.action === "string"
+          ? declaredSelectors.action
+          : "share",
+      direction:
+        typeof declaredSelectors.direction === "string"
+          ? declaredSelectors.direction
+          : "outbound",
+      resource:
+        typeof declaredSelectors.resource === "string"
+          ? declaredSelectors.resource
+          : "message.general",
+    },
+  };
+}
+
+function buildDefaultGroupFanoutBundle(payload: Record<string, unknown>) {
+  const groupId =
+    typeof payload.recipient === "string" && payload.recipient.trim().length > 0
+      ? payload.recipient.trim()
+      : "grp_hiking";
+  const senderConnectionId =
+    typeof payload.sender_connection_id === "string" &&
+    payload.sender_connection_id.length > 0
+      ? payload.sender_connection_id
+      : "conn_sender_default";
+  const declaredSelectors =
+    payload.declared_selectors &&
+    typeof payload.declared_selectors === "object" &&
+    !Array.isArray(payload.declared_selectors)
+      ? (payload.declared_selectors as Record<string, unknown>)
+      : {
+          action: "share",
+          direction: "outbound",
+          resource: "message.general",
+        };
+
+  return {
+    aggregate_metadata: {
+      empty_group_summary: "No active recipients in group.",
+      fanout_mode: "per_recipient",
+      mixed_decision_priority: ["allow", "ask", "deny"],
+      partial_reason_code: "policy.partial.group_fanout",
+      partial_summary_template:
+        "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.",
+      policy_evaluation_mode: "group_outbound_fanout",
+    },
+    authenticated_identity: {
+      sender_connection_id: senderConnectionId,
+      sender_user_id: "usr_sender",
+    },
+    bundle_metadata: {
+      bundle_id: "bundle_group_default",
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: "res_group_default",
+    },
+    bundle_type: "group_fanout",
+    contract_version: "1.0.0",
+    group: {
+      id: groupId,
+      member_count: 1,
+      name: "Hiking Crew",
+      type: "group",
+    },
+    group_overlay_policies: [],
+    members: [
+      {
+        llm: {
+          provider_defaults: null,
+          subject: "alice",
+        },
+        member_applicable_policies: [],
+        recipient: {
+          id: "usr_alice",
+          type: "user",
+          username: "alice",
+        },
+        resolution_id: "res_group_default_usr_alice",
+        roles: [],
+      },
+    ],
+    selector_context: {
+      action:
+        typeof declaredSelectors.action === "string"
+          ? declaredSelectors.action
+          : "share",
+      direction:
+        typeof declaredSelectors.direction === "string"
+          ? declaredSelectors.direction
+          : "outbound",
+      resource:
+        typeof declaredSelectors.resource === "string"
+          ? declaredSelectors.resource
+          : "message.general",
+    },
+  };
+}
+
+function buildDefaultLocalDecisionCommitResponse(payload: Record<string, unknown>) {
+  const localDecision = payload.local_decision as Record<string, unknown> | undefined;
+  const decision =
+    typeof localDecision?.decision === "string"
+      ? localDecision.decision
+      : "allow";
+  const deliveryMode =
+    typeof localDecision?.delivery_mode === "string"
+      ? localDecision.delivery_mode
+      : decision === "allow"
+        ? "full_send"
+        : decision === "ask"
+          ? "review_required"
+          : "blocked";
+  const status =
+    decision === "allow"
+      ? "pending"
+      : decision === "ask"
+        ? "review_required"
+        : "rejected";
+  const deliveryStatus =
+    decision === "allow"
+      ? "pending"
+      : decision === "ask"
+        ? "review_required"
+        : "rejected";
+  const resolutionId =
+    typeof payload.resolution_id === "string" ? payload.resolution_id : "res_local_default";
+  const recipient =
+    typeof payload.recipient === "string" ? payload.recipient : "alice";
+
+  return {
+    committed: true,
+    message_id: `msg_commit_${resolutionId}`,
+    recorded: true,
+    recipient_results: [
+      {
+        decision,
+        delivery_mode: deliveryMode,
+        delivery_status: deliveryStatus,
+        recipient,
+      },
+    ],
+    resolution: {
+      decision,
+      delivery_mode: deliveryMode,
+      reason_code:
+        typeof localDecision?.reason_code === "string"
+          ? localDecision.reason_code
+          : undefined,
+      resolution_id: resolutionId,
+      summary:
+        typeof localDecision?.summary === "string"
+          ? localDecision.summary
+          : typeof localDecision?.reason === "string"
+            ? localDecision.reason
+            : undefined,
+    },
+    status,
+  };
+}
+
 function createMockContractClient(
   options: {
     acceptFriendRequestError?: Error;
@@ -102,11 +314,17 @@ function createMockContractClient(
     currentIdentityResponse?: Record<string, unknown>;
     blockedEventsResponse?: unknown;
     createOverrideError?: Error;
+    directSendBundleError?: Error;
+    directSendBundleResponse?: Record<string, unknown>;
     friendConnectionErrorsByUsername?: Record<string, Error>;
     friendConnectionsByUsername?: Record<string, unknown[]>;
     friendshipsByStatus?: Record<string, unknown>;
     friendshipsResponse?: unknown;
+    groupFanoutBundleError?: Error;
+    groupFanoutBundleResponse?: Record<string, unknown>;
     groupsResponse?: unknown;
+    localDecisionCommitError?: Error;
+    localDecisionCommitResponse?: Record<string, unknown>;
     pingAgentConnectionError?: Error;
     promptContextError?: Error;
     promptContextResponse?: Record<string, unknown>;
@@ -137,6 +355,7 @@ function createMockContractClient(
     ],
     blockedEventCalls: [],
     currentIdentityCalls: 0,
+    directSendBundleCalls: [],
     friendConnectionCalls: [],
     friendRequestCalls: [],
     friendConnectionsByUsername: options.friendConnectionsByUsername ?? {},
@@ -152,6 +371,7 @@ function createMockContractClient(
         username: "alice",
       },
     ],
+    groupFanoutBundleCalls: [],
     groupCalls: 0,
     groupsResponse: options.groupsResponse ?? [
       {
@@ -163,6 +383,7 @@ function createMockContractClient(
       },
     ],
     listReviewCalls: [],
+    localDecisionCommitCalls: [],
     overrideCalls: [],
     outcomeCalls: [],
     pingCalls: [],
@@ -246,6 +467,14 @@ function createMockContractClient(
 
       return promptContextResponse;
     },
+    getDirectSendPolicyBundle: async (payload: Record<string, unknown>) => {
+      state.directSendBundleCalls.push(payload);
+      if (options.directSendBundleError) {
+        throw options.directSendBundleError;
+      }
+
+      return options.directSendBundleResponse ?? buildDefaultDirectSendBundle(payload);
+    },
     getFriendAgentConnections: async (username: string) => {
       state.friendConnectionCalls.push(username);
       const error = options.friendConnectionErrorsByUsername?.[username];
@@ -260,6 +489,14 @@ function createMockContractClient(
         state: connections.length > 0 ? "available" : "no_active_connections",
         username,
       };
+    },
+    getGroupFanoutPolicyBundle: async (payload: Record<string, unknown>) => {
+      state.groupFanoutBundleCalls.push(payload);
+      if (options.groupFanoutBundleError) {
+        throw options.groupFanoutBundleError;
+      }
+
+      return options.groupFanoutBundleResponse ?? buildDefaultGroupFanoutBundle(payload);
     },
     getCurrentIdentity: async () => {
       state.currentIdentityCalls += 1;
@@ -299,6 +536,20 @@ function createMockContractClient(
         options.reviewsResponse ?? {
           items: [],
         }
+      );
+    },
+    commitLocalDecision: async (
+      payload: Record<string, unknown>,
+      idempotencyKey?: string,
+    ) => {
+      state.localDecisionCommitCalls.push({ idempotencyKey, payload });
+      if (options.localDecisionCommitError) {
+        throw options.localDecisionCommitError;
+      }
+
+      return (
+        options.localDecisionCommitResponse ??
+        buildDefaultLocalDecisionCommitResponse(payload)
       );
     },
     pingAgentConnection: async (connectionId: string) => {
@@ -2665,14 +2916,36 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(result).toMatchObject({
       details: {
+        decision: "allow",
         messageId: "msg_123",
+        resolutionId: "res_direct_default",
         status: "sent",
       },
     });
+    expect(state.directSendBundleCalls).toEqual([
+      expect.objectContaining({
+        recipient: "alice",
+        recipient_type: "user",
+        sender_connection_id: "conn_sender",
+      }),
+    ]);
+    expect(state.localDecisionCommitCalls).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          local_decision: expect.objectContaining({
+            decision: "allow",
+          }),
+          recipient: "alice",
+          resolution_id: "res_direct_default",
+          sender_connection_id: "conn_sender",
+        }),
+      }),
+    ]);
     expect(state.sendCalls).toHaveLength(1);
-    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe(
-      "conn_sender",
-    );
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      resolution_id: "res_direct_default",
+      sender_connection_id: "conn_sender",
+    });
   });
 
   it("resolves a default sender connection for send_message sends when input omits it", async () => {
@@ -2710,13 +2983,106 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(result).toMatchObject({
       details: {
+        decision: "allow",
+        resolutionId: "res_direct_default",
         status: "sent",
       },
     });
     expect(state.agentConnectionCalls).toBe(1);
-    expect(state.sendCalls[0]?.payload.sender_connection_id).toBe(
-      "conn_sender_default",
-    );
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls[0]?.payload).toMatchObject({
+      resolution_id: "res_direct_default",
+      sender_connection_id: "conn_sender_default",
+    });
+  });
+
+  it("records local review-required sends without calling transport", async () => {
+    const { client, state } = createMockContractClient({
+      directSendBundleResponse: {
+        applicable_policies: [
+          {
+            created_at: null,
+            derived_from_message_id: null,
+            effective_from: null,
+            effect: "ask",
+            evaluator: "structured",
+            expires_at: null,
+            id: "pol_direct_review",
+            learning_provenance: null,
+            max_uses: null,
+            policy_content: { intent: "manual_review" },
+            priority: 100,
+            remaining_uses: null,
+            scope: "user",
+            source: "user_created",
+          },
+        ],
+        authenticated_identity: {
+          sender_connection_id: "conn_sender",
+          sender_user_id: "usr_sender",
+        },
+        bundle_metadata: {
+          bundle_id: "bundle_direct_review",
+          expires_at: "2026-03-14T10:35:00.000Z",
+          issued_at: "2026-03-14T10:30:00.000Z",
+          resolution_id: "res_direct_review",
+        },
+        bundle_type: "direct_send",
+        contract_version: "1.0.0",
+        llm: {
+          provider_defaults: null,
+          subject: "alice",
+        },
+        recipient: {
+          id: "usr_alice",
+          type: "user",
+          username: "alice",
+        },
+        selector_context: {
+          action: "share",
+          direction: "outbound",
+          resource: "message.general",
+        },
+      },
+    });
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "send_message");
+    const result = await tool.execute("tool_call_local_review", {
+      message: "share location",
+      recipient: "alice",
+      senderConnectionId: "conn_sender",
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          text: expect.stringContaining(
+            "Mahilo needs review before sending this person message.",
+          ),
+        },
+      ],
+      details: {
+        decision: "ask",
+        reason: "Review required: Policy has no constraints and applies to all messages",
+        resolutionId: "res_direct_review",
+        status: "review_required",
+      },
+    });
+    expect(
+      (result as { details?: { messageId?: string } }).details?.messageId,
+    ).toBeUndefined();
+    expect(state.directSendBundleCalls).toHaveLength(1);
+    expect(state.localDecisionCommitCalls).toHaveLength(1);
+    expect(state.sendCalls).toHaveLength(0);
   });
 
   it("lists contacts from Mahilo server data through manage_network instead of the host contacts provider", async () => {

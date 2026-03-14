@@ -13,6 +13,7 @@ import {
   talkToAgent as talkToAgentBase,
   talkToGroup as talkToGroupBase,
   type GetMahiloContextInput,
+  type MahiloSendExecutionOptions,
   type MahiloSendToolInput,
   type MahiloToolContext,
   type PreviewMahiloSendInput,
@@ -24,17 +25,29 @@ import { resolveMahiloSenderConnection } from "./sender-resolution";
 export async function talkToAgent(
   client: MahiloContractClient,
   input: MahiloSendToolInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  options: MahiloSendExecutionOptions = {}
 ) {
-  return talkToAgentBase(client, input, await resolveToolContext(client, context));
+  return talkToAgentBase(
+    client,
+    input,
+    await resolveToolContext(client, context),
+    options
+  );
 }
 
 export async function talkToGroup(
   client: MahiloContractClient,
   input: TalkToGroupInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  options: MahiloSendExecutionOptions = {}
 ) {
-  return talkToGroupBase(client, input, await resolveToolContext(client, context));
+  return talkToGroupBase(
+    client,
+    input,
+    await resolveToolContext(client, context),
+    options
+  );
 }
 
 export async function previewMahiloSend(
