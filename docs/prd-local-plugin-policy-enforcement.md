@@ -195,7 +195,7 @@ This project is done when all of the following are true:
 
 ### 0.1 Create a Shared Policy Core Package
 - **ID**: `LPE-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Description**:
@@ -208,6 +208,8 @@ This project is done when all of the following are true:
   - [ ] No DB, route, or environment loading logic is moved into the shared package
   - [ ] Build/test tooling can resolve the shared package from both server and plugin code
 
+- **Notes**:
+  - 2026-03-14T11:39:19.171Z: LPE-001 completed via orchestrator integration.
 ### 0.2 Extract Shared Selector and Filtering Primitives
 - **ID**: `LPE-002`
 - **Status**: `pending`
