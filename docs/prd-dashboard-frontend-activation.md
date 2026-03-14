@@ -257,7 +257,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T15:32:55.709Z: DASH-031 completed via orchestrator integration.
 ### 3.3 Developer Console and API-Key Utilities
 - **ID**: `DASH-032`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P1`
 - **Depends on**: `DASH-010`, `DASH-031`
 - **Description**:
@@ -271,6 +271,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ---
 
+- **Notes**:
+  - 2026-03-14T15:46:50.802Z: DASH-032 completed via orchestrator integration.
 ## Phase 4: Boundaries as the Primary Control Surface
 
 ### 4.1 Boundary Taxonomy and Canonical Policy Mapping
