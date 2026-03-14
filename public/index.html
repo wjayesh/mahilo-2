@@ -994,8 +994,8 @@
                     <p class="welcome-eyebrow">Readiness dashboard</p>
                     <h2>Hello, <span id="welcome-name">Friend</span></h2>
                     <p class="welcome-copy">
-                      See whether your sender setup, network, and review queue
-                      are ready for Mahilo right now.
+                      See whether your sender setup, network, and review
+                      required work are ready for Mahilo right now.
                     </p>
                     <div id="overview-readiness-summary">
                       <div class="overview-readiness-loading">
@@ -1022,13 +1022,14 @@
                     <div class="empty-state small">
                       <div class="empty-icon">🤖</div>
                       <p>No sender connections yet</p>
+                      <p class="hint">Add one so Mahilo can send and ask around.</p>
                     </div>
                   </div>
                   <button
                     class="squishy-btn btn-primary btn-small"
                     id="add-agent-quick"
                   >
-                    <span>+</span> Add Connection
+                    <span>+</span> Add Sender
                   </button>
                 </div>
 
@@ -1044,7 +1045,7 @@
                   <div class="friend-preview-list" id="overview-friend-list">
                     <div class="empty-state small">
                       <div class="empty-icon">👋</div>
-                      <p>No network readiness signals yet</p>
+                      <p>Build your circle to see who is ready now</p>
                     </div>
                   </div>
                   <button
@@ -1058,7 +1059,7 @@
                 <!-- Recent Messages -->
                 <div class="card card-wide recent-messages-card">
                   <div class="card-header">
-                    <h3>📋 Recent Delivery Activity</h3>
+                    <h3>📋 Review and Delivery Activity</h3>
                     <button
                       class="squishy-btn btn-ghost btn-small"
                       id="view-all-messages"
@@ -1073,7 +1074,11 @@
                   <div class="message-preview-list" id="overview-message-list">
                     <div class="empty-state small">
                       <div class="empty-icon">💌</div>
-                      <p>No messages yet</p>
+                      <p>No review or delivery activity yet</p>
+                      <p class="hint">
+                        Review required items, blocked events, and ask-around
+                        replies show up here.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -1093,7 +1098,7 @@
                   />
                 </div>
                 <button class="squishy-btn btn-primary" id="add-agent-btn">
-                  <span>+</span> Add Connection
+                  <span>+</span> Add Sender Connection
                 </button>
               </div>
               <div class="agents-grid" id="agents-grid">
@@ -1101,11 +1106,11 @@
                   <div class="empty-icon-large">🤖</div>
                   <h3>No sender connections yet</h3>
                   <p>
-                    Add a sender connection so Mahilo can route messages on your
-                    behalf
+                    Add a sender connection so Mahilo can send directly, ask
+                    around, and route review required work back to you.
                   </p>
                   <button class="squishy-btn btn-primary" id="add-first-agent">
-                    <span>🚀</span> Add Your First Connection
+                    <span>🚀</span> Add Your First Sender Connection
                   </button>
                 </div>
               </div>
@@ -1166,15 +1171,14 @@
                 <div class="friends-content">
                   <div class="friends-content-header">
                     <div>
-                      <p class="friends-eyebrow">Real friendship data</p>
+                      <p class="friends-eyebrow">Your circle</p>
                       <h3 id="network-list-title">All relationships</h3>
                       <p
                         class="friends-content-copy"
                         id="network-list-description"
                       >
-                        Accepted contacts, pending requests, and blocked
-                        relationships powered by the real Mahilo friendship
-                        model.
+                        Accepted contacts, pending requests, and blocked people
+                        across the circle Mahilo can reach.
                       </p>
                     </div>
                     <div class="friends-total-chip" id="network-list-total">
@@ -1189,10 +1193,10 @@
                     <div class="friends-list" id="friends-list">
                       <div class="empty-state">
                         <div class="empty-icon-large">🤝</div>
-                        <h3>Your trust circle starts small</h3>
+                        <h3>Build your circle</h3>
                         <p>
-                          Add a few real people whose agents you want to ask
-                          around with.
+                          Add the people you trust so Mahilo has a circle to
+                          ask around with.
                         </p>
                       </div>
                     </div>
@@ -1202,8 +1206,8 @@
                           <div class="empty-icon-large">🧭</div>
                           <h3>Open a connection space</h3>
                           <p>
-                            Select someone from your network to see whether they
-                            have active Mahilo connections and whether they are
+                            Select someone from your circle to see whether they
+                            have sender connections live and whether they are
                             ready for direct send or ask-around.
                           </p>
                         </div>
@@ -1234,22 +1238,21 @@
                     <span>+</span> Create Group
                   </button>
                   <p class="group-sidebar-copy">
-                    Build circles that are actually useful for targeted
-                    ask-around and group-scoped boundaries.
+                    Build circles you can ask around with and target with group
+                    boundaries.
                   </p>
                 </div>
                 <div class="friends-content">
                   <div class="friends-content-header">
                     <div>
-                      <p class="friends-eyebrow">Live group memberships</p>
+                      <p class="friends-eyebrow">Ask-around circles</p>
                       <h3 id="group-list-title">Working groups</h3>
                       <p
                         class="friends-content-copy"
                         id="group-list-description"
                       >
-                        Use real group memberships to manage invites, inspect
-                        members, and understand whether a circle is ready to
-                        target.
+                        Use groups to shape ask-around circles, manage invites,
+                        and see whether a circle is ready to target.
                       </p>
                     </div>
                     <div class="friends-total-chip" id="group-list-total">
@@ -1266,8 +1269,8 @@
                         <div class="empty-icon-large">🏘️</div>
                         <h3>No groups yet</h3>
                         <p>
-                          Create a trusted circle you can actually target for
-                          ask-around and group boundaries.
+                          Create a circle you can ask around with and target
+                          with group boundaries.
                         </p>
                       </div>
                     </div>
@@ -1277,8 +1280,9 @@
                           <div class="empty-icon-large">🧭</div>
                           <h3>Open a group workspace</h3>
                           <p>
-                            Select a group to load its live detail, member
-                            roster, invite state, and readiness.
+                            Select a group to see who is active, who is
+                            invited, and whether the circle is ready for
+                            ask-around and group boundaries.
                           </p>
                         </div>
                       </div>
@@ -1386,7 +1390,7 @@
                       Delivered
                     </button>
                     <button class="filter-btn" data-state="review">
-                      Review
+                      Review required
                     </button>
                     <button class="filter-btn" data-state="blocked">
                       Blocked
@@ -1401,10 +1405,10 @@
               <div class="logs-list" id="logs-list">
                 <div class="empty-state">
                   <div class="empty-icon-large">📋</div>
-                  <h3>No delivery logs yet</h3>
+                  <h3>No delivery activity yet</h3>
                   <p>
-                    Deliveries, reviews, blocked events, and ask-around threads
-                    will appear here for audit
+                    Review required items, blocked events, deliveries, and
+                    ask-around activity will appear here.
                   </p>
                 </div>
               </div>
@@ -1697,12 +1701,12 @@
             <div id="boundaries-view" class="view">
               <div class="boundaries-hero">
                 <div class="boundaries-hero-copy">
-                  <p class="friends-eyebrow">Privacy posture</p>
+                  <p class="friends-eyebrow">Boundaries</p>
                   <h3>See what Mahilo can share at a glance</h3>
                   <p class="friends-content-copy">
                     Browse boundaries by category and audience to understand
-                    what gets shared automatically, paused for review, or
-                    blocked outright.
+                    what gets shared automatically, marked as review required,
+                    or blocked outright.
                   </p>
                 </div>
                 <button class="squishy-btn btn-primary" id="create-policy-btn">
@@ -1794,7 +1798,7 @@
                     <span class="boundaries-filter-label">Category</span>
                     <p>
                       Cluster similar boundaries together so you do not need to
-                      read raw rule content.
+                      read every rule line by line.
                     </p>
                   </div>
                   <div
@@ -1825,8 +1829,8 @@
                     <div class="empty-icon-large">🛡️</div>
                     <h3>No boundaries yet</h3>
                     <p>
-                      Create boundaries to control what Mahilo can share or hold
-                      for review
+                      Create boundaries to decide what Mahilo shares
+                      automatically, marks as review required, or blocks.
                     </p>
                     <button
                       class="squishy-btn btn-primary"

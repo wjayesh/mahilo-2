@@ -37,33 +37,33 @@ const VIEW_ALIASES = {
 const VIEW_META = {
   overview: {
     title: "Overview",
-    subtitle: "Readiness across your Mahilo network",
+    subtitle: "Network readiness, boundaries, and review activity at a glance",
   },
   network: {
     title: "Network",
-    subtitle: "People, roles, and relationship state across your circle",
+    subtitle: "Build and manage the circle Mahilo can reach",
   },
   connections: {
     title: "Sender Connections",
-    subtitle: "Manage the Mahilo connections that can send on your behalf",
+    subtitle: "Manage the sender connections Mahilo uses to send and ask around",
   },
   groups: {
     title: "Groups",
-    subtitle: "Coordinate trusted circles for targeted ask-around flows",
+    subtitle: "Shape circles for targeted ask-around and group boundaries",
   },
   messages: {
-    title: "Direct Messages",
-    subtitle: "Inspect legacy one-to-one message threads and delivery history",
+    title: "Messages",
+    subtitle: "Review direct conversations with people in your circle",
   },
   logs: {
     title: "Delivery Logs",
     subtitle:
-      "Audit deliveries, reviews, blocked events, and ask-around threads",
+      "Track deliveries, review required items, blocked events, and ask-around activity",
   },
   boundaries: {
     title: "Boundaries",
     subtitle:
-      "Control what Mahilo can share, hold for review, or block outright",
+      "Decide what Mahilo shares automatically, marks as review required, or blocks",
   },
   settings: {
     title: "Settings",
@@ -6703,7 +6703,7 @@ const UI = {
 
     if (copy) {
       copy.textContent =
-        "Framework and label identify the current connection. Use Add Connection if you need a new sender route.";
+        "Framework and label identify the current connection. Use Add Sender Connection if you need a new sender route.";
     }
 
     this.setAgentAdvancedFieldsVisible(
@@ -8954,7 +8954,7 @@ const UI = {
     return {
       title: "Working groups",
       description:
-        "Use real group memberships to target ask-around circles, manage invites, and understand whether a group is actually useful yet.",
+        "Use groups to shape ask-around circles, manage invites, and see whether a circle is actually useful yet.",
       total: searchTerm
         ? matchesLabel
         : Helpers.pluralize(visibleCount, "group"),
@@ -8985,21 +8985,25 @@ const UI = {
     if (summaryStrip) {
       const summaryCards = [
         {
+          tone: "ready",
           label: "Active memberships",
           value: counts.activeMemberships,
           copy: "Ready right now",
         },
         {
+          tone: "pending",
           label: "Pending invites",
           value: counts.invitedMemberships,
           copy: "Waiting on you",
         },
         {
+          tone: "neutral",
           label: "Active members",
           value: counts.totalMembers,
           copy: "Across your groups",
         },
         {
+          tone: "boundary",
           label: "Invite only",
           value: counts.inviteOnly,
           copy: "Boundary-friendly circles",
@@ -9009,7 +9013,7 @@ const UI = {
       summaryStrip.innerHTML = summaryCards
         .map(
           (card) => `
-            <div class="network-summary-card">
+            <div class="network-summary-card ${Helpers.escapeHtml(card.tone)}">
               <span class="network-summary-label">${card.label}</span>
               <span class="network-summary-value">${card.value}</span>
               <span class="network-summary-copy">${card.copy}</span>
@@ -9037,7 +9041,7 @@ const UI = {
       <div class="empty-state">
         <div class="empty-icon-large">🏘️</div>
         <h3>No groups yet</h3>
-        <p>Create a trusted circle you can actually target for ask-around and group-scoped boundaries.</p>
+        <p>Create a circle you can ask around with and target with group boundaries.</p>
         <button class="squishy-btn btn-primary" onclick="UI.showModal('create-group-modal')">
           <span>🏘️</span> Create Your First Group
         </button>
@@ -9391,7 +9395,7 @@ const UI = {
         return {
           title: "Accepted contacts",
           description:
-            "These people are already in your trusted Mahilo circle and ready for direct asks, messages, and role-based boundaries.",
+            "These people are already in your Mahilo circle and can move toward direct send, ask-around, and role-based boundaries.",
           total: searchTerm
             ? matchesLabel
             : Helpers.pluralize(visibleCount, "accepted contact"),
@@ -9400,7 +9404,7 @@ const UI = {
         return {
           title: "Incoming requests",
           description:
-            "These people are waiting on you to accept, reject, or block their request before they can join your useful circle.",
+            "Review these requests before they join the circle your agent can reach.",
           total: searchTerm
             ? matchesLabel
             : Helpers.pluralize(visibleCount, "incoming request"),
@@ -9427,7 +9431,7 @@ const UI = {
         return {
           title: "All relationships",
           description:
-            "Accepted contacts, pending requests, and blocked relationships powered by the real Mahilo friendship model.",
+            "Accepted contacts, pending requests, and blocked people across the circle Mahilo can reach.",
           total: searchTerm
             ? matchesLabel
             : Helpers.pluralize(visibleCount, "relationship"),
@@ -9494,7 +9498,7 @@ const UI = {
 
     switch (bucket) {
       case "accepted":
-        return "Ready for direct asks, conversation history, and role-based sharing boundaries.";
+        return "Ready for direct send, ask-around, and role-based boundaries.";
       case "incoming":
         return "Review this request before the person can join your ask-around circle.";
       case "outgoing":
@@ -9502,7 +9506,7 @@ const UI = {
       case "blocked":
         return "Blocked contacts stay outside your trust circle until you remove the relationship.";
       default:
-        return "Relationship details from the current Mahilo friendship model.";
+        return "Relationship details that shape how Mahilo can reach this person.";
     }
   },
 
@@ -9612,26 +9616,31 @@ const UI = {
     if (summaryStrip) {
       const summaryCards = [
         {
+          tone: "ready",
           label: "Accepted",
           value: counts.accepted,
           copy: "Ready now",
         },
         {
+          tone: "pending",
           label: "Incoming",
           value: counts.incoming,
           copy: "Waiting on you",
         },
         {
+          tone: "pending",
           label: "Outgoing",
           value: counts.outgoing,
           copy: "Waiting on them",
         },
         {
+          tone: "blocked",
           label: "Blocked",
           value: counts.blocked,
           copy: "Held outside",
         },
         {
+          tone: "neutral",
           label: "Interactions",
           value: totalInteractions,
           copy: "Across your network",
@@ -9641,7 +9650,7 @@ const UI = {
       summaryStrip.innerHTML = summaryCards
         .map(
           (card) => `
-            <div class="network-summary-card">
+            <div class="network-summary-card ${Helpers.escapeHtml(card.tone)}">
               <span class="network-summary-label">${card.label}</span>
               <span class="network-summary-value">${card.value}</span>
               <span class="network-summary-copy">${card.copy}</span>
@@ -9668,20 +9677,20 @@ const UI = {
     const emptyStates = {
       all: {
         icon: "🤝",
-        title: "Your trust circle starts with a few real people",
-        copy: "Add the people whose agents you actually want to ask for recommendations, availability, and lived experience.",
+        title: "Build your circle",
+        copy: "Add the people you trust so Mahilo has a real circle for direct send, ask-around, and shared boundaries.",
         action: true,
       },
       accepted: {
         icon: "✅",
-        title: "No accepted contacts yet",
-        copy: "Accepted relationships are what turn a request list into a useful Mahilo circle.",
+        title: "No accepted contacts in your circle yet",
+        copy: "Accepted relationships are what make ask-around and contact boundaries useful.",
         action: true,
       },
       incoming: {
         icon: "📥",
-        title: "No incoming requests right now",
-        copy: "When someone asks to join your network, the request will show up here for review.",
+        title: "No incoming requests to review",
+        copy: "When someone asks to join your circle, the request will show up here for review.",
       },
       outgoing: {
         icon: "📤",
@@ -9691,8 +9700,8 @@ const UI = {
       },
       blocked: {
         icon: "🚫",
-        title: "No blocked relationships",
-        copy: "Use blocking when someone should stay out of your trust circle entirely. Those records will stay visible here.",
+        title: "No blocked contacts right now",
+        copy: "If someone should stay outside your circle entirely, block them and the relationship will stay visible here.",
       },
     };
     const state = emptyStates[filter] || emptyStates.all;
@@ -10168,12 +10177,12 @@ const UI = {
         directSend: {
           label: "Check failed",
           tone: "warning",
-          copy: "Mahilo could not confirm an active direct-delivery route from the contact connections API.",
+          copy: "Mahilo could not confirm a live sender connection for direct delivery.",
         },
         askAround: {
           label: "Check failed",
           tone: "warning",
-          copy: "Retry the contact connection lookup to confirm whether this person can participate in ask-around.",
+          copy: "Retry this contact’s connection check to confirm whether they can participate in ask-around.",
         },
       };
     }
@@ -10181,7 +10190,7 @@ const UI = {
     if (status !== "loaded") {
       return {
         tone: "pending",
-        summaryTitle: "Checking active Mahilo connections",
+        summaryTitle: "Checking sender connections",
         summaryCopy:
           "Mahilo is loading this contact’s live connection space to determine direct-send and ask-around readiness.",
         directSend: {
@@ -10200,18 +10209,18 @@ const UI = {
     if (!connections.length) {
       return {
         tone: "not-ready",
-        summaryTitle: "No active Mahilo connections right now",
+        summaryTitle: "No live sender connections right now",
         summaryCopy:
-          "This accepted contact is in your network, but they are not ready for direct send or ask-around until an active connection comes online.",
+          "This accepted contact is in your circle, but they are not ready for direct send or ask-around until one of their sender connections comes online.",
         directSend: {
           label: "Not ready",
           tone: "not-ready",
-          copy: "Direct send would fail right now because Mahilo has no active recipient connection to route to.",
+          copy: "Direct send would fail right now because Mahilo has no live sender connection to route to for this contact.",
         },
         askAround: {
           label: "Not ready",
           tone: "not-ready",
-          copy: "Without an active connection, this contact cannot participate in ask-around results.",
+          copy: "Without a live sender connection, this contact cannot take part in ask-around results.",
         },
       };
     }
@@ -10335,7 +10344,7 @@ const UI = {
       return `
         <div class="network-detail-empty">
           <div class="empty-icon">🪢</div>
-          <p>Connection details become available after this relationship is accepted.</p>
+          <p>Connection details become available after this person joins your circle.</p>
         </div>
       `;
     }
@@ -10356,7 +10365,7 @@ const UI = {
       return `
         <div class="network-loading-row">
           <span class="network-loading-dot"></span>
-          <p>Checking active Mahilo connections for direct-send and ask-around readiness...</p>
+          <p>Checking this contact’s sender connections for direct-send and ask-around readiness...</p>
         </div>
       `;
     }
@@ -10365,8 +10374,8 @@ const UI = {
       return `
         <div class="network-detail-empty">
           <div class="empty-icon">📭</div>
-          <p>No active Mahilo connections are live for this contact.</p>
-          <p class="hint">They are not ready for ask-around or direct send until one of their connections becomes active.</p>
+          <p>No sender connections are live for this contact right now.</p>
+          <p class="hint">They are not ready to ask around or receive direct sends until one of their sender connections becomes active.</p>
         </div>
       `;
     }
@@ -10393,7 +10402,7 @@ const UI = {
           <div class="network-detail-placeholder">
             <div class="empty-icon-large">🧭</div>
             <h3>Open a connection space</h3>
-            <p>Select someone from your network to see whether they have active Mahilo connections and whether they are ready for direct send or ask-around.</p>
+            <p>Select someone from your circle to see whether they have sender connections live and whether they are ready for direct send or ask-around.</p>
           </div>
         </div>
       `;
@@ -10467,7 +10476,7 @@ const UI = {
             <div>
               <h4>Relationship actions</h4>
               <p class="network-detail-section-copy">
-                Use the current Mahilo friendship flow to accept, reject, block, or remove this relationship without leaving the dashboard.
+                Accept, reject, block, or remove this relationship without leaving the dashboard.
               </p>
             </div>
           </div>
@@ -10479,9 +10488,9 @@ const UI = {
         <div class="network-detail-section">
           <div class="network-detail-section-header">
             <div>
-              <h4>Active contact connections</h4>
+              <h4>Sender connections</h4>
               <p class="network-detail-section-copy">
-                Framework, label, capabilities, and live status from the current contacts API.
+                See which sender connections this contact has live right now, plus their framework, label, and declared capabilities.
               </p>
             </div>
             ${
@@ -10514,7 +10523,7 @@ const UI = {
             <div>
               <h4>Relationship context</h4>
               <p class="network-detail-section-copy">
-                Network state from the friendship model that gates Mahilo participation.
+                These relationship details shape whether Mahilo can send directly, ask around, and apply role-based boundaries.
               </p>
             </div>
           </div>
@@ -10828,9 +10837,9 @@ const UI = {
         <div class="empty-state">
           <div class="empty-icon-large">🤖</div>
           <h3>No sender connections yet</h3>
-          <p>Add a sender connection so Mahilo can deliver messages and ask around for you</p>
+          <p>Add a sender connection so Mahilo can send directly, ask around, and route review required work back to you.</p>
           <button class="squishy-btn btn-primary" id="add-first-agent">
-            <span>🚀</span> Add Your First Connection
+            <span>🚀</span> Add Your First Sender Connection
           </button>
         </div>
       `;
@@ -10977,16 +10986,16 @@ const UI = {
         tone: "pending",
         summaryTitle: "Checking group detail and members",
         summaryCopy:
-          "Loading live membership, invite, and roster data from the current groups API.",
+          "Mahilo is checking who is active, who is invited, and whether this circle is ready to ask around with.",
         askAround: {
           label: "Checking",
           tone: "pending",
-          copy: "Loading active versus invited members for targeted ask-around readiness.",
+          copy: "Checking active versus invited members for ask-around readiness.",
         },
         boundaries: {
           label: "Checking",
           tone: "pending",
-          copy: "Loading group detail before boundary-targeting guidance appears.",
+          copy: "Checking this circle before group boundaries are applied here.",
         },
       };
     }
@@ -11034,7 +11043,7 @@ const UI = {
         boundaries: {
           label: "Ready",
           tone: "ready",
-          copy: "Group-scoped boundaries can target this circle with a live active roster.",
+          copy: "Group boundaries can target this circle with active members behind them.",
         },
       };
     }
@@ -11053,14 +11062,14 @@ const UI = {
         boundaries: {
           label: "Limited",
           tone: "warning",
-          copy: "You can target the group, but the circle is still too small to be a strong boundary overlay.",
+          copy: "You can set group boundaries here, but they will have limited reach until more members become active.",
         },
       };
     }
 
     return {
       tone: "not-ready",
-      summaryTitle: "Too thin for ask-around",
+      summaryTitle: "Too small for ask-around",
       summaryCopy:
         "You are the only active member in this group right now. It can exist as a label, but it is not yet a useful ask-around circle.",
       askAround: {
@@ -11071,7 +11080,7 @@ const UI = {
       boundaries: {
         label: "Limited",
         tone: "warning",
-        copy: "Group-scoped boundaries can target this group, but they currently apply only to you.",
+        copy: "Group boundaries can point at this group, but right now the circle only includes you.",
       },
     };
   },
@@ -11210,7 +11219,7 @@ const UI = {
       return `
         <div class="network-loading-row">
           <span class="network-loading-dot"></span>
-          <p>Loading active members and pending invites from the live groups API...</p>
+          <p>Loading active members and pending invites for this circle...</p>
         </div>
       `;
     }
@@ -11261,7 +11270,7 @@ const UI = {
       return `
         <div class="network-loading-row">
           <span class="network-loading-dot"></span>
-          <p>Loading live group status so invite and leave actions stay aligned with the backend.</p>
+          <p>Loading this group’s current status so invite and leave actions stay aligned.</p>
         </div>
       `;
     }
@@ -11290,7 +11299,7 @@ const UI = {
         </button>
       `;
       note =
-        "These actions use the live join and leave endpoints for your current membership record.";
+        "You can accept or decline this invite here, and Mahilo updates the circle immediately.";
     } else if (detail?.status === "active" && detail?.role !== "owner") {
       actionButtons = `
         <button class="squishy-btn btn-secondary btn-small" onclick="UI.handleLeaveGroup('${Helpers.string(detail?.id)}')">
@@ -11365,7 +11374,7 @@ const UI = {
           <div class="network-detail-placeholder">
             <div class="empty-icon-large">🧭</div>
             <h3>Open a group workspace</h3>
-            <p>Select a group to load its live detail, member roster, invite state, and ask-around readiness.</p>
+            <p>Select a group to see who is active, who is invited, and whether the circle is ready for ask-around and group boundaries.</p>
           </div>
         </div>
       `;
@@ -11456,7 +11465,7 @@ const UI = {
             <div>
               <h4>Membership snapshot</h4>
               <p class="network-detail-section-copy">
-                Live group detail from the current groups API, including your role, status, and whether this circle is ready to use.
+                See your role, membership state, and whether this circle is ready for ask-around and boundaries.
               </p>
             </div>
           </div>
@@ -11470,7 +11479,7 @@ const UI = {
             <div>
               <h4>Invite and membership actions</h4>
               <p class="network-detail-section-copy">
-                Use the current invite, join, and leave flows without leaving the dashboard.
+                Manage invites and membership for this circle without leaving the dashboard.
               </p>
             </div>
           </div>
@@ -11482,7 +11491,7 @@ const UI = {
             <div>
               <h4>Members and invite state</h4>
               <p class="network-detail-section-copy">
-                Active members and pending invites from <code>/api/v1/groups/:id/members</code>.
+                Who is active, who is invited, and how far this circle is from being useful right now.
               </p>
             </div>
             ${
@@ -11776,8 +11785,8 @@ const UI = {
         value: allowCount,
       },
       {
-        copy: "Matching content pauses for review before send.",
-        label: "Hold for review",
+        copy: "Matching content becomes review required before send.",
+        label: "Review required",
         tone: "ask",
         value: askCount,
       },
@@ -12119,7 +12128,7 @@ const UI = {
         <div class="empty-state">
           <div class="empty-icon-large">🛡️</div>
           <h3>No boundaries yet</h3>
-          <p>Create boundaries to control what Mahilo can share or hold for review</p>
+          <p>Create boundaries to decide what Mahilo shares automatically, marks as review required, or blocks.</p>
           <button class="squishy-btn btn-primary" id="create-first-policy">
             <span>🛡️</span> Create Your First Boundary
           </button>
@@ -12776,7 +12785,7 @@ const UI = {
     const thread = Helpers.askAroundThread(item, threadSummary);
 
     if (item.kind === "review") {
-      details.push({ label: "Review queue", highlight: true });
+      details.push({ label: "Review required", highlight: true });
       details.push({
         label: `State: ${Helpers.logStatusLabel(item.status, "Review required")}`,
       });
@@ -12891,7 +12900,7 @@ const UI = {
             item.transportDirection === "received"
           ? `Ask-around reply from ${senderLabel}`
           : item.kind === "review"
-        ? `Review queue • ${
+        ? `Review required • ${
             item.transportDirection === "sent"
               ? `To: ${recipientLabel}`
               : `From: ${senderLabel}`
@@ -13005,25 +13014,25 @@ const UI = {
     });
 
     container.innerHTML = `
-      <div class="log-summary-card">
+      <div class="log-summary-card delivery">
         <span class="log-summary-label">Deliveries</span>
         <span class="log-summary-value">${counts.delivered}</span>
         <p>Completed sends or receives in the current audit view.</p>
       </div>
-      <div class="log-summary-card">
-        <span class="log-summary-label">Review Queue</span>
+      <div class="log-summary-card review">
+        <span class="log-summary-label">Review Required</span>
         <span class="log-summary-value">${counts.review}</span>
         <div class="log-summary-breakdown">
           <span class="log-summary-chip">Review required ${counts.reviewRequired}</span>
           <span class="log-summary-chip">Approval pending ${counts.approvalPending}</span>
         </div>
       </div>
-      <div class="log-summary-card">
+      <div class="log-summary-card blocked">
         <span class="log-summary-label">Blocked Events</span>
         <span class="log-summary-value">${counts.blocked}</span>
-        <p>Boundary and policy denials captured for audit.</p>
+        <p>Events your boundaries stopped before send.</p>
       </div>
-      <div class="log-summary-card">
+      <div class="log-summary-card ask-around">
         <span class="log-summary-label">Ask-around Threads</span>
         <span class="log-summary-value">${representedThreadIds.size}</span>
         <div class="log-summary-breakdown">
@@ -13071,12 +13080,12 @@ const UI = {
     if (!items.length) {
       const emptyCopy =
         State.logDirectionFilter === "all" && State.logStateFilter === "all"
-          ? "Deliveries, reviews, blocked events, and ask-around threads will appear here for audit"
+          ? "Review required items, blocked events, deliveries, and ask-around activity will appear here."
           : "No delivery-log items match the current direction and state filters.";
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon-large">📋</div>
-          <h3>No delivery logs yet</h3>
+          <h3>No delivery activity yet</h3>
           <p>${Helpers.escapeHtml(emptyCopy)}</p>
         </div>
       `;
@@ -13856,7 +13865,7 @@ const UI = {
     return {
       copy: parts.length
         ? parts.join(" • ")
-        : "No recent ask-around or delivery activity yet.",
+        : "No recent ask-around, review required, or delivery activity yet.",
     };
   },
 
@@ -13907,7 +13916,7 @@ const UI = {
       statusLabel = "Waiting on contacts";
       title = "Accepted contacts need active connections";
       copy =
-        "Your circle exists, but none of the accepted contacts currently have an active Mahilo connection.";
+        "Your circle exists, but none of the accepted contacts currently have a sender connection online.";
       nextStep =
         "Ask a contact to bring one of their Mahilo connections online.";
     } else {
@@ -13919,7 +13928,7 @@ const UI = {
       if (sender.tone !== "ready") {
         nextStep = sender.nextStep;
       } else if (reviewQueueCount) {
-        nextStep = `Review ${Helpers.pluralize(reviewQueueCount, "held item")} waiting in the queue.`;
+        nextStep = `Review ${Helpers.pluralize(reviewQueueCount, "review required item", "review required items")} waiting in the queue.`;
       } else if (network.counts.incoming) {
         nextStep = `Accept ${Helpers.pluralize(network.counts.incoming, "incoming request")} to widen your circle.`;
       } else {
@@ -13964,38 +13973,50 @@ const UI = {
 
     const statCards = [
       {
-        copy: "In your trusted circle",
-        label: "Accepted contacts",
+        copy: "People you can reach now",
+        label: "Circle size",
         value: summary.network.counts.accepted,
+        tone: "ready",
       },
       {
         copy: summary.network.checkingCount
           ? `${summary.network.checkingCount} checking`
           : "Active contact connections",
-        label: "Ready contacts",
+        label: "Ready now",
         value: summary.network.readyCount,
+        tone: summary.network.readyCount
+          ? "ready"
+          : summary.network.checkingCount
+            ? "pending"
+            : "warning",
+      },
+      {
+        copy: reviewCopyParts.length
+          ? reviewCopyParts.join(" • ")
+          : "Nothing waiting right now",
+        label: "Review required",
+        value: summary.reviewQueueCount,
+        tone: summary.reviewQueueCount ? "review" : "neutral",
+      },
+      {
+        copy: summary.blockedCount
+          ? "Stopped by your boundaries"
+          : "No blocked events right now",
+        label: "Blocked by boundaries",
+        value: summary.blockedCount,
+        tone: summary.blockedCount ? "blocked" : "boundary",
       },
       {
         copy: "Waiting on you",
         label: "Incoming requests",
         value: summary.network.counts.incoming,
+        tone: summary.network.counts.incoming ? "pending" : "neutral",
       },
       {
         copy: "Waiting on them",
         label: "Outgoing requests",
         value: summary.network.counts.outgoing,
-      },
-      {
-        copy: reviewCopyParts.length
-          ? reviewCopyParts.join(" • ")
-          : "Held deliveries",
-        label: "Review queue",
-        value: summary.reviewQueueCount,
-      },
-      {
-        copy: "Boundary and policy denials",
-        label: "Blocked events",
-        value: summary.blockedCount,
+        tone: summary.network.counts.outgoing ? "pending" : "neutral",
       },
     ];
 
@@ -14015,7 +14036,7 @@ const UI = {
         ${statCards
           .map(
             (card) => `
-              <div class="network-summary-card">
+              <div class="network-summary-card ${Helpers.escapeHtml(card.tone)}">
                 <span class="network-summary-label">${Helpers.escapeHtml(card.label)}</span>
                 <span class="network-summary-value">${Helpers.escapeHtml(String(card.value))}</span>
                 <span class="network-summary-copy">${Helpers.escapeHtml(card.copy)}</span>
@@ -14025,7 +14046,7 @@ const UI = {
           .join("")}
       </div>
       <div class="overview-activity-note">
-        <span class="overview-activity-note-label">Recent activity</span>
+        <span class="overview-activity-note-label">Ask-around and delivery activity</span>
         <p>${Helpers.escapeHtml(summary.activity.copy)}</p>
       </div>
     `;
@@ -14086,6 +14107,7 @@ const UI = {
         <div class="empty-state small" style="padding: 30px 20px;">
           <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">🤖</div>
           <p style="font-weight: 700; color: var(--color-text); font-size: 0.95rem;">No sender connections yet</p>
+          <p class="hint" style="font-size: 0.9rem;">Add one so Mahilo can send and ask around.</p>
         </div>
       `;
       return;
@@ -14132,6 +14154,7 @@ const UI = {
           copy: "In your circle",
           label: "Accepted",
           value: network.counts.accepted,
+          tone: "ready",
         },
         {
           copy: network.checkingCount
@@ -14139,23 +14162,30 @@ const UI = {
             : "Live connection space",
           label: "Ready now",
           value: network.readyCount,
+          tone: network.readyCount
+            ? "ready"
+            : network.checkingCount
+              ? "pending"
+              : "warning",
         },
         {
           copy: "Waiting on you",
           label: "Incoming",
           value: network.counts.incoming,
+          tone: network.counts.incoming ? "pending" : "neutral",
         },
         {
           copy: "Waiting on them",
           label: "Outgoing",
           value: network.counts.outgoing,
+          tone: network.counts.outgoing ? "pending" : "neutral",
         },
       ];
 
       cues.innerHTML = cueCards
         .map(
           (card) => `
-            <div class="network-summary-card">
+            <div class="network-summary-card ${Helpers.escapeHtml(card.tone)}">
               <span class="network-summary-label">${Helpers.escapeHtml(card.label)}</span>
               <span class="network-summary-value">${Helpers.escapeHtml(String(card.value))}</span>
               <span class="network-summary-copy">${Helpers.escapeHtml(card.copy)}</span>
@@ -14169,7 +14199,8 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 30px 20px;">
           <div class="empty-icon" style="font-size: 2.5rem; margin-bottom: 12px;">👋</div>
-          <p style="font-weight: 700; color: var(--color-text); font-size: 0.95rem;">No network yet</p>
+          <p style="font-weight: 700; color: var(--color-text); font-size: 0.95rem;">Build your circle</p>
+          <p class="hint" style="font-size: 0.9rem;">Add trusted contacts so Mahilo has people to reach.</p>
         </div>
       `;
       return;
@@ -14212,7 +14243,7 @@ const UI = {
         rows.push(
           this.renderOverviewNetworkRow({
             badge: "Not ready",
-            copy: "Accepted, but no active Mahilo connection is live right now.",
+            copy: "Accepted, but no sender connection is live right now.",
             friend,
             tone: "not-ready",
           }),
@@ -14266,11 +14297,11 @@ const UI = {
         this.renderOverviewNetworkRow({
           avatarLabel: "•",
           avatarTone: "pending",
-          badge: "Start",
+          badge: "Build",
           badgeTone: "pending",
           copy:
-            "Add or accept a contact to start building a usable Mahilo circle.",
-          title: "No accepted or pending contacts yet",
+            "Add or accept a contact to start building a circle Mahilo can actually ask around with.",
+          title: "Build your circle",
           tone: "pending",
         }),
       );
@@ -14311,7 +14342,7 @@ const UI = {
                 ? item.summary ||
                     item.messagePreview ||
                     item.previewText ||
-                    "Message requires review before delivery."
+                    "Message is review required before delivery."
                 : item.kind === "blocked"
                   ? item.reason || item.summary || "Message blocked by policy."
                   : item.previewText || item.messageText || "(no content)",
@@ -14478,8 +14509,8 @@ const UI = {
       list.innerHTML = `
         <div class="empty-state small" style="padding: 40px 20px;">
           <div class="empty-icon" style="font-size: 3rem; margin-bottom: 16px;">📨</div>
-          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No delivery activity yet</p>
-          <p class="hint" style="font-size: 0.9rem;">Send a message or ask around to start your audit trail.</p>
+          <p style="font-weight: 700; color: var(--color-text); margin-bottom: 8px;">No review or delivery activity yet</p>
+          <p class="hint" style="font-size: 0.9rem;">Ask around or send directly to start your audit trail.</p>
         </div>
       `;
       return;
