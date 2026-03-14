@@ -36,6 +36,14 @@ Mahilo's user story is easy to like; this page covers the operational proof behi
 - `reviewMode`: keep `ask` or `manual` for conservative rollout. `reviewMode=auto` still does not bypass degraded local LLM reviews.
 - `promptContextEnabled`: prompt enrichment only. Turning it off does not disable the live bundle -> local evaluation -> commit path.
 
+## Rollout Gate And Upgrade Impact
+
+- There is no separate plugin feature flag. `TRUSTED_MODE` is the only rollout gate.
+- `TRUSTED_MODE=true` preserves the trusted/plaintext server-evaluated send path.
+- `TRUSTED_MODE=false` makes live `send_message` and `ask_network` use the local bundle -> evaluate -> commit -> transport flow immediately after upgrade.
+- Existing non-trusted installs should assume review or blocked states can now surface before transport after upgrade; advisory preview/context does not preserve the old preview-only live path.
+- If applicable policies use `evaluator="llm"`, verify a local key source before wider rollout. Missing keys degrade to `policy.ask.llm.unavailable` review-required outcomes instead of `allow`.
+
 ## Failure Semantics Operators Should Expect
 
 - Prompt context and preview remain UX-only surfaces. A live non-trusted send still fetches a fresh bundle, evaluates locally, commits the result, and only then transports committed `allow` recipients.

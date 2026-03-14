@@ -105,6 +105,8 @@ describe("README install docs", () => {
     expect(readme).toContain("evaluated locally before transport");
     expect(readme).toContain("live outbound path is always");
     expect(readme).toContain("Fetch a direct-send or group-fanout bundle from Mahilo.");
+    expect(readme).toContain("There is no separate `localPolicyEnforcementEnabled` flag");
+    expect(readme).toContain("`TRUSTED_MODE=false` makes live non-trusted `send_message` and `ask_network`");
     expect(readme).toContain("Local `ask` commits appear in `mahilo review`.");
     expect(readme).toContain("Local `deny` commits appear in blocked-event surfaces.");
     expect(readme).toContain("Group sends are per-recipient all the way through.");

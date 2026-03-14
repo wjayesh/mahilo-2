@@ -181,6 +181,14 @@ Operator notes:
 - Degraded local LLM outcomes use `policy.ask.llm.<kind>` and remain review-required even when plugin UX uses `reviewMode=auto`.
 - `audit.policy_evaluation_mode = "plugin_local_pre_delivery"` is the marker that a review or blocked item came from local commit rather than trusted send-time evaluation.
 
+### Rollout And Enablement
+
+- `trustedMode` remains the only rollout gate. There is no separate plugin feature flag or preview-only compatibility mode.
+- `trustedMode=true` keeps trusted/plaintext live sends on server-side evaluation.
+- `trustedMode=false` means live non-trusted `send_message` and `ask_network` enforcement is active by default on upgrade. Preview/context remain advisory and cannot be used to preserve prior preview-only behavior.
+- Before broader rollout with `trustedMode=false`, confirm plugin authentication, callback routing, and any required local LLM credential source from plugin config or environment.
+- Missing local LLM credentials do not disable deterministic enforcement; they degrade only affected LLM-backed decisions to `ask` with `policy.ask.llm.<kind>` reason codes and review-required handling.
+
 ---
 
 ## End-to-End Flows

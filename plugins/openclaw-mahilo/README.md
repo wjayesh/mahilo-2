@@ -124,6 +124,15 @@ Keep these boundaries in mind:
 
 If an applicable local LLM policy cannot be evaluated because credentials are missing or the provider returns `network`, `provider`, `timeout`, `invalid_response`, `unknown`, or `skip`, the plugin degrades the decision to `ask`. Those reason codes use `policy.ask.llm.<kind>`, stay `review_required`, and do not auto-send even when `reviewMode=auto`.
 
+## Rollout And Upgrade Rules
+
+- There is no separate `localPolicyEnforcementEnabled` flag or preview-only compatibility switch. The only rollout gate is server `TRUSTED_MODE`.
+- `TRUSTED_MODE=true` keeps the existing trusted/plaintext server-side evaluation path for live sends.
+- `TRUSTED_MODE=false` makes live non-trusted `send_message` and `ask_network` use bundle -> local evaluation -> commit -> transport by default as soon as you upgrade and restart.
+- Existing non-trusted installs should expect stricter live behavior after upgrade: sends that previously depended on advisory preview/context hints may now stop in review or blocked states before transport.
+- Before broader rollout with `TRUSTED_MODE=false`, confirm `mahilo status`, `mahilo network`, and, if any applicable policy uses `evaluator="llm"`, a local key source through `localPolicyLLM.apiKey`, `localPolicyLLM.apiKeyEnvVar`, or a provider-default env var such as `OPENAI_API_KEY`.
+- Missing local provider credentials do not disable deterministic enforcement. They turn only the affected LLM-backed decisions into `policy.ask.llm.unavailable`-style `review_required` outcomes. If that fallback is not acceptable yet, keep `TRUSTED_MODE=true` until local credentials are staged or the relevant LLM policies are removed.
+
 ## Commands
 
 The plugin registers these OpenClaw-native commands:
@@ -217,6 +226,8 @@ npm install @mahilo/openclaw-mahilo@latest
 ```
 
 Then restart OpenClaw and rerun `mahilo status`.
+
+Rollout rule on upgrade: `TRUSTED_MODE` is the only enablement gate. If it is `false`, live local enforcement is active immediately after restart and there is no separate plugin flag that preserves the old preview-only non-trusted behavior.
 
 If you are moving from a repo-local install to the published package:
 

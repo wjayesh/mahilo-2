@@ -91,6 +91,9 @@ describe("documentation surface", () => {
     expect(operatorProof).toContain("mahilo network");
     expect(operatorProof).toContain("mahilo review");
     expect(operatorProof).toContain("Required Config For Local Enforcement");
+    expect(operatorProof).toContain("Rollout Gate And Upgrade Impact");
+    expect(operatorProof).toContain("There is no separate plugin feature flag");
+    expect(operatorProof).toContain("TRUSTED_MODE=false");
     expect(operatorProof).toContain("Failure Semantics Operators Should Expect");
     expect(operatorProof).toContain("policy.ask.llm.unavailable");
     expect(operatorProof).toContain("reviewMode=auto");

@@ -23,5 +23,8 @@ describe("openclaw plugin server contract docs", () => {
     expect(contractDoc).toContain("plugin_local_pre_delivery");
     expect(contractDoc).toContain("Mahilo never returns provider secrets or host credentials");
     expect(contractDoc).toContain("per committed member artifact");
+    expect(contractDoc).toContain("Rollout And Enablement");
+    expect(contractDoc).toContain("`trustedMode` remains the only rollout gate");
+    expect(contractDoc).toContain("active by default on upgrade");
   });
 });

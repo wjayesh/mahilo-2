@@ -254,6 +254,16 @@ describe("parseMahiloPluginConfig", () => {
     ).toThrow("unsupported plugin config key(s): unknownKnob");
   });
 
+  it("does not allow a separate local enforcement rollout flag in plugin config", () => {
+    expect(() =>
+      parseMahiloPluginConfig({
+        apiKey: "mahilo-key",
+        baseUrl: "https://mahilo.example",
+        localPolicyEnforcementEnabled: true
+      })
+    ).toThrow("unsupported plugin config key(s): localPolicyEnforcementEnabled");
+  });
+
   it("rejects legacy server-owned plugin config keys", () => {
     expect(() =>
       parseMahiloPluginConfig({
