@@ -625,7 +625,7 @@ This project is done when all of the following are true:
 
 ### 5.1 Add Shared-Core Parity Tests
 - **ID**: `LPE-050`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-005`
 - **Description**:
@@ -637,6 +637,8 @@ This project is done when all of the following are true:
   - [ ] Shared-core outputs include stable effect, reason code, winning policy, and evaluated-policy assertions
   - [ ] Trusted-mode server tests continue to pass after extraction
 
+- **Notes**:
+  - 2026-03-14T16:17:47.206Z: LPE-050 completed via orchestrator integration.
 ### 5.2 Add Server Integration Tests for Bundles and Commit Paths
 - **ID**: `LPE-051`
 - **Status**: `pending`
