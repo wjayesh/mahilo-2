@@ -85,7 +85,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
 
 ### 0.1 Dashboard Data Adapter and Boot Fixes
 - **ID**: `DASH-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: none
 - **Description**:
@@ -98,6 +98,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] All current top-level loaders complete successfully with the existing server routes
 - **Notes**:
   - Keep this task frontend-only unless a truly blocking contract gap is discovered.
+  - 2026-03-14T12:36:18.232Z: DASH-001 completed via orchestrator integration.
 
 ### 0.2 Remove or Replace Dead-End Dashboard Actions
 - **ID**: `DASH-002`
