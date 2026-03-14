@@ -1,6 +1,4 @@
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
-import { config } from "../config";
-import { getDb, schema } from "../db";
 import {
   POLICY_RESOLVER_ORDER,
   normalizeSelectorToken,
@@ -17,7 +15,9 @@ import {
   type PolicySelectorContext,
   type EvaluatedPolicy,
   type WinningPolicy,
-} from "../policy/core";
+} from "@mahilo/policy-core";
+import { config } from "../config";
+import { getDb, schema } from "../db";
 import { evaluatePlatformGuardrails } from "./policyGuardrails";
 import { evaluateLLMPolicy, isLLMEnabled } from "./llm";
 import {

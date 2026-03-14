@@ -6,15 +6,14 @@
       "name": "mahilo-registry",
       "dependencies": {
         "@hono/zod-validator": "^0.4.0",
+        "@mahilo/policy-core": "workspace:*",
         "@node-rs/argon2": "^2.0.2",
-        "better-sqlite3": "^11.8.0",
         "drizzle-orm": "^0.38.0",
         "hono": "^4.7.0",
         "nanoid": "^5.0.9",
         "zod": "^3.24.0",
       },
       "devDependencies": {
-        "@types/better-sqlite3": "^7.6.12",
         "@types/bun": "^1.2.2",
         "@typescript-eslint/eslint-plugin": "^8.23.0",
         "@typescript-eslint/parser": "^8.23.0",
@@ -24,6 +23,21 @@
         "prettier": "^3.4.0",
         "typescript": "^5.7.0",
         "vitest": "^3.0.0",
+      },
+    },
+    "packages/policy-core": {
+      "name": "@mahilo/policy-core",
+      "version": "0.1.0",
+    },
+    "plugins/openclaw-mahilo": {
+      "name": "@mahilo/openclaw-mahilo",
+      "version": "0.1.4",
+      "dependencies": {
+        "@mahilo/policy-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.2.2",
+        "typescript": "^5.9.3",
       },
     },
   },
@@ -143,6 +157,10 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@mahilo/openclaw-mahilo": ["@mahilo/openclaw-mahilo@workspace:plugins/openclaw-mahilo"],
+
+    "@mahilo/policy-core": ["@mahilo/policy-core@workspace:packages/policy-core"],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@0.2.12", "", { "dependencies": { "@emnapi/core": "^1.4.3", "@emnapi/runtime": "^1.4.3", "@tybys/wasm-util": "^0.10.0" } }, "sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ=="],
 

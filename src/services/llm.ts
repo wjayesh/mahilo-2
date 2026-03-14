@@ -8,7 +8,7 @@ import { config } from "../config";
 import {
   buildLLMPolicyEvaluationPrompt,
   parseLLMPolicyEvaluationResponse,
-} from "../policy/core";
+} from "@mahilo/policy-core";
 
 interface LLMEvaluationResult {
   passed: boolean;

@@ -4,7 +4,7 @@ import {
   resolvePolicySet,
   type CorePolicy,
   type LLMPolicyEvaluator,
-} from "../../src/policy/core";
+} from "@mahilo/policy-core";
 
 function createPolicy(overrides: Partial<CorePolicy> & Pick<CorePolicy, "id">): CorePolicy {
   return {

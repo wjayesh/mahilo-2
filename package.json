@@ -3,6 +3,10 @@
   "version": "0.1.3",
   "description": "Trusted inter-agent communication protocol registry",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "plugins/*"
+  ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
@@ -35,6 +39,7 @@
     "orchestrate:launchd:install:plugin": "bun run scripts/install-launchd.ts --workflow WORKFLOW.plugin.md --name plugin"
   },
   "dependencies": {
+    "@mahilo/policy-core": "workspace:*",
     "hono": "^4.7.0",
     "drizzle-orm": "^0.38.0",
     "@hono/zod-validator": "^0.4.0",

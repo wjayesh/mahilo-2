@@ -1,6 +1,7 @@
+import { stricterEffect, type PolicyEffect } from "@mahilo/policy-core";
 import type { ReviewMode } from "./config";
 
-export type PolicyDecision = "allow" | "ask" | "deny";
+export type PolicyDecision = PolicyEffect;
 export type SelectorDirection = "inbound" | "outbound";
 
 export interface DeclaredSelectors {
@@ -20,11 +21,6 @@ export interface LocalPolicyGuardResult {
 }
 
 const DECISIONS: PolicyDecision[] = ["allow", "ask", "deny"];
-const DECISION_PRIORITY: Record<PolicyDecision, number> = {
-  allow: 0,
-  ask: 1,
-  deny: 2
-};
 
 const SENSITIVE_RESOURCES = ["calendar.", "contact.", "financial.", "health.", "location."];
 const SENSITIVE_MESSAGE_PATTERNS = [/\b\d{3}-\d{2}-\d{4}\b/u, /\baccount number\b/iu, /\bpassword\b/iu, /\bpin\b/iu];
@@ -89,9 +85,7 @@ export function mergePolicyDecisions(...decisions: PolicyDecision[]): PolicyDeci
   let merged: PolicyDecision = "allow";
 
   for (const decision of decisions) {
-    if (DECISION_PRIORITY[decision] > DECISION_PRIORITY[merged]) {
-      merged = decision;
-    }
+    merged = stricterEffect(merged, decision);
   }
 
   return merged;

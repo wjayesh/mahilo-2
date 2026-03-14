@@ -1,0 +1,25 @@
+{
+  "name": "@mahilo/policy-core",
+  "version": "0.1.0",
+  "description": "Shared provider-agnostic Mahilo policy resolution core",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "bunx tsc -p tsconfig.build.json"
+  }
+}
