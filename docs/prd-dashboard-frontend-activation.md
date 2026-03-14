@@ -285,7 +285,7 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - 2026-03-14T13:52:49.983Z: DASH-040 completed via orchestrator integration.
 ### 4.2 Boundaries Overview and Browsing Experience
 - **ID**: `DASH-041`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: `P0`
 - **Depends on**: `DASH-040`
 - **Description**:
@@ -296,6 +296,8 @@ This PRD turns that audit into orchestrator-ready frontend work.
   - [ ] Default user-facing copy says "Boundaries" rather than "Policies"
   - [ ] Global/user/role/group filters remain available in a user-friendly form
 
+- **Notes**:
+  - 2026-03-14T14:05:34.540Z: DASH-041 completed via orchestrator integration.
 ### 4.3 Common Boundary Create/Edit Flows
 - **ID**: `DASH-042`
 - **Status**: `pending`
