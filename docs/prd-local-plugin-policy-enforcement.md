@@ -229,7 +229,7 @@ This project is done when all of the following are true:
   - 2026-03-14T12:44:27.513Z: LPE-002 completed via orchestrator integration.
 ### 0.3 Extract Deterministic Resolution Semantics
 - **ID**: `LPE-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `LPE-001`, `LPE-002`
 - **Description**:
@@ -247,6 +247,8 @@ This project is done when all of the following are true:
   - [ ] Plugin local enforcement can call the same resolver
   - [ ] Unit parity tests cover no-match, conflict, specificity, and group-overlay cases
 
+- **Notes**:
+  - 2026-03-14T12:53:56.209Z: LPE-003 completed via orchestrator integration.
 ### 0.4 Extract a Provider-Neutral LLM Evaluator Contract
 - **ID**: `LPE-004`
 - **Status**: `pending`
