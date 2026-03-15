@@ -100,12 +100,25 @@ function createEmptyBrowserLoginState() {
   };
 }
 
+function getDashboardTestSession() {
+  if (
+    typeof globalThis === "undefined" ||
+    !globalThis.__MAHILO_DASHBOARD_TEST_HOOKS__
+  ) {
+    return null;
+  }
+
+  const candidate = globalThis.__MAHILO_DASHBOARD_TEST_SESSION__;
+  return candidate && typeof candidate === "object" ? candidate : null;
+}
+
 // ========================================
 // State Management
 // ========================================
 const State = {
   user: null,
   apiKey: null,
+  authMode: null,
   ws: null,
   agents: [],
   agentsById: new Map(),
@@ -162,18 +175,16 @@ const State = {
   browserLoginDiagnosticsError: null,
 
   readStoredSession() {
-    const session = localStorage.getItem(CONFIG.STORAGE_KEY);
-    if (session) {
-      try {
-        const data = JSON.parse(session);
-        return {
-          apiKey: typeof data.apiKey === "string" ? data.apiKey : null,
-          user: Normalizers.user(data.user),
-        };
-      } catch (e) {
-        console.error("Failed to parse session:", e);
-      }
+    const testSession = getDashboardTestSession();
+    if (testSession) {
+      return {
+        apiKey:
+          typeof testSession.apiKey === "string" ? testSession.apiKey : null,
+        user: Normalizers.user(testSession.user),
+      };
     }
+
+    localStorage.removeItem(CONFIG.STORAGE_KEY);
 
     return {
       apiKey: null,
@@ -181,39 +192,15 @@ const State = {
     };
   },
 
-  // Save state to localStorage
   save() {
-    if (!this.apiKey) {
-      localStorage.removeItem(CONFIG.STORAGE_KEY);
-      return;
-    }
-
-    const user = this.user
-      ? {
-          user_id: this.user.user_id,
-          username: this.user.username,
-          display_name: this.user.display_name,
-          created_at: this.user.created_at,
-          registration_source: this.user.registration_source,
-          status: this.user.status,
-          verified: this.user.verified,
-          verified_at: this.user.verified_at,
-        }
-      : null;
-
-    localStorage.setItem(
-      CONFIG.STORAGE_KEY,
-      JSON.stringify({
-        apiKey: this.apiKey,
-        user,
-      }),
-    );
+    localStorage.removeItem(CONFIG.STORAGE_KEY);
   },
 
   // Clear state
   clear() {
     this.user = null;
     this.apiKey = null;
+    this.authMode = null;
     this.agents = [];
     this.agentsById = new Map();
     this.agentHealthById = new Map();
@@ -287,7 +274,7 @@ const API = {
       ...optionHeaders,
     };
 
-    if (authMode !== "omit" && State.apiKey) {
+    if (authMode !== "omit" && State.authMode === "api_key" && State.apiKey) {
       headers["Authorization"] = `Bearer ${State.apiKey}`;
     }
 
@@ -4776,7 +4763,7 @@ const WebSocketManager = {
   maxReconnectAttempts: 5,
 
   connect() {
-    if (!State.apiKey) return;
+    if (State.authMode !== "api_key" || !State.apiKey) return;
 
     try {
       const wsUrl = `${CONFIG.WS_URL}?api_key=${encodeURIComponent(State.apiKey)}`;
@@ -5353,8 +5340,10 @@ const UI = {
 
     try {
       State.apiKey = null;
+      State.authMode = null;
       State.user = null;
       await DataLoader.bootstrap({ authMode: "omit" });
+      State.authMode = "browser";
       WebSocketManager.connect();
       return;
     } catch (error) {
@@ -5363,11 +5352,13 @@ const UI = {
         console.error("Failed to resume browser session:", error);
       }
       State.apiKey = null;
+      State.authMode = null;
       State.user = null;
     }
 
     if (storedSession.apiKey) {
       State.apiKey = storedSession.apiKey;
+      State.authMode = "api_key";
       State.user = storedSession.user;
 
       try {
@@ -5378,7 +5369,7 @@ const UI = {
         State.clear();
         this.showLanding();
         this.showToast(
-          "Session expired. Sign in with your agent or use the advanced API-key fallback.",
+          "Session expired. Sign in with your agent again.",
           "error",
         );
       }
@@ -5413,21 +5404,6 @@ const UI = {
       .getElementById("agent-login-continue")
       ?.addEventListener("click", () => {
         this.redeemBrowserLoginAttempt();
-      });
-
-    // Advanced API-key fallback form
-    document.getElementById("login-form")?.addEventListener("submit", (e) => {
-      e.preventDefault();
-      this.handleLogin();
-    });
-
-    // Toggle password
-    document
-      .querySelector(".toggle-password")
-      ?.addEventListener("click", (e) => {
-        const input = document.getElementById("login-api-key");
-        input.type = input.type === "password" ? "text" : "password";
-        e.target.textContent = input.type === "password" ? "👁️" : "🙈";
       });
 
     // Navigation
@@ -5957,7 +5933,6 @@ const UI = {
         navLabel: "Sign in to dashboard",
         mobileLabel: "Sign in",
         heroLabel: "Sign in to dashboard",
-        note: "Use your Mahilo username to get a short approval code.",
         state: "signin",
       };
     }
@@ -5967,8 +5942,7 @@ const UI = {
       href: ACCESS_ENTRY_PATH,
       navLabel: "Sign in to dashboard",
       mobileLabel: "Sign in",
-      heroLabel: "Already invited? Sign in",
-      note: "Already invited? Go straight to browser access.",
+      heroLabel: "Sign in to dashboard",
       state: "marketing",
     };
   },
@@ -6000,11 +5974,6 @@ const UI = {
       element.setAttribute("href", presentation.href);
       element.dataset.state = presentation.state;
     });
-
-    const entryNote = document.getElementById("browser-access-entry-note");
-    if (entryNote) {
-      entryNote.textContent = presentation.note;
-    }
 
     const browserAccessSection = document.getElementById("browser-access-section");
     if (browserAccessSection) {
@@ -6520,6 +6489,7 @@ const UI = {
       );
 
       State.apiKey = null;
+      State.authMode = "browser";
       await DataLoader.bootstrap({ authMode: "omit" });
       WebSocketManager.connect();
       this.showToast("Signed in with agent approval", "success");
@@ -6533,39 +6503,10 @@ const UI = {
 
   // Handle login
   async handleLogin() {
-    const apiKeyInput = document.getElementById("login-api-key");
-    if (!apiKeyInput) {
-      this.showToast(
-        "Advanced API-key sign-in is unavailable on this page.",
-        "error",
-      );
-      return;
-    }
-
-    const apiKey = apiKeyInput.value.trim();
-    if (!apiKey) {
-      this.showToast(
-        "Enter your API key to continue.",
-        "error",
-      );
-      return;
-    }
-
-    State.apiKey = apiKey;
-
-    try {
-      await DataLoader.bootstrap();
-      WebSocketManager.connect();
-      this.showToast("Welcome back!", "success");
-    } catch (error) {
-      State.apiKey = null;
-      State.user = null;
-      State.save();
-      this.showToast(
-        "Invalid API key. This only works for existing accounts.",
-        "error",
-      );
-    }
+    this.showToast(
+      "Browser API-key sign-in has been removed. Sign in with your agent instead.",
+      "error",
+    );
   },
 
   // Handle save preferences
@@ -6662,7 +6603,9 @@ const UI = {
   async handleRotateKey() {
     try {
       const result = await API.auth.rotateKey();
+      const usingApiKeyAuth = State.authMode === "api_key";
       State.apiKey = result.api_key;
+      State.developerApiKeyVisible = false;
       State.save();
 
       document.getElementById("new-api-key").textContent = result.api_key;
@@ -6670,9 +6613,10 @@ const UI = {
       this.hideModals();
       this.showModal("api-key-modal");
 
-      // Reconnect WebSocket with new key
-      WebSocketManager.disconnect();
-      WebSocketManager.connect();
+      if (usingApiKeyAuth) {
+        WebSocketManager.disconnect();
+        WebSocketManager.connect();
+      }
 
       this.showToast("API key regenerated successfully", "success");
     } catch (error) {
@@ -13393,9 +13337,9 @@ const UI = {
     if (!key) {
       display.textContent = "No API key loaded";
       context.textContent =
-        "Use the advanced API-key fallback to load an existing invite-backed account.";
+        "Browser sign-in does not keep an API key in local storage.";
       footnote.textContent =
-        "API keys are an advanced access path for existing accounts. Mahilo only returns a fresh key when you regenerate it.";
+        "Mahilo only returns a fresh API key when you rotate one in Developer.";
       toggle.disabled = true;
       toggle.innerHTML = "<span>👁️</span> Reveal";
       return;
@@ -13406,9 +13350,9 @@ const UI = {
       : Helpers.maskSecret(key);
     context.textContent = State.developerApiKeyVisible
       ? "Visible because you intentionally revealed it in this dashboard session."
-      : "Loaded from this dashboard session for an existing invite-backed account. Copy works without revealing it on screen.";
+      : "Available only in this page so you can copy it without leaving it visible on screen.";
     footnote.textContent =
-      "Mahilo can regenerate this advanced credential, but it cannot recover an older lost key.";
+      "This key is not used for browser sign-in. Mahilo cannot recover an older lost key.";
     toggle.disabled = false;
     toggle.innerHTML = State.developerApiKeyVisible
       ? "<span>🙈</span> Hide"
@@ -13417,7 +13361,7 @@ const UI = {
 
   toggleDevApiKeyVisibility() {
     if (!State.apiKey) {
-      this.showToast("No API key is loaded in this dashboard session.", "error");
+      this.showToast("No API key is available in this page.", "error");
       return;
     }
 

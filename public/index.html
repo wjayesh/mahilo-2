@@ -210,7 +210,7 @@
                 href="/access"
                 class="landing-btn landing-btn-ghost landing-btn-large hero-cta-link hero-cta-secondary"
               >
-                Already invited? Sign in
+                Sign in to dashboard
               </a>
             </div>
             <p class="hero-fine-print">
@@ -662,13 +662,6 @@
                 Mahilo account creation happens through an invited agent, not a
                 self-serve browser registration flow.
               </p>
-              <p
-                id="browser-access-entry-note"
-                class="browser-access-entry-note"
-              >
-                Use your Mahilo username to get a short approval code for your
-                account.
-              </p>
             </div>
 
             <div class="browser-access-grid">
@@ -790,49 +783,6 @@
                 >
                   Review invite setup
                 </a>
-              </article>
-
-              <article class="browser-access-card browser-access-card-advanced">
-                <div class="browser-access-card-header">
-                  <span
-                    class="browser-access-badge browser-access-badge-muted"
-                    >Advanced fallback</span
-                  >
-                  <h3>Manual API-key entry</h3>
-                </div>
-                <p class="browser-access-card-copy">
-                  Already have an API key? Use it only if you need advanced
-                  browser access.
-                </p>
-                <form id="login-form" class="browser-access-form">
-                  <label class="browser-access-label" for="login-api-key">
-                    Mahilo API key
-                  </label>
-                  <div class="browser-access-input-row">
-                    <input
-                      type="password"
-                      class="waitlist-input"
-                      id="login-api-key"
-                      placeholder="mhl_..."
-                      autocomplete="off"
-                      spellcheck="false"
-                    />
-                    <button
-                      type="button"
-                      class="toggle-password browser-access-toggle"
-                      aria-label="Reveal API key"
-                    >
-                      👁️
-                    </button>
-                  </div>
-                  <p class="browser-access-helper">
-                    This does not create an account. It only signs in to an
-                    existing one.
-                  </p>
-                  <button type="submit" class="landing-btn landing-btn-primary">
-                    Use API key
-                  </button>
-                </form>
               </article>
             </div>
           </div>
@@ -1474,12 +1424,12 @@
                   </div>
                   <div class="developer-inline-meta">
                     <p id="dev-api-key-context">
-                      Loaded from this dashboard session. Copy works without
-                      revealing it on screen.
+                      Available only in this page so you can copy it without
+                      leaving it visible on screen.
                     </p>
                     <p id="dev-api-key-footnote">
-                      Mahilo can regenerate this key, but it cannot recover an
-                      older lost key.
+                      This key is not used for browser sign-in. Mahilo cannot
+                      recover an older lost key.
                     </p>
                   </div>
                   <p class="api-key-hint">

@@ -378,16 +378,6 @@ function createDashboardHarness(
   const sessionStore = new Map<string, string>();
   let cookieHeader = options.initialCookieHeader ?? "";
 
-  if (options.apiKey || options.sessionUser) {
-    sessionStore.set(
-      "mahilo_session",
-      JSON.stringify({
-        apiKey: options.apiKey ?? null,
-        user: options.sessionUser ?? null,
-      }),
-    );
-  }
-
   const fetchCalls: string[] = [];
   const fetchImpl =
     options.fetchImpl ??
@@ -467,6 +457,14 @@ function createDashboardHarness(
   };
 
   context.window = context;
+  context.__MAHILO_DASHBOARD_TEST_HOOKS__ = true;
+  context.__MAHILO_DASHBOARD_TEST_SESSION__ =
+    options.apiKey || options.sessionUser
+      ? {
+          apiKey: options.apiKey ?? null,
+          user: options.sessionUser ?? null,
+        }
+      : null;
   context.window.addEventListener = () => {};
   context.window.confirm = context.confirm;
   context.window.document = documentStub;
@@ -1447,7 +1445,7 @@ describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
     expect(maskedKey).toContain(apiKey.slice(0, 12));
     expect(maskedKey).toContain(apiKey.slice(-6));
     expect(harness.getElement("dev-api-key-context").textContent).toContain(
-      "Loaded from this dashboard session",
+      "Available only in this page",
     );
     expect(harness.getElement("dev-diagnostics-list").innerHTML).toContain(
       "primary-sender",
@@ -1571,8 +1569,11 @@ describe("Dashboard developer console and API-key utilities (DASH-032)", () => {
     const rotatedKey = String(harness.dashboard.State.apiKey);
     expect(rotatedKey).not.toBe(apiKey);
     expect(harness.getElement("new-api-key").textContent).toBe(rotatedKey);
-    expect(harness.getElement("dev-api-key-display").textContent).toBe(
-      rotatedKey,
+    expect(harness.getElement("dev-api-key-display").textContent).toContain(
+      rotatedKey.slice(0, 12),
+    );
+    expect(harness.getElement("dev-api-key-display").textContent).toContain(
+      rotatedKey.slice(-6),
     );
     expect(
       harness.getElement("api-key-modal").classList.contains("hidden"),
@@ -1944,7 +1945,7 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
     cleanupTestDatabase();
   });
 
-  it("frames landing auth around agent-backed sign-in with an advanced API-key fallback", () => {
+  it("frames landing auth around agent-backed browser sign-in without browser API-key auth", () => {
     const html = readFileSync("public/index.html", "utf8");
 
     expect(html).toContain('id="browser-access-section"');
@@ -1953,46 +1954,22 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
     expect(html).toContain('id="agent-login-form"');
     expect(html).toContain('id="agent-login-status"');
     expect(html).toContain("Get approval code");
-    expect(html).toContain("Manual API-key entry");
-    expect(html).toContain("Advanced fallback");
-    expect(html).toContain('id="login-form"');
-    expect(html).toContain("It only signs in to an");
+    expect(html).not.toContain("Manual API-key entry");
+    expect(html).not.toContain("Advanced fallback");
+    expect(html).not.toContain('id="login-form"');
   });
 
-  it("keeps manual API-key sign-in available only as the advanced browser fallback", async () => {
-    const { user: viewer, apiKey } = await createTestUser(
-      "dashboard_browser_access_viewer",
-      "Browser Viewer",
-    );
-    const app = createApp();
-
-    const harness = createDashboardHarness({
-      app,
-    });
+  it("rejects stale browser API-key sign-in attempts if old callers still invoke the helper", async () => {
+    const harness = createDashboardHarness({ app: createApp() });
 
     await harness.boot();
-
-    harness.getElement("login-api-key").value = apiKey;
-
     await harness.dashboard.UI.handleLogin();
     await flushDashboardWork();
 
-    expect(harness.dashboard.State.user).toEqual(
-      expect.objectContaining({
-        username: viewer.username,
-      }),
-    );
-    expect(harness.dashboard.State.apiKey).toBe(apiKey);
-    expect(harness.fetchCalls).toContain("/api/v1/auth/me");
-    expect(harness.fetchCalls).not.toContain("/api/v1/auth/register");
-    expect(
-      harness.getElement("landing-page").classList.contains("hidden"),
-    ).toBe(true);
-    expect(
-      harness.getElement("dashboard-screen").classList.contains("hidden"),
-    ).toBe(false);
+    expect(harness.dashboard.State.user).toBeNull();
+    expect(harness.dashboard.State.authMode).toBeNull();
     expect(harness.getElement("toast-container").children[0]?.innerHTML).toContain(
-      "Welcome back!",
+      "Browser API-key sign-in has been removed",
     );
   });
 });
@@ -2004,10 +1981,9 @@ describe("Landing dashboard activation (DASH-090)", () => {
 
     expect(dashboardEntryLinks).toHaveLength(3);
     expect(html).toContain("Sign in to dashboard");
-    expect(html).toContain("Already invited? Sign in");
     expect(html).toContain('id="waitlist-section"');
     expect(html).toContain("Join waitlist");
-    expect(html).toContain("Use your Mahilo username to get a short approval code");
+    expect(html).toContain("You'll get a short approval code");
   });
 });
 
@@ -2362,8 +2338,7 @@ describe("Landing dashboard activation (DASH-090)", () => {
     expect(html).toContain('id="hero-dashboard-entry"');
     expect(html).toContain('href="/access"');
     expect(html).toContain("Sign in to dashboard");
-    expect(html).toContain("Already invited? Sign in");
-    expect(html).toContain('id="browser-access-entry-note"');
+    expect(html).not.toContain('id="browser-access-entry-note"');
   });
 
   it("redirects signed-out /dashboard traffic to the dedicated /access sign-in route", async () => {
@@ -2386,9 +2361,6 @@ describe("Landing dashboard activation (DASH-090)", () => {
     );
     expect(harness.getElement("hero-dashboard-entry").textContent).toBe(
       "Sign in to dashboard",
-    );
-    expect(harness.getElement("browser-access-entry-note").textContent).toContain(
-      "short approval code",
     );
   });
 

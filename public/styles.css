@@ -1043,19 +1043,6 @@ body.route-access .browser-access-home-link {
   display: inline-flex;
 }
 
-.browser-access-entry-note {
-  max-width: 760px;
-  margin: 18px auto 0;
-  padding: 14px 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 158, 107, 0.18);
-  background: rgba(255, 158, 107, 0.08);
-  color: var(--color-text-light);
-  font-size: 0.92rem;
-  line-height: 1.6;
-  text-align: center;
-}
-
 .browser-access-kicker {
   font-size: 0.78rem;
   font-weight: 800;
@@ -1092,12 +1079,6 @@ body.route-access .browser-access-home-link {
     linear-gradient(180deg, #fff4e7 0%, #ffffff 100%);
 }
 
-.browser-access-card-advanced {
-  background:
-    radial-gradient(circle at top left, rgba(135, 206, 235, 0.2), transparent 34%),
-    #fffdfb;
-}
-
 .browser-access-card-header {
   display: flex;
   flex-direction: column;
@@ -1114,11 +1095,6 @@ body.route-access .browser-access-home-link {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-
-.browser-access-badge-muted {
-  background: rgba(135, 206, 235, 0.18);
-  color: #2e6d8a;
 }
 
 .browser-access-card h3 {
@@ -1161,22 +1137,6 @@ body.route-access .browser-access-home-link {
   font-size: 0.9rem;
   font-weight: 800;
   color: var(--color-text);
-}
-
-.browser-access-input-row {
-  position: relative;
-}
-
-.browser-access-input-row .waitlist-input {
-  width: 100%;
-  padding-right: 56px;
-}
-
-.browser-access-toggle {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 158, 107, 0.1);
 }
 
 .browser-access-helper {
@@ -1587,23 +1547,6 @@ body.route-access .browser-access-home-link {
   font-size: 0.8rem;
   color: var(--color-text-muted);
   margin-top: var(--space-xs);
-}
-
-.toggle-password {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  cursor: pointer;
-  opacity: 0.6;
-  transition: opacity var(--transition-fast);
-}
-
-.toggle-password:hover {
-  opacity: 1;
 }
 
 /* Checkbox */
