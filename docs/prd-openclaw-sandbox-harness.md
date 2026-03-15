@@ -471,7 +471,7 @@ Audit and operator-surface rules:
 ### 2.3 Register Agent Connections and Runtime Bootstrap for Both Sandboxes
 
 - **ID**: `SBX-022`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-021`
 - **Description**:
@@ -482,6 +482,8 @@ Audit and operator-surface rules:
   - [ ] Each runtime-state file contains the matching API key, username, connection id, secret, and callback URL
   - [ ] Both gateways can start with those runtime-state files and attach to the expected Mahilo identity
 
+- **Notes**:
+  - 2026-03-15T10:49:16.983Z: SBX-022 completed via orchestrator integration.
 ### 2.4 Automate Friendship, Optional Roles, and Group Setup
 
 - **ID**: `SBX-023`
