@@ -388,7 +388,7 @@ Audit and operator-surface rules:
 ### 1.2 Add a Config Generator for Both OpenClaw Gateways
 
 - **ID**: `SBX-011`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-010`
 - **Description**:
@@ -399,6 +399,8 @@ Audit and operator-surface rules:
   - [ ] Plugin load paths point at the local repo checkout
   - [ ] The configs clearly distinguish deterministic proof from optional live-model proof inputs
 
+- **Notes**:
+  - 2026-03-15T10:05:14.669Z: SBX-011 completed via orchestrator integration.
 ### 1.3 Add Process Lifecycle and Readiness Helpers
 
 - **ID**: `SBX-012`
