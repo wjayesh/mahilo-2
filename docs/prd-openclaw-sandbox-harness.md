@@ -76,6 +76,34 @@ Out of scope for P0:
 - A real `/v1/chat/completions` turn remains valuable, but it is a secondary validation path because local provider auth can vary by machine.
 - The default harness should prefer API-driven provisioning where practical and keep direct-DB seeding as a fallback-only escape hatch.
 
+## Bootstrap And Provisioning Strategy
+
+The default harness path is an explicit API-driven identity/bootstrap flow plus local runtime-store writes. The baseline proof will not depend on the stale one-gateway doc flow, `mahilo setup`, or plugin startup auto-registration.
+
+Default sequence for the dual-sandbox proof:
+
+1. Create a fresh temp root with one Mahilo DB, sandbox A paths, sandbox B paths, and fixed callback URLs for both gateways.
+2. Start Mahilo with `ADMIN_API_KEY` enabled so the harness can mint invite tokens without mutating the DB by hand.
+3. Create one invite token per sandbox user with `POST /api/v1/admin/invite-tokens`.
+4. Register the sender and receiver through `POST /api/v1/auth/register` with those invite tokens so both users are created on the real invite-backed path.
+5. Register one webhook agent connection per user through `POST /api/v1/agents` using the planned gateway callback URLs for sandbox A and sandbox B.
+6. Write one runtime bootstrap file per sandbox from the API outputs: `apiKey`, `username`, `callbackConnectionId`, `callbackSecret`, and `callbackUrl`.
+7. Establish friendship through the normal API flow: `POST /api/v1/friends/request` and `POST /api/v1/friends/:id/accept`.
+8. Start or restart both OpenClaw gateways against those prewritten runtime stores before the scenario matrix runs.
+
+Default-path decisions:
+
+- The harness owns runtime bootstrap persistence. It writes the plugin's expected `version`/`servers` JSON envelope directly from Mahilo API responses instead of asking the plugin to self-bootstrap during the proof run.
+- `POST /api/v1/admin/users` is not part of the baseline path because it bypasses the invite-backed registration path the harness is supposed to prove.
+- Plugin startup auto-registration is useful as reference material, but it is not the default provisioning surface because it hides connection creation inside gateway startup and makes the two-sandbox proof harder to reason about.
+- The old live-test doc, old skill, and `seed-local-policy-sandbox.ts` remain raw material only. They can inform scripts and fixtures, but they do not define the operator flow.
+
+Fallback boundary:
+
+- Direct DB seeding remains available only as an explicit escape hatch, for example when the invite-token/admin surface regresses or when later deterministic policy fixtures cannot be expressed reliably through current APIs.
+- Any fallback seeding path must still emit the same downstream artifacts as the default path: two active users, two webhook connections, two runtime bootstrap files, and the same machine-readable provisioning summary shape.
+- Fallback seeding must be operator-opt-in and clearly labeled in artifacts so the baseline deterministic proof never silently degrades from API-driven provisioning to DB mutation.
+
 ## Deliverables
 
 - new playbook doc under [plugins/openclaw-mahilo/docs](/Users/wjayesh/apps/mahilo-2/plugins/openclaw-mahilo/docs)
