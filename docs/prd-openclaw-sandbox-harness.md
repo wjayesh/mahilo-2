@@ -191,7 +191,7 @@ The harness has two proof profiles. Only the first one gates P0 completion.
 ### 0.2 Decide the Bootstrap and Provisioning Strategy
 
 - **ID**: `SBX-002`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-001`
 - **Description**:
@@ -202,6 +202,8 @@ The harness has two proof profiles. Only the first one gates P0 completion.
   - [ ] The harness design is explicit about API-driven provisioning vs fallback DB seeding
   - [ ] The plan is centered on the dual-sandbox proof, not on preserving the stale skill/doc
 
+- **Notes**:
+  - 2026-03-15T09:44:42.278Z: SBX-002 completed via orchestrator integration.
 ### 0.3 Define the Verification Artifact Contract
 
 - **ID**: `SBX-003`
