@@ -8,7 +8,10 @@ export const DUAL_SANDBOX_PROVISIONING_CONTRACT_VERSION = 1;
 
 type SandboxId = "a" | "b";
 
-export type DualSandboxProvisioningPhase = "users" | "connections";
+export type DualSandboxProvisioningPhase =
+  | "users"
+  | "connections"
+  | "relationships";
 
 export interface DualSandboxProvisionUserInput {
   display_name: string;
@@ -686,7 +689,11 @@ function readReviewCount(value: unknown): number | null {
 function isProvisioningPhase(
   value: unknown,
 ): value is DualSandboxProvisioningPhase {
-  return value === "users" || value === "connections";
+  return (
+    value === "users" ||
+    value === "connections" ||
+    value === "relationships"
+  );
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
