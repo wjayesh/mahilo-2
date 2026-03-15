@@ -3,6 +3,8 @@ import { CONTRACT_ENDPOINTS, MAHILO_CONTRACT_VERSION } from "./contract";
 const DEFAULT_CLIENT_NAME = "openclaw-plugin";
 const AGENTS_ENDPOINT = CONTRACT_ENDPOINTS.agents;
 const AUTH_ME_ENDPOINT = "/api/v1/auth/me";
+const AUTH_BROWSER_LOGIN_APPROVE_ENDPOINT = "/api/v1/auth/browser-login/approve";
+const AUTH_BROWSER_LOGIN_DENY_ENDPOINT = "/api/v1/auth/browser-login/deny";
 const AUTH_REGISTER_ENDPOINT = "/api/v1/auth/register";
 const CONTACTS_ENDPOINT = CONTRACT_ENDPOINTS.contacts;
 const FRIEND_REQUEST_ENDPOINT = CONTRACT_ENDPOINTS.friendRequest;
@@ -92,6 +94,21 @@ export interface MahiloFriendRequestResult {
   raw: unknown;
   status?: MahiloFriendshipStatus | string;
   success?: boolean;
+}
+
+export interface MahiloBrowserLoginActionInput {
+  approvalCode: string;
+  attemptId?: string;
+}
+
+export interface MahiloBrowserLoginActionResult {
+  approvalCode?: string;
+  approvedAt?: string;
+  attemptId?: string;
+  deniedAt?: string;
+  expiresAt?: string;
+  raw: unknown;
+  status?: string;
 }
 
 export type MahiloFriendConnectionsState =
@@ -446,6 +463,48 @@ export class MahiloContractClient {
     );
   }
 
+  async approveBrowserLogin(
+    payload: MahiloBrowserLoginActionInput,
+  ): Promise<MahiloBrowserLoginActionResult> {
+    const approvalCode = normalizeRequiredString(
+      payload.approvalCode,
+      "approvalCode",
+    ).toUpperCase();
+    const response = await this.postJson(
+      AUTH_BROWSER_LOGIN_APPROVE_ENDPOINT,
+      compactObject({
+        approval_code: approvalCode,
+        attempt_id: normalizeOptionalString(payload.attemptId),
+      }),
+    );
+
+    return normalizeBrowserLoginActionResult(response, {
+      approvalCode,
+      attemptId: normalizeOptionalString(payload.attemptId),
+    });
+  }
+
+  async denyBrowserLogin(
+    payload: MahiloBrowserLoginActionInput,
+  ): Promise<MahiloBrowserLoginActionResult> {
+    const approvalCode = normalizeRequiredString(
+      payload.approvalCode,
+      "approvalCode",
+    ).toUpperCase();
+    const response = await this.postJson(
+      AUTH_BROWSER_LOGIN_DENY_ENDPOINT,
+      compactObject({
+        approval_code: approvalCode,
+        attempt_id: normalizeOptionalString(payload.attemptId),
+      }),
+    );
+
+    return normalizeBrowserLoginActionResult(response, {
+      approvalCode,
+      attemptId: normalizeOptionalString(payload.attemptId),
+    });
+  }
+
   async registerAgentConnection(
     payload: RegisterMahiloAgentConnectionInput,
   ): Promise<MahiloAgentRegistrationResult> {
@@ -699,6 +758,38 @@ function normalizeFriendRequestResult(
       (root ? readBoolean(root.success) : undefined) ??
       fallback.success ??
       (status === "accepted" || status === "pending"),
+  };
+}
+
+function normalizeBrowserLoginActionResult(
+  value: unknown,
+  fallback: Partial<Omit<MahiloBrowserLoginActionResult, "raw">> = {},
+): MahiloBrowserLoginActionResult {
+  const root = readObject(value);
+
+  return {
+    approvalCode:
+      (root
+        ? readFirstString(root, ["approval_code", "approvalCode"])
+        : undefined) ?? fallback.approvalCode,
+    approvedAt:
+      (root ? readFirstString(root, ["approved_at", "approvedAt"]) : undefined) ??
+      fallback.approvedAt,
+    attemptId:
+      (root
+        ? readFirstString(root, ["attempt_id", "attemptId", "id"])
+        : undefined) ?? fallback.attemptId,
+    deniedAt:
+      (root ? readFirstString(root, ["denied_at", "deniedAt"]) : undefined) ??
+      fallback.deniedAt,
+    expiresAt:
+      (root
+        ? readFirstString(root, ["expires_at", "expiresAt"])
+        : undefined) ?? fallback.expiresAt,
+    raw: value,
+    status:
+      (root ? readFirstString(root, ["status", "state"]) : undefined) ??
+      fallback.status,
   };
 }
 

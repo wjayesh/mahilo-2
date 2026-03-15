@@ -1,4 +1,5 @@
 import {
+  type MahiloBrowserLoginActionResult,
   MahiloRequestError,
   type MahiloAgentConnectionSummary,
   type MahiloContractClient,
@@ -8,7 +9,13 @@ import {
 } from "./client";
 import { listMahiloContacts, type MahiloContact } from "./tools";
 
-export type MahiloRelationshipAction = "accept" | "decline" | "list" | "send_request";
+export type MahiloRelationshipAction =
+  | "accept"
+  | "approve_browser_login"
+  | "decline"
+  | "deny_browser_login"
+  | "list"
+  | "send_request";
 
 const DEFAULT_RECENT_ACTIVITY_LIMIT = 6;
 const MAX_RECENT_ACTIVITY_LIMIT = 20;
@@ -16,8 +23,19 @@ const MAX_RECENT_ACTIVITY_LIMIT = 20;
 export interface ExecuteMahiloRelationshipActionInput {
   action?: string;
   activityLimit?: number;
+  approvalCode?: string;
   friendshipId?: string;
+  attemptId?: string;
   username?: string;
+}
+
+export interface MahiloBrowserLoginAttempt {
+  approvalCode?: string;
+  approvedAt?: string;
+  attemptId?: string;
+  deniedAt?: string;
+  expiresAt?: string;
+  status?: string;
 }
 
 export interface MahiloPendingFriendRequest {
@@ -81,6 +99,7 @@ export interface MahiloRelationshipListOptions {
 export interface MahiloRelationshipActionResult {
   action: MahiloRelationshipAction;
   agentConnections?: MahiloAgentConnectionSummary[];
+  browserLogin?: MahiloBrowserLoginAttempt;
   contacts?: MahiloContact[];
   counts?: MahiloRelationshipCounts;
   error?: MahiloRelationshipError;
@@ -89,7 +108,7 @@ export interface MahiloRelationshipActionResult {
   recentActivity?: MahiloRecentActivityItem[];
   recentActivityCounts?: MahiloRecentActivityCounts;
   request?: MahiloPendingFriendRequest;
-  response?: MahiloFriendRequestResult;
+  response?: MahiloBrowserLoginActionResult | MahiloFriendRequestResult;
   source: "mahilo_server";
   status: "error" | "success";
   summary: string;
@@ -112,6 +131,7 @@ interface RecentActivityProbe {
 }
 
 interface RelationshipErrorContext {
+  approvalCode?: string;
   request?: MahiloPendingFriendRequest;
   username?: string;
 }
@@ -137,12 +157,16 @@ export async function executeMahiloRelationshipAction(
       return sendMahiloFriendRequest(client, input.username);
     case "accept":
       return actOnMahiloFriendRequest(client, action, input);
+    case "approve_browser_login":
+      return actOnMahiloBrowserLogin(client, action, input);
     case "decline":
       return actOnMahiloFriendRequest(client, action, input);
+    case "deny_browser_login":
+      return actOnMahiloBrowserLogin(client, action, input);
     default:
       return createLocalErrorResult(
         "list",
-        "Use action=list, send_request, accept, or decline for Mahilo relationship management."
+        "Use action=list, send_request, accept, decline, approve_browser_login, or deny_browser_login for Mahilo relationship management."
       );
   }
 }
@@ -258,6 +282,57 @@ async function actOnMahiloFriendRequest(
     };
   } catch (error) {
     return createRelationshipErrorResult(action, error, { request: resolution.request });
+  }
+}
+
+async function actOnMahiloBrowserLogin(
+  client: MahiloContractClient,
+  action: "approve_browser_login" | "deny_browser_login",
+  input: ExecuteMahiloRelationshipActionInput
+): Promise<MahiloRelationshipActionResult> {
+  const approvalCode = normalizeApprovalCode(input.approvalCode);
+  const attemptId = readOptionalString(input.attemptId);
+
+  if (!approvalCode) {
+    return createLocalErrorResult(
+      action,
+      action === "approve_browser_login"
+        ? "Provide the Mahilo approval code to approve this browser login."
+        : "Provide the Mahilo approval code to deny this browser login."
+    );
+  }
+
+  try {
+    const response =
+      action === "approve_browser_login"
+        ? await client.approveBrowserLogin({
+            approvalCode,
+            attemptId,
+          })
+        : await client.denyBrowserLogin({
+            approvalCode,
+            attemptId,
+          });
+    const browserLogin = normalizeBrowserLoginAttempt(response, {
+      approvalCode,
+      attemptId,
+    });
+
+    return {
+      action,
+      browserLogin,
+      response,
+      source: "mahilo_server",
+      status: "success",
+      summary:
+        action === "approve_browser_login"
+          ? `Approved Mahilo browser login code ${approvalCode}. The dashboard can finish sign-in now.`
+          : `Denied Mahilo browser login code ${approvalCode}.`
+    };
+  } catch (error) {
+    return createBrowserLoginErrorResult(action, error, {
+      approvalCode,
+    });
   }
 }
 
@@ -601,9 +676,23 @@ function normalizeRelationshipAction(value: string | undefined): MahiloRelations
   }
 
   switch (normalized) {
+    case "approve_browser_login":
+    case "approve_login":
+    case "browser_access_approve":
+    case "browser_login_approve":
+    case "browser_sign_in_approve":
+    case "login_approve":
+      return "approve_browser_login";
     case "accept":
     case "approve":
       return "accept";
+    case "browser_access_deny":
+    case "browser_login_deny":
+    case "browser_sign_in_deny":
+    case "deny_browser_login":
+    case "deny_login":
+    case "login_deny":
+      return "deny_browser_login";
     case "decline":
     case "reject":
     case "cancel":
@@ -636,6 +725,29 @@ function normalizeMahiloUsername(value: string | undefined): string | undefined 
 
   const username = normalized.replace(/^@+/, "");
   return username.length > 0 ? username : undefined;
+}
+
+function normalizeApprovalCode(value: string | undefined): string | undefined {
+  const normalized = readOptionalString(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.toUpperCase();
+}
+
+function normalizeBrowserLoginAttempt(
+  response: MahiloBrowserLoginActionResult,
+  fallback: Partial<MahiloBrowserLoginAttempt> = {}
+): MahiloBrowserLoginAttempt {
+  return {
+    approvalCode: response.approvalCode ?? fallback.approvalCode,
+    approvedAt: response.approvedAt ?? fallback.approvedAt,
+    attemptId: response.attemptId ?? fallback.attemptId,
+    deniedAt: response.deniedAt ?? fallback.deniedAt,
+    expiresAt: response.expiresAt ?? fallback.expiresAt,
+    status: response.status ?? fallback.status,
+  };
 }
 
 function toPendingFriendRequest(
@@ -918,6 +1030,40 @@ function createRelationshipErrorResult(
   );
 }
 
+function createBrowserLoginErrorResult(
+  action: "approve_browser_login" | "deny_browser_login",
+  error: unknown,
+  context: RelationshipErrorContext = {}
+): MahiloRelationshipActionResult {
+  if (error instanceof MahiloRequestError) {
+    const summary = formatBrowserLoginErrorSummary(action, error, context);
+
+    return {
+      action,
+      browserLogin: context.approvalCode
+        ? { approvalCode: context.approvalCode }
+        : undefined,
+      error: {
+        code: error.code,
+        message: summary,
+        productState: error.productState,
+        retryable: error.retryable,
+        technicalMessage: error.message,
+      },
+      source: "mahilo_server",
+      status: "error",
+      summary,
+    };
+  }
+
+  return createCustomErrorResult(
+    action,
+    "unknown",
+    toErrorMessage(error),
+    toErrorMessage(error)
+  );
+}
+
 function createRelationshipStateResult(
   action: MahiloRelationshipAction,
   productState: MahiloProductState,
@@ -963,6 +1109,47 @@ function createLocalErrorResult(
   summary: string
 ): MahiloRelationshipActionResult {
   return createCustomErrorResult(action, "invalid_request", summary, summary);
+}
+
+function formatBrowserLoginErrorSummary(
+  action: "approve_browser_login" | "deny_browser_login",
+  error: MahiloRequestError,
+  context: RelationshipErrorContext
+): string {
+  const codeLabel = context.approvalCode;
+
+  switch (error.code) {
+    case "LOGIN_ATTEMPT_NOT_FOUND":
+      return `Couldn't find a live Mahilo browser login for ${formatBrowserCodeLabel(codeLabel, false)}. Ask the user to request a fresh code and try again.`;
+    case "INVALID_APPROVAL_CODE":
+      return `Mahilo rejected ${formatBrowserCodeLabel(codeLabel, false)}. Check the code and try again.`;
+    case "AMBIGUOUS_APPROVAL_CODE":
+      return `Mahilo found multiple live browser logins for ${formatBrowserCodeLabel(codeLabel, false)}. Ask the user to request a fresh code and try again.`;
+    case "LOGIN_ATTEMPT_EXPIRED":
+      return `${formatBrowserCodeLabel(codeLabel)} expired. Ask the user to request a fresh code and try again.`;
+    case "LOGIN_ATTEMPT_ALREADY_APPROVED":
+      return `${formatBrowserCodeLabel(codeLabel)} was already approved for this Mahilo account.`;
+    case "LOGIN_ATTEMPT_ALREADY_REDEEMED":
+      return `${formatBrowserCodeLabel(codeLabel)} was already redeemed in a browser. Ask the user to request a fresh code if they still need access.`;
+    case "LOGIN_ATTEMPT_DENIED":
+      return action === "deny_browser_login"
+        ? `${formatBrowserCodeLabel(codeLabel)} was already denied.`
+        : `${formatBrowserCodeLabel(codeLabel)} was already denied. Ask the user to request a fresh code if they still need access.`;
+    case "BROWSER_LOGIN_APPROVE_RATE_LIMITED":
+      return "Mahilo is rate limiting browser login approvals right now. Wait a moment and try again.";
+    case "LOGIN_ATTEMPT_NOT_DENIABLE":
+      return `${formatBrowserCodeLabel(codeLabel)} can no longer be denied.`;
+    default:
+      if (error.productState === "transport_failure") {
+        return action === "approve_browser_login"
+          ? "Couldn't reach Mahilo right now to approve the browser login. Check the server connection and try again."
+          : "Couldn't reach Mahilo right now to deny the browser login. Check the server connection and try again.";
+      }
+
+      return action === "approve_browser_login"
+        ? `Mahilo could not approve ${formatBrowserCodeLabel(codeLabel, false)} right now.`
+        : `Mahilo could not deny ${formatBrowserCodeLabel(codeLabel, false)} right now.`;
+  }
 }
 
 function formatRelationshipErrorSummary(
@@ -1025,6 +1212,17 @@ function formatRelationshipErrorSummary(
         ? `Mahilo couldn't complete the relationship action for ${target}.`
         : "Mahilo couldn't complete the relationship action.";
   }
+}
+
+function formatBrowserCodeLabel(
+  approvalCode: string | undefined,
+  capitalize = true
+): string {
+  if (!approvalCode) {
+    return capitalize ? "That code" : "that code";
+  }
+
+  return capitalize ? `Code ${approvalCode}` : `code ${approvalCode}`;
 }
 
 function readOptionalString(value: unknown): string | undefined {

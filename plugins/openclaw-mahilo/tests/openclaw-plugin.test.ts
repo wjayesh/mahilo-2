@@ -23,8 +23,10 @@ interface MockClientState {
   acceptFriendRequestCalls: string[];
   agentConnectionCalls: number;
   agentConnectionsResponse: unknown;
+  approveBrowserLoginCalls: Array<{ approvalCode: string; attemptId?: string }>;
   blockedEventCalls: number[];
   currentIdentityCalls: number;
+  denyBrowserLoginCalls: Array<{ approvalCode: string; attemptId?: string }>;
   directSendBundleCalls: Array<Record<string, unknown>>;
   friendConnectionCalls: string[];
   friendRequestCalls: string[];
@@ -388,10 +390,14 @@ function createMockContractClient(
     acceptFriendRequestError?: Error;
     acceptFriendRequestResponse?: Record<string, unknown>;
     agentConnectionsResponse?: unknown;
+    approveBrowserLoginError?: Error;
+    approveBrowserLoginResponse?: Record<string, unknown>;
     currentIdentityError?: Error;
     currentIdentityResponse?: Record<string, unknown>;
     blockedEventsResponse?: unknown;
     createOverrideError?: Error;
+    denyBrowserLoginError?: Error;
+    denyBrowserLoginResponse?: Record<string, unknown>;
     directSendBundleError?: Error;
     directSendBundleResponse?:
       | Record<string, unknown>
@@ -433,8 +439,10 @@ function createMockContractClient(
         label: "default",
       },
     ],
+    approveBrowserLoginCalls: [],
     blockedEventCalls: [],
     currentIdentityCalls: 0,
+    denyBrowserLoginCalls: [],
     directSendBundleCalls: [],
     friendConnectionCalls: [],
     friendRequestCalls: [],
@@ -521,6 +529,33 @@ function createMockContractClient(
           },
           status: "accepted",
           success: true,
+        }
+      );
+    },
+    approveBrowserLogin: async ({
+      approvalCode,
+      attemptId,
+    }: {
+      approvalCode: string;
+      attemptId?: string;
+    }) => {
+      state.approveBrowserLoginCalls.push({ approvalCode, attemptId });
+      if (options.approveBrowserLoginError) {
+        throw options.approveBrowserLoginError;
+      }
+
+      return (
+        options.approveBrowserLoginResponse ?? {
+          approvalCode,
+          approvedAt: "2026-03-15T12:00:00.000Z",
+          attemptId: attemptId ?? "attempt_browser_login",
+          raw: {
+            approval_code: approvalCode,
+            approved_at: "2026-03-15T12:00:00.000Z",
+            attempt_id: attemptId ?? "attempt_browser_login",
+            status: "approved",
+          },
+          status: "approved",
         }
       );
     },
@@ -611,6 +646,33 @@ function createMockContractClient(
       return (
         options.blockedEventsResponse ?? {
           items: [],
+        }
+      );
+    },
+    denyBrowserLogin: async ({
+      approvalCode,
+      attemptId,
+    }: {
+      approvalCode: string;
+      attemptId?: string;
+    }) => {
+      state.denyBrowserLoginCalls.push({ approvalCode, attemptId });
+      if (options.denyBrowserLoginError) {
+        throw options.denyBrowserLoginError;
+      }
+
+      return (
+        options.denyBrowserLoginResponse ?? {
+          approvalCode,
+          attemptId: attemptId ?? "attempt_browser_login",
+          deniedAt: "2026-03-15T12:00:00.000Z",
+          raw: {
+            approval_code: approvalCode,
+            attempt_id: attemptId ?? "attempt_browser_login",
+            denied_at: "2026-03-15T12:00:00.000Z",
+            status: "denied",
+          },
+          status: "denied",
         }
       );
     },
@@ -4478,6 +4540,45 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.friendRequestCalls).toEqual(["alice"]);
   });
 
+  it("approves Mahilo browser-login codes through manage_network without a separate tool", async () => {
+    const { client, state } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, tools } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const tool = findTool(tools, "manage_network");
+    const result = await tool.execute("tool_call_browser_login_approve", {
+      action: "approve_browser_login",
+      approvalCode: "river82",
+    });
+
+    expect(result).toMatchObject({
+      details: {
+        action: "approve_browser_login",
+        browserLogin: {
+          approvalCode: "RIVER82",
+          attemptId: "attempt_browser_login",
+          status: "approved",
+        },
+        status: "success",
+        summary:
+          "Approved Mahilo browser login code RIVER82. The dashboard can finish sign-in now.",
+      },
+    });
+    expect(state.approveBrowserLoginCalls).toEqual([
+      {
+        approvalCode: "RIVER82",
+        attemptId: undefined,
+      },
+    ]);
+  });
+
   it("surfaces not-on-Mahilo nudges through manage_network send_request errors", async () => {
     const { client } = createMockContractClient({
       sendFriendRequestError: new MahiloRequestError(
@@ -5480,6 +5581,47 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(prompt).not.toContain("recent_3=");
     expect(prompt).toContain("You are a helpful assistant.");
     expect(prompt.length).toBeLessThan(1400);
+  });
+
+  it("injects browser-login guidance into prompt when the user asks the agent to sign them in with a code", async () => {
+    const { client } = createMockContractClient();
+    const plugin = createMahiloOpenClawPlugin({
+      createClient: () => client,
+    });
+    const { api, hooks } = createMockPluginApi({
+      apiKey: "mhl_test",
+      baseUrl: "https://mahilo.example",
+    });
+
+    await plugin.register?.(api);
+
+    const hook = findHook(hooks, "before_prompt_build");
+    const result = await hook.execute({
+      messages: [
+        {
+          content:
+            "Hey bro, there is this code RIVER82. Can you log me in to the Mahilo dashboard?",
+          role: "user",
+        },
+      ],
+    });
+
+    expect(isRecord(result)).toBe(true);
+    if (!isRecord(result)) {
+      throw new Error(
+        "expected before_prompt_build hook to return a payload object",
+      );
+    }
+
+    const messages = Array.isArray(result.messages) ? result.messages : [];
+    if (!isRecord(messages[0])) {
+      throw new Error("expected injected prompt guidance to be a message object");
+    }
+    expect(messages[0].role).toBe("system");
+    const injectedContent = String(messages[0].content);
+    expect(injectedContent).toContain("[MahiloBrowserLogin/v1]");
+    expect(injectedContent).toContain("approve_browser_login");
+    expect(injectedContent).toContain("Do not use ask_network");
   });
 
   it("injects agent-facing bootstrap instructions into prompt before Mahilo is configured", async () => {

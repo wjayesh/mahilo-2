@@ -88,6 +88,7 @@ export interface MahiloOpenClawPluginDefinition {
 }
 
 const MAHILO_PROMPT_CONTEXT_MARKER = "[MahiloContext/v1]";
+const MAHILO_BROWSER_LOGIN_PROMPT_MARKER = "[MahiloBrowserLogin/v1]";
 const MAHILO_SETUP_PROMPT_MARKER = "[MahiloSetup/v1]";
 const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
@@ -379,7 +380,7 @@ function createManageNetworkTool(
 ): AnyAgentTool {
   return {
     description:
-      "Manage your Mahilo network: list contacts and pending requests, send a friend request, or accept/decline a request. Defaults to listing contacts when no action is given.",
+      "Manage your Mahilo network and browser access: list contacts and pending requests, send a friend request, accept/decline a request, or approve/deny a Mahilo dashboard browser-login code.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloManageNetworkToolDetails>(
         MAHILO_MANAGE_NETWORK_TOOL_NAME,
@@ -398,7 +399,23 @@ function createManageNetworkTool(
       additionalProperties: false,
       properties: {
         action: {
-          enum: ["list_contacts", "respond_to_request", "send_friend_request"],
+          enum: [
+            "approve_browser_login",
+            "deny_browser_login",
+            "list_contacts",
+            "respond_to_request",
+            "send_friend_request",
+          ],
+          type: "string",
+        },
+        approvalCode: {
+          description:
+            "Short Mahilo dashboard/browser approval code to approve or deny for this account.",
+          type: "string",
+        },
+        attemptId: {
+          description:
+            "Optional Mahilo browser-login attempt id when the human provides it alongside the approval code.",
           type: "string",
         },
         decision: {
@@ -717,13 +734,43 @@ function parseManageNetworkToolInput(
     };
   }
 
+  if (
+    action.kind === "approve_browser_login" ||
+    action.kind === "deny_browser_login"
+  ) {
+    return {
+      action: action.kind,
+      approvalCode:
+        readOptionalString(input.approvalCode) ??
+        readOptionalString(input.approval_code) ??
+        readOptionalString(input.code) ??
+        readOptionalString(input.browserCode) ??
+        readOptionalString(input.browser_code) ??
+        readOptionalString(input.loginCode) ??
+        readOptionalString(input.login_code),
+      attemptId:
+        readOptionalString(input.attemptId) ??
+        readOptionalString(input.attempt_id),
+    };
+  }
+
+  if (action.kind === "respond") {
+    return {
+      action: action.decision,
+      friendshipId:
+        readOptionalString(input.friendshipId) ??
+        readOptionalString(input.friendship_id),
+      username:
+        readOptionalString(input.username) ??
+        readOptionalString(input.recipient),
+    };
+  }
+
   return {
-    action: action.decision,
-    friendshipId:
-      readOptionalString(input.friendshipId) ??
-      readOptionalString(input.friendship_id),
-    username:
-      readOptionalString(input.username) ?? readOptionalString(input.recipient),
+    action: "list",
+    activityLimit:
+      readOptionalInteger(input.activityLimit) ??
+      readOptionalInteger(input.activity_limit),
   };
 }
 
@@ -843,13 +890,41 @@ function normalizeManageNetworkAction(
   input: Record<string, unknown>,
 ):
   | { kind: "list" }
+  | { kind: "approve_browser_login" | "deny_browser_login" }
   | { kind: "send_request" }
   | { decision: "accept" | "decline"; kind: "respond" } {
   const normalized = value?.toLowerCase().replace(/[\s-]+/g, "_");
+  const hasApprovalCode = Boolean(
+    readOptionalString(input.approvalCode) ??
+      readOptionalString(input.approval_code) ??
+      readOptionalString(input.code) ??
+      readOptionalString(input.browserCode) ??
+      readOptionalString(input.browser_code) ??
+      readOptionalString(input.loginCode) ??
+      readOptionalString(input.login_code),
+  );
 
   switch (normalized) {
     case undefined:
     case "":
+      if (hasApprovalCode) {
+        return { kind: "approve_browser_login" };
+      }
+      return { kind: "list" };
+    case "approve_browser_login":
+    case "approve_login":
+    case "browser_access_approve":
+    case "browser_login_approve":
+    case "browser_sign_in_approve":
+    case "login_approve":
+      return { kind: "approve_browser_login" };
+    case "browser_access_deny":
+    case "browser_login_deny":
+    case "browser_sign_in_deny":
+    case "deny_browser_login":
+    case "deny_login":
+    case "login_deny":
+      return { kind: "deny_browser_login" };
     case "contacts":
     case "directory":
     case "list":
@@ -865,9 +940,15 @@ function normalizeManageNetworkAction(
       return { kind: "send_request" };
     case "accept":
     case "approve":
+      if (hasApprovalCode) {
+        return { kind: "approve_browser_login" };
+      }
       return { decision: "accept", kind: "respond" };
     case "decline":
     case "reject":
+      if (hasApprovalCode) {
+        return { kind: "deny_browser_login" };
+      }
       return { decision: "decline", kind: "respond" };
     case "respond":
     case "respond_to_request": {
@@ -886,7 +967,7 @@ function normalizeManageNetworkAction(
       );
     default:
       throw new MahiloToolInputError(
-        "action must be list_contacts, send_friend_request, or respond_to_request",
+        "action must be list_contacts, send_friend_request, respond_to_request, approve_browser_login, or deny_browser_login",
       );
   }
 }
@@ -2378,11 +2459,18 @@ async function injectMahiloContextIntoPrompt(
     pendingCount > 0
       ? `\n[MahiloPending] You have ${pendingCount} pending incoming friend request${pendingCount === 1 ? "" : "s"}. Use manage_network to review and accept/reject them.`
       : "";
+  const browserLoginGuidance = buildBrowserLoginPromptGuidance(hookInput);
+  const ambientGuidance = [pendingSuffix.trimStart(), browserLoginGuidance]
+    .filter((candidate) => candidate.length > 0)
+    .join("\n");
 
   const promptContextInput = parsePromptContextInput(hookInput);
   if (!promptContextInput) {
-    if (pendingSuffix.length > 0) {
-      return injectPromptPayload(hookInput, pendingSuffix.trimStart());
+    if (ambientGuidance.length > 0) {
+      return injectPromptPayload(
+        hookInput,
+        `${MAHILO_PROMPT_CONTEXT_MARKER}\n${ambientGuidance}`,
+      );
     }
     return rawHookInput;
   }
@@ -2404,21 +2492,108 @@ async function injectMahiloContextIntoPrompt(
   );
 
   if (!result.ok || result.injection.length === 0) {
-    if (pendingSuffix.length > 0) {
-      return injectPromptPayload(hookInput, pendingSuffix.trimStart());
+    if (ambientGuidance.length > 0) {
+      return injectPromptPayload(
+        hookInput,
+        `${MAHILO_PROMPT_CONTEXT_MARKER}\n${ambientGuidance}`,
+      );
     }
     return rawHookInput;
   }
 
   const boundedInjection = boundPromptInjection(result.injection);
   if (boundedInjection.length === 0) {
-    if (pendingSuffix.length > 0) {
-      return injectPromptPayload(hookInput, pendingSuffix.trimStart());
+    if (ambientGuidance.length > 0) {
+      return injectPromptPayload(
+        hookInput,
+        `${MAHILO_PROMPT_CONTEXT_MARKER}\n${ambientGuidance}`,
+      );
     }
     return rawHookInput;
   }
 
-  return injectPromptPayload(hookInput, boundedInjection + pendingSuffix);
+  return injectPromptPayload(
+    hookInput,
+    [boundedInjection, ambientGuidance]
+      .filter((candidate) => candidate.length > 0)
+      .join("\n"),
+  );
+}
+
+function buildBrowserLoginPromptGuidance(
+  hookInput: Record<string, unknown>,
+): string {
+  const promptText = collectPromptIntentText(hookInput);
+  if (!looksLikeBrowserLoginApprovalIntent(promptText)) {
+    return "";
+  }
+
+  return `${MAHILO_BROWSER_LOGIN_PROMPT_MARKER}
+Browser login approval is not a Mahilo friend/network action.
+If the user gives you a Mahilo dashboard/browser approval code and asks to sign in, call manage_network with {"action":"approve_browser_login","approvalCode":"CODE"}.
+If the user explicitly wants to cancel or reject that browser sign-in, call manage_network with {"action":"deny_browser_login","approvalCode":"CODE"}.
+Do not use ask_network, send_message, or friend-request actions for browser login approval.`;
+}
+
+function collectPromptIntentText(hookInput: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const add = (value: unknown) => {
+    const normalized = normalizeInlineText(
+      typeof value === "string" ? value : undefined,
+    );
+    if (normalized) {
+      parts.push(normalized);
+    }
+  };
+  const addMessages = (value: unknown) => {
+    const messages = readOptionalArray(value);
+    if (!messages) {
+      return;
+    }
+
+    for (const message of messages.slice(-6)) {
+      const asObject = readOptionalObject(message);
+      if (!asObject) {
+        add(message);
+        continue;
+      }
+
+      add(asObject.content);
+      add(asObject.text);
+      add(asObject.prompt);
+    }
+  };
+
+  add(hookInput.text);
+  add(hookInput.prompt);
+  addMessages(hookInput.messages);
+  addMessages(hookInput.promptMessages);
+
+  const promptObject = readOptionalObject(hookInput.prompt);
+  addMessages(promptObject?.messages);
+
+  const message = readOptionalObject(hookInput.message);
+  add(message?.content);
+  add(message?.text);
+
+  return parts.join(" \n ");
+}
+
+function looksLikeBrowserLoginApprovalIntent(text: string): boolean {
+  if (!text) {
+    return false;
+  }
+
+  const hasLoginIntent =
+    /\b(log ?me ?in|log ?in|login|sign ?me ?in|sign ?in|browser access|browser login|dashboard access|dashboard login)\b/i.test(
+      text,
+    );
+  const hasCodeReference =
+    /\b(approval code|browser code|code|otp|one[- ]time password)\b/i.test(
+      text,
+    ) || /\b[A-Z2-9]{4,12}\b/.test(text);
+
+  return hasLoginIntent && hasCodeReference;
 }
 
 function parsePromptContextInput(hookInput: Record<string, unknown>):

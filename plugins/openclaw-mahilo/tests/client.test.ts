@@ -181,6 +181,54 @@ describe("MahiloContractClient", () => {
     );
   });
 
+  it("posts browser-login approvals through the authenticated auth endpoint", async () => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      fetchCalls.push({ init, input });
+
+      return new Response(
+        JSON.stringify({
+          approval_code: "RIVER82",
+          approved_at: "2026-03-15T12:00:00.000Z",
+          attempt_id: "attempt_browser_login",
+          status: "approved",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        },
+      );
+    }) as typeof fetch;
+
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example/",
+      pluginVersion,
+    });
+
+    const result = await client.approveBrowserLogin({
+      approvalCode: "river82",
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0]?.input)).toBe(
+      "https://mahilo.example/api/v1/auth/browser-login/approve",
+    );
+    expect(fetchCalls[0]?.init?.method).toBe("POST");
+    expect(fetchCalls[0]?.init?.body).toBe(
+      JSON.stringify({
+        approval_code: "RIVER82",
+      }),
+    );
+    expect(result).toMatchObject({
+      approvalCode: "RIVER82",
+      attemptId: "attempt_browser_login",
+      status: "approved",
+    });
+  });
+
   it("supports listing reviews with query params", async () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
