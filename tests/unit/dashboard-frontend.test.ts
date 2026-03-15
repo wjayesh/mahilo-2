@@ -1953,7 +1953,7 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
     expect(html).toContain("self-serve browser registration flow");
     expect(html).toContain('id="agent-login-form"');
     expect(html).toContain('id="agent-login-status"');
-    expect(html).toContain("Get approval code");
+    expect(html).toContain("Show code");
     expect(html).not.toContain("Manual API-key entry");
     expect(html).not.toContain("Advanced fallback");
     expect(html).not.toContain('id="login-form"');
@@ -1983,7 +1983,7 @@ describe("Landing dashboard activation (DASH-090)", () => {
     expect(html).toContain("Sign in to dashboard");
     expect(html).toContain('id="waitlist-section"');
     expect(html).toContain("Join waitlist");
-    expect(html).toContain("You'll get a short approval code");
+    expect(html).toContain("We'll show the approval code");
   });
 });
 

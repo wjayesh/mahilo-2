@@ -1133,6 +1133,10 @@ body.route-access .browser-access-home-link {
   gap: 14px;
 }
 
+.browser-access-submit {
+  align-self: flex-start;
+}
+
 .browser-access-label {
   font-size: 0.9rem;
   font-weight: 800;

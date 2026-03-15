@@ -6074,7 +6074,7 @@ const UI = {
     const base = {
       badge: "Waiting",
       title: "Enter your Mahilo username",
-      copy: "You'll get a short approval code for your account.",
+      copy: "We'll show your approval code here.",
       instructions: "Ask your agent to approve this code.",
       guidance:
         "If this account does not exist yet, finish invite setup in your agent first.",
@@ -6083,7 +6083,7 @@ const UI = {
       showReset: false,
       disableForm: false,
       showPanel: login.status !== "idle",
-      submitLabel: "Get approval code",
+      submitLabel: "Show code",
       state: login.status,
     };
 
@@ -6093,7 +6093,7 @@ const UI = {
           ...base,
           badge: "Starting",
           title: `Getting a code for @${username}`,
-          copy: "Checking your account and issuing a short approval code.",
+          copy: "Checking your account and preparing your approval code.",
           instructions: "Stay here. The code will appear in a moment.",
           guidance: "If this username does not exist yet, finish setup in your agent first.",
           disableForm: true,
@@ -6341,7 +6341,7 @@ const UI = {
 
     const username = Helpers.string(usernameInput.value).trim().toLowerCase();
     if (!username) {
-      this.showToast("Enter your username to get an approval code.", "error");
+      this.showToast("Enter your username to show your approval code.", "error");
       return;
     }
 
