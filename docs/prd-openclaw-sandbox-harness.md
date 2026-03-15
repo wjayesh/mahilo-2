@@ -487,7 +487,7 @@ Audit and operator-surface rules:
 ### 2.4 Automate Friendship, Optional Roles, and Group Setup
 
 - **ID**: `SBX-023`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-021`, `SBX-022`
 - **Description**:
@@ -498,6 +498,8 @@ Audit and operator-surface rules:
   - [ ] Optional friendship-role assignment is supported
   - [ ] Group setup exists when needed for later `ask_network` or fanout scenarios
 
+- **Notes**:
+  - 2026-03-15T11:00:37.046Z: SBX-023 completed via orchestrator integration.
 ### 2.5 Seed Policy Scenarios for Live Validation
 
 - **ID**: `SBX-024`
