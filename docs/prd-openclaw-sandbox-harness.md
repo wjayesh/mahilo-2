@@ -529,7 +529,7 @@ From this point on, the goal is one practical harness command, not more harness 
 ### 3.1 Add One End-to-End Runner Command
 
 - **ID**: `SBX-030`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-012`, `SBX-022`, `SBX-023`, `SBX-024`
 - **Description**:
@@ -548,6 +548,8 @@ From this point on, the goal is one practical harness command, not more harness 
   - [ ] The runner verifies plugin load and webhook reachability before any scenario claims success
   - [ ] The runner exits non-zero on baseline failure and tells the operator where the logs and summary live
 
+- **Notes**:
+  - 2026-03-15T11:34:26.680Z: SBX-030 completed via orchestrator integration.
 ### 3.2 Add Deterministic Direct-Flow Checks
 
 - **ID**: `SBX-031`
