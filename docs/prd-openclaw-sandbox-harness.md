@@ -147,7 +147,7 @@ The harness has two proof profiles. Only the first one gates P0 completion.
 ### 0.1 Lock the Success Matrix
 
 - **ID**: `SBX-001`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: None
 - **Description**:
@@ -158,6 +158,8 @@ The harness has two proof profiles. Only the first one gates P0 completion.
   - [ ] The project avoids accidentally depending on a paid-model turn for the baseline proof
   - [ ] The success matrix is concrete enough to drive build and verification work
 
+- **Notes**:
+  - 2026-03-15T09:42:05.838Z: SBX-001 completed via orchestrator integration.
 ### 0.2 Decide the Bootstrap and Provisioning Strategy
 
 - **ID**: `SBX-002`
