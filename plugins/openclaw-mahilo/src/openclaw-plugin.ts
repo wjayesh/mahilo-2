@@ -93,6 +93,7 @@ const MAHILO_SETUP_PROMPT_MARKER = "[MahiloSetup/v1]";
 const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
 const MAHILO_ASK_NETWORK_TOOL_NAME = "ask_network";
+const MAHILO_BROWSER_ACCESS_TOOL_NAME = "browser_access";
 const MAHILO_MANAGE_NETWORK_TOOL_NAME = "manage_network";
 // The embedded OpenClaw runtime currently strips session identifiers from
 // live after_tool_call hooks, so route recovery has to survive in the params.
@@ -101,6 +102,7 @@ const MAHILO_SEND_MESSAGE_TOOL_NAME = "send_message";
 const MAHILO_SET_BOUNDARIES_TOOL_NAME = "set_boundaries";
 const MAHILO_TOOL_NAMES = new Set([
   MAHILO_ASK_NETWORK_TOOL_NAME,
+  MAHILO_BROWSER_ACCESS_TOOL_NAME,
   MAHILO_MANAGE_NETWORK_TOOL_NAME,
   MAHILO_SEND_MESSAGE_TOOL_NAME,
   MAHILO_SET_BOUNDARIES_TOOL_NAME,
@@ -148,6 +150,7 @@ function buildMahiloNotConfiguredMessage(baseUrl: string): string {
 
 type MahiloBoundaryToolAction = "exception" | "set";
 type MahiloBoundaryToolDetails = MahiloBoundaryChangeResult;
+type MahiloBrowserAccessToolDetails = MahiloRelationshipActionResult;
 type MahiloManageNetworkToolDetails = MahiloRelationshipActionResult;
 type MahiloAskNetworkToolDetails = MahiloAskAroundActionResult;
 type MahiloSendMessageToolDetails = MahiloToolResult;
@@ -256,6 +259,9 @@ export function registerMahiloOpenClawPlugin(
   );
   api.registerTool(
     createManageNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
+  );
+  api.registerTool(
+    createBrowserAccessTool(client, isBootstrapReady, resolveNotConfiguredMessage),
   );
   api.registerTool(
     createAskNetworkTool(
@@ -380,7 +386,7 @@ function createManageNetworkTool(
 ): AnyAgentTool {
   return {
     description:
-      "Manage your Mahilo network and browser access: list contacts and pending requests, send a friend request, accept/decline a request, or approve/deny a Mahilo dashboard browser-login code.",
+      "Manage your Mahilo network: list contacts and pending requests, send a friend request, or accept/decline a request.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloManageNetworkToolDetails>(
         MAHILO_MANAGE_NETWORK_TOOL_NAME,
@@ -399,23 +405,7 @@ function createManageNetworkTool(
       additionalProperties: false,
       properties: {
         action: {
-          enum: [
-            "approve_browser_login",
-            "deny_browser_login",
-            "list_contacts",
-            "respond_to_request",
-            "send_friend_request",
-          ],
-          type: "string",
-        },
-        approvalCode: {
-          description:
-            "Short Mahilo dashboard/browser approval code to approve or deny for this account.",
-          type: "string",
-        },
-        attemptId: {
-          description:
-            "Optional Mahilo browser-login attempt id when the human provides it alongside the approval code.",
+          enum: ["list_contacts", "respond_to_request", "send_friend_request"],
           type: "string",
         },
         decision: {
@@ -425,6 +415,52 @@ function createManageNetworkTool(
         friendshipId: { type: "string" },
         username: { type: "string" },
       },
+      type: "object",
+    },
+  } as unknown as AnyAgentTool;
+}
+
+function createBrowserAccessTool(
+  client: MahiloContractClient,
+  isBootstrapReady: () => boolean,
+  resolveNotConfiguredMessage: () => string,
+): AnyAgentTool {
+  return {
+    description:
+      "Approve or deny a Mahilo dashboard/browser sign-in code for the already configured account.",
+    execute: async (_toolCallId: string, rawInput: unknown) =>
+      executeMahiloTool<MahiloBrowserAccessToolDetails>(
+        MAHILO_BROWSER_ACCESS_TOOL_NAME,
+        async () => {
+          if (!isBootstrapReady()) {
+            return notConfiguredToolResult(resolveNotConfiguredMessage());
+          }
+          const input = parseBrowserAccessToolInput(rawInput);
+          const result = await executeMahiloRelationshipAction(client, input);
+          return toAgentToolResult(result, result.summary);
+        },
+      ),
+    label: "Browser Access",
+    name: MAHILO_BROWSER_ACCESS_TOOL_NAME,
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        action: {
+          enum: ["approve", "deny"],
+          type: "string",
+        },
+        approvalCode: {
+          description:
+            "Short Mahilo dashboard/browser approval code for this account.",
+          type: "string",
+        },
+        attemptId: {
+          description:
+            "Optional Mahilo browser-login attempt id when the human provides it alongside the approval code.",
+          type: "string",
+        },
+      },
+      required: ["approvalCode"],
       type: "object",
     },
   } as unknown as AnyAgentTool;
@@ -734,26 +770,6 @@ function parseManageNetworkToolInput(
     };
   }
 
-  if (
-    action.kind === "approve_browser_login" ||
-    action.kind === "deny_browser_login"
-  ) {
-    return {
-      action: action.kind,
-      approvalCode:
-        readOptionalString(input.approvalCode) ??
-        readOptionalString(input.approval_code) ??
-        readOptionalString(input.code) ??
-        readOptionalString(input.browserCode) ??
-        readOptionalString(input.browser_code) ??
-        readOptionalString(input.loginCode) ??
-        readOptionalString(input.login_code),
-      attemptId:
-        readOptionalString(input.attemptId) ??
-        readOptionalString(input.attempt_id),
-    };
-  }
-
   if (action.kind === "respond") {
     return {
       action: action.decision,
@@ -771,6 +787,31 @@ function parseManageNetworkToolInput(
     activityLimit:
       readOptionalInteger(input.activityLimit) ??
       readOptionalInteger(input.activity_limit),
+  };
+}
+
+function parseBrowserAccessToolInput(
+  rawInput: unknown,
+): ExecuteMahiloRelationshipActionInput {
+  const input = rawInput === undefined ? {} : readInputObject(rawInput);
+  const action = normalizeBrowserAccessAction(
+    readOptionalString(input.action),
+    input,
+  );
+
+  return {
+    action,
+    approvalCode:
+      readOptionalString(input.approvalCode) ??
+      readOptionalString(input.approval_code) ??
+      readOptionalString(input.code) ??
+      readOptionalString(input.browserCode) ??
+      readOptionalString(input.browser_code) ??
+      readOptionalString(input.loginCode) ??
+      readOptionalString(input.login_code),
+    attemptId:
+      readOptionalString(input.attemptId) ??
+      readOptionalString(input.attempt_id),
   };
 }
 
@@ -890,41 +931,14 @@ function normalizeManageNetworkAction(
   input: Record<string, unknown>,
 ):
   | { kind: "list" }
-  | { kind: "approve_browser_login" | "deny_browser_login" }
   | { kind: "send_request" }
   | { decision: "accept" | "decline"; kind: "respond" } {
   const normalized = value?.toLowerCase().replace(/[\s-]+/g, "_");
-  const hasApprovalCode = Boolean(
-    readOptionalString(input.approvalCode) ??
-      readOptionalString(input.approval_code) ??
-      readOptionalString(input.code) ??
-      readOptionalString(input.browserCode) ??
-      readOptionalString(input.browser_code) ??
-      readOptionalString(input.loginCode) ??
-      readOptionalString(input.login_code),
-  );
 
   switch (normalized) {
     case undefined:
     case "":
-      if (hasApprovalCode) {
-        return { kind: "approve_browser_login" };
-      }
       return { kind: "list" };
-    case "approve_browser_login":
-    case "approve_login":
-    case "browser_access_approve":
-    case "browser_login_approve":
-    case "browser_sign_in_approve":
-    case "login_approve":
-      return { kind: "approve_browser_login" };
-    case "browser_access_deny":
-    case "browser_login_deny":
-    case "browser_sign_in_deny":
-    case "deny_browser_login":
-    case "deny_login":
-    case "login_deny":
-      return { kind: "deny_browser_login" };
     case "contacts":
     case "directory":
     case "list":
@@ -940,15 +954,9 @@ function normalizeManageNetworkAction(
       return { kind: "send_request" };
     case "accept":
     case "approve":
-      if (hasApprovalCode) {
-        return { kind: "approve_browser_login" };
-      }
       return { decision: "accept", kind: "respond" };
     case "decline":
     case "reject":
-      if (hasApprovalCode) {
-        return { kind: "deny_browser_login" };
-      }
       return { decision: "decline", kind: "respond" };
     case "respond":
     case "respond_to_request": {
@@ -967,8 +975,53 @@ function normalizeManageNetworkAction(
       );
     default:
       throw new MahiloToolInputError(
-        "action must be list_contacts, send_friend_request, respond_to_request, approve_browser_login, or deny_browser_login",
+        "action must be list_contacts, send_friend_request, or respond_to_request",
       );
+  }
+}
+
+function normalizeBrowserAccessAction(
+  value: string | undefined,
+  input: Record<string, unknown>,
+): "approve_browser_login" | "deny_browser_login" {
+  const normalized = value?.toLowerCase().replace(/[\s-]+/g, "_");
+  const hasApprovalCode = Boolean(
+    readOptionalString(input.approvalCode) ??
+      readOptionalString(input.approval_code) ??
+      readOptionalString(input.code) ??
+      readOptionalString(input.browserCode) ??
+      readOptionalString(input.browser_code) ??
+      readOptionalString(input.loginCode) ??
+      readOptionalString(input.login_code),
+  );
+
+  switch (normalized) {
+    case undefined:
+    case "":
+      if (hasApprovalCode) {
+        return "approve_browser_login";
+      }
+      throw new MahiloToolInputError(
+        "approvalCode is required for Mahilo browser access",
+      );
+    case "approve":
+    case "approve_browser_login":
+    case "approve_login":
+    case "browser_access_approve":
+    case "browser_login_approve":
+    case "browser_sign_in_approve":
+    case "login_approve":
+      return "approve_browser_login";
+    case "deny":
+    case "browser_access_deny":
+    case "browser_login_deny":
+    case "browser_sign_in_deny":
+    case "deny_browser_login":
+    case "deny_login":
+    case "login_deny":
+      return "deny_browser_login";
+    default:
+      throw new MahiloToolInputError("action must be approve or deny");
   }
 }
 
@@ -2530,9 +2583,9 @@ function buildBrowserLoginPromptGuidance(
 
   return `${MAHILO_BROWSER_LOGIN_PROMPT_MARKER}
 Browser login approval is not a Mahilo friend/network action.
-If the user gives you a Mahilo dashboard/browser approval code and asks to sign in, call manage_network with {"action":"approve_browser_login","approvalCode":"CODE"}.
-If the user explicitly wants to cancel or reject that browser sign-in, call manage_network with {"action":"deny_browser_login","approvalCode":"CODE"}.
-Do not use ask_network, send_message, or friend-request actions for browser login approval.`;
+If the user gives you a Mahilo dashboard/browser approval code and asks to sign in, call browser_access with {"action":"approve","approvalCode":"CODE"}.
+If the user explicitly wants to cancel or reject that browser sign-in, call browser_access with {"action":"deny","approvalCode":"CODE"}.
+Do not use manage_network, ask_network, or send_message for browser login approval.`;
 }
 
 function collectPromptIntentText(hookInput: Record<string, unknown>): string {

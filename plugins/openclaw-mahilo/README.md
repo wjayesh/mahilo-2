@@ -154,7 +154,8 @@ The plugin keeps the model-facing surface intentionally small:
 - `manage_network`
   - `action=list`: list contacts, pending requests, sender connections, recent Mahilo activity, and lightweight seven-day product signals from Mahilo/OpenClaw runtime state
   - `action=send_request`, `accept`, `decline`: manage Mahilo relationships without a separate tool per server route
-  - `action=approve_browser_login`, `action=deny_browser_login`: approve or deny a Mahilo dashboard/browser sign-in code for the already configured account
+- `browser_access`
+  - `action=approve`, `deny`: approve or deny a Mahilo dashboard/browser sign-in code for the already configured account
 - `ask_network`
   - `action=ask_around`: fan out one question across all contacts, selected roles, or a named Mahilo group while replies keep flowing back into the same OpenClaw thread
 - `set_boundaries`

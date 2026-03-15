@@ -1167,6 +1167,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "ask_network",
+      "browser_access",
       "manage_network",
       "send_message",
       "set_boundaries",
@@ -1255,6 +1256,7 @@ describe("createMahiloOpenClawPlugin", () => {
       expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
       expect(tools.map((tool) => tool.name).sort()).toEqual([
         "ask_network",
+        "browser_access",
         "manage_network",
         "send_message",
         "set_boundaries",
@@ -1330,6 +1332,7 @@ describe("createMahiloOpenClawPlugin", () => {
       expect(commands.map((command) => command.name)).toEqual(["mahilo"]);
       expect(tools.map((tool) => tool.name).sort()).toEqual([
         "ask_network",
+        "browser_access",
         "manage_network",
         "send_message",
         "set_boundaries",
@@ -4540,7 +4543,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(state.friendRequestCalls).toEqual(["alice"]);
   });
 
-  it("approves Mahilo browser-login codes through manage_network without a separate tool", async () => {
+  it("approves Mahilo browser-login codes through browser_access", async () => {
     const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
@@ -4552,9 +4555,9 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    const tool = findTool(tools, "manage_network");
+    const tool = findTool(tools, "browser_access");
     const result = await tool.execute("tool_call_browser_login_approve", {
-      action: "approve_browser_login",
+      action: "approve",
       approvalCode: "river82",
     });
 
@@ -5620,8 +5623,9 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(messages[0].role).toBe("system");
     const injectedContent = String(messages[0].content);
     expect(injectedContent).toContain("[MahiloBrowserLogin/v1]");
-    expect(injectedContent).toContain("approve_browser_login");
-    expect(injectedContent).toContain("Do not use ask_network");
+    expect(injectedContent).toContain("browser_access");
+    expect(injectedContent).toContain('{"action":"approve","approvalCode":"CODE"}');
+    expect(injectedContent).toContain("Do not use manage_network");
   });
 
   it("injects agent-facing bootstrap instructions into prompt before Mahilo is configured", async () => {
