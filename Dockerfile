@@ -5,14 +5,17 @@ FROM oven/bun:1.1.38-alpine
 
 WORKDIR /app
 
-# Copy package files first for better caching
+# Copy root and workspace manifests first so Bun can resolve workspace deps
 COPY package.json bun.lock ./
+COPY packages/policy-core/package.json ./packages/policy-core/package.json
+COPY plugins/openclaw-mahilo/package.json ./plugins/openclaw-mahilo/package.json
 
-# Install production dependencies
-RUN bun install --frozen-lockfile -p
+# Install production dependencies without running unrelated workspace lifecycle scripts
+RUN bun install --frozen-lockfile -p --ignore-scripts
 
 # Copy source code (Bun runs TypeScript directly)
 COPY src ./src
+COPY packages/policy-core ./packages/policy-core
 COPY public ./public
 COPY tsconfig.json drizzle.config.ts ./
 
