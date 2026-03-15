@@ -507,284 +507,158 @@ Audit and operator-surface rules:
 - **Priority**: P0
 - **Depends on**: `SBX-021`, `SBX-023`
 - **Description**:
-  - Seed or create sender-side policies that exercise:
-    - deterministic allow
-    - deterministic ask
-    - deterministic deny
+  - Seed or create the baseline policy scenarios needed for the live proof:
+    - allow
+    - ask
+    - deny
     - missing-local-LLM degraded review
+  - Reuse the shortest working path, including the existing fallback seed script, if that is the fastest way to make the live proof repeatable.
 - **Acceptance Criteria**:
-  - [ ] The harness can create or seed policies for each target scenario
-  - [ ] Policy setup is explicit enough to explain later results
-  - [ ] The seeded scenarios line up with the success matrix from `SBX-001`
+  - [ ] The harness can recreate or seed each baseline scenario from a fresh run root
+  - [ ] The scenario mapping is explicit in the runtime or artifact summary
+  - [ ] No manual dashboard work is required before the live proof runs
 
-## Phase 3: Prove Send, Receive, and Policy Enforcement
+## Phase 3: Build One Rerunnable Harness Command
 
-### 3.1 Verify Plugin Load and Webhook Surfaces on Both Gateways
+### Working Rule
+
+From this point on, the goal is one practical harness command, not more harness layers. Reuse the helper surfaces already landed on this branch. Do not add new reusable libraries unless the single runner command cannot work without them.
+
+### 3.1 Add One End-to-End Runner Command
 
 - **ID**: `SBX-030`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: `SBX-012`, `SBX-022`
+- **Depends on**: `SBX-012`, `SBX-022`, `SBX-023`, `SBX-024`
 - **Description**:
-  - Verify that the Mahilo plugin loads on both OpenClaw gateways and that `/mahilo/incoming` is reachable for both.
+  - Add one top-level runner that:
+    - creates a fresh run root
+    - starts Mahilo
+    - starts OpenClaw gateway A
+    - starts OpenClaw gateway B
+    - verifies plugin load and `/mahilo/incoming` on both gateways
+    - seeds any deterministic fixture data needed for the run
+    - runs both deterministic and agent-turn scenarios
+    - always stops processes and writes a short summary
+  - This runner is the main thing the playbook and skill will tell people to run.
 - **Acceptance Criteria**:
-  - [ ] `openclaw plugins list --json` shows the Mahilo plugin in both sandboxes
-  - [ ] `HEAD /mahilo/incoming` succeeds on both gateways
-  - [ ] Any startup bootstrap or identity mismatch is surfaced before later scenarios run
+  - [ ] One command can execute the baseline harness from a fresh temp root
+  - [ ] The runner verifies plugin load and webhook reachability before any scenario claims success
+  - [ ] The runner exits non-zero on baseline failure and tells the operator where the logs and summary live
 
-### 3.2 Prove Direct Allow Delivery from Sandbox A to Sandbox B
+### 3.2 Add Deterministic Direct-Flow Checks
 
 - **ID**: `SBX-031`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: `SBX-024`, `SBX-030`
+- **Depends on**: `SBX-030`
 - **Description**:
-  - Execute a real plugin-originated direct send from sandbox A to sandbox B in an allow scenario.
-  - Verify that sandbox B actually receives it.
+  - Use the runner to prove the direct deterministic cases first:
+    - allow delivers
+    - ask holds delivery
+    - deny blocks delivery
+    - missing local LLM credentials degrade to `ask`
+  - These checks can use direct tool invocation where that is the shortest way to prove the plugin and Mahilo behavior.
 - **Acceptance Criteria**:
-  - [ ] The send originates through the Mahilo plugin in sandbox A
-  - [ ] Mahilo records the send as delivered
-  - [ ] Sandbox B records receipt through its real OpenClaw webhook/session surface
+  - [ ] The allow case delivers from sandbox A to sandbox B
+  - [ ] The ask case does not deliver and surfaces review evidence
+  - [ ] The deny case does not deliver and surfaces blocked evidence
+  - [ ] The missing-local-LLM case degrades to `ask` and does not deliver
 
-### 3.3 Prove Direct Ask Holds Delivery and Surfaces Review State
+### 3.3 Add Agent-Turn Behavioral Checks
 
 - **ID**: `SBX-032`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: `SBX-024`, `SBX-030`
+- **Depends on**: `SBX-030`
 - **Description**:
-  - Execute a direct send that should resolve to local `ask`.
-  - Verify no message is delivered to sandbox B and Mahilo records the held/review state correctly.
+  - Add prompt-driven checks where the harness talks to the OpenClaw agents in plain language and verifies that they choose the Mahilo plugin tools correctly.
+  - Include at least:
+    - one scenario where the sender agent should call the plugin to message another user
+    - one scenario where seeded user context influences the content or target of the send
+    - one scenario where the harness can inspect whether the right plugin tool was called for the intent
 - **Acceptance Criteria**:
-  - [ ] The plugin returns a review/hold result instead of sending
-  - [ ] Sandbox B does not receive the message
-  - [ ] Mahilo review surfaces reflect the local decision coherently
+  - [ ] The harness can run at least one agent-turn send scenario through OpenClaw rather than only direct tool invocation
+  - [ ] The artifacts show whether the expected Mahilo plugin tool was called
+  - [ ] The final result ties the agent intent, the chosen tool call, and the actual Mahilo outcome together
 
-### 3.4 Prove Direct Deny Blocks Delivery and Surfaces Blocked State
+### 3.4 Add One Optional `ask_network` Smoke Check
 
 - **ID**: `SBX-033`
 - **Status**: `pending`
-- **Priority**: P0
-- **Depends on**: `SBX-024`, `SBX-030`
-- **Description**:
-  - Execute a direct send that should resolve to local `deny`.
-  - Verify no message is delivered to sandbox B and Mahilo records the blocked state correctly.
-- **Acceptance Criteria**:
-  - [ ] The plugin returns a blocked result instead of sending
-  - [ ] Sandbox B does not receive the message
-  - [ ] Mahilo blocked-event or equivalent evidence reflects the denial
-
-### 3.5 Prove Missing Local LLM Credentials Degrade to Ask
-
-- **ID**: `SBX-034`
-- **Status**: `pending`
-- **Priority**: P0
-- **Depends on**: `SBX-024`, `SBX-030`
-- **Description**:
-  - Exercise an LLM-policy scenario with local credentials intentionally absent so the live harness proves the documented fail-to-`ask` behavior.
-- **Acceptance Criteria**:
-  - [ ] The result degrades to `ask` rather than silently allowing delivery
-  - [ ] Sandbox B does not receive the message
-  - [ ] The failure mode is captured in the operator evidence and later playbook
-
-### 3.6 Prove or Bound the Two-Sandbox `ask_network` Story
-
-- **ID**: `SBX-035`
-- **Status**: `pending`
 - **Priority**: P1
-- **Depends on**: `SBX-023`, `SBX-030`
+- **Depends on**: `SBX-030`
 - **Description**:
-  - Attempt a real `ask_network` flow across the two-sandbox harness.
-  - If a remaining live-routing limitation still exists, capture it as an explicit known blocker instead of glossing over it.
+  - Add one optional `ask_network` smoke check.
+  - If the known routing limitation still exists, record it honestly and move on. Do not build extra infrastructure just to force this path green.
 - **Acceptance Criteria**:
-  - [ ] Either `ask_network` works across the live harness or the blocker is reproduced cleanly
-  - [ ] The outcome is reflected honestly in the playbook and skill
-  - [ ] Routing evidence is preserved in logs or transcripts
+  - [ ] The runner can optionally attempt one `ask_network` check
+  - [ ] The outcome is captured honestly as pass or known blocker
+  - [ ] The baseline direct-send proof does not depend on this optional path
 
-### 3.7 Prove Trusted-vs-Local Mode Parity in the Harness
+## Phase 4: Write the Operator Surface From the Real Harness
 
-- **ID**: `SBX-036`
-- **Status**: `pending`
-- **Priority**: P1
-- **Depends on**: `SBX-031`, `SBX-032`, `SBX-033`
-- **Description**:
-  - Re-run a minimal subset of scenarios with `TRUSTED_MODE=true` so the harness documents the difference between server-enforced and plugin-local paths.
-- **Acceptance Criteria**:
-  - [ ] At least one allow and one hold/block scenario are exercised in both modes
-  - [ ] The playbook documents what changes between the two modes
-  - [ ] Any intentional differences are called out explicitly
-
-## Phase 4: Package the Verified Operator Surface
-
-### 4.1 Write a New Playbook from the Verified Harness
+### 4.1 Write the Short Playbook
 
 - **ID**: `SBX-040`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: `SBX-050`, `SBX-060`
+- **Depends on**: `SBX-031`, `SBX-032`, `SBX-033`
 - **Description**:
-  - Write a fresh playbook from the verified dual-sandbox harness instead of trying to rehabilitate the stale operator doc first.
-  - The playbook should contain the exact commands, paths, and expected outputs for the deterministic proof path.
+  - Write a concise playbook around the real runner command.
+  - The playbook should explain:
+    - prerequisites
+    - the one main command
+    - how deterministic checks differ from agent-turn checks
+    - how to read pass/fail results
+    - how to rerun a specific scenario
 - **Acceptance Criteria**:
-  - [ ] The playbook is derived from the working harness, not stale assumptions
-  - [ ] The default proof path uses two real OpenClaw sandboxes
-  - [ ] The playbook clearly distinguishes must-pass proof from optional advanced checks
+  - [ ] The playbook uses the one runner command as the primary operator path
+  - [ ] The playbook clearly separates deterministic setup from agent-turn behavior checks
+  - [ ] The playbook points at the exact summary or log files needed for debugging
 
-### 4.2 Create a New Sandbox Harness Skill from the Verified Playbook
+### 4.2 Create or Update the Sandbox Skill
 
 - **ID**: `SBX-041`
 - **Status**: `pending`
-- **Priority**: P0
+- **Priority**: P1
 - **Depends on**: `SBX-040`
 - **Description**:
-  - Create a new skill for the verified dual-sandbox harness.
-  - Do this only after the playbook reflects a working harness.
+  - Create or update the sandbox skill only after the playbook reflects the real working command.
+  - The skill should be small and point at the verified runner and playbook instead of duplicating long instructions.
 - **Acceptance Criteria**:
-  - [ ] A new skill file exists under `.codex/skills/`
-  - [ ] The skill references the verified playbook
-  - [ ] The skill’s expected outputs match current harness behavior
+  - [ ] The skill points at the verified runner and playbook
+  - [ ] Stale instructions are removed or clearly deprecated
+  - [ ] The skill explains both deterministic and agent-turn checks honestly
 
-### 4.3 Add a Troubleshooting and Known-Blocker Matrix
+## Phase 5: Run the Harness for Real
 
-- **ID**: `SBX-042`
-- **Status**: `pending`
-- **Priority**: P1
-- **Depends on**: `SBX-035`, `SBX-040`, `SBX-041`
-- **Description**:
-  - Document the most likely live harness failures and their first diagnostics:
-    - invite-token/provisioning failures
-    - runtime bootstrap mismatch
-    - plugin not loaded
-    - webhook reachability
-    - policy route auth failures
-    - residual `ask_network` session-routing blockers
-- **Acceptance Criteria**:
-  - [ ] The playbook or new skill includes a concise troubleshooting matrix
-  - [ ] Known blockers are framed as explicit limitations, not silent assumptions
-  - [ ] An operator can tell whether to rerun, fix env, or treat the issue as a product bug
-
-## Phase 5: Make the Harness Runnable and Reusable
-
-### 5.1 Add a Machine-Runnable Harness Entry Point
-
-- **ID**: `SBX-050`
-- **Status**: `pending`
-- **Priority**: P0
-- **Depends on**: `SBX-012`, `SBX-024`
-- **Description**:
-  - Add one primary entry point that boots the harness, runs the checks, and writes artifacts.
-  - It can call smaller scripts internally, but the operator surface should stay short.
-- **Acceptance Criteria**:
-  - [ ] A primary command exists for the default deterministic proof path
-  - [ ] The command is documented in the later playbook and skill
-  - [ ] The command can be rerun from a clean checkout without secret repo knowledge
-
-### 5.2 Add Structured Verification Output
-
-- **ID**: `SBX-051`
-- **Status**: `pending`
-- **Priority**: P1
-- **Depends on**: `SBX-031`, `SBX-032`, `SBX-033`, `SBX-034`, `SBX-050`
-- **Description**:
-  - Emit a structured summary of what the harness observed so failures are obvious and future reruns are comparable.
-- **Acceptance Criteria**:
-  - [ ] The harness writes a machine-readable result summary
-  - [ ] The summary includes pass/fail per scenario and pointers to relevant artifacts
-  - [ ] The summary redacts secrets while keeping enough detail for debugging
-
-### 5.3 Add Regression Coverage Around New Helper Logic
-
-- **ID**: `SBX-052`
-- **Status**: `pending`
-- **Priority**: P1
-- **Depends on**: `SBX-010`, `SBX-011`, `SBX-012`, `SBX-050`
-- **Description**:
-  - Add targeted tests around any nontrivial helper logic introduced for the harness.
-  - Focus on config generation, summary writing, and command/result parsing rather than trying to unit test every shell step.
-- **Acceptance Criteria**:
-  - [ ] New helper logic has targeted regression coverage where appropriate
-  - [ ] The tests exercise failure-prone branches, not just happy paths
-  - [ ] The harness stays maintainable as the repo evolves
-
-## Phase 6: Run the Harness and Close the Loop
-
-### 6.1 Run the Harness End to End
+### 5.1 Run the Harness From Scratch and Publish the Result
 
 - **ID**: `SBX-060`
 - **Status**: `pending`
 - **Priority**: P0
-- **Depends on**: `SBX-050`, `SBX-051`
+- **Depends on**: `SBX-040`
 - **Description**:
-  - Run the harness against the current `main` code and capture the full result.
+  - Run the harness from a fresh temp root on this feature branch and publish the honest result.
+  - If the first run exposes a direct harness bug, fix the minimum necessary issue and rerun once from a fresh temp root.
 - **Acceptance Criteria**:
-  - [ ] The harness is executed from scratch against a fresh temp root
-  - [ ] Artifacts and summaries are captured
-  - [ ] The operator result is unambiguous about what passed and what failed
-
-### 6.2 Fix Directly Obvious Harness Failures and Rerun
-
-- **ID**: `SBX-061`
-- **Status**: `pending`
-- **Priority**: P0
-- **Depends on**: `SBX-060`
-- **Description**:
-  - Fix directly obvious harness issues surfaced by the first live run and rerun once.
-  - Deeper or newly discovered bugs that deserve their own tracked work will be handled by the final audit task.
-- **Acceptance Criteria**:
-  - [ ] Any directly obvious harness issue from the first run is fixed
-  - [ ] Any discovered harness bug is fixed or explicitly documented as a blocker
-  - [ ] A rerun produces a cleaner baseline for the final audit task
-
-### 6.3 Publish the Final Operator Summary
-
-- **ID**: `SBX-062`
-- **Status**: `pending`
-- **Priority**: P1
-- **Depends on**: `SBX-041`, `SBX-042`, `SBX-061`
-- **Description**:
-  - Close the loop with a concise operator summary that says:
-    - what the default proof path is
-    - what commands to run
-    - what “green” looks like
-    - what remains known-limited
-- **Acceptance Criteria**:
-  - [ ] The final operator summary exists in the updated doc/skill surface
-  - [ ] The default proof command path is obvious
-  - [ ] Remaining limitations are stated directly
-
-## Phase 7: Adaptive Audit Loop
-
-### 7.1 Audit the Latest Result and Expand the Tracker if Needed
-
-- **ID**: `SBX-090`
-- **Status**: `pending`
-- **Priority**: P0
-- **Depends on**: `SBX-062`
-- **Description**:
-  - The final worker for this static PRD reviews the latest harness run, the latest artifacts, and the new operator surfaces.
-  - If the harness is genuinely green and the operator surfaces are accurate, it closes the project.
-  - If it finds real bugs, gaps, or misleading test results, it must append new pending fix tasks to this PRD and also append a new trailing audit task that depends on those fix tasks, so the orchestrator continues automatically.
-- **Acceptance Criteria**:
-  - [ ] If the harness is green, the task records that no further follow-up tasks are needed
-  - [ ] If issues are found, the task appends concrete new pending tasks to this PRD instead of burying them in prose
-  - [ ] If issues are found, the task also appends a new trailing audit task that depends on those new fix tasks
-  - [ ] The workflow does not reach a true end state until the latest audit task finds no additional work
+  - [ ] The harness is run from scratch against one Mahilo server and two OpenClaw gateways
+  - [ ] The final result says plainly whether the plugin chose the right tools and whether policies were enforced for each baseline case
+  - [ ] The final summary records the exact command, the run root, and any remaining optional blockers
 
 ## Recommended Execution Order
 
 1. `SBX-001` through `SBX-003`
-2. `SBX-010` through `SBX-013`
-3. `SBX-020` through `SBX-024`
-4. `SBX-030` through `SBX-036`
-5. `SBX-050` through `SBX-052`
-6. `SBX-060` through `SBX-062`
-7. `SBX-040` through `SBX-042`
-8. `SBX-090`
+2. `SBX-010` through `SBX-024`
+3. `SBX-030` through `SBX-033`
+4. `SBX-040` through `SBX-041`
+5. `SBX-060`
 
 ## Notes for the Orchestrator
 
-- Treat the old sandbox skill/doc as historical reference only. Do not spend early project time trying to preserve or reproduce them.
-- Build the dual-sandbox harness first, run it, then derive the new playbook and the new skill from the verified result.
-- P0 is the deterministic two-sandbox proof. Real-model `/v1/chat/completions` proof is valuable, but it should not block the harness from being useful if local provider auth is unavailable.
-- The final audit task is allowed to append new pending tasks and a new trailing audit task to this PRD when the live result exposes real bugs or misleading proof.
-- Reuse existing APIs and scripts where possible. Avoid new production server behavior unless the harness truly cannot be made reproducible otherwise.
+- Treat the old sandbox skill/doc as historical reference only.
+- The target is one rerunnable harness command, not a generalized harness platform.
+- The harness must prove both deterministic plugin behavior and prompt-driven agent behavior.
+- Reuse the helper surfaces already on this branch where practical; avoid adding new layers unless the runner cannot be built otherwise.
+- P0 is the direct-send proof plus at least one real agent-turn proof. Optional `ask_network` smoke is secondary.

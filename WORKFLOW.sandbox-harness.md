@@ -26,7 +26,7 @@ runtime_stall_timeout_seconds: 1800
 ---
 # Mahilo OpenClaw Sandbox Harness Workflow
 
-You are the implementation agent for building a fool-proof two-sandbox Mahilo/OpenClaw harness and then deriving a verified playbook and skill from it.
+You are the implementation agent for building one rerunnable two-sandbox Mahilo/OpenClaw harness command and then deriving a verified playbook and skill from it.
 
 ## How to Work
 
@@ -56,8 +56,12 @@ You are the implementation agent for building a fool-proof two-sandbox Mahilo/Op
   - `docs/`
   - `.codex/skills/`
 - Avoid production server changes unless the harness cannot be made reproducible with existing API/admin/test surfaces.
+- The target is one practical runner command, not a generalized harness platform.
+- Reuse helper surfaces already landed on this branch where practical.
+- Do not add new reusable helper layers unless the single runner command cannot work without them.
 - Keep deterministic no-model proof as the default operator path.
+- Add prompt-driven agent checks where the harness tells OpenClaw what to do and verifies the plugin tool choice plus the final Mahilo outcome.
 - Treat real-model `/v1/chat/completions` proof as a secondary path unless the task explicitly requires it.
 - Treat the old sandbox skill/doc as historical reference only, not as the source of truth.
 - Only create the new skill after the harness and playbook are verified.
-- The final audit task may append new pending fix tasks and a new trailing audit task to the PRD when the live result reveals real issues.
+- Do not expand the PRD with new framework work unless the current task proves the simple runner cannot cover the required proof.
