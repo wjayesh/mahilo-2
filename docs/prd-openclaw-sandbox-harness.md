@@ -503,7 +503,7 @@ Audit and operator-surface rules:
 ### 2.5 Seed Policy Scenarios for Live Validation
 
 - **ID**: `SBX-024`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-021`, `SBX-023`
 - **Description**:
@@ -518,6 +518,8 @@ Audit and operator-surface rules:
   - [ ] The scenario mapping is explicit in the runtime or artifact summary
   - [ ] No manual dashboard work is required before the live proof runs
 
+- **Notes**:
+  - 2026-03-15T11:17:04.755Z: SBX-024 completed via orchestrator integration.
 ## Phase 3: Build One Rerunnable Harness Command
 
 ### Working Rule
