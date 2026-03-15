@@ -5,6 +5,39 @@ import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
 
 export type ReviewMode = "auto" | "ask" | "manual";
 export const DEFAULT_MAHILO_BASE_URL = "https://mahilo.io";
+export const DEFAULT_LOCAL_POLICY_LLM_TIMEOUT_MS = 5000;
+
+export interface MahiloLocalPolicyLLMConfig {
+  apiKey?: string;
+  apiKeyEnvVar?: string;
+  authProfile?: string;
+  model?: string;
+  provider?: string;
+  timeout: number;
+}
+
+export type MahiloLocalPolicyLLMCredentialSource = "env" | "inline" | "none";
+
+export interface MahiloLocalPolicyLLMProviderDefaults {
+  model?: string | null;
+  provider?: string | null;
+}
+
+export interface ResolveMahiloLocalPolicyLLMConfigOptions {
+  defaultTimeout?: number;
+  env?: Record<string, string | undefined>;
+  providerDefaults?: MahiloLocalPolicyLLMProviderDefaults;
+}
+
+export interface ResolvedMahiloLocalPolicyLLMConfig {
+  apiKey?: string;
+  apiKeyEnvVar?: string;
+  authProfile?: string;
+  credentialSource: MahiloLocalPolicyLLMCredentialSource;
+  model?: string;
+  provider?: string;
+  timeout: number;
+}
 
 export interface MahiloPluginConfig {
   apiKey?: string;
@@ -16,6 +49,7 @@ export interface MahiloPluginConfig {
   callbackUrl?: string;
   contractVersion: string;
   pluginVersion: string;
+  localPolicyLLM?: MahiloLocalPolicyLLMConfig;
   promptContextEnabled: boolean;
   reviewMode: ReviewMode;
 }
@@ -44,14 +78,26 @@ const ALLOWED_PLUGIN_CONFIG_KEYS = new Set<string>([
   "callbackUrl",
   "inboundAgentId",
   "inboundSessionKey",
+  "localPolicyLLM",
   "promptContextEnabled",
   "reviewMode"
+]);
+const ALLOWED_LOCAL_POLICY_LLM_CONFIG_KEYS = new Set<string>([
+  "apiKey",
+  "apiKeyEnvVar",
+  "authProfile",
+  "model",
+  "provider",
+  "timeout"
 ]);
 const LEGACY_SERVER_OWNED_KEYS = new Set<string>([
   "callbackSecret",
   "contractVersion",
   "pluginVersion"
 ]);
+const DEFAULT_LOCAL_POLICY_LLM_API_KEY_ENV_VAR_BY_PROVIDER: Record<string, string> = {
+  openai: "OPENAI_API_KEY"
+};
 
 export class MahiloConfigError extends Error {
   constructor(message: string) {
@@ -90,6 +136,7 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
   const reviewMode = parseReviewMode(config.reviewMode, defaults.reviewMode ?? DEFAULT_REVIEW_MODE);
   const contractVersion = defaults.contractVersion ?? MAHILO_CONTRACT_VERSION;
   const pluginVersion = defaults.pluginVersion ?? DEFAULT_PLUGIN_VERSION;
+  const localPolicyLLM = parseLocalPolicyLLMConfig(config.localPolicyLLM);
 
   return {
     apiKey,
@@ -101,6 +148,7 @@ export function parseMahiloPluginConfig(rawConfig: unknown, options: ParseConfig
     callbackUrl,
     contractVersion,
     pluginVersion,
+    localPolicyLLM,
     promptContextEnabled,
     reviewMode
   };
@@ -123,9 +171,59 @@ export function createMahiloClientFromConfig(config: MahiloPluginConfig): Mahilo
   return new MahiloContractClient(createClientOptionsFromConfig(config));
 }
 
+export function resolveMahiloLocalPolicyLLMConfig(
+  config: Pick<MahiloPluginConfig, "localPolicyLLM"> | undefined,
+  options: ResolveMahiloLocalPolicyLLMConfigOptions = {}
+): ResolvedMahiloLocalPolicyLLMConfig {
+  const localPolicyLLM = config?.localPolicyLLM;
+  const provider =
+    localPolicyLLM?.provider ??
+    normalizeProvider(options.providerDefaults?.provider);
+  const model = localPolicyLLM?.model ?? readOptionalString(options.providerDefaults?.model);
+  const timeout =
+    localPolicyLLM?.timeout ??
+    normalizeLocalPolicyLLMTimeoutFallback(options.defaultTimeout);
+  const apiKeyEnvVar =
+    localPolicyLLM?.apiKeyEnvVar ??
+    (provider ? DEFAULT_LOCAL_POLICY_LLM_API_KEY_ENV_VAR_BY_PROVIDER[provider] : undefined);
+  const inlineApiKey = localPolicyLLM?.apiKey;
+
+  if (inlineApiKey) {
+    return {
+      apiKey: inlineApiKey,
+      apiKeyEnvVar,
+      authProfile: localPolicyLLM?.authProfile,
+      credentialSource: "inline",
+      model,
+      provider,
+      timeout
+    };
+  }
+
+  const envApiKey = apiKeyEnvVar ? readOptionalString((options.env ?? process.env)[apiKeyEnvVar]) : undefined;
+
+  return {
+    apiKey: envApiKey,
+    apiKeyEnvVar,
+    authProfile: localPolicyLLM?.authProfile,
+    credentialSource: envApiKey ? "env" : "none",
+    model,
+    provider,
+    timeout
+  };
+}
+
 export function redactSensitiveConfig(config: MahiloPluginConfig): Record<string, unknown> {
   return {
     ...config,
+    ...(config.localPolicyLLM
+      ? {
+          localPolicyLLM: {
+            ...config.localPolicyLLM,
+            apiKey: config.localPolicyLLM.apiKey ? maskSecret(config.localPolicyLLM.apiKey) : null
+          }
+        }
+      : {}),
     apiKey: config.apiKey ? maskSecret(config.apiKey) : null
   };
 }
@@ -154,6 +252,14 @@ function assertSupportedConfigKeys(config: Record<string, unknown>): void {
 function readObject(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new MahiloConfigError("plugin config must be an object");
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readObjectField(value: unknown, key: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new MahiloConfigError(`${key} must be an object`);
   }
 
   return value as Record<string, unknown>;
@@ -226,6 +332,72 @@ function parseReviewMode(value: unknown, fallback: ReviewMode): ReviewMode {
   }
 
   return normalized;
+}
+
+function parseLocalPolicyLLMConfig(value: unknown): MahiloLocalPolicyLLMConfig | undefined {
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+
+  const config = readObjectField(value, "localPolicyLLM");
+  assertSupportedLocalPolicyLLMConfigKeys(config);
+
+  return {
+    apiKey: readOptionalString(config.apiKey),
+    apiKeyEnvVar: readOptionalEnvVarName(config.apiKeyEnvVar, "localPolicyLLM.apiKeyEnvVar"),
+    authProfile: readOptionalString(config.authProfile),
+    model: readOptionalString(config.model),
+    provider: normalizeProvider(config.provider),
+    timeout: parseLocalPolicyLLMTimeout(config.timeout, DEFAULT_LOCAL_POLICY_LLM_TIMEOUT_MS)
+  };
+}
+
+function assertSupportedLocalPolicyLLMConfigKeys(config: Record<string, unknown>): void {
+  const unsupportedKeys = Object.keys(config)
+    .filter((key) => !ALLOWED_LOCAL_POLICY_LLM_CONFIG_KEYS.has(key))
+    .sort();
+
+  if (unsupportedKeys.length > 0) {
+    throw new MahiloConfigError(`unsupported localPolicyLLM config key(s): ${unsupportedKeys.join(", ")}`);
+  }
+}
+
+function parseLocalPolicyLLMTimeout(value: unknown, fallback: number): number {
+  if (typeof value === "undefined") {
+    return fallback;
+  }
+
+  if (!Number.isInteger(value) || !Number.isFinite(value) || Number(value) <= 0) {
+    throw new MahiloConfigError("localPolicyLLM.timeout must be a positive integer");
+  }
+
+  return Number(value);
+}
+
+function normalizeLocalPolicyLLMTimeoutFallback(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_LOCAL_POLICY_LLM_TIMEOUT_MS;
+  }
+
+  return Number(value);
+}
+
+function normalizeProvider(value: unknown): string | undefined {
+  const provider = readOptionalString(value);
+  return provider ? provider.toLowerCase() : undefined;
+}
+
+function readOptionalEnvVarName(value: unknown, key: string): string | undefined {
+  const envVar = readOptionalString(value);
+  if (!envVar) {
+    return undefined;
+  }
+
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(envVar)) {
+    throw new MahiloConfigError(`${key} must be a valid env var name`);
+  }
+
+  return envVar;
 }
 
 function normalizeBaseUrl(rawUrl: string): string {

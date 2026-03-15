@@ -89,19 +89,26 @@
     {
       "idx": 12,
       "version": "6",
+      "when": 1773446400000,
+      "tag": "0012_swift_local_resolution",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
       "when": 1773667200000,
       "tag": "0012_browser_login_sessions",
       "breakpoints": true
     },
     {
-      "idx": 13,
+      "idx": 14,
       "version": "6",
       "when": 1773859200000,
       "tag": "0013_browser_login_denials",
       "breakpoints": true
     },
     {
-      "idx": 14,
+      "idx": 15,
       "version": "6",
       "when": 1773892800000,
       "tag": "0014_browser_login_hardening",

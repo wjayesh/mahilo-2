@@ -1,4 +1,9 @@
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import {
+  isInboundSelectorDirection,
+  normalizePartialSelectorContext,
+  normalizeSelectorDirection,
+} from "@mahilo/policy-core";
 
 import { MahiloRequestError, type MahiloContractClient } from "./client";
 import {
@@ -21,6 +26,11 @@ import {
   parseMahiloPluginConfig,
   type MahiloPluginConfig,
 } from "./config";
+import { createOpenAILocalPolicyEvaluatorFactory } from "./local-policy-openai";
+import {
+  createMahiloLocalPolicyRuntime,
+  type LocalPolicyDecisionDiagnostics,
+} from "./local-policy-runtime";
 import type { DeclaredSelectors } from "./policy-helpers";
 import { fetchMahiloPromptContext } from "./prompt-context";
 import { MAHILO_PLUGIN_RELEASE_VERSION } from "./release";
@@ -224,15 +234,35 @@ export function registerMahiloOpenClawPlugin(
     logger: options.diagnosticsCommands?.logger ?? api.logger,
     pluginState,
   };
+  const localPolicyRuntime = createMahiloLocalPolicyRuntime({
+    client,
+    onDiagnostics: (diagnostic) => {
+      emitLocalPolicyDecisionDiagnostic(api.logger, diagnostic);
+    },
+    llmErrorMode: "ask",
+    llmEvaluatorFactory: createOpenAILocalPolicyEvaluatorFactory(config),
+    llmSkipMode: "ask",
+    llmUnavailableMode: "ask",
+  });
 
   api.registerTool(
-    createSendMessageTool(client, isBootstrapReady, resolveNotConfiguredMessage),
+    createSendMessageTool(
+      client,
+      isBootstrapReady,
+      resolveNotConfiguredMessage,
+      localPolicyRuntime,
+    ),
   );
   api.registerTool(
     createManageNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
   );
   api.registerTool(
-    createAskNetworkTool(client, isBootstrapReady, resolveNotConfiguredMessage),
+    createAskNetworkTool(
+      client,
+      isBootstrapReady,
+      resolveNotConfiguredMessage,
+      localPolicyRuntime,
+    ),
   );
   api.registerTool(
     createSetBoundariesTool(client, isBootstrapReady, resolveNotConfiguredMessage),
@@ -259,10 +289,28 @@ export function registerMahiloOpenClawPlugin(
 const defaultMahiloOpenClawPlugin = createMahiloOpenClawPlugin();
 export default defaultMahiloOpenClawPlugin;
 
+function emitLocalPolicyDecisionDiagnostic(
+  logger: OpenClawPluginApi["logger"] | undefined,
+  diagnostic: LocalPolicyDecisionDiagnostics,
+): void {
+  const payload = JSON.stringify({
+    event: "mahilo.local_policy.decision",
+    diagnostic,
+  });
+
+  if (diagnostic.reason_kind === "degraded_llm_review") {
+    logger?.warn?.(payload);
+    return;
+  }
+
+  logger?.debug?.(payload);
+}
+
 function createSendMessageTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
   resolveNotConfiguredMessage: () => string,
+  localPolicyRuntime: ReturnType<typeof createMahiloLocalPolicyRuntime>,
 ): AnyAgentTool {
   return {
     description:
@@ -278,8 +326,17 @@ function createSendMessageTool(
           const context = parseToolContext(rawInput);
           const result =
             recipientType === "group"
-              ? await talkToGroup(client, input as TalkToGroupInput, context)
-              : await talkToAgent(client, input, context);
+              ? await talkToGroup(
+                  client,
+                  input as TalkToGroupInput,
+                  context,
+                  {
+                    localPolicy: { runtime: localPolicyRuntime },
+                  },
+                )
+              : await talkToAgent(client, input, context, {
+                  localPolicy: { runtime: localPolicyRuntime },
+                });
 
           return toAgentToolResult(
             result,
@@ -360,6 +417,7 @@ function createAskNetworkTool(
   client: MahiloContractClient,
   isBootstrapReady: () => boolean,
   resolveNotConfiguredMessage: () => string,
+  localPolicyRuntime: ReturnType<typeof createMahiloLocalPolicyRuntime>,
 ): AnyAgentTool {
   return {
     description:
@@ -376,6 +434,9 @@ function createAskNetworkTool(
             client,
             input,
             parseToolContext(rawInput),
+            {
+              localPolicy: { runtime: localPolicyRuntime },
+            },
           );
           if (result.action !== "ask_around") {
             throw new Error(
@@ -934,44 +995,30 @@ function parseDeclaredSelectors(
     return undefined;
   }
 
-  const parsed: Partial<DeclaredSelectors> = {};
-  const action = readOptionalString(selectors.action);
-  const direction = readOptionalString(selectors.direction);
-  const resource = readOptionalString(selectors.resource);
-
-  if (action) {
-    parsed.action = action;
-  }
-
-  if (direction) {
-    parsed.direction = direction as DeclaredSelectors["direction"];
-  }
-
-  if (resource) {
-    parsed.resource = resource;
-  }
-
-  return Object.keys(parsed).length > 0 ? parsed : undefined;
+  return normalizePartialSelectorContext(
+    {
+      action: readOptionalString(selectors.action),
+      direction: readOptionalString(selectors.direction),
+      resource: readOptionalString(selectors.resource),
+    },
+    {
+      normalizeSeparators: true,
+    }
+  );
 }
 
 function buildSelectorsFromTopLevel(
   input: Record<string, unknown>,
 ): Partial<DeclaredSelectors> | undefined {
-  const resource = readOptionalString(input.resource);
-  const action = readOptionalString(input.action);
-
-  if (!resource && !action) {
-    return undefined;
-  }
-
-  const parsed: Partial<DeclaredSelectors> = {};
-  if (resource) {
-    parsed.resource = resource;
-  }
-  if (action) {
-    parsed.action = action;
-  }
-  return parsed;
+  return normalizePartialSelectorContext(
+    {
+      action: readOptionalString(input.action),
+      resource: readOptionalString(input.resource),
+    },
+    {
+      normalizeSeparators: true,
+    }
+  );
 }
 
 function readInputObject(rawInput: unknown): Record<string, unknown> {
@@ -1434,7 +1481,7 @@ function rememberMahiloMessageInboundRoute(
   }
 
   const status = readOptionalString(resultDetails.status);
-  if (status === "denied" || status === "error") {
+  if (status !== "sent") {
     return;
   }
 
@@ -1511,36 +1558,26 @@ function rememberMahiloAskAroundInboundRoutes(
     ? resultDetails.deliveries
     : [];
   const target = readMahiloAskAroundTarget(resultDetails.target);
+  const trackedDeliveries =
+    readMahiloAskAroundReplyRecipients(
+      resultDetails.replyRecipients ?? resultDetails.reply_recipients,
+      target,
+    ) ?? collectMahiloAskAroundReplyRecipientsFromDeliveries(deliveries, target) ?? [];
   const expectedReplyCount = readMahiloAskAroundExpectedReplyCount(
     resultDetails,
     deliveries,
     target,
   );
-  const expectedParticipants: Array<{ label?: string; recipient: string }> = [];
-
-  for (const rawDelivery of deliveries) {
-    const delivery = readOptionalObject(rawDelivery);
-    if (!delivery || readOptionalString(delivery.status) !== "awaiting_reply") {
-      continue;
-    }
-
-    const recipient = readOptionalString(delivery.recipient);
-    const recipientType =
-      readRecipientType(delivery.recipientType) ??
-      readRecipientType(delivery.recipient_type) ??
-      (target?.kind === "group" ? "group" : "user");
-
-    if (recipientType !== "user" || !recipient) {
-      continue;
-    }
-
-    expectedParticipants.push({
-      label:
-        readOptionalString(delivery.recipientLabel) ??
-        readOptionalString(delivery.recipient_label),
-      recipient,
-    });
-  }
+  const expectedParticipants = trackedDeliveries.flatMap((delivery) =>
+    delivery.recipientType === "user" && delivery.recipient
+      ? [
+          {
+            label: delivery.recipientLabel,
+            recipient: delivery.recipient,
+          },
+        ]
+      : []
+  );
 
   if (correlationId) {
     pluginState.rememberAskAroundSession({
@@ -1555,55 +1592,46 @@ function rememberMahiloAskAroundInboundRoutes(
       target,
     });
 
-    if (
-      deliveries.some(
-        (rawDelivery) =>
-          readOptionalString(readOptionalObject(rawDelivery)?.status) ===
-          "awaiting_reply",
-      )
-    ) {
+    if (trackedDeliveries.length > 0) {
       pluginState.recordAskAroundQuery({
         correlationId,
         expectedReplyCount,
         senderConnectionId,
         target,
       });
+
+      if (target?.kind === "group" && target.groupId) {
+        pluginState.rememberInboundRoute({
+          agentId: context.agentId,
+          correlationId,
+          groupId: target.groupId,
+          localConnectionId: senderConnectionId,
+          sessionKey: context.sessionKey,
+        });
+      }
     }
   }
 
-  for (const rawDelivery of deliveries) {
-    const delivery = readOptionalObject(rawDelivery);
-    if (!delivery) {
-      continue;
-    }
-
-    if (readOptionalString(delivery.status) !== "awaiting_reply") {
-      continue;
-    }
-
-    const outboundMessageId =
-      readOptionalString(delivery.messageId) ??
-      readOptionalString(delivery.message_id);
-    const recipient = readOptionalString(delivery.recipient);
-    const recipientType =
-      readRecipientType(delivery.recipientType) ??
-      readRecipientType(delivery.recipient_type) ??
-      (target?.kind === "group" ? "group" : "user");
-
-    if (!outboundMessageId || !recipient) {
+  for (const trackedDelivery of trackedDeliveries) {
+    if (!trackedDelivery.messageId || !trackedDelivery.recipient) {
       continue;
     }
 
     const groupId =
-      recipientType === "group" ? (target?.groupId ?? recipient) : undefined;
-    const remoteParticipant = recipientType === "user" ? recipient : undefined;
+      trackedDelivery.recipientType === "group"
+        ? (target?.groupId ?? trackedDelivery.recipient)
+        : undefined;
+    const remoteParticipant =
+      trackedDelivery.recipientType === "user"
+        ? trackedDelivery.recipient
+        : undefined;
 
     pluginState.rememberInboundRoute({
       agentId: context.agentId,
       correlationId,
       groupId,
       localConnectionId: senderConnectionId,
-      outboundMessageId,
+      outboundMessageId: trackedDelivery.messageId,
       remoteParticipant,
       sessionKey: context.sessionKey,
     });
@@ -1882,12 +1910,121 @@ function readMahiloAskAroundExpectedReplyCount(
   let awaitingReplyCount = 0;
   for (const rawDelivery of deliveries) {
     const delivery = readOptionalObject(rawDelivery);
-    if (readOptionalString(delivery?.status) === "awaiting_reply") {
+    if (delivery && shouldTrackMahiloAskAroundReplyDelivery(delivery)) {
       awaitingReplyCount += 1;
     }
   }
 
   return awaitingReplyCount > 0 ? awaitingReplyCount : undefined;
+}
+
+function shouldTrackMahiloAskAroundReplyDelivery(
+  delivery: Record<string, unknown>,
+): boolean {
+  const status =
+    readOptionalString(delivery.status) ??
+    readOptionalString(delivery.deliveryStatus) ??
+    readOptionalString(delivery.delivery_status);
+  if (status) {
+    return status === "awaiting_reply";
+  }
+
+  const messageId =
+    readOptionalString(delivery.messageId) ??
+    readOptionalString(delivery.message_id);
+  if (!messageId) {
+    return false;
+  }
+
+  const decision = readOptionalString(delivery.decision);
+  return decision !== "ask" && decision !== "deny";
+}
+
+interface MahiloTrackedAskAroundReplyRecipient {
+  messageId?: string;
+  recipient: string;
+  recipientLabel?: string;
+  recipientType: "group" | "user";
+}
+
+function readMahiloAskAroundReplyRecipients(
+  value: unknown,
+  target: MahiloAskAroundTarget | undefined,
+): MahiloTrackedAskAroundReplyRecipient[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+
+  const replyRecipients = value
+    .map(
+      (
+        rawRecipient,
+      ): MahiloTrackedAskAroundReplyRecipient | undefined => {
+      const recipient = readOptionalObject(rawRecipient);
+      if (!recipient) {
+        return undefined;
+      }
+
+      const normalizedRecipient = readOptionalString(recipient.recipient);
+      if (!normalizedRecipient) {
+        return undefined;
+      }
+
+      return {
+        messageId:
+          readOptionalString(recipient.messageId) ??
+          readOptionalString(recipient.message_id),
+        recipient: normalizedRecipient,
+        recipientLabel:
+          readOptionalString(recipient.recipientLabel) ??
+          readOptionalString(recipient.recipient_label),
+        recipientType:
+          readRecipientType(recipient.recipientType) ??
+          readRecipientType(recipient.recipient_type) ??
+          (target?.kind === "group" ? "group" : "user"),
+      };
+    })
+    .filter(
+      (recipient): recipient is MahiloTrackedAskAroundReplyRecipient =>
+        Boolean(recipient),
+    );
+
+  return replyRecipients.length > 0 ? replyRecipients : undefined;
+}
+
+function collectMahiloAskAroundReplyRecipientsFromDeliveries(
+  deliveries: unknown[],
+  target: MahiloAskAroundTarget | undefined,
+): MahiloTrackedAskAroundReplyRecipient[] | undefined {
+  const trackedDeliveries = deliveries.flatMap((rawDelivery) => {
+    const delivery = readOptionalObject(rawDelivery);
+    if (!delivery || !shouldTrackMahiloAskAroundReplyDelivery(delivery)) {
+      return [];
+    }
+
+    const recipient = readOptionalString(delivery.recipient);
+    if (!recipient) {
+      return [];
+    }
+
+    return [
+      {
+        messageId:
+          readOptionalString(delivery.messageId) ??
+          readOptionalString(delivery.message_id),
+        recipient,
+        recipientLabel:
+          readOptionalString(delivery.recipientLabel) ??
+          readOptionalString(delivery.recipient_label),
+        recipientType:
+          readRecipientType(delivery.recipientType) ??
+          readRecipientType(delivery.recipient_type) ??
+          (target?.kind === "group" ? "group" : "user"),
+      } satisfies MahiloTrackedAskAroundReplyRecipient,
+    ];
+  });
+
+  return trackedDeliveries.length > 0 ? trackedDeliveries : undefined;
 }
 
 function formatMahiloAskAroundTargetLine(
@@ -2369,24 +2506,18 @@ function parseHookSelectors(
       continue;
     }
 
-    const parsed: Partial<DeclaredSelectors> = {};
-    const action = readOptionalString(candidate.action);
-    const direction = readOptionalString(candidate.direction);
-    const resource = readOptionalString(candidate.resource);
+    const parsed = normalizePartialSelectorContext(
+      {
+        action: readOptionalString(candidate.action),
+        direction: readOptionalString(candidate.direction),
+        resource: readOptionalString(candidate.resource),
+      },
+      {
+        normalizeSeparators: true,
+      }
+    );
 
-    if (action) {
-      parsed.action = action;
-    }
-
-    if (direction === "inbound" || direction === "outbound") {
-      parsed.direction = direction;
-    }
-
-    if (resource) {
-      parsed.resource = resource;
-    }
-
-    if (Object.keys(parsed).length > 0) {
+    if (parsed) {
       return parsed;
     }
   }
@@ -2398,17 +2529,21 @@ function readHookDirection(
   sources: Record<string, unknown>[],
   declaredSelectors: Partial<DeclaredSelectors> | undefined,
 ): "inbound" | "outbound" | undefined {
-  if (
-    declaredSelectors?.direction === "inbound" ||
-    declaredSelectors?.direction === "outbound"
-  ) {
-    return declaredSelectors.direction;
+  const declaredDirection = normalizeSelectorDirection(declaredSelectors?.direction);
+  if (declaredDirection === "outbound") {
+    return declaredDirection;
   }
 
-  const direction = readFirstString(sources, "direction");
-  return direction === "inbound" || direction === "outbound"
-    ? direction
-    : undefined;
+  if (isInboundSelectorDirection(declaredDirection)) {
+    return "inbound";
+  }
+
+  const direction = normalizeSelectorDirection(readFirstString(sources, "direction"));
+  if (direction === "outbound") {
+    return direction;
+  }
+
+  return isInboundSelectorDirection(direction) ? "inbound" : undefined;
 }
 
 function normalizeRecipientType(

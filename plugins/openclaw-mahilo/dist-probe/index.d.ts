@@ -11,8 +11,8 @@ export { buildCallbackSignaturePayload, extractWebhookSignatureHeaders, generate
 export type { HeaderBag, SignatureFailureReason, SignatureVerificationOptions, SignatureVerificationResult, WebhookSignatureHeaders } from "./keys";
 export { InMemoryDedupeState, InMemoryPluginState } from "./state";
 export type { DedupeState, MahiloPendingLearningSuggestion } from "./state";
-export { applyLocalPolicyGuard, decisionBlocksSend, decisionNeedsReview, extractDecision, extractResolutionId, mergePolicyDecisions, normalizeDeclaredSelectors, shouldSendForDecision, toToolStatus } from "./policy-helpers";
-export type { DeclaredSelectors, LocalPolicyGuardInput, LocalPolicyGuardResult, PolicyDecision, SelectorDirection } from "./policy-helpers";
+export { decisionBlocksSend, decisionNeedsReview, extractDecision, extractResolutionId, mergePolicyDecisions, normalizeDeclaredSelectors, shouldSendForDecision, toToolStatus } from "./policy-helpers";
+export type { DeclaredSelectors, PolicyDecision, SelectorDirection } from "./policy-helpers";
 export { createMahiloOverride, getMahiloContext, listMahiloContacts, previewMahiloSend, summarizeMahiloSendOutcome, talkToAgent, talkToGroup } from "./tools";
 export type { ContactsProvider, CreateMahiloOverrideInput, GetMahiloContextInput, GetMahiloContextOptions, MahiloContact, MahiloContextToolResult, MahiloOverrideResult, MahiloPreviewRecipientResult, MahiloPreviewResolvedRecipient, MahiloPreviewResult, MahiloPreviewReview, MahiloRecipientOutcome, MahiloSendOutcomeSummary, MahiloSendToolInput, MahiloToolContext, MahiloToolResult, PreviewMahiloSendInput, ReportedOutcome, TalkToGroupInput, ToolExecutionOptions } from "./tools";
 export { createMahiloOpenClawPlugin, registerMahiloOpenClawPlugin } from "./openclaw-plugin";

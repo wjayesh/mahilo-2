@@ -1,9 +1,13 @@
-/**
- * Unit tests for LLM policy evaluation (PERM-025)
- */
-import { describe, it, expect, mock, beforeAll, afterAll, afterEach } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  mock,
+} from "bun:test";
 
-// We need to mock the config before importing the LLM service
 const mockConfig = {
   llm: {
     apiKey: "test-api-key",
@@ -14,98 +18,121 @@ const mockConfig = {
   trustedMode: true,
 };
 
-// Mock the config module
 mock.module("../../src/config", () => ({
   config: mockConfig,
 }));
 
-// Import after mocking
-import { evaluateLLMPolicy, isLLMEnabled } from "../../src/services/llm";
+import {
+  createAnthropicLLMPolicyEvaluator,
+  isLLMEnabled,
+} from "../../src/services/llm";
 
-describe("LLM Policy Evaluation Service", () => {
+describe("Anthropic LLM policy evaluator", () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeAll(() => {
-    // Save original fetch
     originalFetch = globalThis.fetch;
   });
 
   afterAll(() => {
-    // Restore original fetch
     globalThis.fetch = originalFetch;
   });
 
   afterEach(() => {
-    // Restore fetch after each test
     globalThis.fetch = originalFetch;
   });
 
   describe("isLLMEnabled", () => {
-    it("should return true when API key is configured", () => {
+    it("returns true when the Anthropic API key is configured", () => {
       expect(isLLMEnabled()).toBe(true);
     });
   });
 
-  describe("evaluateLLMPolicy", () => {
-    it("should call Anthropic API with correct prompt", async () => {
-      let capturedBody: any;
+  describe("createAnthropicLLMPolicyEvaluator", () => {
+    it("returns an evaluator when the Anthropic API key is configured", () => {
+      expect(createAnthropicLLMPolicyEvaluator()).toBeDefined();
+    });
 
-      // Mock successful response
-      globalThis.fetch = mock(async (url: string, options: RequestInit) => {
-        capturedBody = JSON.parse(options.body as string);
+    it("calls Anthropic with the shared policy prompt", async () => {
+      let capturedBody: Record<string, unknown> | undefined;
+
+      globalThis.fetch = mock(async (_url: string, options: RequestInit) => {
+        capturedBody = JSON.parse(options.body as string) as Record<
+          string,
+          unknown
+        >;
         return new Response(
           JSON.stringify({
             id: "msg_123",
             type: "message",
-            content: [{ type: "text", text: "PASS\nThe message complies with the policy." }],
+            content: [
+              {
+                type: "text",
+                text: "PASS\nThe message complies with the policy.",
+              },
+            ],
             stop_reason: "end_turn",
           }),
-          { status: 200 }
+          { status: 200 },
         );
       });
 
-      const result = await evaluateLLMPolicy(
-        "Never share credit card numbers",
-        "Hello, how are you?",
-        "alice",
-        "casual conversation"
-      );
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      const result = await evaluator!({
+        policyContent: "Never share credit card numbers",
+        message: "Hello, how are you?",
+        subject: "alice",
+        context: "casual conversation",
+      });
 
-      expect(result.passed).toBe(true);
+      expect(result.status).toBe("pass");
       expect(result.reasoning).toContain("complies");
 
-      // Verify API was called correctly
-      expect(capturedBody.model).toBe("claude-3-haiku-20240307");
-      expect(capturedBody.max_tokens).toBe(256);
-      expect(capturedBody.messages).toHaveLength(1);
-      expect(capturedBody.messages[0].role).toBe("user");
-      expect(capturedBody.messages[0].content).toContain("Never share credit card numbers");
-      expect(capturedBody.messages[0].content).toContain("Hello, how are you?");
-      expect(capturedBody.messages[0].content).toContain("alice");
+      const messages = capturedBody?.messages as Array<{
+        role: string;
+        content: string;
+      }>;
+      expect(capturedBody?.model).toBe("claude-3-haiku-20240307");
+      expect(capturedBody?.max_tokens).toBe(256);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.role).toBe("user");
+      expect(messages[0]?.content).toContain("Never share credit card numbers");
+      expect(messages[0]?.content).toContain("Hello, how are you?");
+      expect(messages[0]?.content).toContain("alice");
     });
 
-    it("should parse PASS response correctly", async () => {
+    it("parses PASS responses as non-matches", async () => {
       globalThis.fetch = mock(async () => {
         return new Response(
           JSON.stringify({
             id: "msg_123",
             type: "message",
             content: [
-              { type: "text", text: "PASS\nThe message is safe and follows the policy guidelines." },
+              {
+                type: "text",
+                text: "PASS\nThe message is safe and follows the policy.",
+              },
             ],
             stop_reason: "end_turn",
           }),
-          { status: 200 }
+          { status: 200 },
         );
       });
 
-      const result = await evaluateLLMPolicy("Be polite", "Thanks for your help!", "bob");
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      const result = await evaluator!({
+        policyContent: "Be polite",
+        message: "Thanks for your help!",
+        subject: "bob",
+      });
 
-      expect(result.passed).toBe(true);
-      expect(result.reasoning).toBe("The message is safe and follows the policy guidelines.");
+      expect(result.status).toBe("pass");
+      expect(result.reasoning).toBe(
+        "The message is safe and follows the policy.",
+      );
     });
 
-    it("should parse FAIL response correctly", async () => {
+    it("parses FAIL responses as policy matches", async () => {
       globalThis.fetch = mock(async () => {
         return new Response(
           JSON.stringify({
@@ -119,53 +146,78 @@ describe("LLM Policy Evaluation Service", () => {
             ],
             stop_reason: "end_turn",
           }),
-          { status: 200 }
+          { status: 200 },
         );
       });
 
-      const result = await evaluateLLMPolicy(
-        "Never share credit card numbers",
-        "My card number is 4111111111111111",
-        "alice"
-      );
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      const result = await evaluator!({
+        policyContent: "Never share credit card numbers",
+        message: "My card number is 4111111111111111",
+        subject: "alice",
+      });
 
-      expect(result.passed).toBe(false);
+      expect(result.status).toBe("match");
       expect(result.reasoning).toContain("credit card number");
     });
 
-    it("should handle timeout gracefully", async () => {
+    it("normalizes timeout errors", async () => {
       globalThis.fetch = mock(async () => {
-        // Simulate a timeout by returning a never-resolving promise
-        // But since we can't actually timeout in tests, we'll throw an abort error
         const error = new Error("The operation was aborted");
         error.name = "AbortError";
         throw error;
       });
 
-      const result = await evaluateLLMPolicy(
-        "Test policy",
-        "Test message",
-        "alice"
-      );
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      const result = await evaluator!({
+        policyContent: "Test policy",
+        message: "Test message",
+        subject: "alice",
+      });
 
-      // Should default to PASS on timeout
-      expect(result.passed).toBe(true);
+      expect(result.status).toBe("error");
+      expect(result.error_kind).toBe("timeout");
       expect(result.error).toBeDefined();
     });
 
-    it("should handle API errors gracefully", async () => {
+    it("normalizes API errors", async () => {
       globalThis.fetch = mock(async () => {
         return new Response("Rate limit exceeded", { status: 429 });
       });
 
-      const result = await evaluateLLMPolicy("Test policy", "Test message", "alice");
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      const result = await evaluator!({
+        policyContent: "Test policy",
+        message: "Test message",
+        subject: "alice",
+      });
 
-      // Should default to PASS on API error
-      expect(result.passed).toBe(true);
+      expect(result.status).toBe("error");
+      expect(result.error_kind).toBe("provider");
       expect(result.error).toContain("429");
     });
 
-    it("should handle empty response gracefully", async () => {
+    it("can fail open for the server resolver", async () => {
+      globalThis.fetch = mock(async () => {
+        return new Response("Rate limit exceeded", { status: 429 });
+      });
+
+      const evaluator = createAnthropicLLMPolicyEvaluator({
+        onError: "pass",
+      });
+      const result = await evaluator!({
+        policyContent: "Test policy",
+        message: "Test message",
+        subject: "alice",
+      });
+
+      expect(result.status).toBe("pass");
+      expect(result.error_kind).toBe("provider");
+      expect(result.error).toContain("429");
+      expect(result.reasoning).toContain("defaulting to PASS");
+    });
+
+    it("normalizes empty provider responses as invalid output", async () => {
       globalThis.fetch = mock(async () => {
         return new Response(
           JSON.stringify({
@@ -174,43 +226,57 @@ describe("LLM Policy Evaluation Service", () => {
             content: [],
             stop_reason: "end_turn",
           }),
-          { status: 200 }
+          { status: 200 },
         );
       });
 
-      const result = await evaluateLLMPolicy("Test policy", "Test message", "alice");
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      const result = await evaluator!({
+        policyContent: "Test policy",
+        message: "Test message",
+        subject: "alice",
+      });
 
-      // Should default to PASS on empty response
-      expect(result.passed).toBe(true);
+      expect(result.status).toBe("error");
+      expect(result.error_kind).toBe("invalid_response");
       expect(result.error).toContain("Empty response");
     });
 
-    it("should handle unclear response by defaulting to PASS", async () => {
+    it("normalizes unclear model output as invalid output", async () => {
       globalThis.fetch = mock(async () => {
         return new Response(
           JSON.stringify({
             id: "msg_123",
             type: "message",
-            content: [{ type: "text", text: "I'm not sure about this message..." }],
+            content: [
+              { type: "text", text: "I'm not sure about this message..." },
+            ],
             stop_reason: "end_turn",
           }),
-          { status: 200 }
+          { status: 200 },
         );
       });
 
-      const result = await evaluateLLMPolicy("Test policy", "Test message", "alice");
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      const result = await evaluator!({
+        policyContent: "Test policy",
+        message: "Test message",
+        subject: "alice",
+      });
 
-      // Should default to PASS when response doesn't start with PASS/FAIL
-      expect(result.passed).toBe(true);
-      expect(result.reasoning).toContain("Unclear response");
+      expect(result.status).toBe("error");
+      expect(result.error_kind).toBe("invalid_response");
+      expect(result.error).toContain("Unclear response");
     });
 
-    it("should include context in the prompt when provided", async () => {
+    it("includes context in the Anthropic prompt when provided", async () => {
       let capturedPrompt = "";
 
-      globalThis.fetch = mock(async (url: string, options: RequestInit) => {
-        const body = JSON.parse(options.body as string);
-        capturedPrompt = body.messages[0].content;
+      globalThis.fetch = mock(async (_url: string, options: RequestInit) => {
+        const body = JSON.parse(options.body as string) as {
+          messages: Array<{ content: string }>;
+        };
+        capturedPrompt = body.messages[0]?.content ?? "";
         return new Response(
           JSON.stringify({
             id: "msg_123",
@@ -218,27 +284,30 @@ describe("LLM Policy Evaluation Service", () => {
             content: [{ type: "text", text: "PASS\nContext was considered." }],
             stop_reason: "end_turn",
           }),
-          { status: 200 }
+          { status: 200 },
         );
       });
 
-      await evaluateLLMPolicy(
-        "Test policy",
-        "Test message",
-        "alice",
-        "This is a reply to a previous message about dinner plans"
-      );
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      await evaluator!({
+        policyContent: "Test policy",
+        message: "Test message",
+        subject: "alice",
+        context: "This is a reply to a previous message about dinner plans",
+      });
 
       expect(capturedPrompt).toContain("MESSAGE CONTEXT:");
       expect(capturedPrompt).toContain("dinner plans");
     });
 
-    it("should not include context section when context is not provided", async () => {
+    it("omits the context section when no context is provided", async () => {
       let capturedPrompt = "";
 
-      globalThis.fetch = mock(async (url: string, options: RequestInit) => {
-        const body = JSON.parse(options.body as string);
-        capturedPrompt = body.messages[0].content;
+      globalThis.fetch = mock(async (_url: string, options: RequestInit) => {
+        const body = JSON.parse(options.body as string) as {
+          messages: Array<{ content: string }>;
+        };
+        capturedPrompt = body.messages[0]?.content ?? "";
         return new Response(
           JSON.stringify({
             id: "msg_123",
@@ -246,20 +315,24 @@ describe("LLM Policy Evaluation Service", () => {
             content: [{ type: "text", text: "PASS\nNo context needed." }],
             stop_reason: "end_turn",
           }),
-          { status: 200 }
+          { status: 200 },
         );
       });
 
-      await evaluateLLMPolicy("Test policy", "Test message", "alice");
+      const evaluator = createAnthropicLLMPolicyEvaluator();
+      await evaluator!({
+        policyContent: "Test policy",
+        message: "Test message",
+        subject: "alice",
+      });
 
       expect(capturedPrompt).not.toContain("MESSAGE CONTEXT:");
     });
   });
 });
 
-describe("LLM Policy Evaluation - Disabled", () => {
-  it("should return passed=true when LLM is disabled", async () => {
-    // Create a new module instance with LLM disabled
+describe("Anthropic LLM policy evaluator when disabled", () => {
+  it("returns no evaluator when the Anthropic config is unavailable", async () => {
     const disabledConfig = {
       llm: {
         apiKey: "",
@@ -270,17 +343,13 @@ describe("LLM Policy Evaluation - Disabled", () => {
       trustedMode: true,
     };
 
-    // Mock the module again with disabled config
     mock.module("../../src/config", () => ({
       config: disabledConfig,
     }));
 
-    // Re-import to get the new mock
-    const { evaluateLLMPolicy: evaluateDisabled } = await import("../../src/services/llm");
+    const { createAnthropicLLMPolicyEvaluator: createDisabledEvaluator } =
+      await import("../../src/services/llm");
 
-    const result = await evaluateDisabled("Test policy", "Test message", "alice");
-
-    expect(result.passed).toBe(true);
-    expect(result.reasoning).toContain("not configured");
+    expect(createDisabledEvaluator()).toBeUndefined();
   });
 });

@@ -1,3 +1,4 @@
+import { normalizePartialSelectorContext } from "@mahilo/policy-core";
 import {
   MahiloRequestError,
   type MahiloContractClient,
@@ -17,6 +18,7 @@ import {
   talkToGroup,
   type MahiloContact,
   type MahiloContactConnectionState,
+  type MahiloSendExecutionOptions,
   type MahiloToolContext,
 } from "./tools-default-sender";
 
@@ -72,11 +74,20 @@ export interface MahiloAskAroundDelivery {
   messageId?: string;
   productState?: MahiloProductState;
   reason?: string;
+  reasonCode?: string;
   recipient: string;
   recipientLabel: string;
+  resolutionId?: string;
   recipientType: "group" | "user";
   roles?: string[];
   status: MahiloAskAroundDeliveryStatus;
+}
+
+export interface MahiloAskAroundReplyRecipient {
+  messageId?: string;
+  recipient: string;
+  recipientLabel: string;
+  recipientType: "group" | "user";
 }
 
 export interface MahiloAskAroundGap {
@@ -112,6 +123,7 @@ export interface MahiloAskAroundActionResult {
   error?: MahiloNetworkError;
   gaps: MahiloAskAroundGap[];
   question?: string;
+  replyRecipients?: MahiloAskAroundReplyRecipient[];
   replyExpectation?: string;
   replyOutcomeKinds: MahiloAskAroundReplyOutcome[];
   senderConnectionId?: string;
@@ -156,7 +168,8 @@ const REQUEST_PENDING_SUGGESTED_ACTION =
 export async function executeMahiloNetworkAction(
   client: MahiloContractClient,
   input: ExecuteMahiloNetworkActionInput = {},
-  context: MahiloToolContext = {}
+  context: MahiloToolContext = {},
+  options: MahiloSendExecutionOptions = {}
 ): Promise<MahiloNetworkActionResult> {
   const action = normalizeMahiloNetworkAction(input.action);
   if (!action) {
@@ -167,7 +180,7 @@ export async function executeMahiloNetworkAction(
   }
 
   if (action === "ask_around") {
-    return executeMahiloAskAroundAction(client, input, context);
+    return executeMahiloAskAroundAction(client, input, context, options);
   }
 
   return executeMahiloRelationshipAction(client, {
@@ -224,7 +237,8 @@ export function normalizeMahiloNetworkAction(
 async function executeMahiloAskAroundAction(
   client: MahiloContractClient,
   input: ExecuteMahiloNetworkActionInput,
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  options: MahiloSendExecutionOptions = {}
 ): Promise<MahiloAskAroundActionResult> {
   const question = normalizeToken(input.question) ?? normalizeToken(input.message);
   if (!question) {
@@ -234,7 +248,9 @@ async function executeMahiloAskAroundAction(
     );
   }
 
-  const declaredSelectors = normalizeDeclaredSelectors(input.declaredSelectors);
+  const declaredSelectors = normalizePartialSelectorContext(input.declaredSelectors, {
+    normalizeSeparators: true,
+  });
   const correlationId = normalizeToken(input.correlationId) ?? createAskAroundCorrelationId();
   const roles = normalizeRoles(input.role, input.roles);
   const groupRef =
@@ -257,7 +273,7 @@ async function executeMahiloAskAroundAction(
       groupRef,
       idempotencyKey: normalizeToken(input.idempotencyKey),
       question
-    }, context);
+    }, context, options);
   }
 
   return executeMahiloContactAskAround(client, {
@@ -266,7 +282,7 @@ async function executeMahiloAskAroundAction(
     idempotencyKey: normalizeToken(input.idempotencyKey),
     question,
     roles
-  }, context);
+  }, context, options);
 }
 
 async function executeMahiloContactAskAround(
@@ -278,7 +294,8 @@ async function executeMahiloContactAskAround(
     question: string;
     roles: string[];
   },
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  sendOptions: MahiloSendExecutionOptions = {}
 ): Promise<MahiloAskAroundActionResult> {
   let contacts: MahiloContact[];
   try {
@@ -351,7 +368,7 @@ async function executeMahiloContactAskAround(
         declaredSelectors: options.declaredSelectors,
         idempotencyKey: options.idempotencyKey,
         question: options.question
-      }, context)
+      }, context, sendOptions)
     )
   );
 
@@ -366,6 +383,7 @@ async function executeMahiloContactAskAround(
     deliveries,
     gaps,
     question: options.question,
+    replyRecipients: buildAskAroundReplyRecipients(deliveries),
     replyExpectation,
     replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
     senderConnectionId: context.senderConnectionId,
@@ -386,7 +404,8 @@ async function executeMahiloGroupAskAround(
     idempotencyKey?: string;
     question: string;
   },
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  sendOptions: MahiloSendExecutionOptions = {}
 ): Promise<MahiloAskAroundActionResult> {
   const resolvedGroup = await resolveAskAroundGroup(client, options.groupRef, options.groupId);
   if ("error" in resolvedGroup) {
@@ -407,18 +426,15 @@ async function executeMahiloGroupAskAround(
         message: options.question,
         recipient: resolvedGroup.group.groupId
       },
-      context
+      context,
+      sendOptions
     );
-
-    const delivery = mapToolResultToAskAroundDelivery(
+    const deliveries = mapGroupToolResultToAskAroundDeliveries(
       result,
-      {
-        recipient: resolvedGroup.group.groupId,
-        recipientLabel: resolvedGroup.group.name,
-        recipientType: "group"
-      }
+      resolvedGroup.group
     );
-    const counts = countAskAroundDeliveries([delivery]);
+    const counts = countAskAroundDeliveries(deliveries);
+    const gaps = summarizeAskAroundGaps(deliveries);
     const target: MahiloAskAroundTarget = {
       groupId: resolvedGroup.group.groupId,
       groupName: resolvedGroup.group.name,
@@ -430,15 +446,24 @@ async function executeMahiloGroupAskAround(
       action: "ask_around",
       correlationId: options.correlationId,
       counts,
-      deliveries: [delivery],
-      gaps: [],
+      deliveries,
+      gaps,
       question: options.question,
-      replyExpectation: formatGroupReplyExpectation(delivery, resolvedGroup.group),
+      replyRecipients: buildAskAroundReplyRecipients(deliveries),
+      replyExpectation: formatGroupReplyExpectation(
+        deliveries,
+        resolvedGroup.group,
+        gaps
+      ),
       replyOutcomeKinds: createAskAroundReplyOutcomeKinds(),
       senderConnectionId: context.senderConnectionId,
       source: "mahilo_server",
       status: "success",
-      summary: formatGroupAskAroundSummary(delivery, resolvedGroup.group),
+      summary: formatGroupAskAroundSummary(
+        deliveries,
+        resolvedGroup.group,
+        gaps
+      ),
       target
     };
   } catch (error) {
@@ -458,7 +483,8 @@ async function askContact(
     idempotencyKey?: string;
     question: string;
   },
-  context: MahiloToolContext
+  context: MahiloToolContext,
+  sendOptions: MahiloSendExecutionOptions = {}
 ): Promise<MahiloAskAroundDelivery> {
   const username = readContactUsername(contact);
   const roles = readContactRoles(contact);
@@ -500,7 +526,8 @@ async function askContact(
         message: options.question,
         recipient: username
       },
-      context
+      context,
+      sendOptions
     );
 
     return mapToolResultToAskAroundDelivery(result, {
@@ -666,33 +693,6 @@ function formatQuotedGroupList(groups: Pick<MahiloGroupSummary, "groupId" | "nam
     .join(", ");
 }
 
-function normalizeDeclaredSelectors(
-  selectors: Partial<DeclaredSelectors> | undefined
-): Partial<DeclaredSelectors> | undefined {
-  if (!selectors) {
-    return undefined;
-  }
-
-  const normalized: Partial<DeclaredSelectors> = {};
-  const action = normalizeToken(selectors.action);
-  const direction = normalizeToken(selectors.direction);
-  const resource = normalizeToken(selectors.resource);
-
-  if (action) {
-    normalized.action = action;
-  }
-
-  if (direction === "inbound" || direction === "outbound") {
-    normalized.direction = direction;
-  }
-
-  if (resource) {
-    normalized.resource = resource;
-  }
-
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
-}
-
 function normalizeRoles(
   singleRole: string | undefined,
   roles: string[] | undefined
@@ -773,6 +773,7 @@ function mapToolResultToAskAroundDelivery(
     decision: "allow" | "ask" | "deny";
     messageId?: string;
     reason?: string;
+    resolutionId?: string;
     status: "denied" | "review_required" | "sent";
   },
   target: {
@@ -791,6 +792,7 @@ function mapToolResultToAskAroundDelivery(
       reason: result.reason,
       recipient: target.recipient,
       recipientLabel: target.recipientLabel,
+      resolutionId: result.resolutionId,
       recipientType: target.recipientType,
       roles: target.roles,
       status: "awaiting_reply"
@@ -805,6 +807,7 @@ function mapToolResultToAskAroundDelivery(
       reason: result.reason ?? "Mahilo needs review before sending this ask.",
       recipient: target.recipient,
       recipientLabel: target.recipientLabel,
+      resolutionId: result.resolutionId,
       recipientType: target.recipientType,
       roles: target.roles,
       status: "review_required"
@@ -818,10 +821,195 @@ function mapToolResultToAskAroundDelivery(
     reason: result.reason ?? "Mahilo blocked this ask.",
     recipient: target.recipient,
     recipientLabel: target.recipientLabel,
+    resolutionId: result.resolutionId,
     recipientType: target.recipientType,
     roles: target.roles,
     status: "blocked"
   };
+}
+
+function mapGroupToolResultToAskAroundDeliveries(
+  result: {
+    decision: "allow" | "ask" | "deny";
+    messageId?: string;
+    reason?: string;
+    resolutionId?: string;
+    response?: unknown;
+    status: "denied" | "review_required" | "sent";
+  },
+  group: MahiloGroupSummary
+): MahiloAskAroundDelivery[] {
+  const responseRoot = readObject(result.response);
+  const nestedResult = readObject(responseRoot?.result);
+  const rawRecipientResults = Array.isArray(responseRoot?.recipient_results)
+    ? responseRoot.recipient_results
+    : Array.isArray(nestedResult?.recipient_results)
+      ? nestedResult.recipient_results
+      : [];
+
+  const fallbackMessageId =
+    rawRecipientResults.length === 1
+      ? readOptionalString(responseRoot?.message_id) ??
+        readOptionalString(responseRoot?.messageId) ??
+        readOptionalString(nestedResult?.message_id) ??
+        readOptionalString(nestedResult?.messageId) ??
+        result.messageId
+      : undefined;
+  const deliveries = rawRecipientResults
+    .map((rawRecipientResult) =>
+      mapGroupRecipientResultToAskAroundDelivery(
+        readObject(rawRecipientResult),
+        group,
+        {
+          fallbackDecision: result.decision,
+          fallbackMessageId,
+          fallbackReason: result.reason,
+          fallbackResolutionId: result.resolutionId,
+        }
+      )
+    )
+    .filter((delivery): delivery is MahiloAskAroundDelivery => Boolean(delivery));
+
+  if (deliveries.length > 0) {
+    return deliveries;
+  }
+
+  return [
+    mapToolResultToAskAroundDelivery(
+      result,
+      {
+        recipient: group.groupId,
+        recipientLabel: group.name,
+        recipientType: "group"
+      }
+    )
+  ];
+}
+
+function mapGroupRecipientResultToAskAroundDelivery(
+  recipientResult: Record<string, unknown> | undefined,
+  group: MahiloGroupSummary,
+  options: {
+    fallbackDecision: "allow" | "ask" | "deny";
+    fallbackMessageId?: string;
+    fallbackReason?: string;
+    fallbackResolutionId?: string;
+  }
+): MahiloAskAroundDelivery | undefined {
+  if (!recipientResult) {
+    return undefined;
+  }
+
+  const recipient = readOptionalString(recipientResult.recipient);
+  if (!recipient) {
+    return undefined;
+  }
+
+  const recipientType =
+    normalizeAskAroundRecipientType(
+      readOptionalString(recipientResult.recipient_type) ??
+        readOptionalString(recipientResult.recipientType)
+    ) ?? (recipient === group.groupId ? "group" : "user");
+  const decision =
+    normalizeAskAroundDecision(readOptionalString(recipientResult.decision)) ??
+    options.fallbackDecision;
+  const status = normalizeGroupAskAroundDeliveryStatus(
+    readOptionalString(recipientResult.delivery_status) ??
+      readOptionalString(recipientResult.deliveryStatus),
+    decision
+  );
+
+  return {
+    decision,
+    messageId:
+      readOptionalString(recipientResult.message_id) ??
+      readOptionalString(recipientResult.messageId) ??
+      options.fallbackMessageId,
+    reason:
+      readOptionalString(recipientResult.reason) ??
+      readOptionalString(recipientResult.error) ??
+      options.fallbackReason ??
+      defaultAskAroundReasonForStatus(status),
+    reasonCode:
+      readOptionalString(recipientResult.reason_code) ??
+      readOptionalString(recipientResult.reasonCode),
+    recipient,
+    recipientLabel:
+      readOptionalString(recipientResult.recipient_label) ??
+      readOptionalString(recipientResult.recipientLabel) ??
+      (recipientType === "group" ? group.name : recipient),
+    resolutionId:
+      readOptionalString(recipientResult.resolution_id) ??
+      readOptionalString(recipientResult.resolutionId) ??
+      options.fallbackResolutionId,
+    recipientType,
+    roles: readOptionalStringArray(recipientResult.roles),
+    status
+  };
+}
+
+function normalizeAskAroundRecipientType(
+  value: string | undefined
+): "group" | "user" | undefined {
+  if (value === "group" || value === "user") {
+    return value;
+  }
+
+  return undefined;
+}
+
+function normalizeAskAroundDecision(
+  value: string | undefined
+): "allow" | "ask" | "deny" | undefined {
+  if (value === "allow" || value === "ask" || value === "deny") {
+    return value;
+  }
+
+  return undefined;
+}
+
+function normalizeGroupAskAroundDeliveryStatus(
+  value: string | undefined,
+  decision: "allow" | "ask" | "deny"
+): MahiloAskAroundDeliveryStatus {
+  switch (value) {
+    case "approval_pending":
+    case "review_required":
+      return "review_required";
+    case "blocked":
+    case "rejected":
+      return "blocked";
+    case "failed":
+      return "send_failed";
+    case "skipped":
+      return "skipped";
+    case "delivered":
+    case "pending":
+      return "awaiting_reply";
+    default:
+      return decision === "ask"
+        ? "review_required"
+        : decision === "deny"
+          ? "blocked"
+          : "awaiting_reply";
+  }
+}
+
+function defaultAskAroundReasonForStatus(
+  status: MahiloAskAroundDeliveryStatus
+): string | undefined {
+  switch (status) {
+    case "blocked":
+      return "Mahilo blocked this ask.";
+    case "review_required":
+      return "Mahilo needs review before sending this ask.";
+    case "send_failed":
+      return "Mahilo couldn't deliver this ask right now.";
+    case "skipped":
+      return "Mahilo could not ask this recipient right now.";
+    default:
+      return undefined;
+  }
 }
 
 function createRecipientSendFailure(
@@ -886,6 +1074,21 @@ function countAskAroundDeliveries(
     },
     emptyAskAroundCounts()
   );
+}
+
+function buildAskAroundReplyRecipients(
+  deliveries: MahiloAskAroundDelivery[],
+): MahiloAskAroundReplyRecipient[] | undefined {
+  const replyRecipients = deliveries
+    .filter((delivery) => delivery.status === "awaiting_reply")
+    .map((delivery) => ({
+      messageId: delivery.messageId,
+      recipient: delivery.recipient,
+      recipientLabel: delivery.recipientLabel,
+      recipientType: delivery.recipientType,
+    }));
+
+  return replyRecipients.length > 0 ? replyRecipients : undefined;
 }
 
 function summarizeAskAroundGaps(
@@ -1071,22 +1274,49 @@ function formatContactAskAroundSummary(
 }
 
 function formatGroupAskAroundSummary(
-  delivery: MahiloAskAroundDelivery,
-  group: MahiloGroupSummary
+  deliveries: MahiloAskAroundDelivery[],
+  group: MahiloGroupSummary,
+  gaps: MahiloAskAroundGap[] = summarizeAskAroundGaps(deliveries)
 ): string {
   const groupLabel = formatGroupLabel(group);
-  switch (delivery.status) {
-    case "awaiting_reply":
-      return `Mahilo ask-around: asked group ${groupLabel}.`;
-    case "review_required":
-      return `Mahilo ask-around: group ${groupLabel} needs review before the question can go out.`;
-    case "blocked":
-      return `Mahilo ask-around: boundaries blocked asking group ${groupLabel}.`;
-    case "skipped":
-      return `Mahilo ask-around: group ${groupLabel} is not available right now.`;
-    case "send_failed":
-      return `Mahilo ask-around: couldn't send the question to group ${groupLabel}.`;
+  if (deliveries.length === 0) {
+    return `Mahilo ask-around: group ${groupLabel} has no active recipients to ask right now.`;
   }
+
+  const distinctStatuses = new Set(deliveries.map((delivery) => delivery.status));
+  if (distinctStatuses.size === 1) {
+    switch (deliveries[0]!.status) {
+      case "awaiting_reply":
+        return `Mahilo ask-around: asked group ${groupLabel}.`;
+      case "review_required":
+        return `Mahilo ask-around: group ${groupLabel} needs review before the question can go out.`;
+      case "blocked":
+        return `Mahilo ask-around: boundaries blocked asking group ${groupLabel}.`;
+      case "skipped":
+        return `Mahilo ask-around: group ${groupLabel} is not available right now.`;
+      case "send_failed":
+        return `Mahilo ask-around: couldn't send the question to group ${groupLabel}.`;
+    }
+  }
+
+  const counts = countAskAroundDeliveries(deliveries);
+  const memberCount =
+    typeof group.memberCount === "number" && group.memberCount > 0
+      ? group.memberCount
+      : deliveries.length;
+  const parts = [
+    counts.awaitingReplies > 0
+      ? `asked ${counts.awaitingReplies} of ${memberCount} members in group ${groupLabel}`
+      : `couldn't ask group ${groupLabel} right now`
+  ];
+
+  if (counts.reviewRequired > 0) {
+    parts.push(`${counts.reviewRequired} waiting on review`);
+  }
+
+  parts.push(...gaps.map((gap) => gap.summary));
+
+  return `Mahilo ask-around: ${parts.join(", ")}.`;
 }
 
 function formatReplyExpectation(
@@ -1113,10 +1343,11 @@ function formatReplyExpectation(
 }
 
 function formatGroupReplyExpectation(
-  delivery: MahiloAskAroundDelivery,
-  group: MahiloGroupSummary
+  deliveries: MahiloAskAroundDelivery[],
+  group: MahiloGroupSummary,
+  gaps: MahiloAskAroundGap[] = summarizeAskAroundGaps(deliveries)
 ): string | undefined {
-  if (delivery.status === "awaiting_reply") {
+  if (deliveries.some((delivery) => delivery.status === "awaiting_reply")) {
     const memberCountSuffix =
       typeof group.memberCount === "number" && group.memberCount > 0
         ? ` (${group.memberCount} members)`
@@ -1124,11 +1355,36 @@ function formatGroupReplyExpectation(
     return `Replies will show up in this thread with attribution and a running summary as ${formatGroupLabel(group)}${memberCountSuffix} responds. If someone does not have grounded info, Mahilo will show a clear "I don't know" instead of inventing an opinion. If nobody replies, nothing is stuck.`;
   }
 
-  if (delivery.status === "review_required") {
+  if (
+    deliveries.length > 0 &&
+    deliveries.every((delivery) => delivery.status === "review_required")
+  ) {
     return "Mahilo is waiting on review before the group ask can go out.";
   }
 
-  return delivery.reason;
+  return formatReplyExpectation(countAskAroundDeliveries(deliveries), gaps);
+}
+
+function readObject(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? normalizeToken(value) : undefined;
+}
+
+function readOptionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = value
+    .map((candidate) => readOptionalString(candidate))
+    .filter((candidate): candidate is string => Boolean(candidate));
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function formatRoleList(roles: string[]): string {

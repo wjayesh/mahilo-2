@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { and, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { createApp } from "../../src/server";
 import {
   cleanupTestDatabase,
@@ -10,6 +11,7 @@ import {
   setupTestDatabase,
 } from "../helpers/setup";
 import * as schema from "../../src/db/schema";
+import { canonicalToStorage } from "../../src/services/policySchema";
 
 let app: ReturnType<typeof createApp>;
 
@@ -204,6 +206,173 @@ describe("Plugin outcome reporting endpoint (SRV-042)", () => {
     expect(details.plugin_outcome_reports).toHaveLength(1);
   });
 
+  it("records outcomes for locally committed allow artifacts and reuses the same audit trail on retries", async () => {
+    const db = getTestDb();
+    const {
+      sender,
+      senderKey,
+      senderConnection,
+      recipient,
+      recipientConnection,
+    } = await setupParticipants("plugin_outcomes_local_allow");
+
+    const allowPolicyId = await insertDirectPolicy({
+      userId: sender.id,
+      recipientId: recipient.id,
+      effect: "allow",
+      maxUses: 1,
+      remainingUses: 1,
+      source: "override",
+      priority: 1,
+    });
+    const resolutionId = "res_plugin_outcomes_local_allow";
+    const sendIdempotencyKey = "idem_plugin_outcomes_local_allow_send";
+
+    const commitResponse = await app.request(
+      "/api/v1/plugin/local-decisions/commit",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${senderKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sender_connection_id: senderConnection.id,
+          recipient: recipient.username,
+          resolution_id: resolutionId,
+          message: "This local allow should flow into send and report.",
+          idempotency_key: sendIdempotencyKey,
+          local_decision: {
+            decision: "allow",
+            delivery_mode: "full_send",
+            reason: "Local policy evaluation allowed this message.",
+            reason_code: "policy.allow.user.structured",
+            winning_policy_id: allowPolicyId,
+          },
+        }),
+      },
+    );
+
+    expect(commitResponse.status).toBe(200);
+    const commitBody = await commitResponse.json();
+    expect(commitBody.status).toBe("pending");
+
+    const sendResponse = await app.request("/api/v1/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sender_connection_id: senderConnection.id,
+        recipient: recipient.username,
+        recipient_connection_id: recipientConnection.id,
+        recipient_type: "user",
+        message: "This local allow should flow into send and report.",
+        resolution_id: resolutionId,
+        idempotency_key: sendIdempotencyKey,
+      }),
+    });
+
+    expect(sendResponse.status).toBe(200);
+    const sendBody = await sendResponse.json();
+    expect(sendBody).toEqual(
+      expect.objectContaining({
+        message_id: commitBody.message_id,
+        status: "delivered",
+        resolution: expect.objectContaining({
+          resolution_id: resolutionId,
+          decision: "allow",
+        }),
+      }),
+    );
+
+    const firstOutcomeResponse = await app.request("/api/v1/plugin/outcomes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "idem_plugin_outcomes_local_allow_report",
+      },
+      body: JSON.stringify({
+        sender_connection_id: senderConnection.id,
+        message_id: commitBody.message_id,
+        resolution_id: resolutionId,
+        outcome: "sent",
+        recipient_results: [
+          {
+            recipient: recipient.username,
+            outcome: "sent",
+          },
+        ],
+      }),
+    });
+
+    expect(firstOutcomeResponse.status).toBe(200);
+    const firstOutcomeBody = await firstOutcomeResponse.json();
+    expect(firstOutcomeBody.recorded).toBe(true);
+
+    const retryOutcomeResponse = await app.request("/api/v1/plugin/outcomes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${senderKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "idem_plugin_outcomes_local_allow_report",
+      },
+      body: JSON.stringify({
+        sender_connection_id: senderConnection.id,
+        message_id: commitBody.message_id,
+        resolution_id: resolutionId,
+        outcome: "sent",
+        recipient_results: [
+          {
+            recipient: recipient.username,
+            outcome: "sent",
+          },
+        ],
+      }),
+    });
+
+    expect(retryOutcomeResponse.status).toBe(200);
+    const retryOutcomeBody = await retryOutcomeResponse.json();
+    expect(retryOutcomeBody).toEqual(
+      expect.objectContaining({
+        recorded: true,
+        deduplicated: true,
+        event_id: firstOutcomeBody.event_id,
+      }),
+    );
+
+    const [policyAfterSendAndReport] = await db
+      .select({ remainingUses: schema.policies.remainingUses })
+      .from(schema.policies)
+      .where(eq(schema.policies.id, allowPolicyId))
+      .limit(1);
+    expect(policyAfterSendAndReport?.remainingUses).toBe(0);
+
+    const [storedMessage] = await db
+      .select({
+        outcome: schema.messages.outcome,
+        outcomeDetails: schema.messages.outcomeDetails,
+        resolutionId: schema.messages.resolutionId,
+      })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, commitBody.message_id))
+      .limit(1);
+
+    expect(storedMessage?.outcome).toBe("sent");
+    expect(storedMessage?.resolutionId).toBe(resolutionId);
+    const details = JSON.parse(storedMessage!.outcomeDetails!);
+    expect(details.plugin_outcome_reports).toHaveLength(1);
+    expect(details.plugin_outcome_reports[0]).toEqual(
+      expect.objectContaining({
+        resolution_id: resolutionId,
+        outcome: "sent",
+        idempotency_key: "idem_plugin_outcomes_local_allow_report",
+      }),
+    );
+  });
+
   it("rejects reports when sender_connection_id does not match the message sender", async () => {
     const {
       sender,
@@ -307,4 +476,60 @@ async function setupParticipants(suffix: string) {
     recipient,
     recipientConnection,
   };
+}
+
+async function insertDirectPolicy(input: {
+  userId: string;
+  recipientId: string;
+  effect: "allow" | "ask" | "deny";
+  maxUses: number | null;
+  remainingUses: number | null;
+  source: "override" | "user_created";
+  priority: number;
+}) {
+  const db = getTestDb();
+  const storage = canonicalToStorage({
+    scope: "user",
+    target_id: input.recipientId,
+    direction: "outbound",
+    resource: "message.general",
+    action: "share",
+    effect: input.effect,
+    evaluator: "structured",
+    policy_content: {},
+    effective_from: null,
+    expires_at: null,
+    max_uses: input.maxUses,
+    remaining_uses: input.remainingUses,
+    source: input.source,
+    derived_from_message_id: null,
+    priority: input.priority,
+    enabled: true,
+  });
+
+  const policyId = nanoid();
+  await db.insert(schema.policies).values({
+    id: policyId,
+    userId: input.userId,
+    scope: "user",
+    targetId: input.recipientId,
+    policyType: storage.policyType,
+    policyContent: storage.policyContent,
+    direction: storage.direction,
+    resource: storage.resource,
+    action: storage.action,
+    effect: storage.effect,
+    evaluator: storage.evaluator,
+    effectiveFrom: storage.effectiveFrom,
+    expiresAt: storage.expiresAt,
+    maxUses: storage.maxUses,
+    remainingUses: storage.remainingUses,
+    source: storage.source,
+    derivedFromMessageId: storage.derivedFromMessageId,
+    priority: input.priority,
+    enabled: true,
+    createdAt: new Date(),
+  });
+
+  return policyId;
 }

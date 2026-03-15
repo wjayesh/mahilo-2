@@ -1,55 +1,75 @@
+import {
+  isInboundSelectorDirection,
+  normalizeSelectorContext,
+  resolvePolicySet,
+  stricterEffect,
+  type AuthenticatedSenderIdentity,
+  type CorePolicy,
+  type LLMEvaluationFallbackMode,
+  type LLMPolicyEvaluator,
+  type PolicyDirection,
+  type PolicyEffect,
+  type PolicyResolverLayer,
+  type PolicyResult,
+  type ResolvedPolicySelectorContext,
+} from "@mahilo/policy-core";
 import type { ReviewMode } from "./config";
 
-export type PolicyDecision = "allow" | "ask" | "deny";
-export type SelectorDirection = "inbound" | "outbound";
+// Utility helpers shared across prompt context, response/result shaping, and
+// the bundle-based local runtime. Live non-trusted enforcement happens in
+// local-policy-runtime.ts from server-issued policy bundles.
+export type PolicyDecision = PolicyEffect;
+export type SelectorDirection = PolicyDirection;
 
-export interface DeclaredSelectors {
-  action: string;
-  direction: SelectorDirection;
-  resource: string;
-}
+export interface DeclaredSelectors extends ResolvedPolicySelectorContext {}
 
-export interface LocalPolicyGuardInput {
+export interface SharedLocalPolicyResolverInput {
+  policies: ReadonlyArray<CorePolicy>;
+  ownerUserId: string;
   message: string;
-  selectors: DeclaredSelectors;
-}
-
-export interface LocalPolicyGuardResult {
-  decision: PolicyDecision;
-  reason?: string;
+  context?: string;
+  recipientUsername?: string;
+  llmSubject?: string;
+  llmEvaluator?: LLMPolicyEvaluator;
+  llmUnavailableMode?: LLMEvaluationFallbackMode;
+  llmErrorMode?: LLMEvaluationFallbackMode;
+  llmSkipMode?: LLMEvaluationFallbackMode;
+  authenticatedIdentity?: AuthenticatedSenderIdentity;
+  resolverLayer?: PolicyResolverLayer;
 }
 
 const DECISIONS: PolicyDecision[] = ["allow", "ask", "deny"];
-const DECISION_PRIORITY: Record<PolicyDecision, number> = {
-  allow: 0,
-  ask: 1,
-  deny: 2
-};
-
-const SENSITIVE_RESOURCES = ["calendar.", "contact.", "financial.", "health.", "location."];
-const SENSITIVE_MESSAGE_PATTERNS = [/\b\d{3}-\d{2}-\d{4}\b/u, /\baccount number\b/iu, /\bpassword\b/iu, /\bpin\b/iu];
+const LOCAL_LLM_FAIL_SAFE_MODE: LLMEvaluationFallbackMode = "ask";
+const DEGRADED_LLM_REASON_CODE_PATTERN = /^policy\.ask\.llm\.[a-z0-9_]+$/u;
 
 export function normalizeDeclaredSelectors(
   selectors: Partial<DeclaredSelectors> | undefined,
-  fallbackDirection: SelectorDirection = "outbound"
+  fallbackDirection: SelectorDirection = "outbound",
 ): DeclaredSelectors {
-  const direction = parseDirection(selectors?.direction, fallbackDirection);
-  const resource = normalizeToken(selectors?.resource, "message.general");
-  const action = normalizeToken(selectors?.action, direction === "outbound" ? "share" : "notify");
-
-  return {
-    action,
-    direction,
-    resource
-  };
+  return normalizeSelectorContext(selectors, {
+    fallbackDirection,
+    fallbackResource: "message.general",
+    normalizeSeparators: true,
+    resolveFallbackAction: (direction) =>
+      isInboundSelectorDirection(direction) ? "notify" : "share",
+  });
 }
 
-export function extractDecision(value: unknown, fallback: PolicyDecision = "allow"): PolicyDecision {
+export function extractDecision(
+  value: unknown,
+  fallback: PolicyDecision = "allow",
+): PolicyDecision {
   const candidates = [
     readDecision((value as Record<string, unknown> | undefined)?.decision),
-    readDecision((value as Record<string, unknown> | undefined)?.policy as unknown),
-    readDecision((value as Record<string, unknown> | undefined)?.resolution as unknown),
-    readDecision((value as Record<string, unknown> | undefined)?.result as unknown)
+    readDecision(
+      (value as Record<string, unknown> | undefined)?.policy as unknown,
+    ),
+    readDecision(
+      (value as Record<string, unknown> | undefined)?.resolution as unknown,
+    ),
+    readDecision(
+      (value as Record<string, unknown> | undefined)?.result as unknown,
+    ),
   ];
 
   for (const candidate of candidates) {
@@ -67,7 +87,8 @@ export function extractResolutionId(value: unknown): string | undefined {
     return undefined;
   }
 
-  const rootId = readString(root.resolution_id) ?? readString(root.resolutionId);
+  const rootId =
+    readString(root.resolution_id) ?? readString(root.resolutionId);
   if (rootId) {
     return rootId;
   }
@@ -85,13 +106,13 @@ export function extractResolutionId(value: unknown): string | undefined {
   return undefined;
 }
 
-export function mergePolicyDecisions(...decisions: PolicyDecision[]): PolicyDecision {
+export function mergePolicyDecisions(
+  ...decisions: PolicyDecision[]
+): PolicyDecision {
   let merged: PolicyDecision = "allow";
 
   for (const decision of decisions) {
-    if (DECISION_PRIORITY[decision] > DECISION_PRIORITY[merged]) {
-      merged = decision;
-    }
+    merged = stricterEffect(merged, decision);
   }
 
   return merged;
@@ -105,70 +126,67 @@ export function decisionBlocksSend(decision: PolicyDecision): boolean {
   return decision === "deny";
 }
 
-export function shouldSendForDecision(decision: PolicyDecision, reviewMode: ReviewMode = "ask"): boolean {
+export function isDegradedLLMReasonCode(
+  reasonCode: string | undefined,
+): boolean {
+  return (
+    typeof reasonCode === "string" &&
+    DEGRADED_LLM_REASON_CODE_PATTERN.test(reasonCode)
+  );
+}
+
+export function shouldSendForDecision(
+  decision: PolicyDecision,
+  reviewMode: ReviewMode = "ask",
+  reasonCode?: string,
+): boolean {
   if (decision === "deny") {
     return false;
   }
 
   if (decision === "ask") {
-    return reviewMode === "auto";
+    return reviewMode === "auto" && !isDegradedLLMReasonCode(reasonCode);
   }
 
   return true;
 }
 
-export function toToolStatus(decision: PolicyDecision, reviewMode: ReviewMode = "ask"): "denied" | "review_required" | "sent" {
+export function toToolStatus(
+  decision: PolicyDecision,
+  reviewMode: ReviewMode = "ask",
+  reasonCode?: string,
+): "denied" | "review_required" | "sent" {
   if (decision === "deny") {
     return "denied";
   }
 
-  if (decision === "ask" && reviewMode !== "auto") {
+  if (
+    decision === "ask" &&
+    (reviewMode !== "auto" || isDegradedLLMReasonCode(reasonCode))
+  ) {
     return "review_required";
   }
 
   return "sent";
 }
 
-export function applyLocalPolicyGuard(input: LocalPolicyGuardInput): LocalPolicyGuardResult {
-  const normalizedMessage = input.message.trim();
-  if (normalizedMessage.length === 0) {
-    return {
-      decision: "ask",
-      reason: "message body is empty"
-    };
-  }
-
-  const isSensitiveResource = SENSITIVE_RESOURCES.some((prefix) => input.selectors.resource.startsWith(prefix));
-  const hasSensitivePattern = SENSITIVE_MESSAGE_PATTERNS.some((pattern) => pattern.test(normalizedMessage));
-
-  if (isSensitiveResource && hasSensitivePattern) {
-    return {
-      decision: "ask",
-      reason: "sensitive resource with risky payload pattern"
-    };
-  }
-
-  return {
-    decision: "allow"
-  };
-}
-
-function parseDirection(value: unknown, fallback: SelectorDirection): SelectorDirection {
-  if (value === "inbound" || value === "outbound") {
-    return value;
-  }
-
-  return fallback;
-}
-
-function normalizeToken(value: unknown, fallback: string): string {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9.]+/giu, ".");
-  const collapsed = normalized.replace(/\.+/gu, ".").replace(/^\.|\.$/gu, "");
-  return collapsed.length > 0 ? collapsed : fallback;
+export async function resolveLocalPolicySet(
+  input: SharedLocalPolicyResolverInput,
+): Promise<PolicyResult> {
+  return resolvePolicySet({
+    policies: input.policies,
+    ownerUserId: input.ownerUserId,
+    message: input.message,
+    context: input.context,
+    recipientUsername: input.recipientUsername,
+    llmSubject: input.llmSubject ?? input.recipientUsername ?? "unknown",
+    llmEvaluator: input.llmEvaluator,
+    llmUnavailableMode: input.llmUnavailableMode ?? LOCAL_LLM_FAIL_SAFE_MODE,
+    llmErrorMode: input.llmErrorMode ?? LOCAL_LLM_FAIL_SAFE_MODE,
+    llmSkipMode: input.llmSkipMode ?? LOCAL_LLM_FAIL_SAFE_MODE,
+    authenticatedIdentity: input.authenticatedIdentity,
+    resolverLayer: input.resolverLayer ?? "user_policies",
+  });
 }
 
 function readObject(value: unknown): Record<string, unknown> | undefined {

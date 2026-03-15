@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "bun:test";
 
 function readDoc(relativePath: string): string {
-  return readFileSync(join(process.cwd(), relativePath), "utf8");
+  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 }
 
 describe("documentation surface", () => {
@@ -13,6 +13,8 @@ describe("documentation surface", () => {
 
     expect(guidedFirstRun).toContain("single recommended quickstart path");
     expect(guidedFirstRun).toContain("Five-Minute");
+    expect(guidedFirstRun).toContain("optional dry-run surfaces");
+    expect(guidedFirstRun).toContain("fresh policy bundle");
     expect(guidedFirstRun).toContain("mahilo setup");
     expect(guidedFirstRun).toContain("mahilo status");
     expect(guidedFirstRun).toContain("mahilo network");
@@ -23,6 +25,7 @@ describe("documentation surface", () => {
     expect(guidedFirstRun).toContain("Mahilo ask-around update");
     expect(guidedFirstRun).toContain("send_message");
     expect(guidedFirstRun).toContain("set_boundaries");
+    expect(guidedFirstRun).toContain("not any earlier preview `resolution_id`");
     expect(guidedFirstRun).toContain("https://mahilo.io");
     expect(guidedFirstRun).toContain("\"username\":\"your_handle\"");
     expect(guidedFirstRun).toContain("\"invite_token\":\"mhinv_...\"");
@@ -53,6 +56,7 @@ describe("documentation surface", () => {
     expect(demoStoryPack).toContain("bun run demo:stories");
     expect(demoStoryPack).toContain("guided-first-run");
     expect(demoStoryPack).toContain("build-your-circle checkpoint");
+    expect(demoStoryPack).toContain("review-required live send");
     expect(demoStoryPack).toContain("restaurant-question");
     expect(demoStoryPack).toContain("weekend-plan-coordination");
     expect(demoStoryPack).toContain("boundaries-story");
@@ -82,9 +86,18 @@ describe("documentation surface", () => {
 
     expect(operatorProof).toContain("skeptical operator or team lead");
     expect(operatorProof).toContain("Governance And Observability Proof Points");
+    expect(operatorProof).toContain("server-issued bundles");
     expect(operatorProof).toContain("mahilo status");
     expect(operatorProof).toContain("mahilo network");
     expect(operatorProof).toContain("mahilo review");
+    expect(operatorProof).toContain("Required Config For Local Enforcement");
+    expect(operatorProof).toContain("Rollout Gate And Upgrade Impact");
+    expect(operatorProof).toContain("There is no separate plugin feature flag");
+    expect(operatorProof).toContain("TRUSTED_MODE=false");
+    expect(operatorProof).toContain("Failure Semantics Operators Should Expect");
+    expect(operatorProof).toContain("policy.ask.llm.unavailable");
+    expect(operatorProof).toContain("reviewMode=auto");
+    expect(operatorProof).toContain("per committed member artifact");
     expect(operatorProof).toContain("guided-first-run");
     expect(operatorProof).toContain("weekend-plan-coordination");
     expect(operatorProof).toContain("reported no grounded answer");
@@ -94,11 +107,11 @@ describe("documentation surface", () => {
 
   it("keeps listing copy aligned with package and manifest descriptions", async () => {
     const listingCopy = readDoc("docs/listing-copy.md");
-    const packageJson = (await Bun.file(join(process.cwd(), "package.json")).json()) as {
+    const packageJson = (await Bun.file(fileURLToPath(new URL("../package.json", import.meta.url))).json()) as {
       description?: unknown;
       keywords?: unknown;
     };
-    const manifest = (await Bun.file(join(process.cwd(), "openclaw.plugin.json")).json()) as {
+    const manifest = (await Bun.file(fileURLToPath(new URL("../openclaw.plugin.json", import.meta.url))).json()) as {
       description?: unknown;
     };
 

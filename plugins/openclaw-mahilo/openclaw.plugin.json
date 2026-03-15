@@ -23,6 +23,46 @@
         "x-sensitive": true,
         "description": "Optional existing Mahilo API key. When present, the plugin auto-attaches a default sender on startup. `mahilo setup` can bootstrap and store one locally when this is omitted."
       },
+      "localPolicyLLM": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional local policy LLM settings used by plugin-local policy evaluation. Inline apiKey is supported, but env-var fallback via apiKeyEnvVar remains the preferred non-inline path; authProfile is a hint for future host-managed credential reuse.",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional provider id override for local policy evaluation, for example `openai`."
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional model override for local policy evaluation."
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 5000,
+            "description": "Request timeout in milliseconds for local policy LLM checks."
+          },
+          "authProfile": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional auth-profile hint for future host-managed provider credential lookup."
+          },
+          "apiKeyEnvVar": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "Optional environment variable name that overrides the provider-default API key env var lookup."
+          },
+          "apiKey": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true,
+            "x-sensitive": true,
+            "description": "Optional inline provider API key for local policy evaluation."
+          }
+        }
+      },
       "callbackUrl": {
         "type": "string",
         "description": "Optional public callback URL override. When omitted, the plugin auto-detects a callback URL from OpenClaw gateway remote/Tailscale settings and only falls back to localhost for local-only testing."

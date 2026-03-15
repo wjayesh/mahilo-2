@@ -1,3 +1,5 @@
+import { selectorDirectionsEquivalent } from "@mahilo/policy-core";
+
 export type SelectorDirection =
   | "outbound"
   | "inbound"
@@ -198,10 +200,9 @@ function collectMismatchFields(
 ): SelectorField[] {
   const mismatches: SelectorField[] = [];
   const directionMismatch =
-    classification.direction.value !== declaredSelectors.direction &&
-    !(
-      (declaredSelectors.direction === "inbound" && classification.direction.value === "request") ||
-      (declaredSelectors.direction === "request" && classification.direction.value === "inbound")
+    !selectorDirectionsEquivalent(
+      classification.direction.value,
+      declaredSelectors.direction
     );
 
   if (classification.direction.confidence === "high" && directionMismatch) {

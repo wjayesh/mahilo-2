@@ -68,6 +68,46 @@ describe("MahiloContractClient", () => {
     );
   });
 
+  it("posts direct-send bundle requests to the documented endpoint", async () => {
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion,
+    });
+
+    await client.getDirectSendPolicyBundle({
+      recipient: "alice",
+      recipient_type: "user",
+      sender_connection_id: "conn_123",
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0]?.input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.directSendBundle}`,
+    );
+    expect(fetchCalls[0]?.init?.method).toBe("POST");
+  });
+
+  it("posts group-fanout bundle requests to the documented endpoint", async () => {
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example",
+      pluginVersion,
+    });
+
+    await client.getGroupFanoutPolicyBundle({
+      recipient: "grp_hiking",
+      recipient_type: "group",
+      sender_connection_id: "conn_123",
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(String(fetchCalls[0]?.input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.groupFanoutBundle}`,
+    );
+    expect(fetchCalls[0]?.init?.method).toBe("POST");
+  });
+
   it("includes idempotency header for send operations", async () => {
     const client = new MahiloContractClient({
       apiKey: "mahilo-key",
@@ -86,6 +126,35 @@ describe("MahiloContractClient", () => {
 
     const headers = new Headers(call.init?.headers);
     expect(headers.get("idempotency-key")).toBe("idem-123");
+  });
+
+  it("posts local decision commits to the documented endpoint", async () => {
+    const client = new MahiloContractClient({
+      apiKey: "mahilo-key",
+      baseUrl: "https://mahilo.example/",
+      pluginVersion,
+    });
+
+    await client.commitLocalDecision(
+      {
+        local_decision: { decision: "allow", delivery_mode: "full_send" },
+        message: "hello",
+        recipient: "alice",
+        resolution_id: "res-123",
+        sender_connection_id: "conn_sender",
+      },
+      "idem-local-123",
+    );
+
+    expect(fetchCalls).toHaveLength(1);
+
+    const call = fetchCalls[0];
+    expect(String(call.input)).toBe(
+      `https://mahilo.example${CONTRACT_ENDPOINTS.localDecisionCommit}`,
+    );
+
+    const headers = new Headers(call.init?.headers);
+    expect(headers.get("idempotency-key")).toBe("idem-local-123");
   });
 
   it("omits authorization when bootstrapping identity registration without an apiKey", async () => {

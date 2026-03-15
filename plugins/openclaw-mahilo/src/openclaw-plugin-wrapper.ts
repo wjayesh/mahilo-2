@@ -1283,6 +1283,16 @@ function buildPluginConfigInput(
     inboundSessionKey: config.inboundSessionKey,
     callbackPath: config.callbackPath,
     callbackUrl: config.callbackUrl,
+    localPolicyLLM: config.localPolicyLLM
+      ? compactObject({
+          apiKey: config.localPolicyLLM.apiKey,
+          apiKeyEnvVar: config.localPolicyLLM.apiKeyEnvVar,
+          authProfile: config.localPolicyLLM.authProfile,
+          model: config.localPolicyLLM.model,
+          provider: config.localPolicyLLM.provider,
+          timeout: config.localPolicyLLM.timeout,
+        })
+      : undefined,
     promptContextEnabled: config.promptContextEnabled,
     reviewMode: config.reviewMode,
   });

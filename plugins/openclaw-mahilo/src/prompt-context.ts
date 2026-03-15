@@ -1,3 +1,4 @@
+import { normalizeSelectorDirection } from "@mahilo/policy-core";
 import type { MahiloContractClient } from "./client";
 import {
   normalizeDeclaredSelectors,
@@ -150,6 +151,7 @@ export function formatMahiloPromptInjection(
 ): string {
   const lines = [
     "[MahiloContext/v1]",
+    "authority=advisory_only",
     `recipient=${formatRecipient(context.recipient)}`,
     `guidance=${formatGuidance(context.guidance)}`,
     `summary=${compactText(context.guidance.summary ?? "none", MAX_SUMMARY_LENGTH)}`,
@@ -388,7 +390,7 @@ function compactText(value: string, maxLength: number): string {
 }
 
 function parseSelectorDirection(value: unknown): DeclaredSelectors["direction"] | undefined {
-  return value === "inbound" || value === "outbound" ? value : undefined;
+  return normalizeSelectorDirection(typeof value === "string" ? value : undefined);
 }
 
 function parsePolicyDecision(value: unknown): PolicyDecision | undefined;

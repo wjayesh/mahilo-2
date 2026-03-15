@@ -3,21 +3,41 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { createHash } from "crypto";
-import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
+import {
+  isInboundSelectorDirection,
+  normalizeSelectorContext,
+  normalizeSelectorDirection,
+  SELECTOR_DIRECTIONS,
+} from "@mahilo/policy-core";
 import type { AppEnv } from "../server";
 import { getDb, schema } from "../db";
 import { requireActive, requireAuth } from "../middleware/auth";
 import { AppError } from "../middleware/error";
 import { getRolesForFriend, isValidRole } from "../services/roles";
+import { loadUserLLMProviderDefaults } from "../services/preferences";
 import { generatePolicySummary } from "../services/policySummary";
 import { config } from "../config";
 import { parseCapabilities, validatePayloadSize } from "../services/validation";
 import { detectPromotionSuggestions } from "../services/promotionSuggestions";
 import {
+  consumeWinningPolicyUse,
   evaluateGroupPolicies,
   evaluateInboundPolicies,
   evaluatePolicies,
   loadApplicablePolicies,
+  resolveContextPolicyGuidance,
   validatePolicyContent,
   type AuthenticatedSenderIdentity,
   type PolicyResult,
@@ -32,15 +52,6 @@ import {
 } from "../services/policySchema";
 
 const CONTRACT_VERSION = "1.0.0";
-
-const selectorDirections = [
-  "outbound",
-  "inbound",
-  "request",
-  "response",
-  "notification",
-  "error",
-] as const;
 
 const knownSelectorResources = new Set<string>([
   "message.general",
@@ -73,10 +84,12 @@ const selectorTokenSchema = z
   .regex(/^[a-z0-9._-]+$/i);
 
 const selectorInputSchema = z.object({
-  direction: z.enum(selectorDirections).optional(),
+  direction: z.enum(SELECTOR_DIRECTIONS).optional(),
   resource: selectorTokenSchema.optional(),
   action: selectorTokenSchema.optional(),
 });
+
+const selectorDirections = SELECTOR_DIRECTIONS;
 
 const pluginContextRequestSchema = z.object({
   sender_connection_id: z.string().min(1),
@@ -88,10 +101,23 @@ const pluginContextRequestSchema = z.object({
   interaction_limit: z.number().int().min(1).max(20).optional().default(5),
 });
 
-const pluginResolveRequestSchema = z.object({
+const pluginSendSelectorRequestSchema = z.object({
   recipient: z.string().min(1),
   recipient_type: z.enum(["user", "group"]).optional().default("user"),
   sender_connection_id: z.string().optional(),
+  direction: z.enum(selectorDirections).optional(),
+  resource: selectorTokenSchema.optional(),
+  action: selectorTokenSchema.optional(),
+  declared_selectors: selectorInputSchema.optional(),
+});
+
+const pluginDirectSendBundleRequestSchema = pluginSendSelectorRequestSchema;
+const pluginGroupFanoutBundleRequestSchema =
+  pluginSendSelectorRequestSchema.extend({
+    recipient_type: z.enum(["group"]).optional().default("group"),
+  });
+
+const pluginResolveRequestSchema = pluginSendSelectorRequestSchema.extend({
   recipient_connection_id: z.string().optional(),
   routing_hints: z
     .object({
@@ -102,13 +128,107 @@ const pluginResolveRequestSchema = z.object({
   message: z.string().min(1),
   context: z.string().optional(),
   payload_type: z.string().optional().default("text/plain"),
-  direction: z.enum(selectorDirections).optional(),
-  resource: selectorTokenSchema.optional(),
-  action: selectorTokenSchema.optional(),
-  declared_selectors: selectorInputSchema.optional(),
   correlation_id: z.string().optional(),
   idempotency_key: z.string().optional(),
 });
+
+const localDecisionAuditPolicySchema = z.record(z.unknown());
+const localPolicyDecisionDiagnosticTimingSchema = z.object({
+  bundle_fetch_ms: z.number().finite().min(0).max(60 * 60 * 1000).optional(),
+  evaluation_ms: z.number().finite().min(0).max(60 * 60 * 1000),
+  llm_evaluator_ms: z.number().finite().min(0).max(60 * 60 * 1000).optional(),
+  provider_ms: z.number().finite().min(0).max(60 * 60 * 1000).optional(),
+  total_ms: z.number().finite().min(0).max(60 * 60 * 1000),
+});
+const localPolicyDecisionLLMDiagnosticsSchema = z.object({
+  applicable_policy_count: z.number().int().min(0).max(100),
+  degraded_cause: z.string().min(1).max(120).optional(),
+  degraded_reason_code: z.string().min(1).max(255).optional(),
+  evaluator_invocation_count: z.number().int().min(0).max(100),
+  model: z.string().min(1).max(120).nullable(),
+  provider: z.string().min(1).max(120).nullable(),
+  provider_invocation_count: z.number().int().min(0).max(100),
+});
+const localPolicyDecisionWinningPolicyDiagnosticsSchema = z.object({
+  effect: z.enum(["allow", "ask", "deny"]).nullable(),
+  evaluator: z.enum(["structured", "heuristic", "llm"]).nullable(),
+  policy_id: z.string().min(1).max(255).nullable(),
+  scope: z.enum(["global", "user", "role", "group"]).nullable(),
+});
+const localPolicyDecisionRedactionDiagnosticsSchema = z.object({
+  context: z.enum(["absent", "omitted"]),
+  credentials: z.literal("omitted"),
+  message: z.literal("omitted"),
+  raw_prompt: z.literal("omitted"),
+});
+const localPolicyDecisionDiagnosticsSchema = z.object({
+  applicable_policy_count: z.number().int().min(0).max(100),
+  bundle_id: z.string().min(1).max(255),
+  bundle_type: z.enum(["direct_send", "group_fanout"]),
+  decision: z.enum(["allow", "ask", "deny"]),
+  delivery_mode: z.enum([
+    "full_send",
+    "review_required",
+    "hold_for_approval",
+    "blocked",
+  ]),
+  diagnostic_version: z.literal("1.0.0"),
+  evaluated_policy_count: z.number().int().min(0).max(100),
+  llm: localPolicyDecisionLLMDiagnosticsSchema.optional(),
+  matched_policy_count: z.number().int().min(0).max(100),
+  reason_code: z.string().min(1).max(255),
+  reason_kind: z.enum([
+    "degraded_llm_review",
+    "matched_policy",
+    "no_match_default",
+    "policy_resolved",
+  ]),
+  redaction: localPolicyDecisionRedactionDiagnosticsSchema,
+  resolution_id: z.string().min(1).max(255),
+  timing_ms: localPolicyDecisionDiagnosticTimingSchema,
+  winning_policy: localPolicyDecisionWinningPolicyDiagnosticsSchema,
+});
+
+const pluginLocalDecisionCommitRequestSchema =
+  pluginSendSelectorRequestSchema.extend({
+    sender_connection_id: z.string().min(1),
+    recipient_type: z.enum(["user"]).optional().default("user"),
+    message: z.string().min(1),
+    context: z.string().optional(),
+    payload_type: z.string().optional().default("text/plain"),
+    correlation_id: z.string().optional(),
+    group_id: z.string().min(1).max(255).optional(),
+    in_response_to: z.string().optional(),
+    resolution_id: z.string().min(1).max(120),
+    idempotency_key: z.string().min(1).max(255).optional(),
+    local_decision: z.object({
+      decision: z.enum(["allow", "ask", "deny"]),
+      delivery_mode: z.enum([
+        "full_send",
+        "review_required",
+        "hold_for_approval",
+        "blocked",
+      ]),
+      summary: z.string().min(1).max(2000).optional(),
+      reason: z.string().min(1).max(2000).optional(),
+      reason_code: z.string().min(1).max(255).optional(),
+      resolution_explanation: z.string().min(1).max(4000).optional(),
+      resolver_layer: z
+        .enum(["platform_guardrails", "user_policies"])
+        .optional(),
+      guardrail_id: z.string().min(1).max(255).optional(),
+      winning_policy_id: z.string().min(1).max(255).optional(),
+      matched_policy_ids: z
+        .array(z.string().min(1).max(255))
+        .max(100)
+        .optional(),
+      evaluated_policies: z
+        .array(localDecisionAuditPolicySchema)
+        .max(100)
+        .optional(),
+      diagnostics: localPolicyDecisionDiagnosticsSchema.optional(),
+    }),
+  });
 
 const pluginOutcomeValues = [
   "sent",
@@ -142,7 +262,9 @@ const policyScopeSchema = z.enum(["global", "user", "group", "role"]);
 const policyEffectSchema = z.enum(["allow", "ask", "deny"]);
 const isoDateSchema = z
   .string()
-  .refine((value) => !Number.isNaN(Date.parse(value)), { message: "Invalid ISO date" });
+  .refine((value) => !Number.isNaN(Date.parse(value)), {
+    message: "Invalid ISO date",
+  });
 
 const pluginOverrideRequestSchema = z.object({
   sender_connection_id: z.string().min(1),
@@ -155,7 +277,12 @@ const pluginOverrideRequestSchema = z.object({
   reason: z.string().min(1).max(2000),
   max_uses: z.number().int().positive().nullable().optional(),
   expires_at: isoDateSchema.optional(),
-  ttl_seconds: z.number().int().positive().max(60 * 60 * 24 * 30).optional(),
+  ttl_seconds: z
+    .number()
+    .int()
+    .positive()
+    .max(60 * 60 * 24 * 30)
+    .optional(),
   derived_from_message_id: z.string().min(1).optional(),
   policy_content: z.record(z.unknown()).optional(),
   priority: z.number().int().min(0).max(100).optional().default(90),
@@ -163,12 +290,22 @@ const pluginOverrideRequestSchema = z.object({
 
 type PluginContextRequest = z.infer<typeof pluginContextRequestSchema>;
 type PluginResolveRequest = z.infer<typeof pluginResolveRequestSchema>;
+type PluginLocalDecisionCommitRequest = z.infer<
+  typeof pluginLocalDecisionCommitRequestSchema
+>;
 type PluginOutcomeRequest = z.infer<typeof pluginOutcomeRequestSchema>;
 type PluginOverrideRequest = z.infer<typeof pluginOverrideRequestSchema>;
+type PluginSendSelectorRequest = z.infer<
+  typeof pluginSendSelectorRequestSchema
+>;
 type PluginReportedOutcome = (typeof pluginOutcomeValues)[number];
 type PluginOverrideKind = (typeof pluginOverrideKinds)[number];
 type ContextDecision = "allow" | "ask" | "deny";
-type DeliveryMode = "full_send" | "review_required" | "hold_for_approval" | "blocked";
+type DeliveryMode =
+  | "full_send"
+  | "review_required"
+  | "hold_for_approval"
+  | "blocked";
 type ReviewQueueStatus = "review_required" | "approval_pending";
 type QueueDirectionFilter = "all" | "outbound" | "inbound";
 
@@ -177,41 +314,27 @@ const reviewQueueStatuses: readonly ReviewQueueStatus[] = [
   "approval_pending",
 ];
 
-const policyEffectPriority: Record<ContextDecision, number> = {
-  allow: 0,
-  ask: 1,
-  deny: 2,
-};
-
-const policyEvaluatorPriority: Record<CanonicalPolicy["evaluator"], number> = {
-  llm: 0,
-  heuristic: 1,
-  structured: 1,
-};
-
 const defaultSelectors = {
   action: "share",
   direction: "outbound" as const,
   resource: "message.general",
 };
 
+const GROUP_FANOUT_MIXED_DECISION_PRIORITY = ["allow", "ask", "deny"] as const;
+const GROUP_FANOUT_EMPTY_SUMMARY = "No active recipients in group.";
+const GROUP_FANOUT_PARTIAL_SUMMARY_TEMPLATE =
+  "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.";
+
 export const pluginRoutes = new Hono<AppEnv>();
 pluginRoutes.use("*", requireAuth());
-
-function normalizeSelectorToken(value: string | undefined, fallback: string): string {
-  if (!value) {
-    return fallback;
-  }
-  const normalized = value.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : fallback;
-}
-
 function isNamespacedSelectorToken(value: string): boolean {
   return value.includes(".");
 }
 
 function isKnownSelectorResource(value: string): boolean {
-  return knownSelectorResources.has(value) || legacySelectorResources.has(value);
+  return (
+    knownSelectorResources.has(value) || legacySelectorResources.has(value)
+  );
 }
 
 function validateSelectors(selectors: {
@@ -219,86 +342,88 @@ function validateSelectors(selectors: {
   resource: string;
   action: string;
 }) {
-  if (!selectorDirections.includes(selectors.direction)) {
+  if (!SELECTOR_DIRECTIONS.includes(selectors.direction)) {
     throw new AppError(
       `Unknown direction selector '${selectors.direction}'`,
       400,
-      "INVALID_SELECTOR"
+      "INVALID_SELECTOR",
     );
   }
 
-  if (isKnownSelectorResource(selectors.resource) || isNamespacedSelectorToken(selectors.resource)) {
+  if (
+    isKnownSelectorResource(selectors.resource) ||
+    isNamespacedSelectorToken(selectors.resource)
+  ) {
     return;
   }
 
   throw new AppError(
     `Unknown resource selector '${selectors.resource}'. Use a known resource or a namespaced selector like 'custom.preference'.`,
     400,
-    "INVALID_SELECTOR"
+    "INVALID_SELECTOR",
   );
-}
-
-function resolveDirectionCandidates(direction: PolicyDirection): PolicyDirection[] {
-  if (direction === "inbound" || direction === "request") {
-    return ["inbound", "request"];
-  }
-  return [direction];
 }
 
 function resolveContextSelectors(data: PluginContextRequest) {
   const selectorSource = data.draft_selectors || data.declared_selectors;
-  const direction = selectorSource?.direction || defaultSelectors.direction;
-  const resource = normalizeSelectorToken(selectorSource?.resource, defaultSelectors.resource);
-  const action = normalizeSelectorToken(selectorSource?.action, defaultSelectors.action);
-  const selectors = {
-    action,
-    direction,
-    resource,
-  };
+  const selectors = normalizeSelectorContext(selectorSource, {
+    fallbackAction: defaultSelectors.action,
+    fallbackDirection: defaultSelectors.direction,
+    fallbackResource: defaultSelectors.resource,
+    normalizeSeparators: true,
+  });
   validateSelectors(selectors);
   return selectors;
 }
 
-function resolveDraftSelectors(data: PluginResolveRequest) {
+function resolveDraftSelectors(data: PluginSendSelectorRequest) {
   const selectorSource = data.declared_selectors;
-  const direction = selectorSource?.direction || data.direction || defaultSelectors.direction;
-  const resource = normalizeSelectorToken(
-    selectorSource?.resource || data.resource,
-    defaultSelectors.resource
+  const selectors = normalizeSelectorContext(
+    {
+      action: selectorSource?.action ?? data.action,
+      direction: selectorSource?.direction ?? data.direction,
+      resource: selectorSource?.resource ?? data.resource,
+    },
+    {
+      fallbackAction: defaultSelectors.action,
+      fallbackDirection: defaultSelectors.direction,
+      fallbackResource: defaultSelectors.resource,
+      normalizeSeparators: true,
+    },
   );
-  const action = normalizeSelectorToken(
-    selectorSource?.action || data.action,
-    defaultSelectors.action
-  );
-  const selectors = {
-    action,
-    direction,
-    resource,
-  };
   validateSelectors(selectors);
   return selectors;
 }
 
 function resolveOverrideSelectors(data: PluginOverrideRequest) {
-  const direction = data.selectors.direction || defaultSelectors.direction;
-  const resource = normalizeSelectorToken(data.selectors.resource, defaultSelectors.resource);
-  const action = normalizeSelectorToken(data.selectors.action, defaultSelectors.action);
-  const selectors = {
-    action,
-    direction,
-    resource,
-  };
+  const selectors = normalizeSelectorContext(data.selectors, {
+    fallbackAction: defaultSelectors.action,
+    fallbackDirection: defaultSelectors.direction,
+    fallbackResource: defaultSelectors.resource,
+    normalizeSeparators: true,
+  });
   validateSelectors(selectors);
   return selectors;
 }
 
 function assertScopeTarget(scope: PolicyScope, targetId: string | null) {
   if (scope === "global" && targetId) {
-    throw new AppError("Global overrides cannot include target_id", 400, "INVALID_OVERRIDE");
+    throw new AppError(
+      "Global overrides cannot include target_id",
+      400,
+      "INVALID_OVERRIDE",
+    );
   }
 
-  if ((scope === "user" || scope === "group" || scope === "role") && !targetId) {
-    throw new AppError(`${scope} overrides require target_id`, 400, "INVALID_OVERRIDE");
+  if (
+    (scope === "user" || scope === "group" || scope === "role") &&
+    !targetId
+  ) {
+    throw new AppError(
+      `${scope} overrides require target_id`,
+      400,
+      "INVALID_OVERRIDE",
+    );
   }
 }
 
@@ -321,8 +446,8 @@ async function assertGroupPolicyAccess(userId: string, groupId: string) {
       and(
         eq(schema.groupMemberships.groupId, groupId),
         eq(schema.groupMemberships.userId, userId),
-        eq(schema.groupMemberships.status, "active")
-      )
+        eq(schema.groupMemberships.status, "active"),
+      ),
     )
     .limit(1);
 
@@ -334,7 +459,7 @@ async function assertGroupPolicyAccess(userId: string, groupId: string) {
     throw new AppError(
       "Only group owners and admins can create group-scoped overrides",
       403,
-      "FORBIDDEN"
+      "FORBIDDEN",
     );
   }
 }
@@ -348,7 +473,7 @@ function resolveOverrideLifecycle(data: PluginOverrideRequest): {
     throw new AppError(
       "Provide either expires_at or ttl_seconds, not both",
       400,
-      "INVALID_OVERRIDE"
+      "INVALID_OVERRIDE",
     );
   }
 
@@ -360,12 +485,20 @@ function resolveOverrideLifecycle(data: PluginOverrideRequest): {
   }
 
   if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
-    throw new AppError("expires_at must be in the future", 400, "INVALID_OVERRIDE");
+    throw new AppError(
+      "expires_at must be in the future",
+      400,
+      "INVALID_OVERRIDE",
+    );
   }
 
   if (data.kind === "one_time") {
     if (data.max_uses !== undefined && data.max_uses !== 1) {
-      throw new AppError("one_time overrides require max_uses = 1", 400, "INVALID_OVERRIDE");
+      throw new AppError(
+        "one_time overrides require max_uses = 1",
+        400,
+        "INVALID_OVERRIDE",
+      );
     }
     return {
       expires_at: expiresAt,
@@ -379,7 +512,7 @@ function resolveOverrideLifecycle(data: PluginOverrideRequest): {
       throw new AppError(
         "temporary overrides require expires_at or ttl_seconds",
         400,
-        "INVALID_OVERRIDE"
+        "INVALID_OVERRIDE",
       );
     }
     const maxUses = data.max_uses ?? null;
@@ -394,12 +527,16 @@ function resolveOverrideLifecycle(data: PluginOverrideRequest): {
     throw new AppError(
       "persistent overrides cannot include expires_at or ttl_seconds",
       400,
-      "INVALID_OVERRIDE"
+      "INVALID_OVERRIDE",
     );
   }
 
   if (data.max_uses !== undefined && data.max_uses !== null) {
-    throw new AppError("persistent overrides cannot include max_uses", 400, "INVALID_OVERRIDE");
+    throw new AppError(
+      "persistent overrides cannot include max_uses",
+      400,
+      "INVALID_OVERRIDE",
+    );
   }
 
   return {
@@ -410,29 +547,28 @@ function resolveOverrideLifecycle(data: PluginOverrideRequest): {
 }
 
 function parseDirectionCandidate(value: unknown): PolicyDirection {
-  if (
-    value === "outbound" ||
-    value === "inbound" ||
-    value === "request" ||
-    value === "response" ||
-    value === "notification" ||
-    value === "error"
-  ) {
-    return value;
-  }
-  return defaultSelectors.direction;
+  return normalizeSelectorDirection(
+    typeof value === "string" ? value : undefined,
+    defaultSelectors.direction,
+  )!;
 }
 
 function isInboundDirection(direction: PolicyDirection): boolean {
-  return direction === "inbound" || direction === "request";
+  return isInboundSelectorDirection(direction);
 }
 
-function resolveDeliveryMode(decision: ContextDecision, direction: PolicyDirection): DeliveryMode {
+function resolveDeliveryMode(
+  decision: ContextDecision,
+  direction: PolicyDirection,
+): DeliveryMode {
   if (decision === "deny") {
     return "blocked";
   }
   if (decision === "ask") {
-    if (isInboundDirection(direction) && config.inboundAskMode === "hold_for_approval") {
+    if (
+      isInboundDirection(direction) &&
+      config.inboundAskMode === "hold_for_approval"
+    ) {
       return "hold_for_approval";
     }
     return "review_required";
@@ -450,7 +586,28 @@ function defaultReasonCode(decision: ContextDecision): string {
   return "policy.allow.resolved";
 }
 
-function buildAgentResolutionSummary(decision: ContextDecision, deliveryMode: DeliveryMode): string {
+function resolvePreviewReasonCode(
+  decision: ContextDecision,
+  authoritative: boolean,
+): string {
+  if (!authoritative) {
+    return "plugin.resolve.preview_only";
+  }
+
+  return defaultReasonCode(decision);
+}
+
+function buildAgentResolutionSummary(
+  decision: ContextDecision,
+  deliveryMode: DeliveryMode,
+  options: {
+    authoritative?: boolean;
+  } = {},
+): string {
+  if (options.authoritative === false) {
+    return "Preview only. Live non-trusted sends require bundle evaluation and local decision commit before transport.";
+  }
+
   if (decision === "ask") {
     return deliveryMode === "hold_for_approval"
       ? "Message held for approval before delivery."
@@ -462,7 +619,17 @@ function buildAgentResolutionSummary(decision: ContextDecision, deliveryMode: De
   return "Message allowed by policy.";
 }
 
-function buildAgentGuidance(decision: ContextDecision, deliveryMode: DeliveryMode): string {
+function buildAgentGuidance(
+  decision: ContextDecision,
+  deliveryMode: DeliveryMode,
+  options: {
+    authoritative?: boolean;
+  } = {},
+): string {
+  if (options.authoritative === false) {
+    return "Preview only. Do not treat this as send authorization. For live non-trusted sends, fetch a policy bundle, evaluate locally, commit the decision, and transport only committed allow recipients.";
+  }
+
   if (decision === "allow") {
     return "Proceed with final send. Mahilo will evaluate policies again at send time.";
   }
@@ -479,7 +646,7 @@ function buildAgentGuidance(decision: ContextDecision, deliveryMode: DeliveryMod
 
 async function resolveSenderConnection(
   userId: string,
-  senderConnectionId?: string
+  senderConnectionId?: string,
 ): Promise<schema.AgentConnection> {
   const db = getDb();
 
@@ -491,13 +658,17 @@ async function resolveSenderConnection(
         and(
           eq(schema.agentConnections.id, senderConnectionId),
           eq(schema.agentConnections.userId, userId),
-          eq(schema.agentConnections.status, "active")
-        )
+          eq(schema.agentConnections.status, "active"),
+        ),
       )
       .limit(1);
 
     if (!senderConnection) {
-      throw new AppError("Sender connection not found or inactive", 404, "SENDER_CONNECTION_NOT_FOUND");
+      throw new AppError(
+        "Sender connection not found or inactive",
+        404,
+        "SENDER_CONNECTION_NOT_FOUND",
+      );
     }
 
     return senderConnection;
@@ -509,57 +680,168 @@ async function resolveSenderConnection(
     .where(
       and(
         eq(schema.agentConnections.userId, userId),
-        eq(schema.agentConnections.status, "active")
-      )
+        eq(schema.agentConnections.status, "active"),
+      ),
     )
-    .orderBy(desc(schema.agentConnections.routingPriority), desc(schema.agentConnections.createdAt))
+    .orderBy(
+      desc(schema.agentConnections.routingPriority),
+      desc(schema.agentConnections.createdAt),
+    )
     .limit(1);
 
   if (!senderConnection) {
-    throw new AppError("Sender connection not found or inactive", 404, "SENDER_CONNECTION_NOT_FOUND");
+    throw new AppError(
+      "Sender connection not found or inactive",
+      404,
+      "SENDER_CONNECTION_NOT_FOUND",
+    );
   }
 
   return senderConnection;
 }
 
-async function resolveUserRecipient(
+async function loadDirectUserRecipientAccess(
   senderUserId: string,
-  data: PluginResolveRequest
-): Promise<{ recipientConnection: schema.AgentConnection; recipientUserId: string }> {
+  recipientValue: string,
+  notFriendsStatus = 403,
+): Promise<{
+  friendship: {
+    createdAt: Date | null;
+  };
+  recipient: {
+    displayName: string | null;
+    id: string;
+    username: string;
+  };
+}> {
   const db = getDb();
+  const recipient = await loadRecipientUserRecord(recipientValue);
+
+  const [friendship] = await db
+    .select({
+      createdAt: schema.friendships.createdAt,
+    })
+    .from(schema.friendships)
+    .where(
+      and(
+        eq(schema.friendships.status, "accepted"),
+        or(
+          and(
+            eq(schema.friendships.requesterId, senderUserId),
+            eq(schema.friendships.addresseeId, recipient.id),
+          ),
+          and(
+            eq(schema.friendships.requesterId, recipient.id),
+            eq(schema.friendships.addresseeId, senderUserId),
+          ),
+        ),
+      ),
+    )
+    .limit(1);
+
+  if (!friendship) {
+    throw new AppError(
+      "Not friends with recipient",
+      notFriendsStatus,
+      "NOT_FRIENDS",
+    );
+  }
+
+  return { friendship, recipient };
+}
+
+async function loadRecipientUserRecord(recipientValue: string): Promise<{
+  displayName: string | null;
+  id: string;
+  username: string;
+}> {
+  const db = getDb();
+  const recipientUsername = recipientValue.toLowerCase();
   const [recipient] = await db
-    .select()
+    .select({
+      displayName: schema.users.displayName,
+      id: schema.users.id,
+      username: schema.users.username,
+    })
     .from(schema.users)
-    .where(eq(schema.users.username, data.recipient.toLowerCase()))
+    .where(eq(schema.users.username, recipientUsername))
     .limit(1);
 
   if (!recipient) {
     throw new AppError("Recipient user not found", 404, "USER_NOT_FOUND");
   }
 
-  const [friendship] = await db
-    .select()
-    .from(schema.friendships)
+  return recipient;
+}
+
+async function loadLocalDecisionRecipientAccess(
+  senderUserId: string,
+  recipientValue: string,
+  groupId?: string,
+): Promise<{
+  group: {
+    id: string;
+    name: string;
+  } | null;
+  recipient: {
+    displayName: string | null;
+    id: string;
+    username: string;
+  };
+}> {
+  if (!groupId) {
+    const { recipient } = await loadDirectUserRecipientAccess(
+      senderUserId,
+      recipientValue,
+    );
+
+    return {
+      group: null,
+      recipient,
+    };
+  }
+
+  const db = getDb();
+  const recipient = await loadRecipientUserRecord(recipientValue);
+  const { group } = await resolveGroupRecipient(senderUserId, groupId);
+  const [membership] = await db
+    .select({ id: schema.groupMemberships.id })
+    .from(schema.groupMemberships)
     .where(
       and(
-        or(
-          and(
-            eq(schema.friendships.requesterId, senderUserId),
-            eq(schema.friendships.addresseeId, recipient.id)
-          ),
-          and(
-            eq(schema.friendships.requesterId, recipient.id),
-            eq(schema.friendships.addresseeId, senderUserId)
-          )
-        ),
-        eq(schema.friendships.status, "accepted")
-      )
+        eq(schema.groupMemberships.groupId, groupId),
+        eq(schema.groupMemberships.userId, recipient.id),
+        eq(schema.groupMemberships.status, "active"),
+      ),
     )
     .limit(1);
 
-  if (!friendship) {
-    throw new AppError("Not friends with recipient", 403, "NOT_FRIENDS");
+  if (!membership) {
+    throw new AppError(
+      "Recipient is no longer an active member of this group",
+      409,
+      "LOCAL_DECISION_STALE",
+    );
   }
+
+  return {
+    group,
+    recipient,
+  };
+}
+
+async function resolveUserRecipient(
+  senderUserId: string,
+  data: PluginResolveRequest,
+): Promise<{
+  recipientConnection: schema.AgentConnection;
+  recipientUserId: string;
+}> {
+  const db = getDb();
+  const { recipient } = await loadDirectUserRecipientAccess(
+    senderUserId,
+    data.recipient,
+  );
 
   if (data.recipient_connection_id) {
     const [recipientConnection] = await db
@@ -569,13 +851,17 @@ async function resolveUserRecipient(
         and(
           eq(schema.agentConnections.id, data.recipient_connection_id),
           eq(schema.agentConnections.userId, recipient.id),
-          eq(schema.agentConnections.status, "active")
-        )
+          eq(schema.agentConnections.status, "active"),
+        ),
       )
       .limit(1);
 
     if (!recipientConnection) {
-      throw new AppError("Recipient connection not found or inactive", 404, "CONNECTION_NOT_FOUND");
+      throw new AppError(
+        "Recipient connection not found or inactive",
+        404,
+        "CONNECTION_NOT_FOUND",
+      );
     }
 
     return { recipientConnection, recipientUserId: recipient.id };
@@ -587,27 +873,33 @@ async function resolveUserRecipient(
     .where(
       and(
         eq(schema.agentConnections.userId, recipient.id),
-        eq(schema.agentConnections.status, "active")
-      )
+        eq(schema.agentConnections.status, "active"),
+      ),
     )
     .orderBy(desc(schema.agentConnections.routingPriority));
 
   if (connections.length === 0) {
-    throw new AppError("Recipient has no active connections", 404, "NO_CONNECTIONS");
+    throw new AppError(
+      "Recipient has no active connections",
+      404,
+      "NO_CONNECTIONS",
+    );
   }
 
   let recipientConnection: schema.AgentConnection | undefined;
 
   if (data.routing_hints?.labels?.length) {
     recipientConnection = connections.find((connection) =>
-      data.routing_hints!.labels!.includes(connection.label)
+      data.routing_hints!.labels!.includes(connection.label),
     );
   }
 
   if (!recipientConnection && data.routing_hints?.tags?.length) {
     recipientConnection = connections.find((connection) => {
       const capabilities = parseCapabilities(connection.capabilities);
-      return data.routing_hints!.tags!.some((tag: string) => capabilities.includes(tag));
+      return data.routing_hints!.tags!.some((tag: string) =>
+        capabilities.includes(tag),
+      );
     });
   }
 
@@ -617,10 +909,21 @@ async function resolveUserRecipient(
   };
 }
 
-async function resolveGroupRecipient(senderUserId: string, groupId: string): Promise<void> {
+async function resolveGroupRecipient(
+  senderUserId: string,
+  groupId: string,
+): Promise<{
+  group: {
+    id: string;
+    name: string;
+  };
+}> {
   const db = getDb();
   const [group] = await db
-    .select()
+    .select({
+      id: schema.groups.id,
+      name: schema.groups.name,
+    })
     .from(schema.groups)
     .where(eq(schema.groups.id, groupId))
     .limit(1);
@@ -636,14 +939,52 @@ async function resolveGroupRecipient(senderUserId: string, groupId: string): Pro
       and(
         eq(schema.groupMemberships.groupId, groupId),
         eq(schema.groupMemberships.userId, senderUserId),
-        eq(schema.groupMemberships.status, "active")
-      )
+        eq(schema.groupMemberships.status, "active"),
+      ),
     )
     .limit(1);
 
   if (!senderMembership) {
     throw new AppError("Not a member of this group", 403, "NOT_MEMBER");
   }
+
+  return { group };
+}
+
+async function loadGroupFanoutMembers(
+  senderUserId: string,
+  groupId: string,
+): Promise<{
+  group: {
+    id: string;
+    name: string;
+  };
+  members: Array<{
+    userId: string;
+    username: string;
+  }>;
+}> {
+  const db = getDb();
+  const { group } = await resolveGroupRecipient(senderUserId, groupId);
+  const members = await db
+    .select({
+      userId: schema.groupMemberships.userId,
+      username: schema.users.username,
+    })
+    .from(schema.groupMemberships)
+    .innerJoin(
+      schema.users,
+      eq(schema.groupMemberships.userId, schema.users.id),
+    )
+    .where(
+      and(
+        eq(schema.groupMemberships.groupId, groupId),
+        eq(schema.groupMemberships.status, "active"),
+        ne(schema.groupMemberships.userId, senderUserId),
+      ),
+    );
+
+  return { group, members };
 }
 
 function parseJsonObject(value: string | null): Record<string, unknown> | null {
@@ -653,7 +994,11 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
 
   try {
     const parsed = JSON.parse(value) as unknown;
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
       return parsed as Record<string, unknown>;
     }
     return null;
@@ -674,9 +1019,10 @@ function parseJsonValue(value: string | null): unknown {
   }
 }
 
-function parseOutcomeAuditContainer(
-  value: string | null
-): { container: Record<string, unknown>; reports: Record<string, unknown>[] } {
+function parseOutcomeAuditContainer(value: string | null): {
+  container: Record<string, unknown>;
+  reports: Record<string, unknown>[];
+} {
   const parsed = parseJsonValue(value);
   const container =
     parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -689,7 +1035,9 @@ function parseOutcomeAuditContainer(
     ? container.plugin_outcome_reports
         .filter(
           (entry): entry is Record<string, unknown> =>
-            typeof entry === "object" && entry !== null && !Array.isArray(entry)
+            typeof entry === "object" &&
+            entry !== null &&
+            !Array.isArray(entry),
         )
         .map((entry) => ({ ...entry }))
     : [];
@@ -699,16 +1047,18 @@ function parseOutcomeAuditContainer(
 
 function findOutcomeEventByIdempotency(
   value: string | null,
-  idempotencyKey: string
+  idempotencyKey: string,
 ): string | null {
   const { reports } = parseOutcomeAuditContainer(value);
-  const existing = reports.find((report) => report.idempotency_key === idempotencyKey);
+  const existing = reports.find(
+    (report) => report.idempotency_key === idempotencyKey,
+  );
   return typeof existing?.event_id === "string" ? existing.event_id : null;
 }
 
-function resolveOutcomeIdempotencyKey(
-  data: PluginOutcomeRequest,
-  idempotencyHeader: string | undefined
+function resolveRequestIdempotencyKey(
+  data: { idempotency_key?: string },
+  idempotencyHeader: string | undefined,
 ): string | null {
   const source = data.idempotency_key || idempotencyHeader;
   if (!source) {
@@ -746,7 +1096,7 @@ interface PluginOutcomeAuditEntry {
 
 function buildOutcomeAuditDetails(
   existingValue: string | null,
-  reportEntry: PluginOutcomeAuditEntry
+  reportEntry: PluginOutcomeAuditEntry,
 ): string {
   const { container, reports } = parseOutcomeAuditContainer(existingValue);
   const updatedReports = [...reports, reportEntry];
@@ -779,6 +1129,15 @@ function parseReasonCode(value: unknown): string | null {
   return value;
 }
 
+function normalizeOptionalText(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return value;
+}
+
 function parseStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -786,13 +1145,384 @@ function parseStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
-function parsePositiveLimit(value: string | undefined, fallback: number): number {
+function assertLocalDecisionDeliveryMode(
+  decision: ContextDecision,
+  deliveryMode: DeliveryMode,
+) {
+  if (decision === "allow" && deliveryMode === "full_send") {
+    return;
+  }
+
+  if (decision === "deny" && deliveryMode === "blocked") {
+    return;
+  }
+
+  if (
+    decision === "ask" &&
+    (deliveryMode === "review_required" || deliveryMode === "hold_for_approval")
+  ) {
+    return;
+  }
+
+  throw new AppError(
+    "local_decision.delivery_mode is incompatible with local_decision.decision",
+    400,
+    "INVALID_LOCAL_DECISION",
+  );
+}
+
+function localDecisionMessageStatus(
+  decision: ContextDecision,
+  deliveryMode: DeliveryMode,
+): schema.Message["status"] {
+  if (decision === "allow") {
+    return "pending";
+  }
+
+  if (decision === "deny") {
+    return "rejected";
+  }
+
+  return deliveryMode === "hold_for_approval"
+    ? "approval_pending"
+    : "review_required";
+}
+
+function policyEvaluationPhaseForEvaluator(
+  evaluator: CanonicalPolicy["evaluator"],
+) {
+  return evaluator === "llm" ? "contextual_llm" : "deterministic";
+}
+
+function buildPolicyLifecycleAudit(policy: CanonicalPolicy, userId: string) {
+  return {
+    source: policy.source,
+    created_by_user_id: userId,
+    derived_from_message_id: policy.derived_from_message_id,
+    learning_provenance: policy.learning_provenance ?? null,
+    effective_from: policy.effective_from,
+    expires_at: policy.expires_at,
+    max_uses: policy.max_uses,
+    remaining_uses: policy.remaining_uses,
+    created_at: policy.created_at,
+  };
+}
+
+function buildWinningPolicyAudit(
+  policy: CanonicalPolicy,
+  userId: string,
+  reason: string | null,
+  reasonCode: string,
+) {
+  return {
+    policy_id: policy.id,
+    scope: policy.scope,
+    evaluator: policy.evaluator,
+    effect: policy.effect,
+    priority: policy.priority,
+    phase: policyEvaluationPhaseForEvaluator(policy.evaluator),
+    reason: reason || undefined,
+    reason_code: reasonCode,
+    ...buildPolicyLifecycleAudit(policy, userId),
+  };
+}
+
+function buildFallbackEvaluatedPolicyAudit(
+  policy: CanonicalPolicy,
+  userId: string,
+  matched: boolean,
+  reason: string | null,
+) {
+  return {
+    policy_id: policy.id,
+    scope: policy.scope,
+    evaluator: policy.evaluator,
+    effect: policy.effect,
+    priority: policy.priority,
+    phase: policyEvaluationPhaseForEvaluator(policy.evaluator),
+    matched,
+    ...(reason ? { reason } : {}),
+    ...buildPolicyLifecycleAudit(policy, userId),
+  };
+}
+
+function buildLocalDecisionPolicyEvaluation(args: {
+  userId: string;
+  senderConnectionId: string;
+  resolutionId: string;
+  committedAt: string;
+  groupId: string | null;
+  selectors: { direction: PolicyDirection; resource: string; action: string };
+  decision: ContextDecision;
+  reason: string | null;
+  reasonCode: string;
+  summary: string;
+  resolutionExplanation: string;
+  resolverLayer: string | null;
+  guardrailId: string | null;
+  winningPolicy: CanonicalPolicy | null;
+  matchedPolicyIds: string[];
+  evaluatedPolicies: Record<string, unknown>[];
+  localPolicyDiagnostics?: Record<string, unknown> | null;
+}) {
+  return JSON.stringify({
+    authenticated_identity: {
+      sender_user_id: args.userId,
+      sender_connection_id: args.senderConnectionId,
+    },
+    effect: args.decision,
+    reason: args.reason,
+    reason_code: args.reasonCode,
+    resolution_explanation: args.resolutionExplanation,
+    resolver_layer: args.resolverLayer,
+    guardrail_id: args.guardrailId,
+    winning_policy_id: args.winningPolicy?.id ?? null,
+    winning_policy: args.winningPolicy
+      ? buildWinningPolicyAudit(
+          args.winningPolicy,
+          args.userId,
+          args.reason,
+          args.reasonCode,
+        )
+      : null,
+    matched_policy_ids: args.matchedPolicyIds,
+    evaluated_policies: args.evaluatedPolicies,
+    policy_owner_user_id: args.userId,
+    policy_evaluation_mode: "plugin_local_pre_delivery",
+    selector_context: args.selectors,
+    local_decision_commit: {
+      source: "plugin.local_decisions.commit",
+      resolution_id: args.resolutionId,
+      committed_at: args.committedAt,
+      summary: args.summary,
+      ...(args.groupId ? { group_id: args.groupId } : {}),
+    },
+    local_policy_diagnostics: args.localPolicyDiagnostics ?? null,
+  });
+}
+
+function buildCommittedMessageResolution(message: {
+  id: string;
+  resolutionId: string | null;
+  direction: string;
+  status: string;
+  outcome: string | null;
+  policiesEvaluated: string | null;
+}) {
+  const evaluation = parseJsonObject(message.policiesEvaluated);
+  const decision =
+    parseDecision(evaluation?.effect) ||
+    parseDecision(message.outcome) ||
+    (message.status === "rejected"
+      ? "deny"
+      : message.status === "review_required" ||
+          message.status === "approval_pending"
+        ? "ask"
+        : "allow");
+  const direction = parseDirectionCandidate(message.direction);
+  const deliveryMode =
+    message.status === "review_required"
+      ? "review_required"
+      : message.status === "approval_pending"
+        ? "hold_for_approval"
+        : resolveDeliveryMode(decision, direction);
+
+  return {
+    resolution_id: message.resolutionId || `res_${message.id}`,
+    decision,
+    delivery_mode: deliveryMode,
+    summary:
+      parseStringValue(evaluation?.reason) ||
+      parseStringValue(evaluation?.resolution_explanation) ||
+      buildAgentResolutionSummary(decision, deliveryMode),
+    reason_code:
+      parseReasonCode(evaluation?.reason_code) || defaultReasonCode(decision),
+  };
+}
+
+function buildCommittedMessageResponse(
+  message: {
+    id: string;
+    resolutionId: string | null;
+    direction: string;
+    status: string;
+    outcome: string | null;
+    policiesEvaluated: string | null;
+  },
+  recipient: string,
+) {
+  const resolution = buildCommittedMessageResolution(message);
+  return {
+    message_id: message.id,
+    status: message.status,
+    resolution,
+    recipient_results: [
+      {
+        recipient,
+        decision: resolution.decision,
+        delivery_mode: resolution.delivery_mode,
+        delivery_status: message.status,
+      },
+    ],
+  };
+}
+
+function buildLocalDecisionCommitResponse(
+  message: {
+    id: string;
+    resolutionId: string | null;
+    direction: string;
+    status: string;
+    outcome: string | null;
+    policiesEvaluated: string | null;
+  },
+  recipient: string,
+  deduplicated = false,
+) {
+  return {
+    committed: true,
+    ...(deduplicated ? { deduplicated: true } : {}),
+    ...buildCommittedMessageResponse(message, recipient),
+  };
+}
+
+function assertCommittedMessageMatchesLocalDecision(
+  message: {
+    direction: string;
+    id: string;
+    outcome: string | null;
+    payload: string;
+    payloadType: string;
+    policiesEvaluated: string | null;
+    recipientId: string;
+    recipientType: string;
+    resolutionId: string | null;
+    senderConnectionId: string | null;
+    status: string;
+    context: string | null;
+    resource: string;
+    action: string;
+  },
+  input: {
+    senderConnectionId: string;
+    resolutionId: string;
+    recipientId: string;
+    recipientType: PluginLocalDecisionCommitRequest["recipient_type"];
+    groupId: string | null;
+    selectors: ReturnType<typeof resolveDraftSelectors>;
+    payload: string;
+    payloadType: string;
+    context: string | null;
+    decision: ContextDecision;
+    deliveryMode: DeliveryMode;
+  },
+) {
+  if (message.resolutionId && message.resolutionId !== input.resolutionId) {
+    throw new AppError(
+      "idempotency_key is already bound to a different resolution_id",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.senderConnectionId &&
+    message.senderConnectionId !== input.senderConnectionId
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to a different sender connection",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.recipientType !== input.recipientType ||
+    message.recipientId !== input.recipientId
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to a different recipient",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.direction !== input.selectors.direction ||
+    message.resource !== input.selectors.resource ||
+    message.action !== input.selectors.action
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to different selectors",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    message.payload !== input.payload ||
+    message.payloadType !== input.payloadType
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to different payload content",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  if (
+    normalizeOptionalText(message.context) !==
+    normalizeOptionalText(input.context)
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to different context",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+
+  const evaluation = parseJsonObject(message.policiesEvaluated);
+  const localDecisionCommit = parseObjectValue(
+    evaluation?.local_decision_commit,
+  );
+  const storedGroupId = parseStringValue(localDecisionCommit?.group_id);
+  if (storedGroupId || input.groupId) {
+    if (storedGroupId !== input.groupId) {
+      throw new AppError(
+        "resolution_id is already bound to a different group context",
+        409,
+        "LOCAL_DECISION_CONFLICT",
+      );
+    }
+  }
+
+  const existingResolution = buildCommittedMessageResolution(message);
+  if (
+    existingResolution.decision !== input.decision ||
+    existingResolution.delivery_mode !== input.deliveryMode
+  ) {
+    throw new AppError(
+      "resolution_id is already bound to a different local decision",
+      409,
+      "LOCAL_DECISION_CONFLICT",
+    );
+  }
+}
+
+function parsePositiveLimit(
+  value: string | undefined,
+  fallback: number,
+): number {
   if (!value) {
     return fallback;
   }
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new AppError("limit must be a positive integer", 400, "INVALID_QUERY");
+    throw new AppError(
+      "limit must be a positive integer",
+      400,
+      "INVALID_QUERY",
+    );
   }
   return Math.min(parsed, 100);
 }
@@ -802,7 +1532,7 @@ function parseBoundedIntegerQuery(
   fieldName: string,
   fallback: number,
   min: number,
-  max: number
+  max: number,
 ): number {
   if (value === undefined) {
     return fallback;
@@ -814,23 +1544,35 @@ function parseBoundedIntegerQuery(
   }
 
   if (parsed < min || parsed > max) {
-    throw new AppError(`${fieldName} must be between ${min} and ${max}`, 400, "INVALID_QUERY");
+    throw new AppError(
+      `${fieldName} must be between ${min} and ${max}`,
+      400,
+      "INVALID_QUERY",
+    );
   }
 
   return parsed;
 }
 
-function parseQueueDirectionFilter(value: string | undefined): QueueDirectionFilter {
+function parseQueueDirectionFilter(
+  value: string | undefined,
+): QueueDirectionFilter {
   if (!value || value === "all") {
     return "all";
   }
   if (value === "outbound" || value === "inbound") {
     return value;
   }
-  throw new AppError("direction must be one of: all, outbound, inbound", 400, "INVALID_QUERY");
+  throw new AppError(
+    "direction must be one of: all, outbound, inbound",
+    400,
+    "INVALID_QUERY",
+  );
 }
 
-function parseReviewStatusFilter(value: string | undefined): ReviewQueueStatus[] {
+function parseReviewStatusFilter(
+  value: string | undefined,
+): ReviewQueueStatus[] {
   if (!value) {
     return [...reviewQueueStatuses];
   }
@@ -841,7 +1583,11 @@ function parseReviewStatusFilter(value: string | undefined): ReviewQueueStatus[]
     .filter((token) => token.length > 0);
 
   if (tokens.length === 0) {
-    throw new AppError("status must include at least one value", 400, "INVALID_QUERY");
+    throw new AppError(
+      "status must include at least one value",
+      400,
+      "INVALID_QUERY",
+    );
   }
 
   const statuses = new Set<ReviewQueueStatus>();
@@ -853,7 +1599,7 @@ function parseReviewStatusFilter(value: string | undefined): ReviewQueueStatus[]
     throw new AppError(
       "status must be one of: review_required, approval_pending",
       400,
-      "INVALID_QUERY"
+      "INVALID_QUERY",
     );
   }
 
@@ -863,7 +1609,7 @@ function parseReviewStatusFilter(value: string | undefined): ReviewQueueStatus[]
 function parseBooleanQueryFlag(
   value: string | undefined,
   fieldName: string,
-  fallback: boolean
+  fallback: boolean,
 ): boolean {
   if (value === undefined) {
     return fallback;
@@ -877,14 +1623,21 @@ function parseBooleanQueryFlag(
     return false;
   }
 
-  throw new AppError(`${fieldName} must be true or false`, 400, "INVALID_QUERY");
+  throw new AppError(
+    `${fieldName} must be true or false`,
+    400,
+    "INVALID_QUERY",
+  );
 }
 
-function buildMessageVisibilityFilter(userId: string, direction: QueueDirectionFilter) {
+function buildMessageVisibilityFilter(
+  userId: string,
+  direction: QueueDirectionFilter,
+) {
   const outboundFilter = eq(schema.messages.senderUserId, userId);
   const inboundFilter = and(
     eq(schema.messages.recipientType, "user"),
-    eq(schema.messages.recipientId, userId)
+    eq(schema.messages.recipientId, userId),
   );
 
   if (direction === "outbound") {
@@ -900,7 +1653,7 @@ function buildMessageVisibilityFilter(userId: string, direction: QueueDirectionF
 
 function resolveQueueDirection(
   userId: string,
-  message: { senderUserId: string; recipientType: string; recipientId: string }
+  message: { senderUserId: string; recipientType: string; recipientId: string },
 ): "outbound" | "inbound" {
   if (message.senderUserId === userId) {
     return "outbound";
@@ -917,7 +1670,7 @@ function hashPayload(payload: string): string {
 
 function parseReasonSummary(
   evaluation: Record<string, unknown> | null,
-  fallback: string
+  fallback: string,
 ): string {
   if (typeof evaluation?.reason === "string" && evaluation.reason.length > 0) {
     return evaluation.reason;
@@ -951,9 +1704,11 @@ function parseObjectValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function parseSelectorContext(
-  value: unknown
-): { direction: string | null; resource: string | null; action: string | null } | null {
+function parseSelectorContext(value: unknown): {
+  direction: string | null;
+  resource: string | null;
+  action: string | null;
+} | null {
   const parsed = parseObjectValue(value);
   if (!parsed) {
     return null;
@@ -966,18 +1721,22 @@ function parseSelectorContext(
   };
 }
 
-function parseSelectorVerification(
-  value: unknown
-):
-  | {
-      classifier_version: string | null;
-      classification_status: string | null;
-      mismatch: boolean | null;
-      mismatch_fields: string[];
-      declared_selectors: { direction: string | null; resource: string | null; action: string | null } | null;
-      classified_selectors: { direction: string | null; resource: string | null; action: string | null } | null;
-    }
-  | null {
+function parseSelectorVerification(value: unknown): {
+  classifier_version: string | null;
+  classification_status: string | null;
+  mismatch: boolean | null;
+  mismatch_fields: string[];
+  declared_selectors: {
+    direction: string | null;
+    resource: string | null;
+    action: string | null;
+  } | null;
+  classified_selectors: {
+    direction: string | null;
+    resource: string | null;
+    action: string | null;
+  } | null;
+} | null {
   const parsed = parseObjectValue(value);
   if (!parsed) {
     return null;
@@ -993,9 +1752,10 @@ function parseSelectorVerification(
   };
 }
 
-function parseAuthenticatedIdentity(
-  value: unknown
-): { sender_user_id: string | null; sender_connection_id: string | null } | null {
+function parseAuthenticatedIdentity(value: unknown): {
+  sender_user_id: string | null;
+  sender_connection_id: string | null;
+} | null {
   const parsed = parseObjectValue(value);
   if (!parsed) {
     return null;
@@ -1007,9 +1767,10 @@ function parseAuthenticatedIdentity(
   };
 }
 
-function parseLearningProvenance(
-  value: unknown
-): { source_interaction_id: string | null; promoted_from_policy_ids: string[] } | null {
+function parseLearningProvenance(value: unknown): {
+  source_interaction_id: string | null;
+  promoted_from_policy_ids: string[];
+} | null {
   const parsed = parseObjectValue(value);
   if (!parsed) {
     return null;
@@ -1021,7 +1782,30 @@ function parseLearningProvenance(
   };
 }
 
-function parseWinningPolicyAudit(value: unknown): Record<string, unknown> | null {
+function parseLocalDecisionCommitAudit(value: unknown): {
+  source: string | null;
+  resolution_id: string | null;
+  committed_at: string | null;
+  summary: string | null;
+  group_id: string | null;
+} | null {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    source: parseStringValue(parsed.source),
+    resolution_id: parseStringValue(parsed.resolution_id),
+    committed_at: parseStringValue(parsed.committed_at),
+    summary: parseStringValue(parsed.summary),
+    group_id: parseStringValue(parsed.group_id),
+  };
+}
+
+function parseWinningPolicyAudit(
+  value: unknown,
+): Record<string, unknown> | null {
   const parsed = parseObjectValue(value);
   if (!parsed) {
     return null;
@@ -1078,17 +1862,122 @@ function parseEvaluatedPolicyAudit(evaluation: Record<string, unknown> | null) {
     }));
 }
 
+function parseLocalPolicyDiagnosticTiming(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    bundle_fetch_ms: parseNumberValue(parsed.bundle_fetch_ms),
+    evaluation_ms: parseNumberValue(parsed.evaluation_ms),
+    llm_evaluator_ms: parseNumberValue(parsed.llm_evaluator_ms),
+    provider_ms: parseNumberValue(parsed.provider_ms),
+    total_ms: parseNumberValue(parsed.total_ms),
+  };
+}
+
+function parseLocalPolicyLLMDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    applicable_policy_count: parseNumberValue(parsed.applicable_policy_count),
+    degraded_cause: parseStringValue(parsed.degraded_cause),
+    degraded_reason_code: parseReasonCode(parsed.degraded_reason_code),
+    evaluator_invocation_count: parseNumberValue(
+      parsed.evaluator_invocation_count,
+    ),
+    model: parseStringValue(parsed.model),
+    provider: parseStringValue(parsed.provider),
+    provider_invocation_count: parseNumberValue(
+      parsed.provider_invocation_count,
+    ),
+  };
+}
+
+function parseLocalPolicyWinningPolicyDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    effect: parseDecision(parsed.effect),
+    evaluator: parseStringValue(parsed.evaluator),
+    policy_id: parseStringValue(parsed.policy_id),
+    scope: parseStringValue(parsed.scope),
+  };
+}
+
+function parseLocalPolicyRedactionDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    context: parseStringValue(parsed.context),
+    credentials: parseStringValue(parsed.credentials),
+    message: parseStringValue(parsed.message),
+    raw_prompt: parseStringValue(parsed.raw_prompt),
+  };
+}
+
+function parseLocalPolicyDiagnostics(value: unknown) {
+  const parsed = parseObjectValue(value);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    applicable_policy_count: parseNumberValue(parsed.applicable_policy_count),
+    bundle_id: parseStringValue(parsed.bundle_id),
+    bundle_type: parseStringValue(parsed.bundle_type),
+    decision: parseDecision(parsed.decision),
+    delivery_mode: parseStringValue(parsed.delivery_mode),
+    diagnostic_version: parseStringValue(parsed.diagnostic_version),
+    evaluated_policy_count: parseNumberValue(parsed.evaluated_policy_count),
+    llm: parseLocalPolicyLLMDiagnostics(parsed.llm),
+    matched_policy_count: parseNumberValue(parsed.matched_policy_count),
+    reason_code: parseReasonCode(parsed.reason_code),
+    reason_kind: parseStringValue(parsed.reason_kind),
+    redaction: parseLocalPolicyRedactionDiagnostics(parsed.redaction),
+    resolution_id: parseStringValue(parsed.resolution_id),
+    timing_ms: parseLocalPolicyDiagnosticTiming(parsed.timing_ms),
+    winning_policy: parseLocalPolicyWinningPolicyDiagnostics(
+      parsed.winning_policy,
+    ),
+  };
+}
+
 function buildPolicyAuditDetails(evaluation: Record<string, unknown> | null) {
   return {
     reason: parseStringValue(evaluation?.reason),
-    resolution_explanation: parseStringValue(evaluation?.resolution_explanation),
+    resolution_explanation: parseStringValue(
+      evaluation?.resolution_explanation,
+    ),
     resolver_layer: parseStringValue(evaluation?.resolver_layer),
     guardrail_id: parseStringValue(evaluation?.guardrail_id),
-    authenticated_identity: parseAuthenticatedIdentity(evaluation?.authenticated_identity),
+    authenticated_identity: parseAuthenticatedIdentity(
+      evaluation?.authenticated_identity,
+    ),
     policy_owner_user_id: parseStringValue(evaluation?.policy_owner_user_id),
-    policy_evaluation_mode: parseStringValue(evaluation?.policy_evaluation_mode),
+    policy_evaluation_mode: parseStringValue(
+      evaluation?.policy_evaluation_mode,
+    ),
+    local_decision_commit: parseLocalDecisionCommitAudit(
+      evaluation?.local_decision_commit,
+    ),
     selector_context: parseSelectorContext(evaluation?.selector_context),
-    selector_verification: parseSelectorVerification(evaluation?.selector_verification),
+    selector_verification: parseSelectorVerification(
+      evaluation?.selector_verification,
+    ),
+    local_policy_diagnostics: parseLocalPolicyDiagnostics(
+      evaluation?.local_policy_diagnostics,
+    ),
     winning_policy_id: parseStringValue(evaluation?.winning_policy_id),
     winning_policy: parseWinningPolicyAudit(evaluation?.winning_policy),
     matched_policy_ids: parseStringArray(evaluation?.matched_policy_ids),
@@ -1111,69 +2000,76 @@ async function loadUsernames(userIds: string[]): Promise<Map<string, string>> {
   return new Map(users.map((entry) => [entry.id, entry.username]));
 }
 
-function comparePolicies(a: CanonicalPolicy, b: CanonicalPolicy): number {
-  const effectDelta = policyEffectPriority[b.effect] - policyEffectPriority[a.effect];
-  if (effectDelta !== 0) {
-    return effectDelta;
-  }
-
-  if (b.priority !== a.priority) {
-    return b.priority - a.priority;
-  }
-
-  const evaluatorDelta =
-    policyEvaluatorPriority[b.evaluator] - policyEvaluatorPriority[a.evaluator];
-  if (evaluatorDelta !== 0) {
-    return evaluatorDelta;
-  }
-
-  return a.id.localeCompare(b.id);
-}
-
-function pickScopeWinner(policies: CanonicalPolicy[], scope: CanonicalPolicy["scope"]) {
-  const scopePolicies = policies.filter((policy) => policy.scope === scope);
-  if (scopePolicies.length === 0) {
-    return null;
-  }
-  return [...scopePolicies].sort(comparePolicies)[0];
-}
-
-function resolveDefaultDecision(policies: CanonicalPolicy[]): {
-  decision: ContextDecision;
-  reasonCode: string;
-  winningPolicy: CanonicalPolicy | null;
-} {
-  const orderedScopes: CanonicalPolicy["scope"][] = ["user", "role", "global"];
-  for (const scope of orderedScopes) {
-    const winner = pickScopeWinner(policies, scope);
-    if (!winner) {
-      continue;
-    }
-    return {
-      decision: winner.effect,
-      reasonCode: `context.${winner.effect}.${winner.scope}.${winner.evaluator}`,
-      winningPolicy: winner,
-    };
-  }
-
-  return {
-    decision: "allow",
-    reasonCode: "context.allow.no_applicable",
-    winningPolicy: null,
-  };
-}
-
 async function loadContextPolicies(
   userId: string,
   recipientUserId: string,
   roles: string[],
-  selectors: { direction: PolicyDirection; resource: string; action: string }
+  selectors: { direction: PolicyDirection; resource: string; action: string },
+  groupId?: string,
 ) {
-  return loadApplicablePolicies(userId, recipientUserId, roles, undefined, {
+  return loadApplicablePolicies(userId, recipientUserId, roles, groupId, {
     direction: selectors.direction,
     resource: selectors.resource,
     action: selectors.action,
   });
+}
+
+async function loadGroupOverlayPolicies(
+  userId: string,
+  groupId: string,
+  selectors: { direction: PolicyDirection; resource: string; action: string },
+) {
+  const applicablePolicies = await loadApplicablePolicies(
+    userId,
+    undefined,
+    [],
+    groupId,
+    {
+      direction: selectors.direction,
+      resource: selectors.resource,
+      action: selectors.action,
+    },
+  );
+
+  return applicablePolicies.filter((policy) => policy.scope === "group");
+}
+
+function toBundlePolicy(policy: CanonicalPolicy) {
+  return {
+    id: policy.id,
+    scope: policy.scope,
+    target_id: policy.target_id,
+    direction: policy.direction,
+    resource: policy.resource,
+    action: policy.action,
+    effect: policy.effect,
+    evaluator: policy.evaluator,
+    policy_content: policy.policy_content,
+    effective_from: policy.effective_from,
+    expires_at: policy.expires_at,
+    max_uses: policy.max_uses,
+    remaining_uses: policy.remaining_uses,
+    source: policy.source,
+    derived_from_message_id: policy.derived_from_message_id,
+    learning_provenance: policy.learning_provenance ?? null,
+    priority: policy.priority,
+    created_at: policy.created_at,
+  };
+}
+
+function buildBundleLLMContext(
+  applicablePolicies: CanonicalPolicy[],
+  subject: string,
+  providerDefaults: Awaited<ReturnType<typeof loadUserLLMProviderDefaults>>,
+) {
+  const hasApplicableLLMPolicy = applicablePolicies.some(
+    (policy) => policy.evaluator === "llm",
+  );
+
+  return {
+    subject,
+    provider_defaults: hasApplicableLLMPolicy ? providerDefaults : null,
+  };
 }
 
 pluginRoutes.get("/reviews", requireActive(), async (c) => {
@@ -1182,7 +2078,10 @@ pluginRoutes.get("/reviews", requireActive(), async (c) => {
   const statusFilter = parseReviewStatusFilter(c.req.query("status"));
   const directionFilter = parseQueueDirectionFilter(c.req.query("direction"));
   const limit = parsePositiveLimit(c.req.query("limit"), 50);
-  const visibilityFilter = buildMessageVisibilityFilter(user.id, directionFilter);
+  const visibilityFilter = buildMessageVisibilityFilter(
+    user.id,
+    directionFilter,
+  );
 
   const reviewMessages = await db
     .select({
@@ -1204,6 +2103,7 @@ pluginRoutes.get("/reviews", requireActive(), async (c) => {
       senderUserId: schema.messages.senderUserId,
       status: schema.messages.status,
       resource: schema.messages.resource,
+      resolutionId: schema.messages.resolutionId,
     })
     .from(schema.messages)
     .where(and(visibilityFilter, inArray(schema.messages.status, statusFilter)))
@@ -1217,22 +2117,31 @@ pluginRoutes.get("/reviews", requireActive(), async (c) => {
         ids.push(message.recipientId);
       }
       return ids;
-    })
+    }),
   );
 
   const reviews = reviewMessages.map((message) => {
     const evaluation = parseJsonObject(message.policiesEvaluated);
     const auditDetails = buildPolicyAuditDetails(evaluation);
     const decision = parseDecision(evaluation?.effect) || "ask";
-    const reasonCode = parseReasonCode(evaluation?.reason_code) || "policy.ask.resolved";
-    const summary = parseReasonSummary(evaluation, "Message requires review before delivery.");
+    const reasonCode =
+      parseReasonCode(evaluation?.reason_code) || "policy.ask.resolved";
+    const summary = parseReasonSummary(
+      evaluation,
+      "Message requires review before delivery.",
+    );
     const queueDirection = resolveQueueDirection(user.id, message);
     const deliveryMode =
-      message.status === "approval_pending" ? "hold_for_approval" : "review_required";
+      message.status === "approval_pending"
+        ? "hold_for_approval"
+        : "review_required";
 
     return {
       review_id: `rev_${message.id}`,
       message_id: message.id,
+      resolution_id:
+        message.resolutionId ||
+        auditDetails.local_decision_commit?.resolution_id,
       status: message.status,
       queue_direction: queueDirection,
       decision,
@@ -1244,7 +2153,9 @@ pluginRoutes.get("/reviews", requireActive(), async (c) => {
       in_response_to: message.inResponseTo,
       payload_type: message.payloadType,
       message_preview: summarizeMessage(message.payload, 240),
-      context_preview: message.context ? summarizeMessage(message.context, 200) : null,
+      context_preview: message.context
+        ? summarizeMessage(message.context, 200)
+        : null,
       selectors: {
         direction: message.direction,
         resource: message.resource,
@@ -1268,7 +2179,9 @@ pluginRoutes.get("/reviews", requireActive(), async (c) => {
       applied_policy: {
         matched_policy_ids: parseStringArray(evaluation?.matched_policy_ids),
         winning_policy_id:
-          typeof evaluation?.winning_policy_id === "string" ? evaluation.winning_policy_id : null,
+          typeof evaluation?.winning_policy_id === "string"
+            ? evaluation.winning_policy_id
+            : null,
       },
       audit: auditDetails,
     };
@@ -1292,22 +2205,28 @@ pluginRoutes.get("/events/blocked", requireActive(), async (c) => {
   const includePayloadExcerpt = parseBooleanQueryFlag(
     c.req.query("include_payload_excerpt"),
     "include_payload_excerpt",
-    false
+    false,
   );
   const limit = parsePositiveLimit(c.req.query("limit"), 50);
-  const visibilityFilter = buildMessageVisibilityFilter(user.id, directionFilter);
+  const visibilityFilter = buildMessageVisibilityFilter(
+    user.id,
+    directionFilter,
+  );
 
   const blockedMessages = await db
     .select({
       action: schema.messages.action,
+      correlationId: schema.messages.correlationId,
       createdAt: schema.messages.createdAt,
       direction: schema.messages.direction,
       id: schema.messages.id,
+      inResponseTo: schema.messages.inResponseTo,
       payload: schema.messages.payload,
       policiesEvaluated: schema.messages.policiesEvaluated,
       recipientId: schema.messages.recipientId,
       recipientType: schema.messages.recipientType,
       rejectionReason: schema.messages.rejectionReason,
+      resolutionId: schema.messages.resolutionId,
       resource: schema.messages.resource,
       senderUserId: schema.messages.senderUserId,
       status: schema.messages.status,
@@ -1324,26 +2243,37 @@ pluginRoutes.get("/events/blocked", requireActive(), async (c) => {
         ids.push(message.recipientId);
       }
       return ids;
-    })
+    }),
   );
 
   const blockedEvents = blockedMessages.map((message) => {
     const evaluation = parseJsonObject(message.policiesEvaluated);
     const auditDetails = buildPolicyAuditDetails(evaluation);
-    const reasonCode = parseReasonCode(evaluation?.reason_code) || "policy.deny.resolved";
-    const reason = parseReasonSummary(evaluation, message.rejectionReason || "Message blocked by policy.");
+    const reasonCode =
+      parseReasonCode(evaluation?.reason_code) || "policy.deny.resolved";
+    const reason = parseReasonSummary(
+      evaluation,
+      message.rejectionReason || "Message blocked by policy.",
+    );
 
     return {
       id: `blocked_${message.id}`,
       message_id: message.id,
+      resolution_id:
+        message.resolutionId ||
+        auditDetails.local_decision_commit?.resolution_id,
       queue_direction: resolveQueueDirection(user.id, message),
       sender: usernamesById.get(message.senderUserId) || null,
       reason_code: reasonCode,
       reason,
+      correlation_id: message.correlationId,
+      in_response_to: message.inResponseTo,
       direction: message.direction,
       resource: message.resource,
       action: message.action,
-      stored_payload_excerpt: includePayloadExcerpt ? summarizeMessage(message.payload, 120) : null,
+      stored_payload_excerpt: includePayloadExcerpt
+        ? summarizeMessage(message.payload, 120)
+        : null,
       payload_hash: hashPayload(message.payload),
       timestamp: message.createdAt?.toISOString() || new Date().toISOString(),
       status: message.status,
@@ -1380,16 +2310,22 @@ pluginRoutes.get("/suggestions/promotions", requireActive(), async (c) => {
     "min_repetitions",
     3,
     2,
-    20
+    20,
   );
   const lookbackDays = parseBoundedIntegerQuery(
     c.req.query("lookback_days"),
     "lookback_days",
     30,
     1,
-    365
+    365,
   );
-  const limit = parseBoundedIntegerQuery(c.req.query("limit"), "limit", 20, 1, 50);
+  const limit = parseBoundedIntegerQuery(
+    c.req.query("limit"),
+    "limit",
+    20,
+    1,
+    50,
+  );
   const report = await detectPromotionSuggestions(user.id, {
     min_repetitions: minRepetitions,
     lookback_days: lookbackDays,
@@ -1408,191 +2344,351 @@ pluginRoutes.get("/suggestions/promotions", requireActive(), async (c) => {
   });
 });
 
-pluginRoutes.post("/context", zValidator("json", pluginContextRequestSchema), async (c) => {
-  const user = c.get("user")!;
-  const data = c.req.valid("json");
-  const db = getDb();
+pluginRoutes.post(
+  "/context",
+  zValidator("json", pluginContextRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+    const db = getDb();
 
-  if (data.recipient_type !== "user") {
-    throw new AppError(
-      "Only recipient_type='user' is supported for plugin context v2",
-      400,
-      "UNSUPPORTED_RECIPIENT_TYPE"
-    );
-  }
+    if (data.recipient_type !== "user") {
+      throw new AppError(
+        "Only recipient_type='user' is supported for plugin context v2",
+        400,
+        "UNSUPPORTED_RECIPIENT_TYPE",
+      );
+    }
 
-  const selectors = resolveContextSelectors(data);
+    const selectors = resolveContextSelectors(data);
 
-  const [senderConnection] = await db
-    .select({
-      framework: schema.agentConnections.framework,
-      id: schema.agentConnections.id,
-      label: schema.agentConnections.label,
-    })
-    .from(schema.agentConnections)
-    .where(
-      and(
-        eq(schema.agentConnections.id, data.sender_connection_id),
-        eq(schema.agentConnections.userId, user.id),
-        eq(schema.agentConnections.status, "active")
+    const [senderConnection] = await db
+      .select({
+        framework: schema.agentConnections.framework,
+        id: schema.agentConnections.id,
+        label: schema.agentConnections.label,
+      })
+      .from(schema.agentConnections)
+      .where(
+        and(
+          eq(schema.agentConnections.id, data.sender_connection_id),
+          eq(schema.agentConnections.userId, user.id),
+          eq(schema.agentConnections.status, "active"),
+        ),
       )
-    )
-    .limit(1);
+      .limit(1);
 
-  if (!senderConnection) {
-    throw new AppError(
-      "Sender connection not found or inactive",
+    if (!senderConnection) {
+      throw new AppError(
+        "Sender connection not found or inactive",
+        404,
+        "SENDER_CONNECTION_NOT_FOUND",
+      );
+    }
+
+    const { friendship, recipient } = await loadDirectUserRecipientAccess(
+      user.id,
+      data.recipient,
       404,
-      "SENDER_CONNECTION_NOT_FOUND"
     );
-  }
 
-  const recipientUsername = data.recipient.toLowerCase();
-  const [recipient] = await db
-    .select({
-      displayName: schema.users.displayName,
-      id: schema.users.id,
-      username: schema.users.username,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.username, recipientUsername))
-    .limit(1);
-
-  if (!recipient) {
-    throw new AppError("Recipient user not found", 404, "USER_NOT_FOUND");
-  }
-
-  const [friendship] = await db
-    .select({
-      createdAt: schema.friendships.createdAt,
-    })
-    .from(schema.friendships)
-    .where(
-      and(
-        eq(schema.friendships.status, "accepted"),
-        or(
-          and(
-            eq(schema.friendships.requesterId, user.id),
-            eq(schema.friendships.addresseeId, recipient.id)
-          ),
-          and(
-            eq(schema.friendships.requesterId, recipient.id),
-            eq(schema.friendships.addresseeId, user.id)
-          )
-        )
-      )
-    )
-    .limit(1);
-
-  if (!friendship) {
-    throw new AppError("Not friends with recipient", 404, "NOT_FRIENDS");
-  }
-
-  const roles = await getRolesForFriend(user.id, recipient.id);
-  const applicablePolicies = await loadContextPolicies(user.id, recipient.id, roles, selectors);
-  const summary = await generatePolicySummary(applicablePolicies, roles);
-  const defaultDecision = resolveDefaultDecision(applicablePolicies);
-
-  const interactions = data.include_recent_interactions
-    ? await db
-        .select({
-          action: schema.messages.action,
-          createdAt: schema.messages.createdAt,
-          direction: schema.messages.direction,
-          id: schema.messages.id,
-          outcome: schema.messages.outcome,
-          payload: schema.messages.payload,
-          policiesEvaluated: schema.messages.policiesEvaluated,
-          resource: schema.messages.resource,
-          senderUserId: schema.messages.senderUserId,
-          status: schema.messages.status,
-        })
-        .from(schema.messages)
-        .where(
-          and(
-            eq(schema.messages.recipientType, "user"),
-            or(
-              and(
-                eq(schema.messages.senderUserId, user.id),
-                eq(schema.messages.recipientId, recipient.id)
-              ),
-              and(
-                eq(schema.messages.senderUserId, recipient.id),
-                eq(schema.messages.recipientId, user.id)
-              )
-            )
-          )
-        )
-        .orderBy(desc(schema.messages.createdAt))
-        .limit(data.interaction_limit)
-    : [];
-
-  const recentInteractions = interactions.map((interaction) => ({
-    direction: interaction.senderUserId === user.id ? "outbound" : "inbound",
-    message_id: interaction.id,
-    summary: summarizeMessage(interaction.payload),
-    timestamp: interaction.createdAt?.toISOString() || new Date().toISOString(),
-  }));
-
-  const relevantDecisions = interactions
-    .map((interaction) => {
-      const evaluation = parseJsonObject(interaction.policiesEvaluated);
-      const decision = parseDecision(evaluation?.effect) || parseDecision(interaction.outcome);
-      if (!decision) {
-        return null;
-      }
-
-      return {
-        decision,
-        direction: interaction.senderUserId === user.id ? "outbound" : "inbound",
-        message_id: interaction.id,
-        reason_code: parseReasonCode(evaluation?.reason_code),
-        selectors: {
-          action: interaction.action,
-          direction: interaction.direction,
-          resource: interaction.resource,
-        },
-        status: interaction.status,
-        timestamp: interaction.createdAt?.toISOString() || new Date().toISOString(),
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
-
-  const scopeCounts = applicablePolicies.reduce(
-    (acc, policy) => {
-      if (policy.scope === "user" || policy.scope === "role" || policy.scope === "global") {
-        acc[policy.scope] += 1;
-      }
-      return acc;
-    },
-    { global: 0, role: 0, user: 0 }
-  );
-
-  return c.json({
-    contract_version: CONTRACT_VERSION,
-    policy_guidance: {
-      default_decision: defaultDecision.decision,
-      reason_code: defaultDecision.reasonCode,
-      relevant_decisions: relevantDecisions,
-      summary,
-      policy_signal: {
-        applicable_policy_count: applicablePolicies.length,
-        scope_counts: scopeCounts,
-      },
-    },
-    recipient: {
-      connected_since: friendship.createdAt?.toISOString() || null,
-      display_name: recipient.displayName,
-      id: recipient.id,
-      relationship: "friend",
+    const roles = await getRolesForFriend(user.id, recipient.id);
+    const applicablePolicies = await loadContextPolicies(
+      user.id,
+      recipient.id,
       roles,
-      username: recipient.username,
-    },
-    recent_interactions: recentInteractions,
-    sender_connection: senderConnection,
-    suggested_selectors: selectors,
-  });
-});
+      selectors,
+    );
+    const summary = await generatePolicySummary(applicablePolicies, roles);
+    const defaultDecision = resolveContextPolicyGuidance(applicablePolicies);
+
+    const interactions = data.include_recent_interactions
+      ? await db
+          .select({
+            action: schema.messages.action,
+            createdAt: schema.messages.createdAt,
+            direction: schema.messages.direction,
+            id: schema.messages.id,
+            outcome: schema.messages.outcome,
+            payload: schema.messages.payload,
+            policiesEvaluated: schema.messages.policiesEvaluated,
+            resource: schema.messages.resource,
+            senderUserId: schema.messages.senderUserId,
+            status: schema.messages.status,
+          })
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.recipientType, "user"),
+              or(
+                and(
+                  eq(schema.messages.senderUserId, user.id),
+                  eq(schema.messages.recipientId, recipient.id),
+                ),
+                and(
+                  eq(schema.messages.senderUserId, recipient.id),
+                  eq(schema.messages.recipientId, user.id),
+                ),
+              ),
+            ),
+          )
+          .orderBy(desc(schema.messages.createdAt))
+          .limit(data.interaction_limit)
+      : [];
+
+    const recentInteractions = interactions.map((interaction) => ({
+      direction: interaction.senderUserId === user.id ? "outbound" : "inbound",
+      message_id: interaction.id,
+      summary: summarizeMessage(interaction.payload),
+      timestamp:
+        interaction.createdAt?.toISOString() || new Date().toISOString(),
+    }));
+
+    const relevantDecisions = interactions
+      .map((interaction) => {
+        const evaluation = parseJsonObject(interaction.policiesEvaluated);
+        const decision =
+          parseDecision(evaluation?.effect) ||
+          parseDecision(interaction.outcome);
+        if (!decision) {
+          return null;
+        }
+
+        return {
+          decision,
+          direction:
+            interaction.senderUserId === user.id ? "outbound" : "inbound",
+          message_id: interaction.id,
+          reason_code: parseReasonCode(evaluation?.reason_code),
+          selectors: {
+            action: interaction.action,
+            direction: interaction.direction,
+            resource: interaction.resource,
+          },
+          status: interaction.status,
+          timestamp:
+            interaction.createdAt?.toISOString() || new Date().toISOString(),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+    const scopeCounts = applicablePolicies.reduce(
+      (acc, policy) => {
+        if (
+          policy.scope === "user" ||
+          policy.scope === "role" ||
+          policy.scope === "global"
+        ) {
+          acc[policy.scope] += 1;
+        }
+        return acc;
+      },
+      { global: 0, role: 0, user: 0 },
+    );
+
+    return c.json({
+      contract_version: CONTRACT_VERSION,
+      policy_guidance: {
+        default_decision: defaultDecision.decision,
+        reason_code: defaultDecision.reasonCode,
+        relevant_decisions: relevantDecisions,
+        summary,
+        policy_signal: {
+          applicable_policy_count: applicablePolicies.length,
+          scope_counts: scopeCounts,
+        },
+      },
+      recipient: {
+        connected_since: friendship.createdAt?.toISOString() || null,
+        display_name: recipient.displayName,
+        id: recipient.id,
+        relationship: "friend",
+        roles,
+        username: recipient.username,
+      },
+      recent_interactions: recentInteractions,
+      sender_connection: senderConnection,
+      suggested_selectors: selectors,
+    });
+  },
+);
+
+pluginRoutes.post(
+  "/bundles/direct-send",
+  requireActive(),
+  zValidator("json", pluginDirectSendBundleRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+
+    if (data.recipient_type !== "user") {
+      throw new AppError(
+        "Only recipient_type='user' is supported for direct-send policy bundles",
+        400,
+        "UNSUPPORTED_RECIPIENT_TYPE",
+      );
+    }
+
+    const selectors = resolveDraftSelectors(data);
+    const direction = parseDirectionCandidate(selectors.direction);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
+    const { recipient } = await loadDirectUserRecipientAccess(
+      user.id,
+      data.recipient,
+    );
+    const roles = await getRolesForFriend(user.id, recipient.id);
+    const applicablePolicies = await loadContextPolicies(
+      user.id,
+      recipient.id,
+      roles,
+      {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+    );
+    const llmProviderDefaults = await loadUserLLMProviderDefaults(user.id);
+    const issuedAt = new Date();
+
+    return c.json({
+      contract_version: CONTRACT_VERSION,
+      bundle_type: "direct_send",
+      bundle_metadata: {
+        bundle_id: `bundle_${nanoid(18)}`,
+        resolution_id: `res_${nanoid(18)}`,
+        issued_at: issuedAt.toISOString(),
+        expires_at: new Date(issuedAt.getTime() + 5 * 60 * 1000).toISOString(),
+      },
+      authenticated_identity: {
+        sender_user_id: user.id,
+        sender_connection_id: senderConnection.id,
+      },
+      selector_context: {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+      recipient: {
+        id: recipient.id,
+        type: "user",
+        username: recipient.username,
+      },
+      applicable_policies: applicablePolicies.map(toBundlePolicy),
+      llm: buildBundleLLMContext(
+        applicablePolicies,
+        recipient.username,
+        llmProviderDefaults,
+      ),
+    });
+  },
+);
+
+pluginRoutes.post(
+  "/bundles/group-fanout",
+  requireActive(),
+  zValidator("json", pluginGroupFanoutBundleRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+    const selectors = resolveDraftSelectors(data);
+    const direction = parseDirectionCandidate(selectors.direction);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
+    const { group, members } = await loadGroupFanoutMembers(
+      user.id,
+      data.recipient,
+    );
+    const issuedAt = new Date();
+    const resolutionId = `res_${nanoid(18)}`;
+    const llmProviderDefaults = await loadUserLLMProviderDefaults(user.id);
+    const groupOverlayPolicies = await loadGroupOverlayPolicies(
+      user.id,
+      group.id,
+      {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+    );
+    const bundleMembers = await Promise.all(
+      members.map(async (member) => {
+        const roles = await getRolesForFriend(user.id, member.userId);
+        const applicablePolicies = await loadContextPolicies(
+          user.id,
+          member.userId,
+          roles,
+          {
+            action: selectors.action,
+            direction,
+            resource: selectors.resource,
+          },
+          group.id,
+        );
+        const memberApplicablePolicies = applicablePolicies.filter(
+          (policy) => policy.scope !== "group",
+        );
+
+        return {
+          recipient: {
+            id: member.userId,
+            type: "user",
+            username: member.username,
+          },
+          roles,
+          resolution_id: `${resolutionId}_${member.userId}`,
+          member_applicable_policies:
+            memberApplicablePolicies.map(toBundlePolicy),
+          llm: buildBundleLLMContext(
+            applicablePolicies,
+            member.username,
+            llmProviderDefaults,
+          ),
+        };
+      }),
+    );
+
+    return c.json({
+      contract_version: CONTRACT_VERSION,
+      bundle_type: "group_fanout",
+      bundle_metadata: {
+        bundle_id: `bundle_${nanoid(18)}`,
+        resolution_id: resolutionId,
+        issued_at: issuedAt.toISOString(),
+        expires_at: new Date(issuedAt.getTime() + 5 * 60 * 1000).toISOString(),
+      },
+      authenticated_identity: {
+        sender_user_id: user.id,
+        sender_connection_id: senderConnection.id,
+      },
+      selector_context: {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+      group: {
+        id: group.id,
+        member_count: members.length,
+        name: group.name,
+        type: "group",
+      },
+      aggregate_metadata: {
+        fanout_mode: "per_recipient",
+        mixed_decision_priority: GROUP_FANOUT_MIXED_DECISION_PRIORITY,
+        partial_reason_code: "policy.partial.group_fanout",
+        empty_group_summary: GROUP_FANOUT_EMPTY_SUMMARY,
+        partial_summary_template: GROUP_FANOUT_PARTIAL_SUMMARY_TEMPLATE,
+        policy_evaluation_mode: "group_outbound_fanout",
+      },
+      group_overlay_policies: groupOverlayPolicies.map(toBundlePolicy),
+      members: bundleMembers,
+    });
+  },
+);
 
 pluginRoutes.post(
   "/resolve",
@@ -1609,7 +2705,10 @@ pluginRoutes.post(
 
     const selectors = resolveDraftSelectors(data);
     const direction = parseDirectionCandidate(selectors.direction);
-    const senderConnection = await resolveSenderConnection(user.id, data.sender_connection_id);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
     const identity: AuthenticatedSenderIdentity = {
       sender_user_id: user.id,
       sender_connection_id: senderConnection.id,
@@ -1620,7 +2719,9 @@ pluginRoutes.post(
       direction,
       resource: selectors.resource,
     };
-    const evaluatePolicy = config.trustedMode && data.payload_type !== "application/mahilo+ciphertext";
+    const evaluatePolicy =
+      config.trustedMode &&
+      data.payload_type !== "application/mahilo+ciphertext";
 
     let policyResult: PolicyResult | null = null;
     let resolvedRecipientConnectionId: string | null = null;
@@ -1635,11 +2736,12 @@ pluginRoutes.post(
           data.message,
           data.context,
           identity,
-          selectorContext
+          selectorContext,
         );
       }
     } else {
-      const { recipientConnection, recipientUserId } = await resolveUserRecipient(user.id, data);
+      const { recipientConnection, recipientUserId } =
+        await resolveUserRecipient(user.id, data);
       resolvedRecipientConnectionId = recipientConnection.id;
 
       if (evaluatePolicy) {
@@ -1650,7 +2752,7 @@ pluginRoutes.post(
             data.message,
             data.context,
             identity,
-            selectorContext
+            selectorContext,
           );
         } else {
           policyResult = await evaluatePolicies(
@@ -1659,7 +2761,7 @@ pluginRoutes.post(
             data.message,
             data.context,
             identity,
-            selectorContext
+            selectorContext,
           );
         }
       }
@@ -1667,7 +2769,14 @@ pluginRoutes.post(
 
     const decision: ContextDecision = policyResult?.effect ?? "allow";
     const deliveryMode = resolveDeliveryMode(decision, direction);
-    const resolutionSummary = buildAgentResolutionSummary(decision, deliveryMode);
+    const authoritativePreview = evaluatePolicy;
+    const resolutionSummary = buildAgentResolutionSummary(
+      decision,
+      deliveryMode,
+      {
+        authoritative: authoritativePreview,
+      },
+    );
     const resolutionId = `res_${nanoid(18)}`;
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
@@ -1677,8 +2786,12 @@ pluginRoutes.post(
       decision,
       delivery_mode: deliveryMode,
       resolution_summary: resolutionSummary,
-      agent_guidance: buildAgentGuidance(decision, deliveryMode),
-      reason_code: policyResult?.reason_code || defaultReasonCode(decision),
+      agent_guidance: buildAgentGuidance(decision, deliveryMode, {
+        authoritative: authoritativePreview,
+      }),
+      reason_code:
+        policyResult?.reason_code ||
+        resolvePreviewReasonCode(decision, authoritativePreview),
       server_selectors: {
         action: selectors.action,
         direction,
@@ -1702,7 +2815,306 @@ pluginRoutes.post(
       ],
       expires_at: expiresAt,
     });
-  }
+  },
+);
+
+pluginRoutes.post(
+  "/local-decisions/commit",
+  requireActive(),
+  zValidator("json", pluginLocalDecisionCommitRequestSchema),
+  async (c) => {
+    const user = c.get("user")!;
+    const data = c.req.valid("json");
+    const db = getDb();
+
+    const sizeValidation = validatePayloadSize(data.message);
+    if (!sizeValidation.valid) {
+      throw new AppError(sizeValidation.error!, 400, "PAYLOAD_TOO_LARGE");
+    }
+
+    const selectors = resolveDraftSelectors(data);
+    const direction = parseDirectionCandidate(selectors.direction);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
+    const { group, recipient } = await loadLocalDecisionRecipientAccess(
+      user.id,
+      data.recipient,
+      data.group_id,
+    );
+    const decision = data.local_decision.decision as ContextDecision;
+    const deliveryMode = data.local_decision.delivery_mode as DeliveryMode;
+
+    assertLocalDecisionDeliveryMode(decision, deliveryMode);
+    const idempotencyKey = resolveRequestIdempotencyKey(
+      data,
+      c.req.header("Idempotency-Key"),
+    );
+    const roles = await getRolesForFriend(user.id, recipient.id);
+    const applicablePolicies = await loadContextPolicies(
+      user.id,
+      recipient.id,
+      roles,
+      {
+        action: selectors.action,
+        direction,
+        resource: selectors.resource,
+      },
+      group?.id,
+    );
+
+    const [existingByResolution] = await db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.senderUserId, user.id),
+          eq(schema.messages.resolutionId, data.resolution_id),
+        ),
+      )
+      .limit(1);
+
+    const [existingByIdempotency] = idempotencyKey
+      ? await db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.senderUserId, user.id),
+              eq(schema.messages.idempotencyKey, idempotencyKey),
+            ),
+          )
+          .limit(1)
+      : [];
+
+    if (
+      existingByResolution &&
+      existingByIdempotency &&
+      existingByResolution.id !== existingByIdempotency.id
+    ) {
+      throw new AppError(
+        "idempotency_key is already bound to a different resolution_id",
+        409,
+        "LOCAL_DECISION_CONFLICT",
+      );
+    }
+
+    const existingMessage = existingByResolution || existingByIdempotency;
+    if (existingMessage) {
+      assertCommittedMessageMatchesLocalDecision(existingMessage, {
+        senderConnectionId: senderConnection.id,
+        resolutionId: data.resolution_id,
+        recipientId: recipient.id,
+        recipientType: "user",
+        groupId: group?.id ?? null,
+        selectors,
+        payload: data.message,
+        payloadType: data.payload_type,
+        context: data.context ?? null,
+        decision,
+        deliveryMode,
+      });
+
+      return c.json({
+        recorded: true,
+        ...buildLocalDecisionCommitResponse(
+          existingMessage,
+          recipient.username,
+          true,
+        ),
+      });
+    }
+
+    let winningPolicy: CanonicalPolicy | null = null;
+    if (data.local_decision.winning_policy_id) {
+      winningPolicy =
+        applicablePolicies.find(
+          (policy) => policy.id === data.local_decision.winning_policy_id,
+        ) || null;
+
+      if (!winningPolicy) {
+        throw new AppError(
+          "Winning policy is no longer eligible for this local decision commit",
+          409,
+          "LOCAL_DECISION_STALE",
+        );
+      }
+
+      if (winningPolicy.effect !== decision) {
+        throw new AppError(
+          "winning_policy_id effect does not match local_decision.decision",
+          400,
+          "INVALID_LOCAL_DECISION",
+        );
+      }
+    }
+
+    const summary =
+      data.local_decision.summary ||
+      data.local_decision.reason ||
+      buildAgentResolutionSummary(decision, deliveryMode);
+    const reason = data.local_decision.reason || null;
+    const reasonCode =
+      data.local_decision.reason_code || defaultReasonCode(decision);
+    const resolutionExplanation =
+      data.local_decision.resolution_explanation || summary;
+    const localPolicyDiagnostics = data.local_decision.diagnostics || null;
+
+    if (
+      localPolicyDiagnostics &&
+      localPolicyDiagnostics.resolution_id !== data.resolution_id
+    ) {
+      throw new AppError(
+        "local_decision.diagnostics.resolution_id must match resolution_id",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
+
+    if (localPolicyDiagnostics && localPolicyDiagnostics.decision !== decision) {
+      throw new AppError(
+        "local_decision.diagnostics.decision must match local_decision.decision",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
+
+    if (
+      localPolicyDiagnostics &&
+      localPolicyDiagnostics.delivery_mode !== deliveryMode
+    ) {
+      throw new AppError(
+        "local_decision.diagnostics.delivery_mode must match local_decision.delivery_mode",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
+
+    if (
+      localPolicyDiagnostics &&
+      localPolicyDiagnostics.reason_code !== reasonCode
+    ) {
+      throw new AppError(
+        "local_decision.diagnostics.reason_code must match local_decision.reason_code",
+        400,
+        "INVALID_LOCAL_DECISION",
+      );
+    }
+    const matchedPolicyIds = [
+      ...new Set(
+        data.local_decision.matched_policy_ids ||
+          (winningPolicy ? [winningPolicy.id] : []),
+      ),
+    ];
+    const evaluatedPolicies =
+      data.local_decision.evaluated_policies ||
+      applicablePolicies.map((policy) =>
+        buildFallbackEvaluatedPolicyAudit(
+          policy,
+          user.id,
+          matchedPolicyIds.includes(policy.id),
+          policy.id === winningPolicy?.id ? reason || summary : null,
+        ),
+      );
+
+    if (winningPolicy) {
+      await consumeWinningPolicyUse(user.id, {
+        allowed: decision === "allow",
+        effect: decision,
+        reason: reason || undefined,
+        reason_code: reasonCode,
+        resolution_explanation: resolutionExplanation,
+        authenticated_identity: {
+          sender_user_id: user.id,
+          sender_connection_id: senderConnection.id,
+        },
+        resolver_layer: "user_policies",
+        guardrail_id: data.local_decision.guardrail_id,
+        winning_policy_id: winningPolicy.id,
+        winning_policy: {
+          policy_id: winningPolicy.id,
+          scope: winningPolicy.scope,
+          evaluator: winningPolicy.evaluator,
+          effect: winningPolicy.effect,
+          priority: winningPolicy.priority,
+          phase: policyEvaluationPhaseForEvaluator(winningPolicy.evaluator),
+          reason: reason || summary,
+          reason_code: reasonCode,
+          ...buildPolicyLifecycleAudit(winningPolicy, user.id),
+        },
+        matched_policy_ids: matchedPolicyIds,
+        evaluated_policies: [],
+      });
+    }
+
+    const committedAt = new Date().toISOString();
+    const messageId = nanoid();
+    const status = localDecisionMessageStatus(decision, deliveryMode);
+    const policyEvaluation = buildLocalDecisionPolicyEvaluation({
+      userId: user.id,
+      senderConnectionId: senderConnection.id,
+      resolutionId: data.resolution_id,
+      committedAt,
+      groupId: group?.id ?? null,
+      selectors: {
+        direction,
+        resource: selectors.resource,
+        action: selectors.action,
+      },
+      decision,
+      reason,
+      reasonCode,
+      summary,
+      resolutionExplanation,
+      resolverLayer: data.local_decision.resolver_layer || "user_policies",
+      guardrailId: data.local_decision.guardrail_id || null,
+      winningPolicy,
+      matchedPolicyIds,
+      evaluatedPolicies,
+      localPolicyDiagnostics,
+    });
+
+    await db.insert(schema.messages).values({
+      id: messageId,
+      resolutionId: data.resolution_id,
+      correlationId: data.correlation_id,
+      direction,
+      resource: selectors.resource,
+      action: selectors.action,
+      inResponseTo: data.in_response_to || null,
+      outcome: decision,
+      outcomeDetails: reason || summary,
+      policiesEvaluated: policyEvaluation,
+      senderUserId: user.id,
+      senderConnectionId: senderConnection.id,
+      senderAgent: senderConnection.framework,
+      recipientType: "user",
+      recipientId: recipient.id,
+      recipientConnectionId: null,
+      payload: data.message,
+      payloadType: data.payload_type,
+      context: data.context,
+      status,
+      rejectionReason: decision === "deny" ? reason || summary : null,
+      idempotencyKey,
+    });
+
+    return c.json({
+      recorded: true,
+      ...buildLocalDecisionCommitResponse(
+        {
+          id: messageId,
+          resolutionId: data.resolution_id,
+          direction,
+          status,
+          outcome: decision,
+          policiesEvaluated: policyEvaluation,
+        },
+        recipient.username,
+      ),
+    });
+  },
 );
 
 pluginRoutes.post(
@@ -1713,7 +3125,10 @@ pluginRoutes.post(
     const user = c.get("user")!;
     const data = c.req.valid("json");
     const db = getDb();
-    const senderConnection = await resolveSenderConnection(user.id, data.sender_connection_id);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
     const targetId = data.target_id ?? null;
     assertScopeTarget(data.scope, targetId);
 
@@ -1749,9 +3164,9 @@ pluginRoutes.post(
             eq(schema.messages.id, data.derived_from_message_id),
             or(
               eq(schema.messages.senderUserId, user.id),
-              eq(schema.messages.recipientId, user.id)
-            )
-          )
+              eq(schema.messages.recipientId, user.id),
+            ),
+          ),
         )
         .limit(1);
 
@@ -1759,7 +3174,7 @@ pluginRoutes.post(
         throw new AppError(
           "derived_from_message_id must reference a message visible to this user",
           404,
-          "SOURCE_MESSAGE_NOT_FOUND"
+          "SOURCE_MESSAGE_NOT_FOUND",
         );
       }
     }
@@ -1767,7 +3182,9 @@ pluginRoutes.post(
     const selectors = resolveOverrideSelectors(data);
     const lifecycle = resolveOverrideLifecycle(data);
     const createdAt = new Date().toISOString();
-    const basePolicyContent = data.policy_content ? { ...data.policy_content } : {};
+    const basePolicyContent = data.policy_content
+      ? { ...data.policy_content }
+      : {};
     const policyContent = {
       ...basePolicyContent,
       _mahilo_override: {
@@ -1782,9 +3199,16 @@ pluginRoutes.post(
       },
     };
 
-    const contentValidation = validatePolicyContent("structured", policyContent);
+    const contentValidation = validatePolicyContent(
+      "structured",
+      policyContent,
+    );
     if (!contentValidation.valid) {
-      throw new AppError(contentValidation.error!, 400, "INVALID_POLICY_CONTENT");
+      throw new AppError(
+        contentValidation.error!,
+        400,
+        "INVALID_POLICY_CONTENT",
+      );
     }
 
     const storage = canonicalToStorage({
@@ -1841,9 +3265,9 @@ pluginRoutes.post(
         kind: data.kind,
         created: true,
       },
-      201
+      201,
     );
-  }
+  },
 );
 
 pluginRoutes.post(
@@ -1854,7 +3278,10 @@ pluginRoutes.post(
     const user = c.get("user")!;
     const data = c.req.valid("json");
     const db = getDb();
-    const senderConnection = await resolveSenderConnection(user.id, data.sender_connection_id);
+    const senderConnection = await resolveSenderConnection(
+      user.id,
+      data.sender_connection_id,
+    );
 
     const [message] = await db
       .select({
@@ -1864,31 +3291,43 @@ pluginRoutes.post(
         id: schema.messages.id,
         inResponseTo: schema.messages.inResponseTo,
         outcomeDetails: schema.messages.outcomeDetails,
+        resolutionId: schema.messages.resolutionId,
         resource: schema.messages.resource,
         senderConnectionId: schema.messages.senderConnectionId,
       })
       .from(schema.messages)
-      .where(and(eq(schema.messages.id, data.message_id), eq(schema.messages.senderUserId, user.id)))
+      .where(
+        and(
+          eq(schema.messages.id, data.message_id),
+          eq(schema.messages.senderUserId, user.id),
+        ),
+      )
       .limit(1);
 
     if (!message) {
       throw new AppError("Message not found", 404, "MESSAGE_NOT_FOUND");
     }
 
-    if (message.senderConnectionId && message.senderConnectionId !== senderConnection.id) {
+    if (
+      message.senderConnectionId &&
+      message.senderConnectionId !== senderConnection.id
+    ) {
       throw new AppError(
         "Message sender connection does not match sender_connection_id",
         403,
-        "MESSAGE_SENDER_MISMATCH"
+        "MESSAGE_SENDER_MISMATCH",
       );
     }
 
-    const idempotencyKey = resolveOutcomeIdempotencyKey(
+    const idempotencyKey = resolveRequestIdempotencyKey(
       data,
-      c.req.header("Idempotency-Key")
+      c.req.header("Idempotency-Key"),
     );
     if (idempotencyKey) {
-      const existingEventId = findOutcomeEventByIdempotency(message.outcomeDetails, idempotencyKey);
+      const existingEventId = findOutcomeEventByIdempotency(
+        message.outcomeDetails,
+        idempotencyKey,
+      );
       if (existingEventId) {
         return c.json({
           recorded: true,
@@ -1903,7 +3342,8 @@ pluginRoutes.post(
     const auditEntry: PluginOutcomeAuditEntry = {
       event_id: eventId,
       message_id: message.id,
-      resolution_id: data.resolution_id || `res_${message.id}`,
+      resolution_id:
+        data.resolution_id || message.resolutionId || `res_${message.id}`,
       outcome: data.outcome,
       user_action: data.user_action || null,
       notes: data.notes || null,
@@ -1923,7 +3363,10 @@ pluginRoutes.post(
       },
     };
 
-    const nextOutcomeDetails = buildOutcomeAuditDetails(message.outcomeDetails, auditEntry);
+    const nextOutcomeDetails = buildOutcomeAuditDetails(
+      message.outcomeDetails,
+      auditEntry,
+    );
 
     await db
       .update(schema.messages)
@@ -1937,5 +3380,5 @@ pluginRoutes.post(
       recorded: true,
       event_id: eventId,
     });
-  }
+  },
 );

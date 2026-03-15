@@ -141,6 +141,7 @@ describe("fetchMahiloPromptContext", () => {
     expect(result.injection).toBe(
       [
         "[MahiloContext/v1]",
+        "authority=advisory_only",
         "recipient=name=Alice Liddell; relationship=friend; roles=close_friends,teammate,vip",
         "guidance=ask:context.ask.role.structured",
         "summary=Share only city-level location details for close_friends unless explicit consent is present.",
@@ -202,6 +203,38 @@ describe("fetchMahiloPromptContext", () => {
     expect(second.context).toEqual(first.context);
   });
 
+  it("preserves request directions returned by Mahilo prompt context responses", async () => {
+    const { client } = createContextClient({
+      response: {
+        policy_guidance: {
+          default_decision: "ask",
+          reason_code: "context.ask.role.structured"
+        },
+        recipient: {
+          username: "alice"
+        },
+        recent_interactions: [],
+        suggested_selectors: {
+          action: "request",
+          direction: "request",
+          resource: "message.general"
+        }
+      }
+    });
+
+    const result = await fetchMahiloPromptContext(client, {
+      recipient: "alice",
+      senderConnectionId: "conn_sender"
+    });
+
+    expect(result.context?.selectors).toEqual({
+      action: "request",
+      direction: "request",
+      resource: "message.general"
+    });
+    expect(result.injection).toContain("selectors=request/message.general/request");
+  });
+
   it("degrades gracefully when context fetch fails", async () => {
     const { client } = createContextClient({
       error: new Error("request timeout")
@@ -260,12 +293,13 @@ describe("formatMahiloPromptInjection", () => {
     const lines = injection.split("\n");
 
     expect(lines[0]).toBe("[MahiloContext/v1]");
-    expect(lines[1]).toBe("recipient=name=Carol; relationship=teammate");
-    expect(lines[2]).toContain("guidance=ask:");
-    expect(lines[2]?.length).toBeLessThanOrEqual("guidance=ask:".length + 72);
-    expect(lines[3]?.length).toBeLessThanOrEqual("summary=".length + 180);
-    expect(lines[4]).toBe("selectors=outbound/location.current/share");
-    expect(lines).toHaveLength(6);
-    expect(lines[5]?.length).toBeLessThanOrEqual("recent_1=".length + 140);
+    expect(lines[1]).toBe("authority=advisory_only");
+    expect(lines[2]).toBe("recipient=name=Carol; relationship=teammate");
+    expect(lines[3]).toContain("guidance=ask:");
+    expect(lines[3]?.length).toBeLessThanOrEqual("guidance=ask:".length + 72);
+    expect(lines[4]?.length).toBeLessThanOrEqual("summary=".length + 180);
+    expect(lines[5]).toBe("selectors=outbound/location.current/share");
+    expect(lines).toHaveLength(7);
+    expect(lines[6]?.length).toBeLessThanOrEqual("recent_1=".length + 140);
   });
 });

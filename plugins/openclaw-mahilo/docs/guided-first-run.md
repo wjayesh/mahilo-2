@@ -4,6 +4,8 @@ This is the single recommended quickstart path for Mahilo inside OpenClaw.
 
 Use it when you want to prove the product in one OpenClaw session instead of stitching together setup, network, trust, and review docs by hand. The path is designed to show server connection, one meaningful orchestration event, a live handoff back into the same thread, and explicit human approval before a sensitive share goes out.
 
+Prompt guidance and preview are optional dry-run surfaces. The real enforcement proof in this flow comes from the live `send_message` path returning review-required before transport. If you fetch context or preview first, the later live send still fetches a fresh policy bundle, commits the decision, and only then transports committed `allow` recipients.
+
 The only operator-owned step that still happens outside OpenClaw is installing the plugin and, if you already have one, optionally saving a Mahilo API key once. Mahilo defaults to `https://mahilo.io`, and callback routing is auto-detected from OpenClaw before falling back to localhost for local-only testing.
 
 ## What This Proves
@@ -14,6 +16,7 @@ The only operator-owned step that still happens outside OpenClaw is installing t
 - One ask-around request can fan out across the Mahilo network from inside OpenClaw.
 - Replies can land back in the same OpenClaw thread as attributed Mahilo updates.
 - Sensitive outbound sharing stops on review first and only proceeds after a narrow human approval.
+- Prompt context and preview can improve UX without being mistaken for live send authorization.
 
 ## Recommended Five-Minute Path
 
@@ -59,7 +62,7 @@ The only operator-owned step that still happens outside OpenClaw is installing t
    }
    ```
 
-   Success looks like `Mahilo needs review before sending this person message.` No sensitive message should be sent yet.
+   Success looks like `Mahilo needs review before sending this person message.` No sensitive message should be sent yet. This result comes from the live bundle -> local evaluation -> commit path, not from a preview response.
 8. Approve narrowly with `set_boundaries`.
    Create a one-hour exception for that one recipient:
 
@@ -72,6 +75,8 @@ The only operator-owned step that still happens outside OpenClaw is installing t
      "sourceResolutionId": "<resolution_id_from_step_7>"
    }
    ```
+
+   Use the `resolution_id` from the live review-required result in step 7, not any earlier preview `resolution_id`.
 
 9. Retry the same `send_message`.
    Success looks like `Message sent through Mahilo.`, which proves the human approval changed the outcome intentionally instead of bypassing Mahilo.

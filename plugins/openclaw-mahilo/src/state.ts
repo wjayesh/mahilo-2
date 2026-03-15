@@ -1587,7 +1587,13 @@ function resolveGroupedInboundRoute(
         )
       : groupedEntries;
 
-  return localMatches.length === 1 ? localMatches[0] : undefined;
+  if (localMatches.length === 1) {
+    return localMatches[0];
+  }
+
+  return localMatches.length === 0 && groupedEntries.length === 1
+    ? groupedEntries[0]
+    : undefined;
 }
 
 function pruneGroupedInboundRoutes(

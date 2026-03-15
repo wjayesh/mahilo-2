@@ -65,6 +65,9 @@
     "trust-network",
     "boundaries"
   ],
+  "dependencies": {
+    "@mahilo/policy-core": "workspace:*"
+  },
   "devDependencies": {
     "@types/bun": "^1.2.2",
     "typescript": "^5.9.3"

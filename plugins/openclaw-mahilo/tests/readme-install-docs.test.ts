@@ -1,18 +1,34 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "bun:test";
 
-import {
-  DEFAULT_WEBHOOK_ROUTE_PATH,
-  MAHILO_CONTRACT_VERSION,
-  MAHILO_PLUGIN_CONFIG_ENTRY_KEY,
-  MAHILO_PLUGIN_PACKAGE_NAME,
-  MAHILO_RUNTIME_PLUGIN_ID
-} from "../src";
-
 function readReadme(): string {
-  return readFileSync(join(process.cwd(), "README.md"), "utf8");
+  return readFileSync(fileURLToPath(new URL("../README.md", import.meta.url)), "utf8");
+}
+
+function readPackageJson(): {
+  name?: string;
+} {
+  return JSON.parse(
+    readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8")
+  ) as { name?: string };
+}
+
+function readSourceFile(relativePath: string): string {
+  return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
+}
+
+function readStringConstant(source: string, constantName: string): string {
+  const pattern = new RegExp(`export const ${constantName} = "([^"]+)";`);
+  const match = source.match(pattern);
+  expect(match).not.toBeNull();
+
+  if (!match) {
+    throw new Error(`Missing constant ${constantName}`);
+  }
+
+  return match[1];
 }
 
 describe("README install docs", () => {
@@ -29,6 +45,7 @@ describe("README install docs", () => {
     expect(opening).toContain("Ask your contacts from OpenClaw");
     expect(opening).toContain("real answers from people you trust");
     expect(opening).toContain("trust and control layer behind the plugin");
+    expect(readme).toContain("server-issued policy bundles");
 
     expect(guidedFirstRunIndex).toBeGreaterThan(-1);
     expect(askYourContactsIndex).toBeGreaterThan(-1);
@@ -45,13 +62,22 @@ describe("README install docs", () => {
 
   it("documents the published npm install flow and minimal OpenClaw config", () => {
     const readme = readReadme();
+    const packageJson = readPackageJson();
+    const identitySource = readSourceFile("../src/identity.ts");
+    const runtimePluginId = readStringConstant(identitySource, "MAHILO_RUNTIME_PLUGIN_ID");
+    const packageName = packageJson.name;
+    const pluginConfigEntryKey = `plugins.entries.${runtimePluginId}.config`;
 
-    expect(readme).toContain(`npm install ${MAHILO_PLUGIN_PACKAGE_NAME}`);
-    expect(readme).toContain(`"${MAHILO_PLUGIN_PACKAGE_NAME}"`);
-    expect(readme).toContain(MAHILO_PLUGIN_CONFIG_ENTRY_KEY);
-    expect(readme).toContain(`"${MAHILO_RUNTIME_PLUGIN_ID}"`);
+    expect(typeof packageName).toBe("string");
+    expect(readme).toContain(`npm install ${packageName}`);
+    expect(readme).toContain(`"${packageName}"`);
+    expect(readme).toContain(pluginConfigEntryKey);
+    expect(readme).toContain(`"${runtimePluginId}"`);
     expect(readme).toContain("baseUrl");
     expect(readme).toContain('"apiKey"');
+    expect(readme).toContain("localPolicyLLM");
+    expect(readme).toContain("apiKeyEnvVar");
+    expect(readme).toContain("OPENAI_API_KEY");
     expect(readme).toContain("callbackUrl");
     expect(readme).toContain("https://mahilo.io");
     expect(readme).toContain("local runtime store");
@@ -59,13 +85,33 @@ describe("README install docs", () => {
 
   it("documents compatibility, connectivity checks, and common failure modes", () => {
     const readme = readReadme();
+    const contractSource = readSourceFile("../src/contract.ts");
+    const webhookRouteSource = readSourceFile("../src/webhook-route.ts");
+    const contractVersion = readStringConstant(contractSource, "MAHILO_CONTRACT_VERSION");
+    const defaultWebhookRoutePath = readStringConstant(
+      webhookRouteSource,
+      "DEFAULT_WEBHOOK_ROUTE_PATH"
+    );
 
     expect(readme).toContain("openclaw/plugin-sdk/core");
-    expect(readme).toContain(MAHILO_CONTRACT_VERSION);
+    expect(readme).toContain(contractVersion);
     expect(readme).toContain("single recommended first-run path");
     expect(readme).toContain("send_message");
     expect(readme).toContain("manage_network");
     expect(readme).toContain("set_boundaries");
+    expect(readme).toContain("dry-run only, not live authorization");
+    expect(readme).toContain("preview `resolution_id` values are never reused");
+    expect(readme).toContain("advisory only");
+    expect(readme).toContain("evaluated locally before transport");
+    expect(readme).toContain("live outbound path is always");
+    expect(readme).toContain("Fetch a direct-send or group-fanout bundle from Mahilo.");
+    expect(readme).toContain("There is no separate `localPolicyEnforcementEnabled` flag");
+    expect(readme).toContain("`TRUSTED_MODE=false` makes live non-trusted `send_message` and `ask_network`");
+    expect(readme).toContain("Local `ask` commits appear in `mahilo review`.");
+    expect(readme).toContain("Local `deny` commits appear in blocked-event surfaces.");
+    expect(readme).toContain("Group sends are per-recipient all the way through.");
+    expect(readme).toContain("policy.ask.llm.<kind>");
+    expect(readme).toContain("does not auto-send degraded local LLM review outcomes");
     expect(readme).toContain("opinions/recommendations");
     expect(readme).toContain("health, financial, and contact details");
     expect(readme).toContain("mahilo setup");
@@ -74,14 +120,16 @@ describe("README install docs", () => {
     expect(readme).toContain("mahilo network");
     expect(readme).toContain("mahilo status");
     expect(readme).toContain("mahilo reconnect");
-    expect(readme).toContain(DEFAULT_WEBHOOK_ROUTE_PATH);
+    expect(readme).toContain(defaultWebhookRoutePath);
     expect(readme).toContain("mahilo review");
     expect(readme).toContain("bun run demo:stories");
     expect(readme).toContain("rollout confidence");
     expect(readme).toContain("unsupported plugin config key(s)");
+    expect(readme).toContain("unsupported localPolicyLLM config key(s)");
     expect(readme).toContain("contractVersion");
     expect(readme).toContain("pluginVersion");
     expect(readme).toContain("callbackSecret");
     expect(readme).toContain("callbackPath must start with '/'");
+    expect(readme).toContain("localPolicyLLM.timeout must be a positive integer");
   });
 });

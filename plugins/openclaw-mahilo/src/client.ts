@@ -211,11 +211,30 @@ export class MahiloContractClient {
     return this.postJson(CONTRACT_ENDPOINTS.context, payload);
   }
 
+  async getDirectSendPolicyBundle(payload: Record<string, unknown>) {
+    return this.postJson(CONTRACT_ENDPOINTS.directSendBundle, payload);
+  }
+
+  async getGroupFanoutPolicyBundle(payload: Record<string, unknown>) {
+    return this.postJson(CONTRACT_ENDPOINTS.groupFanoutBundle, payload);
+  }
+
   async resolveDraft(
     payload: Record<string, unknown>,
     idempotencyKey?: string,
   ) {
     return this.postJson(CONTRACT_ENDPOINTS.resolve, payload, idempotencyKey);
+  }
+
+  async commitLocalDecision(
+    payload: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) {
+    return this.postJson(
+      CONTRACT_ENDPOINTS.localDecisionCommit,
+      payload,
+      idempotencyKey,
+    );
   }
 
   async sendMessage(payload: Record<string, unknown>, idempotencyKey?: string) {

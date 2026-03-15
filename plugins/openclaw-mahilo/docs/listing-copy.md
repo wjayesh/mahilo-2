@@ -12,7 +12,7 @@ Ask your contacts from OpenClaw and get attributed answers with boundaries built
 
 ## README Opening Paragraph
 
-Mahilo for OpenClaw turns "ask my contacts" into a native OpenClaw behavior. Instead of trusting public AI noise or repeating the same question across chats, you ask once inside OpenClaw and the plugin uses Mahilo to reach the right contacts, bring back attributed answers from real people you already trust, and honor the sharing boundaries each person has set. OpenClaw stays the conversational surface; Mahilo stays behind the scenes as the trust and control layer for identity, network discovery, policy decisions, review paths, and final send-time enforcement.
+Mahilo for OpenClaw turns "ask my contacts" into a native OpenClaw behavior. Instead of trusting public AI noise or repeating the same question across chats, you ask once inside OpenClaw and the plugin uses Mahilo to reach the right contacts, bring back attributed answers from real people you already trust, and honor the sharing boundaries each person has set. OpenClaw stays the conversational surface; Mahilo stays behind the scenes as the trust and control layer for identity, network discovery, server-issued policy bundles, local non-trusted enforcement before transport, and audited review/outcome flows.
 
 ## Persona Calls To Action
 

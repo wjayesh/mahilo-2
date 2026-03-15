@@ -4,6 +4,8 @@ export * from "./config";
 export * from "./contract";
 export * from "./identity";
 export * from "./keys";
+export * from "./local-policy-runtime";
+export * from "./local-policy-openai";
 export * from "./network";
 export * from "./openclaw-plugin-wrapper";
 export * from "./policy-helpers";
