@@ -368,7 +368,7 @@ Audit and operator-surface rules:
 ### 1.1 Add a Dual-Sandbox Bootstrap Script
 
 - **ID**: `SBX-010`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-002`, `SBX-003`
 - **Description**:
@@ -383,6 +383,8 @@ Audit and operator-surface rules:
   - [ ] Both sandboxes get isolated `OPENCLAW_HOME`, config, and runtime-state paths
   - [ ] The script emits a machine-readable summary of the generated paths and ports
 
+- **Notes**:
+  - 2026-03-15T09:57:29.717Z: SBX-010 completed via orchestrator integration.
 ### 1.2 Add a Config Generator for Both OpenClaw Gateways
 
 - **ID**: `SBX-011`
