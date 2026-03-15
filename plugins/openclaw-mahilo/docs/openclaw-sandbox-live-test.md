@@ -2,6 +2,8 @@
 
 Use this when testing `plugins/openclaw-mahilo/` against a fresh local OpenClaw instance without touching an existing OpenClaw install.
 
+For the reproducible dual-sandbox harness, the default provisioning path is now invite-backed API provisioning via `dual-sandbox-bootstrap.ts` plus `dual-sandbox-provision.ts`. Keep `seed-local-policy-sandbox.ts` as a fallback-only escape hatch, not the baseline path.
+
 ## What this proves
 
 - the local plugin loads in a clean OpenClaw sandbox
@@ -18,6 +20,13 @@ Use this when testing `plugins/openclaw-mahilo/` against a fresh local OpenClaw 
 - your existing live OpenClaw server
 
 Everything here uses a temp sandbox plus explicit `OPENCLAW_HOME`, `OPENCLAW_CONFIG_PATH`, and `MAHILO_OPENCLAW_RUNTIME_STATE_PATH`.
+
+For the dual-sandbox harness, prefer the generated bootstrap/provisioning scripts instead of the manual curl steps in this doc:
+
+- `plugins/openclaw-mahilo/scripts/dual-sandbox-bootstrap.ts`
+- `plugins/openclaw-mahilo/scripts/dual-sandbox-provision.ts`
+
+The manual steps below are still useful for debugging, but the default harness path should stay invite-backed and API-driven.
 
 ## Prerequisites
 
@@ -86,6 +95,7 @@ Mahilo server:
 
 ```bash
 cd /Users/wjayesh/apps/mahilo-2
+ADMIN_API_KEY="${ADMIN_API_KEY:-sandbox-admin-key}" \
 PORT=18080 DATABASE_URL="$MAHILO_DB" bun run src/index.ts
 ```
 
@@ -135,6 +145,8 @@ Current expected result:
 
 If `apiKey` is present in plugin config, the plugin now auto-registers the default sender on startup. When `callbackUrl` is omitted, the plugin first tries stored callback state, OpenClaw gateway remote config, and Tailscale exposure before falling back to `http://localhost:<gateway-port>/mahilo/incoming` for local-only testing.
 
+This is a reference/debugging path, not the default dual-sandbox provisioning flow. The baseline harness should provision users first through invite tokens and explicit API calls.
+
 Expected gateway log line:
 
 - `Startup bootstrap attached @sandboxoc and sender ...`
@@ -151,25 +163,42 @@ Expected:
 - one OpenClaw connection with label `default`
 - callback URL pointing at `http://127.0.0.1:19123/mahilo/incoming` when running locally
 
-## 6. Seed a fully working sandbox identity
+## 6. Provision a fully working sandbox identity on the invite-backed path
 
-Register two Mahilo users:
+Create one invite token per user:
+
+```bash
+curl -sS -X POST http://127.0.0.1:18080/api/v1/admin/invite-tokens \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -d '{"max_uses":1,"note":"sandboxoc live test"}'
+
+curl -sS -X POST http://127.0.0.1:18080/api/v1/admin/invite-tokens \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -d '{"max_uses":1,"note":"alice live test"}'
+```
+
+Register the two users with those invite tokens:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:18080/api/v1/auth/register \
   -H 'Content-Type: application/json' \
-  -d '{"username":"sandboxoc","display_name":"Sandbox OpenClaw"}'
+  -d '{"username":"sandboxoc","display_name":"Sandbox OpenClaw","invite_token":"<SANDBOXOC_INVITE_TOKEN>"}'
 
 curl -sS -X POST http://127.0.0.1:18080/api/v1/auth/register \
   -H 'Content-Type: application/json' \
-  -d '{"username":"alice","display_name":"Alice"}'
+  -d '{"username":"alice","display_name":"Alice","invite_token":"<ALICE_INVITE_TOKEN>"}'
 ```
 
-For the sandbox only, mark both verified:
+Expected:
 
-```bash
-sqlite3 "$MAHILO_DB" "update users set twitter_verified=1;"
-```
+- both responses return `201`
+- both users come back with `status=active`
+- `GET /api/v1/auth/me` reports `registration_source=invite`
+- `GET /api/v1/plugin/reviews` returns `200` for each issued API key
+
+If the admin/invite surface regresses and you only need deterministic local-policy fixtures, use `plugins/openclaw-mahilo/scripts/seed-local-policy-sandbox.ts` as a fallback-only escape hatch. Do not silently replace the invite-backed path with direct DB seeding.
 
 Start a dummy receiver for `alice`:
 

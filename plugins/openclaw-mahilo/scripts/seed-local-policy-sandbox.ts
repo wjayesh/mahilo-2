@@ -36,9 +36,12 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:18080";
 const DEFAULT_GATEWAY_PORT = 19123;
 const DEFAULT_RECEIVER_PORT = 19124;
 const DEFAULT_GROUP_NAME = "hiking-crew";
+const FALLBACK_ONLY_NOTE =
+  "Fallback-only direct DB seeding. The baseline harness should prefer invite-backed API provisioning.";
 
 async function main() {
   const args = parseArgs(Bun.argv.slice(2));
+  console.warn(FALLBACK_ONLY_NOTE);
 
   const sqlite = new Database(args.dbPath);
   sqlite.exec("PRAGMA foreign_keys = ON");
@@ -151,12 +154,17 @@ async function main() {
   const summary = {
     baseUrl: args.baseUrl,
     dbPath: args.dbPath,
+    fallbackLabel: "fallback_only",
+    fallbackNote: FALLBACK_ONLY_NOTE,
+    fallbackOnly: true,
     gatewayPort: args.gatewayPort,
     group: {
       groupId,
       members: [alice.username, bob.username, carol.username],
       name: DEFAULT_GROUP_NAME,
     },
+    provisioningMode: "fallback_seed",
+    registrationFlow: "direct_db_seed",
     receiverPort: args.receiverPort,
     runtimeStatePath: args.runtimeStatePath,
     scenarios: {
@@ -245,8 +253,12 @@ function printHelpAndExit(code: number): never {
       "    [--gateway-port <19123>] \\",
       "    [--receiver-port <19124>]",
       "",
-      "Seeds a fresh sandbox Mahilo DB for local policy validation and writes",
-      "the matching OpenClaw runtime bootstrap state plus a JSON summary.",
+      "Fallback-only escape hatch: seeds a fresh sandbox Mahilo DB for local",
+      "policy validation and writes the matching OpenClaw runtime bootstrap",
+      "state plus a JSON summary.",
+      "",
+      "Do not use this as the default dual-sandbox provisioning path. The",
+      "baseline harness should prefer invite-backed API provisioning.",
     ].join("\n"),
   );
   process.exit(code);
