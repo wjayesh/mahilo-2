@@ -337,11 +337,20 @@ function installDashboardGlobals(fetchImpl: FetchHandler) {
     confirm: () => true,
     document: documentStub,
     fetch: fetchStub,
+    history: {
+      pushState: (_state: unknown, _title: string, path: string) => {
+        windowStub.location.pathname = path;
+      },
+      replaceState: (_state: unknown, _title: string, path: string) => {
+        windowStub.location.pathname = path;
+      },
+    },
     IntersectionObserver: IntersectionObserverStub,
     localStorage: localStorageStub,
-    location: { origin: "http://localhost" },
+    location: { origin: "http://localhost", pathname: "/" },
     navigator: navigatorStub,
     removeEventListener: () => {},
+    scrollTo: () => {},
     scrollY: 0,
     WebSocket: WebSocketStub,
   };

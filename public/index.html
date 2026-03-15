@@ -47,9 +47,9 @@
               >
               <a
                 id="landing-dashboard-entry"
-                href="/dashboard#browser-access-section"
+                href="/access"
                 class="landing-btn landing-btn-primary landing-btn-small"
-                >Open dashboard</a
+                >Sign in to dashboard</a
               >
             </div>
             <button
@@ -65,9 +65,9 @@
               >
               <a
                 id="landing-mobile-dashboard-entry"
-                href="/dashboard#browser-access-section"
+                href="/access"
                 class="landing-mobile-link"
-                >Open dashboard</a
+                >Sign in</a
               >
             </div>
           </div>
@@ -207,10 +207,10 @@
               </a>
               <a
                 id="hero-dashboard-entry"
-                href="/dashboard#browser-access-section"
+                href="/access"
                 class="landing-btn landing-btn-ghost landing-btn-large hero-cta-link hero-cta-secondary"
               >
-                Already invited? Open dashboard
+                Already invited? Sign in
               </a>
             </div>
             <p class="hero-fine-print">
@@ -655,20 +655,19 @@
         >
           <div class="section-container">
             <div class="browser-access-header">
+              <a href="/" class="browser-access-home-link">← Back to home</a>
               <p class="browser-access-kicker">Browser access</p>
               <h2 class="section-headline">Sign in with your agent</h2>
               <p class="section-subtext">
                 Mahilo account creation happens through an invited agent, not a
-                self-serve browser registration flow. Agent-backed sign-in is
-                the primary path. Manual API-key entry stays available only as
-                an advanced fallback for existing invite-backed accounts.
+                self-serve browser registration flow.
               </p>
               <p
                 id="browser-access-entry-note"
                 class="browser-access-entry-note"
               >
-                Already invited? Use the dashboard entry to reach this
-                invite-backed sign-in path without digging for hidden routes.
+                Use your Mahilo username to get a short approval code for your
+                account.
               </p>
             </div>
 
@@ -679,10 +678,8 @@
                   <h3>Sign in with your agent</h3>
                 </div>
                 <p class="browser-access-card-copy">
-                  Enter the Mahilo username your invited agent already
-                  registered. Mahilo will issue a short approval code for that
-                  account, then your configured agent can approve browser
-                  access without exposing a long-lived API key in the page.
+                  Enter your Mahilo username. You'll get a short approval code
+                  for your account.
                 </p>
                 <form id="agent-login-form" class="browser-access-form">
                   <label class="browser-access-label" for="agent-login-username">
@@ -698,16 +695,14 @@
                     spellcheck="false"
                   />
                   <p id="agent-login-helper" class="browser-access-helper">
-                    Use the exact username your invited agent created on
-                    Mahilo. The browser does not create Mahilo accounts on its
-                    own.
+                    Use the username your agent created on Mahilo.
                   </p>
                   <button
                     id="agent-login-submit"
                     type="submit"
                     class="landing-btn landing-btn-primary"
                   >
-                    Start browser sign-in
+                    Get approval code
                   </button>
                 </form>
                 <div
@@ -726,7 +721,7 @@
                         id="agent-login-status-title"
                         class="browser-login-status-title"
                       >
-                        Enter your Mahilo username to begin
+                        Enter your Mahilo username
                       </h4>
                     </div>
                     <button
@@ -741,8 +736,7 @@
                     id="agent-login-status-copy"
                     class="browser-login-status-copy"
                   >
-                    Mahilo will prepare a short code for your configured agent
-                    to approve.
+                    You'll get a short approval code for your account.
                   </p>
                   <div class="browser-login-meta">
                     <div class="browser-login-meta-item">
@@ -762,7 +756,7 @@
                     id="agent-login-instructions"
                     class="browser-login-instructions"
                   >
-                    Ask your agent to approve the short code shown here.
+                    Ask your agent to approve this code.
                   </p>
                   <div
                     id="agent-login-guidance"
@@ -807,9 +801,8 @@
                   <h3>Manual API-key entry</h3>
                 </div>
                 <p class="browser-access-card-copy">
-                  Already running an invite-backed Mahilo account? Use your API
-                  key only when you need direct browser access before agent
-                  approval is available.
+                  Already have an API key? Use it only if you need advanced
+                  browser access.
                 </p>
                 <form id="login-form" class="browser-access-form">
                   <label class="browser-access-label" for="login-api-key">
@@ -833,11 +826,11 @@
                     </button>
                   </div>
                   <p class="browser-access-helper">
-                    This advanced fallback does not create an account. It signs
-                    in to an existing invite-backed Mahilo account.
+                    This does not create an account. It only signs in to an
+                    existing one.
                   </p>
                   <button type="submit" class="landing-btn landing-btn-primary">
-                    Use API-key fallback
+                    Use API key
                   </button>
                 </form>
               </article>

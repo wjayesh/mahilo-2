@@ -125,6 +125,36 @@ body {
   width: 100%;
 }
 
+body.route-marketing .browser-access-section {
+  display: none;
+}
+
+body.route-access .landing-page > :not(.browser-access-section) {
+  display: none;
+}
+
+body.route-access .browser-access-section {
+  display: block;
+  min-height: 100vh;
+  padding: 96px 24px 72px;
+  opacity: 1;
+  transform: none;
+}
+
+body.route-access .browser-access-grid {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 760px;
+}
+
+body.route-access .browser-access-header {
+  margin-bottom: 28px;
+}
+
+body.route-access .browser-access-steps,
+body.route-access .browser-access-link {
+  display: none;
+}
+
 /* Section utilities */
 .section-container {
   max-width: var(--landing-max-width);
@@ -995,6 +1025,22 @@ body {
 
 .browser-access-header {
   margin-bottom: 40px;
+}
+
+.browser-access-home-link {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 0 auto 16px;
+  color: var(--color-primary-dark);
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+body.route-access .browser-access-home-link {
+  display: inline-flex;
 }
 
 .browser-access-entry-note {

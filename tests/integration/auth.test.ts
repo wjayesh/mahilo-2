@@ -311,23 +311,26 @@ describe("Auth Routes Integration", () => {
   });
 
   describe("Landing/dashboard entry route (DASH-090)", () => {
-    it("keeps the public landing page at root and serves the shared shell at /dashboard", async () => {
+    it("keeps the public landing page at root and serves shared shells at /access and /dashboard", async () => {
       const landing = await app.request("/");
       expect(landing.status).toBe(200);
       const landingHtml = await landing.text();
       expect(landingHtml).toContain('id="waitlist-section"');
-      expect(landingHtml).toContain(
-        'href="/dashboard#browser-access-section"',
-      );
+      expect(landingHtml).toContain('href="/access"');
+
+      const accessEntry = await app.request("/access");
+      expect(accessEntry.status).toBe(200);
+      const accessHtml = await accessEntry.text();
+      expect(accessHtml).toContain('id="browser-access-section"');
+      expect(accessHtml).toContain("Sign in with your agent");
+      expect(accessHtml).toContain('href="/access"');
 
       const dashboardEntry = await app.request("/dashboard");
       expect(dashboardEntry.status).toBe(200);
       const dashboardHtml = await dashboardEntry.text();
       expect(dashboardHtml).toContain('id="browser-access-section"');
       expect(dashboardHtml).toContain('id="dashboard-screen"');
-      expect(dashboardHtml).toContain(
-        'href="/dashboard#browser-access-section"',
-      );
+      expect(dashboardHtml).toContain('href="/access"');
     });
   });
 
@@ -1120,13 +1123,13 @@ describe("General API Tests", () => {
     expect(data.version).toBe("0.1.0");
   });
 
-  it("should serve the dashboard entry route from /dashboard", async () => {
-    const res = await app.request("/dashboard");
+  it("should serve the shared auth shell from /access", async () => {
+    const res = await app.request("/access");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
 
     const html = await res.text();
-    expect(html).toContain("Open dashboard");
+    expect(html).toContain("Sign in to dashboard");
     expect(html).toContain('id="browser-access-section"');
   });
 

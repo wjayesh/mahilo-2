@@ -28,6 +28,7 @@ const CONFIG = {
 
 const BROWSER_LOGIN_TOKEN_HEADER = "x-browser-login-token";
 const DASHBOARD_ENTRY_PATH = "/dashboard";
+const ACCESS_ENTRY_PATH = "/access";
 
 const VIEW_ALIASES = {
   agents: "connections",
@@ -5853,8 +5854,56 @@ const UI = {
     return this.getCurrentPath() === DASHBOARD_ENTRY_PATH;
   },
 
+  isAccessEntryRoute() {
+    return this.getCurrentPath() === ACCESS_ENTRY_PATH;
+  },
+
+  navigateToPath(path, options = {}) {
+    const normalizedPath = Helpers.string(path).trim() || "/";
+    if (this.getCurrentPath() === normalizedPath) {
+      return;
+    }
+
+    const method = options.replace === false ? "pushState" : "replaceState";
+    if (typeof window !== "undefined" && window.history?.[method]) {
+      window.history[method]({}, "", normalizedPath);
+      return;
+    }
+
+    if (typeof window !== "undefined" && window.location) {
+      window.location.pathname = normalizedPath;
+    }
+  },
+
+  applyRoutePresentation(route = null) {
+    const body = document.body;
+    if (!body) {
+      return;
+    }
+
+    const nextRoute =
+      route ||
+      (State.user
+        ? "dashboard"
+        : this.isAccessEntryRoute()
+          ? "access"
+          : "marketing");
+
+    body.classList.toggle("route-dashboard", nextRoute === "dashboard");
+    body.classList.toggle("route-access", nextRoute === "access");
+    body.classList.toggle("route-marketing", nextRoute === "marketing");
+
+    if (nextRoute === "dashboard") {
+      document.title = "Mahilo - Dashboard";
+    } else if (nextRoute === "access") {
+      document.title = "Mahilo - Sign In";
+    } else {
+      document.title = "Mahilo - A Trust Network for AI Agents";
+    }
+  },
+
   getLandingDashboardEntryPresentation() {
-    const dashboardRouteActive = this.isDashboardEntryRoute();
+    const accessRouteActive = this.isAccessEntryRoute();
     const browserLoginState = Helpers.string(State.browserLogin?.status || "idle");
     const browserLoginUsername = Helpers.string(State.browserLogin?.username);
 
@@ -5866,7 +5915,7 @@ const UI = {
         navLabel: "Open dashboard",
         mobileLabel: "Open dashboard",
         heroLabel: "Open dashboard",
-        note: `Signed in as @${signedInUsername}. Opening the dashboard takes you straight back into Mahilo.`,
+        note: `Signed in as @${signedInUsername}.`,
         state: "authenticated",
       };
     }
@@ -5884,15 +5933,15 @@ const UI = {
     ) {
       const browserLoginLabel =
         browserLoginState === "approved"
-          ? "Continue to dashboard"
+          ? "Continue sign-in"
           : "Finish sign-in";
       const note = browserLoginUsername
-        ? `Browser sign-in is already in progress for @${browserLoginUsername}. Finish the agent-approved flow below to open the dashboard.`
-        : "Browser sign-in is already in progress. Finish the agent-approved flow below to open the dashboard.";
+        ? `Browser sign-in is already in progress for @${browserLoginUsername}.`
+        : "Browser sign-in is already in progress.";
 
       return {
-        action: "scroll_browser_access",
-        href: "#browser-access-section",
+        action: accessRouteActive ? "stay_access" : "navigate_access",
+        href: ACCESS_ENTRY_PATH,
         navLabel: browserLoginLabel,
         mobileLabel: browserLoginLabel,
         heroLabel: browserLoginLabel,
@@ -5901,25 +5950,25 @@ const UI = {
       };
     }
 
-    if (dashboardRouteActive) {
+    if (accessRouteActive) {
       return {
-        action: "scroll_browser_access",
-        href: "#browser-access-section",
+        action: "stay_access",
+        href: ACCESS_ENTRY_PATH,
         navLabel: "Sign in to dashboard",
         mobileLabel: "Sign in",
         heroLabel: "Sign in to dashboard",
-        note: "This dashboard entry is for invited or already signed-in users. Start the primary agent-backed sign-in below, or use the advanced API-key fallback only for an existing account.",
+        note: "Use your Mahilo username to get a short approval code.",
         state: "signin",
       };
     }
 
     return {
-      action: "navigate_dashboard",
-      href: DASHBOARD_ENTRY_PATH,
-      navLabel: "Open dashboard",
-      mobileLabel: "Open dashboard",
-      heroLabel: "Already invited? Open dashboard",
-      note: "Already invited? The dashboard entry takes you straight to browser access, while the public landing and waitlist stay available here.",
+      action: "navigate_access",
+      href: ACCESS_ENTRY_PATH,
+      navLabel: "Sign in to dashboard",
+      mobileLabel: "Sign in",
+      heroLabel: "Already invited? Sign in",
+      note: "Already invited? Go straight to browser access.",
       state: "marketing",
     };
   },
@@ -5959,35 +6008,24 @@ const UI = {
 
     const browserAccessSection = document.getElementById("browser-access-section");
     if (browserAccessSection) {
-      browserAccessSection.classList.toggle(
-        "dashboard-entry-focus",
-        presentation.action === "scroll_browser_access",
-      );
+      browserAccessSection.classList.remove("dashboard-entry-focus");
       browserAccessSection.dataset.entryState = presentation.state;
     }
   },
 
   focusBrowserAccessEntry() {
-    const browserAccessSection = document.getElementById("browser-access-section");
-    if (browserAccessSection) {
-      browserAccessSection.classList.add("dashboard-entry-focus");
-      browserAccessSection.scrollIntoView({ behavior: "smooth" });
-    }
-
-    document.getElementById("agent-login-username")?.focus();
+    this.navigateToPath(ACCESS_ENTRY_PATH);
+    this.applyRoutePresentation("access");
+    window.scrollTo?.({ top: 0, behavior: "smooth" });
   },
 
   handleLandingDashboardEntryClick(event) {
     const presentation = this.getLandingDashboardEntryPresentation();
-    if (presentation.action === "navigate_dashboard") {
-      return;
-    }
-
-    event.preventDefault();
-
     if (presentation.action === "open_dashboard") {
+      event.preventDefault();
       this.showDashboard();
-    } else {
+    } else if (presentation.action === "navigate_access" || presentation.action === "stay_access") {
+      event.preventDefault();
       this.focusBrowserAccessEntry();
     }
 
@@ -6066,17 +6104,17 @@ const UI = {
 
     const base = {
       badge: "Waiting",
-      title: "Enter your Mahilo username to begin",
-      copy: "Mahilo will prepare a short approval code for your configured agent to approve.",
-      instructions: "Ask your agent to approve the short code shown here.",
+      title: "Enter your Mahilo username",
+      copy: "You'll get a short approval code for your account.",
+      instructions: "Ask your agent to approve this code.",
       guidance:
-        "Mahilo browser access is invite-backed. If your account does not exist yet, finish invite setup in your agent first.",
+        "If this account does not exist yet, finish invite setup in your agent first.",
       showContinue: false,
       showRetry: false,
       showReset: false,
       disableForm: false,
       showPanel: login.status !== "idle",
-      submitLabel: "Start browser sign-in",
+      submitLabel: "Get approval code",
       state: login.status,
     };
 
@@ -6085,57 +6123,50 @@ const UI = {
         return {
           ...base,
           badge: "Starting",
-          title: `Preparing a code for @${username}`,
-          copy: "Checking that this invite-backed Mahilo account exists and generating a short approval code for your agent.",
-          instructions:
-            "Stay on this page. Mahilo will show the approval code as soon as the attempt is ready.",
-          guidance:
-            "If this username has not been created by your invited agent yet, finish onboarding there first or use the advanced API-key fallback for an existing account.",
+          title: `Getting a code for @${username}`,
+          copy: "Checking your account and issuing a short approval code.",
+          instructions: "Stay here. The code will appear in a moment.",
+          guidance: "If this username does not exist yet, finish setup in your agent first.",
           disableForm: true,
           showPanel: true,
           showReset: true,
-          submitLabel: "Preparing code...",
+          submitLabel: "Getting code...",
         };
       case "pending":
         return {
           ...base,
           badge: "Pending approval",
-          title: `Ask your agent to approve ${approvalCode}`,
-          copy: `Mahilo is waiting for browser approval on @${username}. This page checks automatically and does not need a manual refresh.`,
-          instructions: `In your configured agent, approve browser sign-in for @${username} using code ${approvalCode}.`,
-          guidance:
-            "If no agent is configured for this account yet, finish invite setup first. If approval does not arrive before the code expires, start another code or use the advanced API-key fallback.",
+          title: `Approve ${approvalCode} with your agent`,
+          copy: `Waiting for approval on @${username}.`,
+          instructions: `Ask your agent to approve code ${approvalCode}.`,
+          guidance: "If this takes too long, start another code.",
           disableForm: true,
           showPanel: true,
           showReset: true,
-          submitLabel: "Waiting for approval...",
+          submitLabel: "Waiting...",
         };
       case "approved":
         return {
           ...base,
           badge: "Approved",
           title: `Code ${approvalCode} is approved`,
-          copy: `Your configured agent approved browser access for @${username}. Continue to redeem the short-lived browser session before the code expires.`,
-          instructions:
-            "Continue to the dashboard now. Mahilo will redeem the approved attempt into a browser session.",
-          guidance:
-            "If you wait too long and the code expires, just start another code. The browser will not store a long-lived API key for this path.",
+          copy: `You're ready to continue for @${username}.`,
+          instructions: "Continue to open the dashboard.",
+          guidance: "If the code expires, just start another one.",
           disableForm: true,
           showPanel: true,
           showContinue: true,
           showReset: true,
-          submitLabel: "Waiting for approval...",
+          submitLabel: "Waiting...",
         };
       case "redeeming":
         return {
           ...base,
           badge: "Signing in",
           title: "Opening your dashboard",
-          copy: `Redeeming the approved browser session for @${username}.`,
-          instructions:
-            "Mahilo is exchanging the approved code for a short-lived browser session now.",
-          guidance:
-            "If this stalls, start another code or use the advanced API-key fallback for the same account.",
+          copy: `Signing in to @${username}.`,
+          instructions: "This takes just a moment.",
+          guidance: "If this stalls, start another code.",
           disableForm: true,
           showPanel: true,
           submitLabel: "Signing in...",
@@ -6145,12 +6176,10 @@ const UI = {
           return {
             ...base,
             badge: "Replaced",
-            title: "That approval code was replaced",
-            copy: `A newer browser sign-in code for @${username} replaced ${approvalCode} before this tab finished signing in.`,
-            instructions:
-              "Use the latest code for this username, or start a fresh browser sign-in here.",
-            guidance:
-              "Only one live browser code stays active per account now. If you opened multiple tabs, continue with the newest code or use the advanced API-key fallback.",
+            title: "That code was replaced",
+            copy: `A newer code for @${username} replaced ${approvalCode}.`,
+            instructions: "Use the newest code or start another one here.",
+            guidance: "Only one live code stays active at a time.",
             showPanel: true,
             showRetry: true,
             showReset: true,
@@ -6161,12 +6190,10 @@ const UI = {
         return {
           ...base,
           badge: "Expired",
-          title: "That approval code expired",
-          copy: `The approval request for @${username} timed out before sign-in finished.`,
-          instructions:
-            "Start another code, then ask your agent to approve the new code while it is still active.",
-          guidance:
-            "If approval keeps timing out, confirm your agent is online and that it is approving the right username. The advanced API-key fallback still works for existing accounts.",
+          title: "That code expired",
+          copy: `The sign-in request for @${username} timed out.`,
+          instructions: "Start another code and approve it while it is still active.",
+          guidance: "If this keeps happening, make sure your agent is online.",
           showPanel: true,
           showRetry: true,
           showReset: true,
@@ -6176,12 +6203,10 @@ const UI = {
         return {
           ...base,
           badge: "Denied",
-          title: "Your agent declined this sign-in",
-          copy: `The approval request for @${username} was denied before the browser session was redeemed.`,
-          instructions:
-            "Ask your agent to approve a new browser sign-in code if you still want dashboard access here.",
-          guidance:
-            "This usually means the wrong account or code was requested. Start another code after confirming the username, or use the advanced API-key fallback if appropriate.",
+          title: "That sign-in was denied",
+          copy: `The request for @${username} was denied.`,
+          instructions: "Start another code if you still want access.",
+          guidance: "Make sure the username and code match.",
           showPanel: true,
           showRetry: true,
           showReset: true,
@@ -6208,14 +6233,12 @@ const UI = {
           login.errorMessage ||
           "Mahilo could not finish this browser sign-in attempt.";
         let guidance =
-          "Start another code from this page, or use the advanced API-key fallback if you already have direct access to the invite-backed account.";
+          "Start another code from this page.";
 
         if (missingAccountCodes.includes(login.errorCode)) {
           title = `No active Mahilo account found for @${username}`;
-          copy =
-            "Mahilo could not find an active invite-backed account for that username.";
-          guidance =
-            "Finish invite setup and registration in your configured agent first. If the account already exists, check the exact username or use the advanced API-key fallback.";
+          copy = "Mahilo could not find an active account for that username.";
+          guidance = "Finish setup in your agent first, or check the username.";
         } else if (rateLimited) {
           const waitSeconds = Helpers.number(login.retryAfterSeconds, 0);
           title = "Mahilo is throttling browser sign-in";
@@ -6223,21 +6246,19 @@ const UI = {
             login.errorMessage ||
             "Too many browser sign-in requests arrived in a short window.";
           guidance = waitSeconds
-            ? `Wait about ${waitSeconds} seconds, then try again from this page. If you already have direct access to the invite-backed account, the advanced API-key fallback still works.`
-            : "Wait briefly, then try again from this page. If you already have direct access to the invite-backed account, the advanced API-key fallback still works.";
+            ? `Wait about ${waitSeconds} seconds, then try again.`
+            : "Wait briefly, then try again.";
         } else if (reusedAttempt) {
-          title = "That browser code was already used";
+          title = "That code was already used";
           copy =
             "This approval code was redeemed elsewhere and cannot be reused in this browser.";
-          guidance =
-            "Start another code here if you still need access in this browser window.";
+          guidance = "Start another code here if you still need access.";
         } else if (invalidAttemptCodes.includes(login.errorCode)) {
-          title = "This browser approval attempt is no longer valid";
+          title = "This approval attempt is no longer valid";
           copy =
             login.errorMessage ||
             "The stored approval attempt could not be resumed.";
-          guidance =
-            "Start another code from this page. If that keeps failing, fall back to an API key for the existing account.";
+          guidance = "Start another code from this page.";
         }
 
         return {
@@ -6319,9 +6340,9 @@ const UI = {
     }
 
     if (guidance) {
-      guidance.innerHTML = `<strong>Fallback guidance:</strong> ${Helpers.escapeHtml(
-        presentation.guidance,
-      )}`;
+      const guidanceText = Helpers.string(presentation.guidance);
+      guidance.textContent = guidanceText;
+      guidance.classList.toggle("hidden", !guidanceText);
     }
 
     if (continueButton) {
@@ -6351,7 +6372,7 @@ const UI = {
 
     const username = Helpers.string(usernameInput.value).trim().toLowerCase();
     if (!username) {
-      this.showToast("Enter your Mahilo username to request an approval code.", "error");
+      this.showToast("Enter your username to get an approval code.", "error");
       return;
     }
 
@@ -6524,7 +6545,7 @@ const UI = {
     const apiKey = apiKeyInput.value.trim();
     if (!apiKey) {
       this.showToast(
-        "Enter your API key to use the advanced browser fallback.",
+        "Enter your API key to continue.",
         "error",
       );
       return;
@@ -6541,7 +6562,7 @@ const UI = {
       State.user = null;
       State.save();
       this.showToast(
-        "Invalid API key. Browser signup is not self-serve; this fallback only works for existing invite-backed accounts.",
+        "Invalid API key. This only works for existing accounts.",
         "error",
       );
     }
@@ -6590,6 +6611,7 @@ const UI = {
 
     State.clear();
     this.hideModals();
+    this.navigateToPath(ACCESS_ENTRY_PATH);
     this.showLanding();
     this.showToast(toastMessage, toastTone);
   },
@@ -8802,14 +8824,16 @@ const UI = {
 
   // Show landing page
   showLanding() {
+    if (this.isDashboardEntryRoute() && !State.user) {
+      this.navigateToPath(ACCESS_ENTRY_PATH);
+    }
+
+    this.applyRoutePresentation();
     document.getElementById("landing-page").classList.remove("hidden");
     document.getElementById("dashboard-screen").classList.add("hidden");
     document.getElementById("ws-status").style.display = "none";
     this.renderBrowserLogin();
     this.initLandingAnimations();
-    if (this.isDashboardEntryRoute() && !State.user) {
-      this.focusBrowserAccessEntry();
-    }
   },
 
   // Initialize landing page animations
@@ -8884,6 +8908,8 @@ const UI = {
 
   // Show dashboard
   showDashboard() {
+    this.navigateToPath(DASHBOARD_ENTRY_PATH);
+    this.applyRoutePresentation("dashboard");
     document.getElementById("landing-page").classList.add("hidden");
     document.getElementById("dashboard-screen").classList.remove("hidden");
     document.getElementById("ws-status").style.display = "flex";

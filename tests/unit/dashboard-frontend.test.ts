@@ -126,6 +126,7 @@ type DashboardHarness = {
   fetchCalls: string[];
   getCookieHeader: () => string;
   getElement: (id: string) => ElementStub;
+  getPathname: () => string;
 };
 
 type HarnessOptions = {
@@ -470,6 +471,14 @@ function createDashboardHarness(
   context.window.confirm = context.confirm;
   context.window.document = documentStub;
   context.window.fetch = context.fetch;
+  context.window.history = {
+    pushState: (_state: unknown, _title: string, path: string) => {
+      context.window.location.pathname = path;
+    },
+    replaceState: (_state: unknown, _title: string, path: string) => {
+      context.window.location.pathname = path;
+    },
+  };
   context.window.IntersectionObserver = IntersectionObserverStub;
   context.window.localStorage = localStorage;
   context.window.location = {
@@ -478,6 +487,7 @@ function createDashboardHarness(
   };
   context.window.navigator = context.navigator;
   context.window.removeEventListener = () => {};
+  context.window.scrollTo = () => {};
   context.window.scrollY = 0;
   context.window.WebSocket = WebSocketStub;
 
@@ -503,6 +513,9 @@ function createDashboardHarness(
       return cookieHeader;
     },
     getElement,
+    getPathname() {
+      return context.window.location.pathname;
+    },
   };
 }
 
@@ -1939,11 +1952,11 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
     expect(html).toContain("self-serve browser registration flow");
     expect(html).toContain('id="agent-login-form"');
     expect(html).toContain('id="agent-login-status"');
-    expect(html).toContain("Start browser sign-in");
+    expect(html).toContain("Get approval code");
     expect(html).toContain("Manual API-key entry");
     expect(html).toContain("Advanced fallback");
     expect(html).toContain('id="login-form"');
-    expect(html).toContain("existing invite-backed Mahilo account");
+    expect(html).toContain("It only signs in to an");
   });
 
   it("keeps manual API-key sign-in available only as the advanced browser fallback", async () => {
@@ -1987,15 +2000,14 @@ describe("Dashboard invite-only browser access cleanup (DASH-070)", () => {
 describe("Landing dashboard activation (DASH-090)", () => {
   it("surfaces a clean dashboard entry from the landing page without hiding the waitlist path", () => {
     const html = readFileSync("public/index.html", "utf8");
-    const dashboardEntryLinks =
-      html.match(/href=\"\/dashboard#browser-access-section\"/g) ?? [];
+    const dashboardEntryLinks = html.match(/href=\"\/access\"/g) ?? [];
 
     expect(dashboardEntryLinks).toHaveLength(3);
-    expect(html).toContain("Open dashboard");
-    expect(html).toContain("Already invited? Open dashboard");
+    expect(html).toContain("Sign in to dashboard");
+    expect(html).toContain("Already invited? Sign in");
     expect(html).toContain('id="waitlist-section"');
     expect(html).toContain("Join waitlist");
-    expect(html).toContain("invite-backed sign-in path");
+    expect(html).toContain("Use your Mahilo username to get a short approval code");
   });
 });
 
@@ -2032,10 +2044,10 @@ describe("Dashboard sign in with agent UX (DASH-072)", () => {
       }),
     );
     expect(harness.getElement("agent-login-status-title").textContent).toContain(
-      "approve",
+      "Approve",
     );
     expect(harness.getElement("agent-login-instructions").textContent).toContain(
-      user.username,
+      harness.dashboard.State.browserLogin.approvalCode,
     );
     expect(harness.fetchCalls).toContain("/api/v1/auth/browser-login/attempts");
 
@@ -2101,8 +2113,8 @@ describe("Dashboard sign in with agent UX (DASH-072)", () => {
     expect(harness.getElement("agent-login-status-title").textContent).toContain(
       "No active Mahilo account found",
     );
-    expect(harness.getElement("agent-login-guidance").innerHTML).toContain(
-      "Finish invite setup",
+    expect(harness.getElement("agent-login-guidance").textContent).toContain(
+      "Finish setup in your agent first",
     );
     expect(
       harness.getElement("agent-login-retry").classList.contains("hidden"),
@@ -2144,10 +2156,10 @@ describe("Dashboard sign in with agent UX (DASH-072)", () => {
 
     expect(harness.dashboard.State.browserLogin.status).toBe("denied");
     expect(harness.getElement("agent-login-status-title").textContent).toContain(
-      "declined",
+      "denied",
     );
-    expect(harness.getElement("agent-login-guidance").innerHTML).toContain(
-      "Start another code",
+    expect(harness.getElement("agent-login-guidance").textContent).toContain(
+      "username and code match",
     );
 
     await harness.dashboard.UI.handleAgentBrowserLogin();
@@ -2178,6 +2190,22 @@ describe("Dashboard sign in with agent UX (DASH-072)", () => {
     const harness = createDashboardHarness({
       fetchImpl: async (url: string) => {
         const path = new URL(url).pathname;
+
+        if (path === "/api/v1/auth/me") {
+          return {
+            ok: false,
+            status: 401,
+            async json() {
+              return {
+                error: "Missing Authorization header",
+                code: "HTTP_ERROR",
+              };
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
 
         if (path === "/api/v1/auth/browser-login/attempts/attempt_rate/redeem") {
           return {
@@ -2224,7 +2252,7 @@ describe("Dashboard sign in with agent UX (DASH-072)", () => {
     expect(harness.getElement("agent-login-status-title").textContent).toContain(
       "throttling",
     );
-    expect(harness.getElement("agent-login-guidance").innerHTML).toContain(
+    expect(harness.getElement("agent-login-guidance").textContent).toContain(
       "42 seconds",
     );
   });
@@ -2332,12 +2360,13 @@ describe("Landing dashboard activation (DASH-090)", () => {
     expect(html).toContain('id="landing-dashboard-entry"');
     expect(html).toContain('id="landing-mobile-dashboard-entry"');
     expect(html).toContain('id="hero-dashboard-entry"');
-    expect(html).toContain('href="/dashboard');
-    expect(html).toContain("Already invited? Open dashboard");
+    expect(html).toContain('href="/access"');
+    expect(html).toContain("Sign in to dashboard");
+    expect(html).toContain("Already invited? Sign in");
     expect(html).toContain('id="browser-access-entry-note"');
   });
 
-  it("treats /dashboard as a signed-out entry into the browser sign-in flow", async () => {
+  it("redirects signed-out /dashboard traffic to the dedicated /access sign-in route", async () => {
     const harness = createDashboardHarness({
       app: createApp(),
       locationPath: "/dashboard",
@@ -2351,19 +2380,15 @@ describe("Landing dashboard activation (DASH-090)", () => {
     expect(
       harness.getElement("dashboard-screen").classList.contains("hidden"),
     ).toBe(true);
+    expect(harness.getPathname()).toBe("/access");
     expect(harness.getElement("landing-dashboard-entry").textContent).toBe(
       "Sign in to dashboard",
     );
     expect(harness.getElement("hero-dashboard-entry").textContent).toBe(
       "Sign in to dashboard",
     );
-    expect(
-      harness
-        .getElement("browser-access-section")
-        .classList.contains("dashboard-entry-focus"),
-    ).toBe(true);
     expect(harness.getElement("browser-access-entry-note").textContent).toContain(
-      "Start the primary agent-backed sign-in below",
+      "short approval code",
     );
   });
 
