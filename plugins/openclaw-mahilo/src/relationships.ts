@@ -923,8 +923,28 @@ function formatContactExamples(contacts: MahiloContact[] | undefined): string | 
     return undefined;
   }
 
-  const labels = uniqueNonEmptyLabels(contacts.map((contact) => contact.label));
+  const labels = uniqueNonEmptyLabels(contacts.map((contact) => formatContactExample(contact)));
   return formatExampleList(labels);
+}
+
+function formatContactExample(contact: MahiloContact): string | undefined {
+  const label = readOptionalString(contact.label);
+  const username = readOptionalString(readObject(contact.metadata)?.username)?.replace(/^@+/, "");
+
+  if (!label && !username) {
+    return undefined;
+  }
+
+  if (!username) {
+    return label;
+  }
+
+  const normalizedLabel = label?.replace(/^@+/, "");
+  if (!label || normalizedLabel === username) {
+    return `@${username}`;
+  }
+
+  return `${label} (@${username})`;
 }
 
 function formatPendingRequestExamples(

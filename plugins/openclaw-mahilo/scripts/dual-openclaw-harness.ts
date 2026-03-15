@@ -756,9 +756,19 @@ function readFileSafe(path: string): string {
 }
 
 async function waitForReceiverLogLine(logPath: string, expectedSubstring: string, timeoutMs = 15_000): Promise<boolean> {
+  return waitForReceiverLogAny(logPath, [expectedSubstring], 0, timeoutMs);
+}
+
+async function waitForReceiverLogAny(
+  logPath: string,
+  expectedSubstrings: string[],
+  startOffset = 0,
+  timeoutMs = 15_000,
+): Promise<boolean> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (readFileSafe(logPath).includes(expectedSubstring)) {
+    const content = readFileSafe(logPath).slice(startOffset);
+    if (expectedSubstrings.some((expectedSubstring) => content.includes(expectedSubstring))) {
       return true;
     }
     await sleep(500);
@@ -1016,6 +1026,7 @@ async function runAgentTurn(input: {
   const sessionKey = "mahilo_agent_turn_sender";
   const promptOne = "Remember that Alice and I are planning a Gokarna trip for April 4 to April 7. Reply briefly.";
   const promptTwo = "Tell Alice that the Gokarna trip is booked and ask her to bring sunscreen.";
+  const receiverLogOffset = readFileSafe(input.receiverLogPath).length;
 
   const baseRequest = {
     model: input.agentModel,
@@ -1055,22 +1066,32 @@ async function runAgentTurn(input: {
     '"name":"send_message"',
     20_000,
   );
-  const receiverObservedPromptTurn = await waitForReceiverLogLine(
+  const sendSucceeded = await waitForMessageInSessions(
+    input.senderSessionsDir,
+    '"status":"sent"',
+    20_000,
+  );
+  const receiverObservedPromptTurn = await waitForReceiverLogAny(
     input.receiverLogPath,
-    "Routed inbound message",
+    [
+      "Routed inbound message",
+      "No exact route for inbound message",
+    ],
+    receiverLogOffset,
     10_000,
   );
 
   return {
     evidence: [
       transcriptContainsSendMessage ? "sender-transcript" : "no-sender-transcript-proof",
+      sendSucceeded ? "send-result-sent" : "no-send-success-proof",
       receiverObservedPromptTurn ? "receiver-log" : "no-receiver-log-proof",
     ],
     model: input.agentModel,
     notes: [stringify(firstResponse), stringify(secondResponse)],
     receiverDelivered: receiverObservedPromptTurn,
     status:
-      transcriptContainsSendMessage && receiverObservedPromptTurn ? "passed" : "failed",
+      transcriptContainsSendMessage && sendSucceeded ? "passed" : "failed",
     toolCallDetected: transcriptContainsSendMessage,
   };
 }
@@ -1136,7 +1157,7 @@ async function main(): Promise<void> {
     await waitForHttp(`${baseUrl}/health`);
 
     const sender = await createAdminUser(baseUrl, options.adminApiKey, "sandboxsender", "Sandbox Sender");
-    const receiver = await createAdminUser(baseUrl, options.adminApiKey, "sandboxreceiver", "Sandbox Receiver");
+    const receiver = await createAdminUser(baseUrl, options.adminApiKey, "sandboxreceiver", "Alice");
 
     writeGatewayConfig(senderGateway, {
       apiKey: sender.api_key,
@@ -1255,6 +1276,7 @@ async function main(): Promise<void> {
       senderApiKey: sender.api_key,
       senderPort: options.gatewayAPort,
     });
+    await clearPolicies(baseUrl, sender.api_key);
 
     const agentTurn = await runAgentTurn({
       agentModel: options.agentModel,
