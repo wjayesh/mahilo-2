@@ -86,7 +86,7 @@ If you already have a Mahilo API key, add `"apiKey": "mhl_..."`. The plugin will
 | `inboundSessionKey` | Fallback OpenClaw session for inbound Mahilo messages | Defaults to `main`. |
 | `inboundAgentId` | Optional agent id paired with `inboundSessionKey` | Only needed when inbound fallback routing must target a specific agent. |
 | `localPolicyLLM` | Optional local LLM evaluator settings for applicable LLM policies | Supports `provider`, `model`, `timeout`, `authProfile`, `apiKeyEnvVar`, and `apiKey`. |
-| `promptContextEnabled` | Enables native prompt-time Mahilo context injection | Defaults to `true`; this is advisory UX only and does not disable live enforcement when turned off. |
+| `promptContextEnabled` | Enables native prompt-time Mahilo context injection | Defaults to `true`; when turned off, the plugin still injects a minimal static browser-access instruction and still does not disable live enforcement. |
 | `reviewMode` | Controls local UX for normal `ask` outcomes | `auto`, `ask`, or `manual`; defaults to `ask`. `reviewMode=auto` does not auto-send degraded local LLM review outcomes. |
 | `cacheTtlSeconds` | TTL for local non-authoritative caches | Defaults to `60`. |
 

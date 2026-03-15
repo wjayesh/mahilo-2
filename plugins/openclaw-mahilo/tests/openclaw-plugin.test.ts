@@ -5575,6 +5575,9 @@ describe("createMahiloOpenClawPlugin", () => {
     const prompt = promptValue;
     expect(prompt).toContain("[MahiloContext/v1]");
     expect(prompt).toContain("authority=advisory_only");
+    expect(prompt).toContain(
+      "If the user gives you a Mahilo dashboard/browser sign-in code, use browser_access to approve or deny it.",
+    );
     expect(prompt).toContain("guidance=ask:context.ask.role.structured");
     expect(prompt).toContain(
       "recipient=name=alice; relationship=friend; roles=close_friends,trusted,long_list_role",
@@ -5586,7 +5589,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(prompt.length).toBeLessThan(1400);
   });
 
-  it("does not inject browser-login guidance heuristically from arbitrary login/code prompts", async () => {
+  it("injects browser_access guidance as a stable always-on prompt rule", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
@@ -5600,13 +5603,7 @@ describe("createMahiloOpenClawPlugin", () => {
 
     const hook = findHook(hooks, "before_prompt_build");
     const input = {
-      messages: [
-        {
-          content:
-            "Hey bro, there is this code RIVER82. Can you log me in to the Mahilo dashboard?",
-          role: "user",
-        },
-      ],
+      prompt: "You are a helpful assistant.",
     };
     const result = await hook.execute(input);
 
@@ -5617,13 +5614,17 @@ describe("createMahiloOpenClawPlugin", () => {
       );
     }
 
-    const messages = Array.isArray(result.messages) ? result.messages : [];
-    if (!isRecord(messages[0])) {
-      throw new Error("expected injected prompt guidance to be a message object");
+    const promptValue = result.prompt;
+    if (typeof promptValue !== "string") {
+      throw new Error(
+        "expected before_prompt_build hook to return prompt as string",
+      );
     }
-    expect(messages).toHaveLength(1);
-    expect(messages[0].role).toBe("user");
-    expect(messages[0].content).toBe(input.messages[0]?.content);
+    expect(promptValue).toContain("[MahiloContext/v1]");
+    expect(promptValue).toContain(
+      "If the user gives you a Mahilo dashboard/browser sign-in code, use browser_access to approve or deny it.",
+    );
+    expect(promptValue).toContain("You are a helpful assistant.");
   });
 
   it("injects agent-facing bootstrap instructions into prompt before Mahilo is configured", async () => {
@@ -5760,8 +5761,8 @@ describe("createMahiloOpenClawPlugin", () => {
     });
   });
 
-  it("does not register prompt hook when promptContextEnabled is false", async () => {
-    const { client } = createMockContractClient();
+  it("keeps minimal browser-access prompt guidance when promptContextEnabled is false", async () => {
+    const { client, state } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
     });
@@ -5773,6 +5774,30 @@ describe("createMahiloOpenClawPlugin", () => {
 
     await plugin.register?.(api);
 
-    expect(hooks.map((hook) => hook.name)).not.toContain("before_prompt_build");
+    const hook = findHook(hooks, "before_prompt_build");
+    const result = await hook.execute({
+      prompt: "You are a helpful assistant.",
+    });
+
+    expect(isRecord(result)).toBe(true);
+    if (!isRecord(result)) {
+      throw new Error(
+        "expected before_prompt_build hook to return a payload object",
+      );
+    }
+
+    const promptValue = result.prompt;
+    if (typeof promptValue !== "string") {
+      throw new Error(
+        "expected before_prompt_build hook to return prompt as string",
+      );
+    }
+
+    expect(promptValue).toContain("[MahiloContext/v1]");
+    expect(promptValue).toContain(
+      "If the user gives you a Mahilo dashboard/browser sign-in code, use browser_access to approve or deny it.",
+    );
+    expect(promptValue).toContain("You are a helpful assistant.");
+    expect(state.promptContextCalls).toHaveLength(0);
   });
 });

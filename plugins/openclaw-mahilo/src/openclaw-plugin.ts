@@ -93,6 +93,8 @@ const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
 const MAHILO_ASK_NETWORK_TOOL_NAME = "ask_network";
 const MAHILO_BROWSER_ACCESS_TOOL_NAME = "browser_access";
+const MAHILO_BROWSER_ACCESS_PROMPT_LINE =
+  "If the user gives you a Mahilo dashboard/browser sign-in code, use browser_access to approve or deny it. Do not use manage_network or ask_network for browser login.";
 const MAHILO_MANAGE_NETWORK_TOOL_NAME = "manage_network";
 // The embedded OpenClaw runtime currently strips session identifiers from
 // live after_tool_call hooks, so route recovery has to survive in the params.
@@ -1300,16 +1302,17 @@ function registerPromptContextHook(
   isBootstrapReady: () => boolean,
   setupInstructions: string,
 ): void {
-  if (!config.promptContextEnabled && isBootstrapReady()) {
-    return;
-  }
-
   api.registerHook(
     "before_prompt_build",
     async (rawHookInput: unknown) => {
       try {
         if (!isBootstrapReady()) {
           return injectSetupInstructionsIntoPrompt(rawHookInput, setupInstructions);
+        }
+        if (!config.promptContextEnabled) {
+          return injectMahiloAmbientPromptGuidance(rawHookInput, [
+            MAHILO_BROWSER_ACCESS_PROMPT_LINE,
+          ]);
         }
         return await injectMahiloContextIntoPrompt(
           rawHookInput,
@@ -2503,25 +2506,21 @@ async function injectMahiloContextIntoPrompt(
     return rawHookInput;
   }
 
+  const ambientGuidanceLines = [MAHILO_BROWSER_ACCESS_PROMPT_LINE];
   const pendingCount = await fetchPendingIncomingRequestCount(
     client,
     pluginState,
   );
-  const pendingSuffix =
-    pendingCount > 0
-      ? `\n[MahiloPending] You have ${pendingCount} pending incoming friend request${pendingCount === 1 ? "" : "s"}. Use manage_network to review and accept/reject them.`
-      : "";
-  const ambientGuidance = pendingSuffix.trimStart();
+  if (pendingCount > 0) {
+    ambientGuidanceLines.push(
+      `[MahiloPending] You have ${pendingCount} pending incoming friend request${pendingCount === 1 ? "" : "s"}. Use manage_network to review and accept/reject them.`,
+    );
+  }
+  const ambientGuidance = ambientGuidanceLines.join("\n");
 
   const promptContextInput = parsePromptContextInput(hookInput);
   if (!promptContextInput) {
-    if (ambientGuidance.length > 0) {
-      return injectPromptPayload(
-        hookInput,
-        `${MAHILO_PROMPT_CONTEXT_MARKER}\n${ambientGuidance}`,
-      );
-    }
-    return rawHookInput;
+    return injectMahiloAmbientPromptGuidance(hookInput, ambientGuidanceLines);
   }
 
   const senderResolution = await resolveMahiloSenderConnection(client, {
@@ -2541,24 +2540,12 @@ async function injectMahiloContextIntoPrompt(
   );
 
   if (!result.ok || result.injection.length === 0) {
-    if (ambientGuidance.length > 0) {
-      return injectPromptPayload(
-        hookInput,
-        `${MAHILO_PROMPT_CONTEXT_MARKER}\n${ambientGuidance}`,
-      );
-    }
-    return rawHookInput;
+    return injectMahiloAmbientPromptGuidance(hookInput, ambientGuidanceLines);
   }
 
   const boundedInjection = boundPromptInjection(result.injection);
   if (boundedInjection.length === 0) {
-    if (ambientGuidance.length > 0) {
-      return injectPromptPayload(
-        hookInput,
-        `${MAHILO_PROMPT_CONTEXT_MARKER}\n${ambientGuidance}`,
-      );
-    }
-    return rawHookInput;
+    return injectMahiloAmbientPromptGuidance(hookInput, ambientGuidanceLines);
   }
 
   return injectPromptPayload(
@@ -2567,6 +2554,32 @@ async function injectMahiloContextIntoPrompt(
       .filter((candidate) => candidate.length > 0)
       .join("\n"),
   );
+}
+
+function injectMahiloAmbientPromptGuidance(
+  rawHookInput: unknown,
+  guidanceLines: string[],
+): unknown {
+  const hookInput = readOptionalObject(rawHookInput);
+  if (!hookInput) {
+    return rawHookInput;
+  }
+
+  const injection = formatMahiloAmbientPromptGuidance(guidanceLines);
+  if (!injection) {
+    return rawHookInput;
+  }
+
+  return injectPromptPayload(hookInput, injection);
+}
+
+function formatMahiloAmbientPromptGuidance(guidanceLines: string[]): string {
+  const lines = guidanceLines.filter((line) => line.length > 0);
+  if (lines.length === 0) {
+    return "";
+  }
+
+  return `${MAHILO_PROMPT_CONTEXT_MARKER}\n${lines.join("\n")}`;
 }
 
 function parsePromptContextInput(hookInput: Record<string, unknown>):
