@@ -43,6 +43,7 @@ export interface DualSandboxEnvSummary {
 }
 
 export interface DualSandboxArtifactPathsSummary {
+  auth_redacted_path: string;
   config_redacted_path: string;
   plugin_list_path: string;
   runtime_state_redacted_path: string;
@@ -52,6 +53,7 @@ export interface DualSandboxArtifactPathsSummary {
 export interface DualSandboxSummary {
   artifact_dir: string;
   artifact_paths: DualSandboxArtifactPathsSummary;
+  auth_path: string;
   callback_url: string;
   env: DualSandboxEnvSummary;
   gateway_base_url: string;
@@ -368,6 +370,7 @@ function buildSandboxSummary(
   return {
     artifact_dir: artifactDir,
     artifact_paths: {
+      auth_redacted_path: join(artifactDir, "auth.redacted.json"),
       config_redacted_path: join(artifactDir, "config.redacted.json"),
       plugin_list_path: join(artifactDir, "plugin-list.json"),
       runtime_state_redacted_path: join(
@@ -376,6 +379,7 @@ function buildSandboxSummary(
       ),
       webhook_head_path: join(artifactDir, "webhook-head.json"),
     },
+    auth_path: join(runtimeDir, "auth.json"),
     callback_url: `${gatewayBaseUrl}${WEBHOOK_PATH}`,
     env: {
       MAHILO_OPENCLAW_RUNTIME_STATE_PATH: join(runtimeDir, "runtime-state.json"),

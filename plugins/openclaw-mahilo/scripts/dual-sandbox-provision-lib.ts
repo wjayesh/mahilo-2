@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 
 import type { DualSandboxBootstrapSummary } from "./dual-sandbox-bootstrap-lib";
 
+export const DUAL_SANDBOX_AUTH_ARTIFACT_CONTRACT_VERSION = 1;
 export const DUAL_SANDBOX_PROVISIONING_CONTRACT_VERSION = 1;
 
 type SandboxId = "a" | "b";
@@ -44,6 +45,18 @@ export interface DualSandboxProvisionedUserSummary {
   plugin_route_probe: DualSandboxRouteProbeSummary;
   registration_source: string;
   registration_flow: "invite_token_register";
+  status: string;
+  user_id: string;
+  username: string;
+  verified: boolean;
+}
+
+export interface DualSandboxProvisioningAuthArtifact {
+  api_key: string;
+  contract_version: number;
+  created_at: string;
+  registration_flow: "invite_token_register";
+  registration_source: string;
   status: string;
   user_id: string;
   username: string;
@@ -143,6 +156,14 @@ export async function provisionDualSandboxUsers(
     mahiloBaseUrl,
     sandboxId: "b",
   });
+  const sandboxAAuthArtifact = buildProvisioningAuthArtifact(
+    sandboxA,
+    createdAt,
+  );
+  const sandboxBAuthArtifact = buildProvisioningAuthArtifact(
+    sandboxB,
+    createdAt,
+  );
 
   const runtimeSummary: DualSandboxProvisionedRunSummary = {
     ...bootstrap,
@@ -161,6 +182,16 @@ export async function provisionDualSandboxUsers(
     },
   };
 
+  writeJsonFile(bootstrap.sandboxes.a.auth_path, sandboxAAuthArtifact);
+  writeJsonFile(bootstrap.sandboxes.b.auth_path, sandboxBAuthArtifact);
+  writeJsonFile(
+    bootstrap.sandboxes.a.artifact_paths.auth_redacted_path,
+    redactProvisioningAuthArtifact(sandboxAAuthArtifact),
+  );
+  writeJsonFile(
+    bootstrap.sandboxes.b.artifact_paths.auth_redacted_path,
+    redactProvisioningAuthArtifact(sandboxBAuthArtifact),
+  );
   writeJsonFile(bootstrap.paths.runtime_provisioning_path, runtimeSummary);
   writeJsonFile(
     bootstrap.paths.artifact_bootstrap_summary_path,
@@ -188,38 +219,21 @@ export function redactProvisionedRunSummary(
 export function readDualSandboxBootstrapFromRunRoot(
   runRoot: string,
 ): DualSandboxBootstrapSummary {
-  const resolvedRunRoot = resolve(runRoot);
-  const runtimeProvisioningPath = join(
-    resolvedRunRoot,
-    "runtime",
-    "provisioning.json",
+  const { parsed, runtimeProvisioningPath } = readRuntimeProvisioningFile(
+    runRoot,
   );
+  assertBootstrapRunSummary(parsed, runtimeProvisioningPath);
+  return parsed;
+}
 
-  if (!existsSync(runtimeProvisioningPath)) {
-    throw new Error(
-      `Dual-sandbox bootstrap summary not found at ${runtimeProvisioningPath}. Run dual-sandbox-bootstrap.ts first.`,
-    );
-  }
-
-  const parsed = readJsonFile<Partial<DualSandboxBootstrapSummary>>(
-    runtimeProvisioningPath,
+export function readDualSandboxProvisionedRunFromRunRoot(
+  runRoot: string,
+): DualSandboxProvisionedRunSummary {
+  const { parsed, runtimeProvisioningPath } = readRuntimeProvisioningFile(
+    runRoot,
   );
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    typeof parsed.run_root !== "string" ||
-    typeof parsed.runtime_dir !== "string" ||
-    typeof parsed.artifacts_dir !== "string" ||
-    typeof parsed.paths !== "object" ||
-    parsed.paths === null ||
-    typeof parsed.paths.runtime_provisioning_path !== "string"
-  ) {
-    throw new Error(
-      `File ${runtimeProvisioningPath} does not contain a valid dual-sandbox bootstrap summary.`,
-    );
-  }
-
-  return parsed as DualSandboxBootstrapSummary;
+  assertProvisionedRunSummary(parsed, runtimeProvisioningPath);
+  return parsed;
 }
 
 async function provisionSingleSandboxUser(input: {
@@ -231,7 +245,7 @@ async function provisionSingleSandboxUser(input: {
   mahiloBaseUrl: string;
   sandboxId: SandboxId;
 }): Promise<DualSandboxProvisionedUserSummary> {
-  const inviteNote = `SBX-020 ${input.bootstrap.run_id} sandbox-${input.sandboxId} invite`;
+  const inviteNote = `SBX-021 ${input.bootstrap.run_id} sandbox-${input.sandboxId} invite`;
   const invite = await requestJson<InviteTokenResponse>(
     input.fetchImpl,
     input.mahiloBaseUrl,
@@ -404,6 +418,185 @@ function resolveSandboxUsers(
   return resolved;
 }
 
+function readRuntimeProvisioningFile(
+  runRoot: string,
+): {
+  parsed: Partial<DualSandboxProvisionedRunSummary>;
+  runtimeProvisioningPath: string;
+} {
+  const resolvedRunRoot = resolve(runRoot);
+  const runtimeProvisioningPath = join(
+    resolvedRunRoot,
+    "runtime",
+    "provisioning.json",
+  );
+
+  if (!existsSync(runtimeProvisioningPath)) {
+    throw new Error(
+      `Dual-sandbox bootstrap summary not found at ${runtimeProvisioningPath}. Run dual-sandbox-bootstrap.ts first.`,
+    );
+  }
+
+  return {
+    parsed: readJsonFile<Partial<DualSandboxProvisionedRunSummary>>(
+      runtimeProvisioningPath,
+    ),
+    runtimeProvisioningPath,
+  };
+}
+
+function assertBootstrapRunSummary(
+  parsed: Partial<DualSandboxProvisionedRunSummary>,
+  runtimeProvisioningPath: string,
+): asserts parsed is DualSandboxBootstrapSummary {
+  const parsedRecord = readRecord(parsed);
+  const sandboxes = readRecord(parsedRecord.sandboxes);
+  const sandboxA = readRecord(sandboxes.a);
+  const sandboxAArtifacts = readRecord(sandboxA.artifact_paths);
+  const sandboxB = readRecord(sandboxes.b);
+  const sandboxBArtifacts = readRecord(sandboxB.artifact_paths);
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof parsed.run_root !== "string" ||
+    typeof parsed.runtime_dir !== "string" ||
+    typeof parsed.artifacts_dir !== "string" ||
+    typeof parsed.paths !== "object" ||
+    parsed.paths === null ||
+    typeof parsed.paths.runtime_provisioning_path !== "string" ||
+    !readString(sandboxA.auth_path) ||
+    !readString(sandboxAArtifacts.auth_redacted_path) ||
+    !readString(sandboxB.auth_path) ||
+    !readString(sandboxBArtifacts.auth_redacted_path)
+  ) {
+    throw new Error(
+      `File ${runtimeProvisioningPath} does not contain a valid dual-sandbox bootstrap summary.`,
+    );
+  }
+}
+
+function assertProvisionedRunSummary(
+  parsed: Partial<DualSandboxProvisionedRunSummary>,
+  runtimeProvisioningPath: string,
+): asserts parsed is DualSandboxProvisionedRunSummary {
+  assertBootstrapRunSummary(parsed, runtimeProvisioningPath);
+
+  const provisioning = readRecord(
+    (parsed as Record<string, unknown>).provisioning,
+  );
+  const sandboxes = readRecord(provisioning.sandboxes);
+  const sandboxA = sandboxes.a;
+  const sandboxB = sandboxes.b;
+
+  if (
+    typeof provisioning.contract_version !== "number" ||
+    !Number.isFinite(provisioning.contract_version) ||
+    !readString(provisioning.created_at) ||
+    provisioning.current_phase !== "users" ||
+    typeof provisioning.fallback_only !== "boolean" ||
+    !readString(provisioning.mahilo_base_url) ||
+    !readString(provisioning.plugin_protected_route_probe_path) ||
+    provisioning.provisioning_mode !== "api"
+  ) {
+    throw new Error(
+      `File ${runtimeProvisioningPath} does not contain a valid dual-sandbox provisioning summary.`,
+    );
+  }
+
+  assertProvisionedSandboxUser(
+    sandboxA,
+    "a",
+    runtimeProvisioningPath,
+  );
+  assertProvisionedSandboxUser(
+    sandboxB,
+    "b",
+    runtimeProvisioningPath,
+  );
+  assertPersistedProvisioningAuthArtifact(
+    parsed.sandboxes.a.auth_path,
+    sandboxA,
+    "a",
+    runtimeProvisioningPath,
+  );
+  assertPersistedProvisioningAuthArtifact(
+    parsed.sandboxes.b.auth_path,
+    sandboxB,
+    "b",
+    runtimeProvisioningPath,
+  );
+}
+
+function assertProvisionedSandboxUser(
+  value: unknown,
+  sandboxId: SandboxId,
+  runtimeProvisioningPath: string,
+): asserts value is DualSandboxProvisionedUserSummary {
+  const record = readRecord(value);
+  const invite = readRecord(record.invite);
+  const routeProbe = readRecord(record.plugin_route_probe);
+
+  if (
+    !readString(record.api_key) ||
+    !readString(record.display_name) ||
+    (invite.expires_at !== null && !readString(invite.expires_at)) ||
+    typeof invite.max_uses !== "number" ||
+    !Number.isFinite(invite.max_uses) ||
+    (invite.note !== null && !readString(invite.note)) ||
+    !readString(invite.token_id) ||
+    !readString(routeProbe.path) ||
+    (routeProbe.review_count !== null &&
+      (typeof routeProbe.review_count !== "number" ||
+        !Number.isFinite(routeProbe.review_count))) ||
+    typeof routeProbe.status_code !== "number" ||
+    !Number.isFinite(routeProbe.status_code) ||
+    !readString(record.registration_source) ||
+    record.registration_flow !== "invite_token_register" ||
+    !readString(record.status) ||
+    !readString(record.user_id) ||
+    !readString(record.username) ||
+    typeof record.verified !== "boolean"
+  ) {
+    throw new Error(
+      `File ${runtimeProvisioningPath} does not contain valid sandbox ${sandboxId} provisioning auth artifacts.`,
+    );
+  }
+}
+
+function assertPersistedProvisioningAuthArtifact(
+  authArtifactPath: string,
+  user: DualSandboxProvisionedUserSummary,
+  sandboxId: SandboxId,
+  runtimeProvisioningPath: string,
+): void {
+  if (!existsSync(authArtifactPath)) {
+    throw new Error(
+      `Expected sandbox ${sandboxId} auth artifact at ${authArtifactPath} referenced by ${runtimeProvisioningPath}.`,
+    );
+  }
+
+  const authArtifact =
+    readJsonFile<Partial<DualSandboxProvisioningAuthArtifact>>(authArtifactPath);
+
+  if (
+    authArtifact.api_key !== user.api_key ||
+    authArtifact.contract_version !==
+      DUAL_SANDBOX_AUTH_ARTIFACT_CONTRACT_VERSION ||
+    !readString(authArtifact.created_at) ||
+    authArtifact.registration_flow !== user.registration_flow ||
+    authArtifact.registration_source !== user.registration_source ||
+    authArtifact.status !== user.status ||
+    authArtifact.user_id !== user.user_id ||
+    authArtifact.username !== user.username ||
+    authArtifact.verified !== user.verified
+  ) {
+    throw new Error(
+      `Sandbox ${sandboxId} auth artifact at ${authArtifactPath} does not match ${runtimeProvisioningPath}.`,
+    );
+  }
+}
+
 function resolveSandboxUser(
   defaults: DualSandboxProvisionUserInput,
   override: Partial<DualSandboxProvisionUserInput> | undefined,
@@ -426,6 +619,32 @@ function redactProvisionedUser(
 ): DualSandboxProvisionedUserSummary {
   return {
     ...user,
+    api_key: REDACTED_SECRET,
+  };
+}
+
+function buildProvisioningAuthArtifact(
+  user: DualSandboxProvisionedUserSummary,
+  createdAt: string,
+): DualSandboxProvisioningAuthArtifact {
+  return {
+    api_key: user.api_key,
+    contract_version: DUAL_SANDBOX_AUTH_ARTIFACT_CONTRACT_VERSION,
+    created_at: createdAt,
+    registration_flow: user.registration_flow,
+    registration_source: user.registration_source,
+    status: user.status,
+    user_id: user.user_id,
+    username: user.username,
+    verified: user.verified,
+  };
+}
+
+function redactProvisioningAuthArtifact(
+  authArtifact: DualSandboxProvisioningAuthArtifact,
+): DualSandboxProvisioningAuthArtifact {
+  return {
+    ...authArtifact,
     api_key: REDACTED_SECRET,
   };
 }

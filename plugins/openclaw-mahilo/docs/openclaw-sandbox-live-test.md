@@ -26,6 +26,8 @@ For the dual-sandbox harness, prefer the generated bootstrap/provisioning script
 - `plugins/openclaw-mahilo/scripts/dual-sandbox-bootstrap.ts`
 - `plugins/openclaw-mahilo/scripts/dual-sandbox-provision.ts`
 
+After `dual-sandbox-provision.ts` runs, the harness keeps the secret-bearing user credentials in `runtime/sandbox-a/auth.json` and `runtime/sandbox-b/auth.json`, with redacted mirrors under `artifacts/sandboxes/`.
+
 The manual steps below are still useful for debugging, but the default harness path should stay invite-backed and API-driven.
 
 ## Prerequisites

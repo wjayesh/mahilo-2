@@ -162,6 +162,8 @@ describe("dual sandbox bootstrap", () => {
       servers: {},
       version: 1,
     });
+    expect(existsSync(summary.sandboxes.a.auth_path)).toBe(false);
+    expect(existsSync(summary.sandboxes.b.auth_path)).toBe(false);
     expect(readJsonFile(summary.sandboxes.a.openclaw_config_path)).toEqual(
       expectedOpenClawConfig({
         callbackUrl: summary.sandboxes.a.callback_url,
@@ -183,6 +185,12 @@ describe("dual sandbox bootstrap", () => {
     );
     expect(readJsonFile(summary.sandboxes.b.artifact_paths.config_redacted_path)).toEqual(
       readJsonFile(summary.sandboxes.b.openclaw_config_path),
+    );
+    expect(existsSync(summary.sandboxes.a.artifact_paths.auth_redacted_path)).toBe(
+      false,
+    );
+    expect(existsSync(summary.sandboxes.b.artifact_paths.auth_redacted_path)).toBe(
+      false,
     );
     expect(existsSync(summary.sandboxes.a.provider_auth_profiles_path)).toBe(
       false,
