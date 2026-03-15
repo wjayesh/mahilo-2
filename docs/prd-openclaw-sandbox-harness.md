@@ -207,7 +207,7 @@ The harness has two proof profiles. Only the first one gates P0 completion.
 ### 0.3 Define the Verification Artifact Contract
 
 - **ID**: `SBX-003`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-001`, `SBX-002`
 - **Description**:
@@ -361,6 +361,8 @@ Audit and operator-surface rules:
 - The future playbook must be derivable from `run-context.json`, `commands.jsonl`, and the successful baseline scenario artifacts. If a command, path, or expected output is missing from those artifacts, the contract is incomplete.
 - The future skill must be derivable from the same artifacts plus the operator summary. It should not need repo archaeology or stale historical docs to reconstruct the proof flow.
 
+- **Notes**:
+  - 2026-03-15T09:48:40.209Z: SBX-003 completed via orchestrator integration.
 ## Phase 1: Build the Dual-Sandbox Bootstrap Surface
 
 ### 1.1 Add a Dual-Sandbox Bootstrap Script
