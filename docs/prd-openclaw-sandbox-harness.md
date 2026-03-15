@@ -456,7 +456,7 @@ Audit and operator-surface rules:
 ### 2.2 Register Two Users and Persist Auth Artifacts
 
 - **ID**: `SBX-021`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-020`
 - **Description**:
@@ -466,6 +466,8 @@ Audit and operator-surface rules:
   - [ ] Required API keys or bootstrap artifacts are written for later steps
   - [ ] The harness summary records enough metadata to continue without rerunning provisioning
 
+- **Notes**:
+  - 2026-03-15T10:36:48.589Z: SBX-021 completed via orchestrator integration.
 ### 2.3 Register Agent Connections and Runtime Bootstrap for Both Sandboxes
 
 - **ID**: `SBX-022`
