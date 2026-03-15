@@ -1,14 +1,11 @@
 import { resolve } from "node:path";
 
-import { createDualSandboxBootstrap } from "./dual-sandbox-bootstrap-lib";
+import {
+  createDualSandboxBootstrap,
+  type DualSandboxBootstrapOptions,
+} from "./dual-sandbox-bootstrap-lib";
 
-interface ParsedCliArgs {
-  gatewayAPort?: number;
-  gatewayBPort?: number;
-  mahiloPort?: number;
-  rootPath?: string;
-  tempRootParent?: string;
-}
+type ParsedCliArgs = DualSandboxBootstrapOptions;
 
 function parseArgs(argv: string[]): ParsedCliArgs {
   const values = new Map<string, string>();
@@ -44,6 +41,8 @@ function parseArgs(argv: string[]): ParsedCliArgs {
     gatewayAPort: parseOptionalPort(values.get("gateway-a-port"), "--gateway-a-port"),
     gatewayBPort: parseOptionalPort(values.get("gateway-b-port"), "--gateway-b-port"),
     mahiloPort: parseOptionalPort(values.get("mahilo-port"), "--mahilo-port"),
+    optionalLiveModel: parseOptionalLiveModelArgs(values),
+    pluginPath: readOptionalPath(values, "plugin-path"),
     rootPath: readOptionalPath(values, "root"),
     tempRootParent: readOptionalPath(values, "root-parent"),
   };
@@ -55,6 +54,14 @@ function readOptionalPath(
 ): string | undefined {
   const value = values.get(key)?.trim();
   return value ? resolve(value) : undefined;
+}
+
+function readOptionalString(
+  values: Map<string, string>,
+  key: string,
+): string | undefined {
+  const value = values.get(key)?.trim();
+  return value ? value : undefined;
 }
 
 function parseOptionalPort(
@@ -73,6 +80,56 @@ function parseOptionalPort(
   return parsed;
 }
 
+function parseOptionalPositiveInteger(
+  rawValue: string | undefined,
+  flagName: string,
+): number | undefined {
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${flagName} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
+function parseOptionalLiveModelArgs(
+  values: Map<string, string>,
+): ParsedCliArgs["optionalLiveModel"] {
+  const apiKeyEnvVar = readOptionalString(values, "live-model-api-key-env-var");
+  const authProfile = readOptionalString(values, "live-model-auth-profile");
+  const copyProviderAuthFrom = readOptionalPath(values, "copy-provider-auth-from");
+  const model = readOptionalString(values, "live-model-model");
+  const provider = readOptionalString(values, "live-model-provider");
+  const timeoutMs = parseOptionalPositiveInteger(
+    values.get("live-model-timeout-ms"),
+    "--live-model-timeout-ms",
+  );
+
+  if (
+    !apiKeyEnvVar &&
+    !authProfile &&
+    !copyProviderAuthFrom &&
+    !model &&
+    !provider &&
+    timeoutMs === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    apiKeyEnvVar,
+    authProfile,
+    copyProviderAuthFrom,
+    model,
+    provider,
+    timeoutMs,
+  };
+}
+
 function printHelpAndExit(code: number): never {
   console.log(
     [
@@ -80,13 +137,24 @@ function printHelpAndExit(code: number): never {
       "  bun run plugins/openclaw-mahilo/scripts/dual-sandbox-bootstrap.ts \\",
       "    [--root <fresh-root-path>] \\",
       "    [--root-parent <fresh-root-parent>] \\",
+      "    [--plugin-path <local-plugin-path>] \\",
       "    [--mahilo-port <18080>] \\",
       "    [--gateway-a-port <19123>] \\",
-      "    [--gateway-b-port <19124>]",
+      "    [--gateway-b-port <19124>] \\",
+      "    [--live-model-provider <provider>] \\",
+      "    [--live-model-model <model>] \\",
+      "    [--live-model-auth-profile <profile>] \\",
+      "    [--live-model-api-key-env-var <ENV_VAR>] \\",
+      "    [--live-model-timeout-ms <5000>] \\",
+      "    [--copy-provider-auth-from <auth-profiles.json>]",
       "",
       "Creates a fresh two-sandbox Mahilo/OpenClaw harness root, writes the",
-      "canonical provisioning summaries, and prints the machine-readable summary",
-      "to stdout.",
+      "canonical provisioning summaries plus both generated OpenClaw configs, and",
+      "prints the machine-readable summary to stdout.",
+      "",
+      "The baseline deterministic proof is the default. The live-model inputs are",
+      "optional and must be opted into explicitly. Provider auth copying only",
+      "happens when --copy-provider-auth-from is supplied.",
     ].join("\n"),
   );
   process.exit(code);

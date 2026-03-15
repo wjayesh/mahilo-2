@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -6,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const DUAL_SANDBOX_ARTIFACT_CONTRACT_VERSION = 1;
 export const DUAL_SANDBOX_BOOTSTRAP_CONTRACT_VERSION = 1;
@@ -28,6 +30,8 @@ export interface DualSandboxBootstrapOptions {
   gatewayBPort?: number;
   mahiloPort?: number;
   now?: () => Date;
+  optionalLiveModel?: DualSandboxOptionalLiveModelOptions;
+  pluginPath?: string;
   rootPath?: string;
   tempRootParent?: string;
 }
@@ -59,8 +63,40 @@ export interface DualSandboxSummary {
   openclaw_config_path: string;
   openclaw_home: string;
   openclaw_sessions_dir: string;
+  provider_auth_profiles_path: string;
   runtime_dir: string;
   runtime_state_path: string;
+}
+
+export interface DualSandboxOptionalLiveModelOptions {
+  apiKeyEnvVar?: string;
+  authProfile?: string;
+  copyProviderAuthFrom?: string;
+  model?: string;
+  provider?: string;
+  timeoutMs?: number;
+}
+
+export interface DualSandboxOptionalLiveModelSummary {
+  configured: boolean;
+  local_policy_llm: {
+    api_key_env_var?: string;
+    auth_profile?: string;
+    model?: string;
+    provider?: string;
+    timeout_ms: number;
+  } | null;
+  provider_auth_copy: {
+    enabled: boolean;
+  };
+}
+
+export interface DualSandboxProofInputsSummary {
+  deterministic: {
+    plugin_path: string;
+    shared_mahilo_base_url: string;
+  };
+  optional_live_model: DualSandboxOptionalLiveModelSummary;
 }
 
 export interface DualSandboxBootstrapSummary {
@@ -91,6 +127,7 @@ export interface DualSandboxBootstrapSummary {
     gateway_b: number;
     mahilo: number;
   };
+  proof_inputs: DualSandboxProofInputsSummary;
   run_id: string;
   run_root: string;
   runtime_dir: string;
@@ -104,6 +141,15 @@ interface ResolvedPorts {
   gatewayA: number;
   gatewayB: number;
   mahilo: number;
+}
+
+interface ResolvedOptionalLiveModelOptions {
+  apiKeyEnvVar?: string;
+  authProfile?: string;
+  copyProviderAuthFrom?: string;
+  model?: string;
+  provider?: string;
+  timeoutMs: number;
 }
 
 interface SandboxDescriptorInput {
@@ -120,15 +166,20 @@ const DEFAULT_PORTS = {
   gatewayB: 19124,
   mahilo: 18080,
 } as const;
+const DEFAULT_LOCAL_POLICY_LLM_TIMEOUT_MS = 5000;
+const DEFAULT_PLUGIN_PATH = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 
 const EMPTY_RUNTIME_STATE = {
   servers: {},
   version: 1,
 } as const;
 
-const EMPTY_OPENCLAW_CONFIG = {} as const;
 const LOOPBACK_HOST = "127.0.0.1";
 const WEBHOOK_PATH = "/mahilo/incoming";
+const PROVIDER_AUTH_FILE_NAME = "auth-profiles.json";
 
 export function createDualSandboxBootstrap(
   options: DualSandboxBootstrapOptions = {},
@@ -137,6 +188,10 @@ export function createDualSandboxBootstrap(
   const createdAt = now().toISOString();
   const runId = formatRunId(createdAt);
   const ports = resolvePorts(options);
+  const pluginPath = resolvePluginPath(options.pluginPath);
+  const optionalLiveModel = resolveOptionalLiveModelOptions(
+    options.optionalLiveModel,
+  );
   const runRoot = options.rootPath
     ? prepareExplicitRoot(options.rootPath)
     : createTempRoot(runId, options.tempRootParent);
@@ -199,10 +254,44 @@ export function createDualSandboxBootstrap(
     ...Object.values(scenarioPaths),
   ]);
 
-  writeJsonFile(sandboxA.openclaw_config_path, EMPTY_OPENCLAW_CONFIG);
-  writeJsonFile(sandboxB.openclaw_config_path, EMPTY_OPENCLAW_CONFIG);
+  const sandboxAConfig = buildOpenClawConfig({
+    callbackUrl: sandboxA.callback_url,
+    gatewayPort: sandboxA.gateway_port,
+    mahiloBaseUrl: formatLoopbackUrl(ports.mahilo),
+    optionalLiveModel,
+    pluginPath,
+  });
+  const sandboxBConfig = buildOpenClawConfig({
+    callbackUrl: sandboxB.callback_url,
+    gatewayPort: sandboxB.gateway_port,
+    mahiloBaseUrl: formatLoopbackUrl(ports.mahilo),
+    optionalLiveModel,
+    pluginPath,
+  });
+
+  writeJsonFile(sandboxA.openclaw_config_path, sandboxAConfig);
+  writeJsonFile(sandboxB.openclaw_config_path, sandboxBConfig);
+  writeJsonFile(
+    sandboxA.artifact_paths.config_redacted_path,
+    redactOpenClawConfig(sandboxAConfig),
+  );
+  writeJsonFile(
+    sandboxB.artifact_paths.config_redacted_path,
+    redactOpenClawConfig(sandboxBConfig),
+  );
   writeJsonFile(sandboxA.runtime_state_path, EMPTY_RUNTIME_STATE);
   writeJsonFile(sandboxB.runtime_state_path, EMPTY_RUNTIME_STATE);
+
+  if (optionalLiveModel?.copyProviderAuthFrom) {
+    copyFileSync(
+      optionalLiveModel.copyProviderAuthFrom,
+      sandboxA.provider_auth_profiles_path,
+    );
+    copyFileSync(
+      optionalLiveModel.copyProviderAuthFrom,
+      sandboxB.provider_auth_profiles_path,
+    );
+  }
 
   const summary: DualSandboxBootstrapSummary = {
     artifact_contract_version: DUAL_SANDBOX_ARTIFACT_CONTRACT_VERSION,
@@ -231,6 +320,13 @@ export function createDualSandboxBootstrap(
       gateway_a: ports.gatewayA,
       gateway_b: ports.gatewayB,
       mahilo: ports.mahilo,
+    },
+    proof_inputs: {
+      deterministic: {
+        plugin_path: pluginPath,
+        shared_mahilo_base_url: formatLoopbackUrl(ports.mahilo),
+      },
+      optional_live_model: buildOptionalLiveModelSummary(optionalLiveModel),
     },
     run_id: runId,
     run_root: runRoot,
@@ -295,8 +391,102 @@ function buildSandboxSummary(
     openclaw_config_path: join(runtimeDir, "openclaw.config.json"),
     openclaw_home: openclawHome,
     openclaw_sessions_dir: openclawSessionsDir,
+    provider_auth_profiles_path: join(
+      openclawAgentDir,
+      PROVIDER_AUTH_FILE_NAME,
+    ),
     runtime_dir: runtimeDir,
     runtime_state_path: join(runtimeDir, "runtime-state.json"),
+  };
+}
+
+function buildOptionalLiveModelSummary(
+  optionalLiveModel: ResolvedOptionalLiveModelOptions | undefined,
+): DualSandboxOptionalLiveModelSummary {
+  return {
+    configured: optionalLiveModel !== undefined,
+    local_policy_llm: optionalLiveModel
+      ? {
+          api_key_env_var: optionalLiveModel.apiKeyEnvVar,
+          auth_profile: optionalLiveModel.authProfile,
+          model: optionalLiveModel.model,
+          provider: optionalLiveModel.provider,
+          timeout_ms: optionalLiveModel.timeoutMs,
+        }
+      : null,
+    provider_auth_copy: {
+      enabled: optionalLiveModel?.copyProviderAuthFrom !== undefined,
+    },
+  };
+}
+
+function buildOpenClawConfig(input: {
+  callbackUrl: string;
+  gatewayPort: number;
+  mahiloBaseUrl: string;
+  optionalLiveModel?: ResolvedOptionalLiveModelOptions;
+  pluginPath: string;
+}): Record<string, unknown> {
+  const pluginConfig: Record<string, unknown> = {
+    baseUrl: input.mahiloBaseUrl,
+    callbackUrl: input.callbackUrl,
+  };
+
+  if (input.optionalLiveModel) {
+    pluginConfig.localPolicyLLM = {
+      ...(input.optionalLiveModel.apiKeyEnvVar
+        ? {
+            apiKeyEnvVar: input.optionalLiveModel.apiKeyEnvVar,
+          }
+        : {}),
+      ...(input.optionalLiveModel.authProfile
+        ? {
+            authProfile: input.optionalLiveModel.authProfile,
+          }
+        : {}),
+      ...(input.optionalLiveModel.model
+        ? {
+            model: input.optionalLiveModel.model,
+          }
+        : {}),
+      ...(input.optionalLiveModel.provider
+        ? {
+            provider: input.optionalLiveModel.provider,
+          }
+        : {}),
+      timeout: input.optionalLiveModel.timeoutMs,
+    };
+  }
+
+  return {
+    gateway: {
+      auth: {
+        mode: "none",
+      },
+      bind: "loopback",
+      http: {
+        endpoints: {
+          chatCompletions: {
+            enabled: true,
+          },
+        },
+      },
+      mode: "local",
+      port: input.gatewayPort,
+    },
+    plugins: {
+      allow: ["mahilo"],
+      enabled: true,
+      entries: {
+        mahilo: {
+          config: pluginConfig,
+          enabled: true,
+        },
+      },
+      load: {
+        paths: [input.pluginPath],
+      },
+    },
   };
 }
 
@@ -324,6 +514,64 @@ function writeJsonFile(filePath: string, value: unknown): void {
     recursive: true,
   });
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function resolvePluginPath(pluginPath: string | undefined): string {
+  const resolvedPath = resolve(pluginPath ?? DEFAULT_PLUGIN_PATH);
+  if (!existsSync(resolvedPath)) {
+    throw new Error(`Plugin path does not exist: ${resolvedPath}`);
+  }
+
+  return resolvedPath;
+}
+
+function resolveOptionalLiveModelOptions(
+  optionalLiveModel: DualSandboxOptionalLiveModelOptions | undefined,
+): ResolvedOptionalLiveModelOptions | undefined {
+  if (!optionalLiveModel) {
+    return undefined;
+  }
+
+  const apiKeyEnvVar = normalizeOptionalEnvVar(
+    optionalLiveModel.apiKeyEnvVar,
+    "optionalLiveModel.apiKeyEnvVar",
+  );
+  const authProfile = normalizeOptionalString(optionalLiveModel.authProfile);
+  const copyProviderAuthFrom = normalizeOptionalPath(
+    optionalLiveModel.copyProviderAuthFrom,
+  );
+  const model = normalizeOptionalString(optionalLiveModel.model);
+  const provider = normalizeOptionalString(optionalLiveModel.provider)?.toLowerCase();
+  const timeoutMs = normalizePositiveInteger(
+    optionalLiveModel.timeoutMs,
+    DEFAULT_LOCAL_POLICY_LLM_TIMEOUT_MS,
+    "optionalLiveModel.timeoutMs",
+  );
+
+  if (copyProviderAuthFrom && !authProfile) {
+    throw new Error(
+      "optionalLiveModel.copyProviderAuthFrom requires optionalLiveModel.authProfile so live-model auth remains explicit.",
+    );
+  }
+
+  if (
+    !apiKeyEnvVar &&
+    !authProfile &&
+    !model &&
+    !provider &&
+    optionalLiveModel.timeoutMs === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    apiKeyEnvVar,
+    authProfile,
+    copyProviderAuthFrom,
+    model,
+    provider,
+    timeoutMs,
+  };
 }
 
 function createTempRoot(runId: string, tempRootParent?: string): string {
@@ -433,4 +681,116 @@ function formatRunId(createdAt: string): string {
   return createdAt
     .replace(/\.\d{3}Z$/, "Z")
     .replaceAll(":", "-");
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeOptionalPath(path: string | undefined): string | undefined {
+  const trimmed = normalizeOptionalString(path);
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const resolvedPath = resolve(trimmed);
+  if (!existsSync(resolvedPath)) {
+    throw new Error(`Path does not exist: ${resolvedPath}`);
+  }
+
+  return resolvedPath;
+}
+
+function normalizeOptionalEnvVar(
+  value: string | undefined,
+  label: string,
+): string | undefined {
+  const trimmed = normalizeOptionalString(value);
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
+    throw new Error(`${label} must be a valid env var name`);
+  }
+
+  return trimmed;
+}
+
+function normalizePositiveInteger(
+  value: number | undefined,
+  fallback: number,
+  label: string,
+): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+
+  return value;
+}
+
+function redactOpenClawConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const gateway = readRecord(config.gateway);
+  const plugins = readRecord(config.plugins);
+  const entries = readRecord(plugins.entries);
+  const mahilo = readRecord(entries.mahilo);
+  const pluginConfig = readRecord(mahilo.config);
+  const localPolicyLLM = pluginConfig.localPolicyLLM
+    ? readRecord(pluginConfig.localPolicyLLM)
+    : undefined;
+
+  return {
+    ...config,
+    gateway,
+    plugins: {
+      ...plugins,
+      entries: {
+        ...entries,
+        mahilo: {
+          ...mahilo,
+          config: {
+            ...pluginConfig,
+            ...(localPolicyLLM
+              ? {
+                  localPolicyLLM: {
+                    ...localPolicyLLM,
+                    ...(typeof localPolicyLLM.apiKey === "string"
+                      ? {
+                          apiKey: maskSecret(localPolicyLLM.apiKey),
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+            ...(typeof pluginConfig.apiKey === "string"
+              ? {
+                  apiKey: maskSecret(pluginConfig.apiKey),
+                }
+              : {}),
+          },
+        },
+      },
+    },
+  };
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function maskSecret(value: string): string {
+  if (value.length <= 8) {
+    return "***";
+  }
+
+  return `${value.slice(0, 4)}***${value.slice(-4)}`;
 }
