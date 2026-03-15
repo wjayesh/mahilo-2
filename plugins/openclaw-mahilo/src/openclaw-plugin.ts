@@ -88,7 +88,6 @@ export interface MahiloOpenClawPluginDefinition {
 }
 
 const MAHILO_PROMPT_CONTEXT_MARKER = "[MahiloContext/v1]";
-const MAHILO_BROWSER_LOGIN_PROMPT_MARKER = "[MahiloBrowserLogin/v1]";
 const MAHILO_SETUP_PROMPT_MARKER = "[MahiloSetup/v1]";
 const MAHILO_INBOUND_EVENT_MARKER = "[MahiloInbound/v1]";
 const MAX_PROMPT_CONTEXT_INJECTION_LENGTH = 1200;
@@ -2512,10 +2511,7 @@ async function injectMahiloContextIntoPrompt(
     pendingCount > 0
       ? `\n[MahiloPending] You have ${pendingCount} pending incoming friend request${pendingCount === 1 ? "" : "s"}. Use manage_network to review and accept/reject them.`
       : "";
-  const browserLoginGuidance = buildBrowserLoginPromptGuidance(hookInput);
-  const ambientGuidance = [pendingSuffix.trimStart(), browserLoginGuidance]
-    .filter((candidate) => candidate.length > 0)
-    .join("\n");
+  const ambientGuidance = pendingSuffix.trimStart();
 
   const promptContextInput = parsePromptContextInput(hookInput);
   if (!promptContextInput) {
@@ -2571,82 +2567,6 @@ async function injectMahiloContextIntoPrompt(
       .filter((candidate) => candidate.length > 0)
       .join("\n"),
   );
-}
-
-function buildBrowserLoginPromptGuidance(
-  hookInput: Record<string, unknown>,
-): string {
-  const promptText = collectPromptIntentText(hookInput);
-  if (!looksLikeBrowserLoginApprovalIntent(promptText)) {
-    return "";
-  }
-
-  return `${MAHILO_BROWSER_LOGIN_PROMPT_MARKER}
-Browser login approval is not a Mahilo friend/network action.
-If the user gives you a Mahilo dashboard/browser approval code and asks to sign in, call browser_access with {"action":"approve","approvalCode":"CODE"}.
-If the user explicitly wants to cancel or reject that browser sign-in, call browser_access with {"action":"deny","approvalCode":"CODE"}.
-Do not use manage_network, ask_network, or send_message for browser login approval.`;
-}
-
-function collectPromptIntentText(hookInput: Record<string, unknown>): string {
-  const parts: string[] = [];
-  const add = (value: unknown) => {
-    const normalized = normalizeInlineText(
-      typeof value === "string" ? value : undefined,
-    );
-    if (normalized) {
-      parts.push(normalized);
-    }
-  };
-  const addMessages = (value: unknown) => {
-    const messages = readOptionalArray(value);
-    if (!messages) {
-      return;
-    }
-
-    for (const message of messages.slice(-6)) {
-      const asObject = readOptionalObject(message);
-      if (!asObject) {
-        add(message);
-        continue;
-      }
-
-      add(asObject.content);
-      add(asObject.text);
-      add(asObject.prompt);
-    }
-  };
-
-  add(hookInput.text);
-  add(hookInput.prompt);
-  addMessages(hookInput.messages);
-  addMessages(hookInput.promptMessages);
-
-  const promptObject = readOptionalObject(hookInput.prompt);
-  addMessages(promptObject?.messages);
-
-  const message = readOptionalObject(hookInput.message);
-  add(message?.content);
-  add(message?.text);
-
-  return parts.join(" \n ");
-}
-
-function looksLikeBrowserLoginApprovalIntent(text: string): boolean {
-  if (!text) {
-    return false;
-  }
-
-  const hasLoginIntent =
-    /\b(log ?me ?in|log ?in|login|sign ?me ?in|sign ?in|browser access|browser login|dashboard access|dashboard login)\b/i.test(
-      text,
-    );
-  const hasCodeReference =
-    /\b(approval code|browser code|code|otp|one[- ]time password)\b/i.test(
-      text,
-    ) || /\b[A-Z2-9]{4,12}\b/.test(text);
-
-  return hasLoginIntent && hasCodeReference;
 }
 
 function parsePromptContextInput(hookInput: Record<string, unknown>):

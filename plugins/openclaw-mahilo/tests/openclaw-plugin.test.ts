@@ -5586,7 +5586,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(prompt.length).toBeLessThan(1400);
   });
 
-  it("injects browser-login guidance into prompt when the user asks the agent to sign them in with a code", async () => {
+  it("does not inject browser-login guidance heuristically from arbitrary login/code prompts", async () => {
     const { client } = createMockContractClient();
     const plugin = createMahiloOpenClawPlugin({
       createClient: () => client,
@@ -5599,7 +5599,7 @@ describe("createMahiloOpenClawPlugin", () => {
     await plugin.register?.(api);
 
     const hook = findHook(hooks, "before_prompt_build");
-    const result = await hook.execute({
+    const input = {
       messages: [
         {
           content:
@@ -5607,7 +5607,8 @@ describe("createMahiloOpenClawPlugin", () => {
           role: "user",
         },
       ],
-    });
+    };
+    const result = await hook.execute(input);
 
     expect(isRecord(result)).toBe(true);
     if (!isRecord(result)) {
@@ -5620,12 +5621,9 @@ describe("createMahiloOpenClawPlugin", () => {
     if (!isRecord(messages[0])) {
       throw new Error("expected injected prompt guidance to be a message object");
     }
-    expect(messages[0].role).toBe("system");
-    const injectedContent = String(messages[0].content);
-    expect(injectedContent).toContain("[MahiloBrowserLogin/v1]");
-    expect(injectedContent).toContain("browser_access");
-    expect(injectedContent).toContain('{"action":"approve","approvalCode":"CODE"}');
-    expect(injectedContent).toContain("Do not use manage_network");
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe("user");
+    expect(messages[0].content).toBe(input.messages[0]?.content);
   });
 
   it("injects agent-facing bootstrap instructions into prompt before Mahilo is configured", async () => {
