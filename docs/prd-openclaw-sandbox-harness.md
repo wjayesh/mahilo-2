@@ -439,7 +439,7 @@ Audit and operator-surface rules:
 ### 2.1 Implement a Reproducible Sandbox Provisioning Path
 
 - **ID**: `SBX-020`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-002`, `SBX-010`
 - **Description**:
@@ -451,6 +451,8 @@ Audit and operator-surface rules:
   - [ ] The default path produces active Mahilo users usable by plugin-protected routes
   - [ ] Any fallback seeding path is clearly labeled as fallback-only
 
+- **Notes**:
+  - 2026-03-15T10:29:46.128Z: SBX-020 completed via orchestrator integration.
 ### 2.2 Register Two Users and Persist Auth Artifacts
 
 - **ID**: `SBX-021`
