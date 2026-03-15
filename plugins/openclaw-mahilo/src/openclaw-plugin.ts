@@ -322,7 +322,7 @@ function createSendMessageTool(
 ): AnyAgentTool {
   return {
     description:
-      "Send one message through Mahilo to a person or a group. Mahilo infers the sender connection, checks boundaries, and routes the delivery.",
+      "Send one message through Mahilo to a person or a group. Mahilo infers the sender connection, checks boundaries, and routes the delivery. If you only know a person's display name, first call manage_network with action=list_contacts to find the exact Mahilo username, then use that username as the target.",
     execute: async (_toolCallId: string, rawInput: unknown) =>
       executeMahiloTool<MahiloSendMessageToolDetails>(
         MAHILO_SEND_MESSAGE_TOOL_NAME,
