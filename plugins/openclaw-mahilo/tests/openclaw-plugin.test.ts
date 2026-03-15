@@ -321,8 +321,12 @@ function buildPolicyDrivenGroupFanoutBundle(
   };
 }
 
-function buildDefaultLocalDecisionCommitResponse(payload: Record<string, unknown>) {
-  const localDecision = payload.local_decision as Record<string, unknown> | undefined;
+function buildDefaultLocalDecisionCommitResponse(
+  payload: Record<string, unknown>,
+) {
+  const localDecision = payload.local_decision as
+    | Record<string, unknown>
+    | undefined;
   const decision =
     typeof localDecision?.decision === "string"
       ? localDecision.decision
@@ -348,7 +352,9 @@ function buildDefaultLocalDecisionCommitResponse(payload: Record<string, unknown
         ? "review_required"
         : "rejected";
   const resolutionId =
-    typeof payload.resolution_id === "string" ? payload.resolution_id : "res_local_default";
+    typeof payload.resolution_id === "string"
+      ? payload.resolution_id
+      : "res_local_default";
   const recipient =
     typeof payload.recipient === "string" ? payload.recipient : "alice";
 
@@ -557,7 +563,10 @@ function createMockContractClient(
         return options.directSendBundleResponse(payload);
       }
 
-      return options.directSendBundleResponse ?? buildDefaultDirectSendBundle(payload);
+      return (
+        options.directSendBundleResponse ??
+        buildDefaultDirectSendBundle(payload)
+      );
     },
     getFriendAgentConnections: async (username: string) => {
       state.friendConnectionCalls.push(username);
@@ -580,7 +589,10 @@ function createMockContractClient(
         throw options.groupFanoutBundleError;
       }
 
-      return options.groupFanoutBundleResponse ?? buildDefaultGroupFanoutBundle(payload);
+      return (
+        options.groupFanoutBundleResponse ??
+        buildDefaultGroupFanoutBundle(payload)
+      );
     },
     getCurrentIdentity: async () => {
       state.currentIdentityCalls += 1;
@@ -1246,12 +1258,24 @@ describe("createMahiloOpenClawPlugin", () => {
     try {
       runtimeStore.store.write("https://mahilo.example", {
         apiKey: "mhl_cached_bootstrap",
+        callbackConnectionId: "conn_cached_default",
         callbackSecret: "callback-secret-from-store",
         callbackUrl: "https://openclaw.example/mahilo/incoming",
         username: "cached-user",
       });
 
-      const { client } = createMockContractClient();
+      const { client, state } = createMockContractClient({
+        agentConnectionsResponse: [
+          {
+            active: true,
+            callbackUrl: "https://openclaw.example/mahilo/incoming",
+            framework: "openclaw",
+            id: "conn_cached_default",
+            label: "default",
+            status: "active",
+          },
+        ],
+      });
       const plugin = createMahiloOpenClawPlugin({
         createClient: (config) => {
           expect(config.apiKey).toBe("mhl_cached_bootstrap");
@@ -1272,6 +1296,21 @@ describe("createMahiloOpenClawPlugin", () => {
         "send_message",
         "set_boundaries",
       ]);
+
+      const tool = findTool(tools, "send_message");
+      const result = await tool.execute("tool_call_cached_setup_1", {
+        message: "hello",
+        recipient: "alice",
+      });
+
+      expect(result).toMatchObject({
+        details: {
+          status: "sent",
+        },
+      });
+      expect(state.sendCalls[0]?.payload.sender_connection_id).toBe(
+        "conn_cached_default",
+      );
     } finally {
       runtimeStore.cleanup();
     }
@@ -1440,15 +1479,11 @@ describe("createMahiloOpenClawPlugin", () => {
         ? firstBlock.text
         : "";
 
-    expect(replyText).toContain(
-      "Mahilo is not bootstrapped yet.",
-    );
+    expect(replyText).toContain("Mahilo is not bootstrapped yet.");
     expect(replyText).toContain(
       "POST https://mahilo.example/api/v1/auth/register",
     );
-    expect(replyText).toContain(
-      "do NOT ask the human to run commands",
-    );
+    expect(replyText).toContain("do NOT ask the human to run commands");
     expect(replyText).toContain("config.patch");
     expect(replyText).toContain('"apiKey"');
     expect(replyText).toContain("invite token (mhinv_...) is NOT an API key");
@@ -2483,11 +2518,7 @@ describe("createMahiloOpenClawPlugin", () => {
         toolName: "ask_network",
       },
     );
-    expect(
-      pluginState.getAskAroundSession(
-        correlationId,
-      ),
-    ).toMatchObject({
+    expect(pluginState.getAskAroundSession(correlationId)).toMatchObject({
       correlationId,
       expectedParticipants: [
         {
@@ -3978,7 +4009,8 @@ describe("createMahiloOpenClawPlugin", () => {
       ],
       details: {
         decision: "ask",
-        reason: "Review required: Policy has no constraints and applies to all messages",
+        reason:
+          "Review required: Policy has no constraints and applies to all messages",
         resolutionId: "res_direct_review",
         status: "review_required",
       },
@@ -4948,7 +4980,10 @@ describe("createMahiloOpenClawPlugin", () => {
       recipient: "alice",
       senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_local_allow_hook_1", input);
+    const toolResult = await tool.execute(
+      "tool_call_local_allow_hook_1",
+      input,
+    );
 
     expect(toolResult).toMatchObject({
       content: [
@@ -4993,8 +5028,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(systemEvents).toEqual([
       expect.objectContaining({
         sessionKey: "session_local_allow_hook_1",
-        text:
-          "Mahilo outcome: sent to alice (location.current/share) [message msg_123].",
+        text: "Mahilo outcome: sent to alice (location.current/share) [message msg_123].",
       }),
     ]);
 
@@ -5070,7 +5104,10 @@ describe("createMahiloOpenClawPlugin", () => {
       recipient: "alice",
       senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_local_review_hook_1", input);
+    const toolResult = await tool.execute(
+      "tool_call_local_review_hook_1",
+      input,
+    );
 
     expect(toolResult).toMatchObject({
       content: [
@@ -5188,7 +5225,10 @@ describe("createMahiloOpenClawPlugin", () => {
       recipient: "alice",
       senderConnectionId: "conn_sender",
     };
-    const toolResult = await tool.execute("tool_call_local_block_hook_1", input);
+    const toolResult = await tool.execute(
+      "tool_call_local_block_hook_1",
+      input,
+    );
 
     expect(toolResult).toMatchObject({
       content: [
@@ -5519,9 +5559,7 @@ describe("createMahiloOpenClawPlugin", () => {
     expect(promptValue).toContain("config.patch");
     expect(promptValue).toContain('"apiKey"');
     expect(promptValue).toContain("Do NOT ask the human to run /mahilo setup");
-    expect(promptValue).toContain(
-      "Do NOT read docs or source code.",
-    );
+    expect(promptValue).toContain("Do NOT read docs or source code.");
     expect(promptValue).toContain("invite token (mhinv_...) is NOT an API key");
     expect(promptValue).toContain("You are a helpful assistant.");
   });

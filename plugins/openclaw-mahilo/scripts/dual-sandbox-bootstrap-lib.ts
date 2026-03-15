@@ -22,8 +22,7 @@ export const DUAL_SANDBOX_SCENARIO_IDS = [
   "S5-missing-llm-key",
 ] as const;
 
-export type DualSandboxScenarioId =
-  (typeof DUAL_SANDBOX_SCENARIO_IDS)[number];
+export type DualSandboxScenarioId = (typeof DUAL_SANDBOX_SCENARIO_IDS)[number];
 
 export interface DualSandboxBootstrapOptions {
   gatewayAPort?: number;
@@ -43,6 +42,7 @@ export interface DualSandboxEnvSummary {
 }
 
 export interface DualSandboxArtifactPathsSummary {
+  agent_connections_path: string;
   auth_redacted_path: string;
   config_redacted_path: string;
   plugin_list_path: string;
@@ -370,6 +370,7 @@ function buildSandboxSummary(
   return {
     artifact_dir: artifactDir,
     artifact_paths: {
+      agent_connections_path: join(artifactDir, "agent-connections.json"),
       auth_redacted_path: join(artifactDir, "auth.redacted.json"),
       config_redacted_path: join(artifactDir, "config.redacted.json"),
       plugin_list_path: join(artifactDir, "plugin-list.json"),
@@ -382,7 +383,10 @@ function buildSandboxSummary(
     auth_path: join(runtimeDir, "auth.json"),
     callback_url: `${gatewayBaseUrl}${WEBHOOK_PATH}`,
     env: {
-      MAHILO_OPENCLAW_RUNTIME_STATE_PATH: join(runtimeDir, "runtime-state.json"),
+      MAHILO_OPENCLAW_RUNTIME_STATE_PATH: join(
+        runtimeDir,
+        "runtime-state.json",
+      ),
       OPENCLAW_CONFIG_PATH: join(runtimeDir, "openclaw.config.json"),
       OPENCLAW_HOME: openclawHome,
     },
@@ -545,7 +549,9 @@ function resolveOptionalLiveModelOptions(
     optionalLiveModel.copyProviderAuthFrom,
   );
   const model = normalizeOptionalString(optionalLiveModel.model);
-  const provider = normalizeOptionalString(optionalLiveModel.provider)?.toLowerCase();
+  const provider = normalizeOptionalString(
+    optionalLiveModel.provider,
+  )?.toLowerCase();
   const timeoutMs = normalizePositiveInteger(
     optionalLiveModel.timeoutMs,
     DEFAULT_LOCAL_POLICY_LLM_TIMEOUT_MS,
@@ -584,9 +590,7 @@ function createTempRoot(runId: string, tempRootParent?: string): string {
     recursive: true,
   });
 
-  return mkdtempSync(
-    join(baseDirectory, `mahilo-openclaw-harness.${runId}.`),
-  );
+  return mkdtempSync(join(baseDirectory, `mahilo-openclaw-harness.${runId}.`));
 }
 
 function prepareExplicitRoot(rootPath: string): string {
@@ -608,7 +612,11 @@ function prepareExplicitRoot(rootPath: string): string {
 }
 
 function resolvePorts(options: DualSandboxBootstrapOptions): ResolvedPorts {
-  const mahilo = normalizePort(options.mahiloPort, DEFAULT_PORTS.mahilo, "mahilo");
+  const mahilo = normalizePort(
+    options.mahiloPort,
+    DEFAULT_PORTS.mahilo,
+    "mahilo",
+  );
   const gatewayA = normalizePort(
     options.gatewayAPort,
     DEFAULT_PORTS.gatewayA,
@@ -642,11 +650,7 @@ function normalizePort(
     return fallback;
   }
 
-  if (
-    !Number.isInteger(value) ||
-    value <= 0 ||
-    value > 65535
-  ) {
+  if (!Number.isInteger(value) || value <= 0 || value > 65535) {
     throw new Error(`${label} port must be an integer between 1 and 65535`);
   }
 
@@ -682,12 +686,12 @@ function formatLoopbackUrl(port: number): string {
 }
 
 function formatRunId(createdAt: string): string {
-  return createdAt
-    .replace(/\.\d{3}Z$/, "Z")
-    .replaceAll(":", "-");
+  return createdAt.replace(/\.\d{3}Z$/, "Z").replaceAll(":", "-");
 }
 
-function normalizeOptionalString(value: string | undefined): string | undefined {
+function normalizeOptionalString(
+  value: string | undefined,
+): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
@@ -738,7 +742,9 @@ function normalizePositiveInteger(
   return value;
 }
 
-function redactOpenClawConfig(config: Record<string, unknown>): Record<string, unknown> {
+function redactOpenClawConfig(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
   const gateway = readRecord(config.gateway);
   const plugins = readRecord(config.plugins);
   const entries = readRecord(plugins.entries);

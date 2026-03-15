@@ -1,9 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import type { DualSandboxBootstrapSummary } from "./dual-sandbox-bootstrap-lib";
@@ -12,6 +7,8 @@ export const DUAL_SANDBOX_AUTH_ARTIFACT_CONTRACT_VERSION = 1;
 export const DUAL_SANDBOX_PROVISIONING_CONTRACT_VERSION = 1;
 
 type SandboxId = "a" | "b";
+
+export type DualSandboxProvisioningPhase = "users" | "connections";
 
 export interface DualSandboxProvisionUserInput {
   display_name: string;
@@ -24,7 +21,9 @@ export interface DualSandboxProvisionOptions {
   fetchImpl?: typeof fetch;
   mahiloBaseUrl?: string;
   now?: () => Date;
-  sandboxUsers?: Partial<Record<SandboxId, Partial<DualSandboxProvisionUserInput>>>;
+  sandboxUsers?: Partial<
+    Record<SandboxId, Partial<DualSandboxProvisionUserInput>>
+  >;
 }
 
 export interface DualSandboxRouteProbeSummary {
@@ -66,7 +65,7 @@ export interface DualSandboxProvisioningAuthArtifact {
 export interface DualSandboxProvisioningSummary {
   contract_version: number;
   created_at: string;
-  current_phase: "users";
+  current_phase: DualSandboxProvisioningPhase;
   fallback_only: boolean;
   mahilo_base_url: string;
   plugin_protected_route_probe_path: string;
@@ -77,8 +76,7 @@ export interface DualSandboxProvisioningSummary {
   };
 }
 
-export interface DualSandboxProvisionedRunSummary
-  extends DualSandboxBootstrapSummary {
+export interface DualSandboxProvisionedRunSummary extends DualSandboxBootstrapSummary {
   provisioning: DualSandboxProvisioningSummary;
 }
 
@@ -219,9 +217,8 @@ export function redactProvisionedRunSummary(
 export function readDualSandboxBootstrapFromRunRoot(
   runRoot: string,
 ): DualSandboxBootstrapSummary {
-  const { parsed, runtimeProvisioningPath } = readRuntimeProvisioningFile(
-    runRoot,
-  );
+  const { parsed, runtimeProvisioningPath } =
+    readRuntimeProvisioningFile(runRoot);
   assertBootstrapRunSummary(parsed, runtimeProvisioningPath);
   return parsed;
 }
@@ -229,9 +226,8 @@ export function readDualSandboxBootstrapFromRunRoot(
 export function readDualSandboxProvisionedRunFromRunRoot(
   runRoot: string,
 ): DualSandboxProvisionedRunSummary {
-  const { parsed, runtimeProvisioningPath } = readRuntimeProvisioningFile(
-    runRoot,
-  );
+  const { parsed, runtimeProvisioningPath } =
+    readRuntimeProvisioningFile(runRoot);
   assertProvisionedRunSummary(parsed, runtimeProvisioningPath);
   return parsed;
 }
@@ -359,23 +355,26 @@ async function requestJson<T>(
   json: T;
   status: number;
 }> {
-  const response = await fetchImpl(new URL(options.path, `${baseUrl}/`).toString(), {
-    body:
-      options.body === undefined ? undefined : JSON.stringify(options.body),
-    headers: {
-      ...(options.body === undefined
-        ? {}
-        : {
-            "Content-Type": "application/json",
-          }),
-      ...(options.bearerToken
-        ? {
-            Authorization: `Bearer ${options.bearerToken}`,
-          }
-        : {}),
+  const response = await fetchImpl(
+    new URL(options.path, `${baseUrl}/`).toString(),
+    {
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+      headers: {
+        ...(options.body === undefined
+          ? {}
+          : {
+              "Content-Type": "application/json",
+            }),
+        ...(options.bearerToken
+          ? {
+              Authorization: `Bearer ${options.bearerToken}`,
+            }
+          : {}),
+      },
+      method: options.method,
     },
-    method: options.method,
-  });
+  );
 
   const responseText = await response.text();
   const parsedJson = parseJsonResponse(responseText);
@@ -418,9 +417,7 @@ function resolveSandboxUsers(
   return resolved;
 }
 
-function readRuntimeProvisioningFile(
-  runRoot: string,
-): {
+function readRuntimeProvisioningFile(runRoot: string): {
   parsed: Partial<DualSandboxProvisionedRunSummary>;
   runtimeProvisioningPath: string;
 } {
@@ -493,7 +490,7 @@ function assertProvisionedRunSummary(
     typeof provisioning.contract_version !== "number" ||
     !Number.isFinite(provisioning.contract_version) ||
     !readString(provisioning.created_at) ||
-    provisioning.current_phase !== "users" ||
+    !isProvisioningPhase(provisioning.current_phase) ||
     typeof provisioning.fallback_only !== "boolean" ||
     !readString(provisioning.mahilo_base_url) ||
     !readString(provisioning.plugin_protected_route_probe_path) ||
@@ -504,16 +501,8 @@ function assertProvisionedRunSummary(
     );
   }
 
-  assertProvisionedSandboxUser(
-    sandboxA,
-    "a",
-    runtimeProvisioningPath,
-  );
-  assertProvisionedSandboxUser(
-    sandboxB,
-    "b",
-    runtimeProvisioningPath,
-  );
+  assertProvisionedSandboxUser(sandboxA, "a", runtimeProvisioningPath);
+  assertProvisionedSandboxUser(sandboxB, "b", runtimeProvisioningPath);
   assertPersistedProvisioningAuthArtifact(
     parsed.sandboxes.a.auth_path,
     sandboxA,
@@ -577,7 +566,9 @@ function assertPersistedProvisioningAuthArtifact(
   }
 
   const authArtifact =
-    readJsonFile<Partial<DualSandboxProvisioningAuthArtifact>>(authArtifactPath);
+    readJsonFile<Partial<DualSandboxProvisioningAuthArtifact>>(
+      authArtifactPath,
+    );
 
   if (
     authArtifact.api_key !== user.api_key ||
@@ -692,16 +683,19 @@ function readReviewCount(value: unknown): number | null {
   return typeof count === "number" && Number.isFinite(count) ? count : null;
 }
 
+function isProvisioningPhase(
+  value: unknown,
+): value is DualSandboxProvisioningPhase {
+  return value === "users" || value === "connections";
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   const normalized = normalizeRequiredString(baseUrl, "mahiloBaseUrl");
   return normalized.replace(/\/+$/, "");
 }
 
 function normalizeRoutePath(path: string): string {
-  const normalized = normalizeRequiredString(
-    path,
-    "activeRouteProbePath",
-  );
+  const normalized = normalizeRequiredString(path, "activeRouteProbePath");
   if (!normalized.startsWith("/")) {
     throw new Error("activeRouteProbePath must start with '/'.");
   }

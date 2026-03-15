@@ -2,7 +2,7 @@
 
 Use this when testing `plugins/openclaw-mahilo/` against a fresh local OpenClaw instance without touching an existing OpenClaw install.
 
-For the reproducible dual-sandbox harness, the default provisioning path is now invite-backed API provisioning via `dual-sandbox-bootstrap.ts` plus `dual-sandbox-provision.ts`. Keep `seed-local-policy-sandbox.ts` as a fallback-only escape hatch, not the baseline path.
+For the reproducible dual-sandbox harness, the default provisioning path is now invite-backed API provisioning via `dual-sandbox-bootstrap.ts`, `dual-sandbox-provision.ts`, and `dual-sandbox-connections.ts`. Keep `seed-local-policy-sandbox.ts` as a fallback-only escape hatch, not the baseline path.
 
 ## What this proves
 
@@ -25,8 +25,11 @@ For the dual-sandbox harness, prefer the generated bootstrap/provisioning script
 
 - `plugins/openclaw-mahilo/scripts/dual-sandbox-bootstrap.ts`
 - `plugins/openclaw-mahilo/scripts/dual-sandbox-provision.ts`
+- `plugins/openclaw-mahilo/scripts/dual-sandbox-connections.ts`
 
 After `dual-sandbox-provision.ts` runs, the harness keeps the secret-bearing user credentials in `runtime/sandbox-a/auth.json` and `runtime/sandbox-b/auth.json`, with redacted mirrors under `artifacts/sandboxes/`.
+
+After `dual-sandbox-connections.ts` runs, the harness also writes the plugin-ready runtime-state files in `runtime/sandbox-a/runtime-state.json` and `runtime/sandbox-b/runtime-state.json`, plus redacted runtime-state and agent-registration evidence under `artifacts/sandboxes/`.
 
 The manual steps below are still useful for debugging, but the default harness path should stay invite-backed and API-driven.
 
