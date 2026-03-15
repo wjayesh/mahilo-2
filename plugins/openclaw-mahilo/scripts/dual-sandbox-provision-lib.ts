@@ -11,7 +11,8 @@ type SandboxId = "a" | "b";
 export type DualSandboxProvisioningPhase =
   | "users"
   | "connections"
-  | "relationships";
+  | "relationships"
+  | "policy_scenarios";
 
 export interface DualSandboxProvisionUserInput {
   display_name: string;
@@ -692,7 +693,8 @@ function isProvisioningPhase(
   return (
     value === "users" ||
     value === "connections" ||
-    value === "relationships"
+    value === "relationships" ||
+    value === "policy_scenarios"
   );
 }
 
