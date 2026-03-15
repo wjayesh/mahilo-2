@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "bun:test";
 
@@ -33,9 +33,15 @@ function readPluginManifest(): Record<string, unknown> {
 function readPackArtifactPaths(): Set<string> {
   const tempRoot = mkdtempSync(join(tmpdir(), "mahilo-openclaw-pack-"));
   const packageDir = join(tempRoot, "package");
+  const bundledPolicyCoreDir = join(tempRoot, "packages", "policy-core");
+  const sourcePolicyCoreDir = resolve(process.cwd(), "..", "..", "packages", "policy-core");
 
   cpSync(process.cwd(), packageDir, { recursive: true });
+  if (existsSync(sourcePolicyCoreDir)) {
+    cpSync(sourcePolicyCoreDir, bundledPolicyCoreDir, { recursive: true });
+  }
   rmSync(join(packageDir, "dist"), { force: true, recursive: true });
+  rmSync(join(packageDir, "node_modules"), { force: true, recursive: true });
 
   const result = spawnSync(
     "npm",

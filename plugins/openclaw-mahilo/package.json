@@ -1,6 +1,6 @@
 {
   "name": "@mahilo/openclaw-mahilo",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Ask your contacts from OpenClaw and get attributed answers with boundaries built in.",
   "license": "MIT",
   "author": "Jayesh Sharma <wjayesh@outlook.com>",
@@ -42,9 +42,10 @@
   "scripts": {
     "clean": "rm -rf dist",
     "sync:manifest-version": "bun run scripts/sync-manifest-version.ts",
+    "sync:bundled-policy-core": "bun run scripts/sync-bundled-policy-core.ts",
     "build:runtime": "bun build src/index.ts --outdir dist --target bun",
     "build:types": "bunx tsc -p tsconfig.build.json && cp src/openclaw-plugin-sdk-core.d.ts dist/openclaw-plugin-sdk-core.d.ts",
-    "build": "bun run sync:manifest-version && bun run clean && bun run build:runtime && bun run build:types",
+    "build": "bun run sync:manifest-version && bun run clean && bun run sync:bundled-policy-core && bun run build:runtime && bun run build:types",
     "demo:stories": "bun run scripts/demo-story-pack.ts",
     "prepare": "bun run build",
     "prepack": "bun run build",
@@ -66,8 +67,11 @@
     "boundaries"
   ],
   "dependencies": {
-    "@mahilo/policy-core": "workspace:*"
+    "@mahilo/policy-core": "0.1.0"
   },
+  "bundleDependencies": [
+    "@mahilo/policy-core"
+  ],
   "devDependencies": {
     "@types/bun": "^1.2.2",
     "typescript": "^5.9.3"

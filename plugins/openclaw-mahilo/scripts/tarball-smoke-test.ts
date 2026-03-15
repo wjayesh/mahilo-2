@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,7 +10,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 interface JsonRecord {
@@ -76,6 +77,7 @@ const EXPECTED_ROUTE_PATHS = ["/mahilo/incoming"];
 
 const EXPECTED_TOOL_NAMES = [
   "ask_network",
+  "browser_access",
   "manage_network",
   "send_message",
   "set_boundaries"
@@ -118,9 +120,14 @@ function parsePackResults(stdout: string, commandLabel: string): NpmPackResult[]
 }
 
 function runCommand(command: string, args: string[], cwd: string): string {
+  const env = { ...process.env };
+  delete env.npm_config_dry_run;
+  delete env.NPM_CONFIG_DRY_RUN;
+
   const result = spawnSync(command, args, {
     cwd,
-    encoding: "utf8"
+    encoding: "utf8",
+    env,
   });
 
   if (result.status !== 0) {
@@ -371,9 +378,14 @@ function readTarballFileName(stdout: string): string {
 export async function runTarballSmokeTest(sourceDir: string): Promise<TarballSmokeSummary> {
   const tempRoot = mkdtempSync(join(tmpdir(), "mahilo-openclaw-tarball-smoke-"));
   const stagedPackageDir = join(tempRoot, "package");
+  const bundledPolicyCoreDir = join(tempRoot, "packages", "policy-core");
   const scratchDir = join(tempRoot, "scratch-openclaw");
+  const sourcePolicyCoreDir = resolve(sourceDir, "..", "..", "packages", "policy-core");
 
   cpSync(sourceDir, stagedPackageDir, { recursive: true });
+  if (existsSync(sourcePolicyCoreDir)) {
+    cpSync(sourcePolicyCoreDir, bundledPolicyCoreDir, { recursive: true });
+  }
   removeGeneratedArtifacts(stagedPackageDir);
   createScratchConfig(scratchDir);
 

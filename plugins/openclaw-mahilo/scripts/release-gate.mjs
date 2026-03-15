@@ -266,7 +266,12 @@ function collectExpectedPackageFiles(packageJson, manifestPath, manifest) {
 
 function parsePackOutput(rawOutput) {
   try {
-    const parsed = JSON.parse(rawOutput);
+    const jsonStart = rawOutput.indexOf("[");
+    if (jsonStart < 0) {
+      fail("npm pack --json did not return JSON output.");
+    }
+
+    const parsed = JSON.parse(rawOutput.slice(jsonStart));
     return Array.isArray(parsed) ? parsed[0] : parsed;
   } catch (error) {
     fail(`Unable to parse npm pack output: ${error.message}`);
@@ -325,19 +330,11 @@ function validateManifest(packageJson, extensionEntry, manifestPath, manifest) {
     );
   }
 
-  if (!extensionEntry) {
-    fail("Unable to resolve a package.json openclaw.extensions entry for the manifest.");
-  }
-
-  if (!isNonEmptyString(extensionEntry.id)) {
-    fail("package.json openclaw.extensions entry is missing a non-empty \"id\".");
-  }
-
-  if (!isNonEmptyString(extensionEntry.manifest)) {
-    fail("package.json openclaw.extensions entry is missing a non-empty \"manifest\".");
-  }
-
-  const configuredManifestPath = normalizePackPath(extensionEntry.manifest);
+  const configuredManifestPath = normalizePackPath(
+    isNonEmptyString(extensionEntry?.manifest)
+      ? extensionEntry.manifest
+      : packageJson.pluginManifest,
+  );
   const actualManifestPath = normalizePackPath(relative(pluginRoot, manifestPath));
 
   if (configuredManifestPath !== actualManifestPath) {
@@ -346,7 +343,15 @@ function validateManifest(packageJson, extensionEntry, manifestPath, manifest) {
     );
   }
 
-  if (isNonEmptyString(manifest.id) && manifest.id !== extensionEntry.id) {
+  if (extensionEntry && !isNonEmptyString(extensionEntry.id)) {
+    fail("package.json openclaw.extensions entry is missing a non-empty \"id\".");
+  }
+
+  if (
+    extensionEntry &&
+    isNonEmptyString(manifest.id) &&
+    manifest.id !== extensionEntry.id
+  ) {
     fail(
       `Manifest id "${manifest.id}" does not match package.json openclaw.extensions id "${extensionEntry.id}".`,
     );

@@ -35,6 +35,7 @@ describe("tarball smoke test", () => {
     expect(summary.requiredConfigKeys).toEqual([]);
     expect(summary.toolNames).toEqual([
       "ask_network",
+      "browser_access",
       "manage_network",
       "send_message",
       "set_boundaries"

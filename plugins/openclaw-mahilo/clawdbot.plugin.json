@@ -1,7 +1,7 @@
 {
   "id": "openclaw-mahilo",
   "name": "Mahilo",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Ask your contacts from OpenClaw and get attributed answers with boundaries built in.",
   "entry": "./dist/index.js",
   "configSchema": {

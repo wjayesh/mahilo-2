@@ -159,6 +159,187 @@ interface RecordedSystemEvent {
   text: string;
 }
 
+function buildDefaultDirectSendBundle(payload: Record<string, unknown>) {
+  const recipient =
+    typeof payload.recipient === "string" && payload.recipient.trim().length > 0
+      ? payload.recipient.trim().toLowerCase()
+      : "alice";
+  const senderConnectionId =
+    typeof payload.sender_connection_id === "string" &&
+    payload.sender_connection_id.length > 0
+      ? payload.sender_connection_id
+      : "conn_sender_default";
+  const declaredSelectors =
+    payload.declared_selectors &&
+    typeof payload.declared_selectors === "object" &&
+    !Array.isArray(payload.declared_selectors)
+      ? (payload.declared_selectors as Record<string, unknown>)
+      : {
+          action: "share",
+          direction: "outbound",
+          resource: "message.general",
+        };
+
+  return {
+    applicable_policies: [],
+    authenticated_identity: {
+      sender_connection_id: senderConnectionId,
+      sender_user_id: "usr_sender",
+    },
+    bundle_metadata: {
+      bundle_id: "bundle_direct_default",
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: "res_direct_default",
+    },
+    bundle_type: "direct_send",
+    contract_version: "1.0.0",
+    llm: {
+      provider_defaults: null,
+      subject: recipient,
+    },
+    recipient: {
+      id: `usr_${recipient}`,
+      type: "user",
+      username: recipient,
+    },
+    selector_context: {
+      action:
+        typeof declaredSelectors.action === "string"
+          ? declaredSelectors.action
+          : "share",
+      direction:
+        typeof declaredSelectors.direction === "string"
+          ? declaredSelectors.direction
+          : "outbound",
+      resource:
+        typeof declaredSelectors.resource === "string"
+          ? declaredSelectors.resource
+          : "message.general",
+    },
+  };
+}
+
+function buildDefaultGroupFanoutBundle(payload: Record<string, unknown>) {
+  const groupId =
+    typeof payload.recipient === "string" && payload.recipient.trim().length > 0
+      ? payload.recipient.trim()
+      : "grp_hiking";
+  const senderConnectionId =
+    typeof payload.sender_connection_id === "string" &&
+    payload.sender_connection_id.length > 0
+      ? payload.sender_connection_id
+      : "conn_sender_default";
+
+  return {
+    aggregate_metadata: {
+      empty_group_summary: "No active recipients in group.",
+      fanout_mode: "per_recipient",
+      mixed_decision_priority: ["allow", "ask", "deny"],
+      partial_reason_code: "policy.partial.group_fanout",
+      partial_summary_template:
+        "Partial group delivery: {delivered} delivered, {pending} pending, {denied} denied, {review_required} review-required, {failed} failed.",
+      policy_evaluation_mode: "group_outbound_fanout",
+    },
+    authenticated_identity: {
+      sender_connection_id: senderConnectionId,
+      sender_user_id: "usr_sender",
+    },
+    bundle_metadata: {
+      bundle_id: "bundle_group_default",
+      expires_at: "2026-03-14T10:35:00.000Z",
+      issued_at: "2026-03-14T10:30:00.000Z",
+      resolution_id: "res_group_default",
+    },
+    bundle_type: "group_fanout",
+    contract_version: "1.0.0",
+    group: {
+      id: groupId,
+      member_count: 1,
+      name: "Hiking Crew",
+      type: "group",
+    },
+    group_overlay_policies: [],
+    members: [
+      {
+        llm: {
+          provider_defaults: null,
+          subject: "alice",
+        },
+        member_applicable_policies: [],
+        recipient: {
+          id: "usr_alice",
+          type: "user",
+          username: "alice",
+        },
+        resolution_id: "res_group_default_usr_alice",
+        roles: [],
+      },
+    ],
+    selector_context: {
+      action: "share",
+      direction: "outbound",
+      resource: "message.general",
+    },
+  };
+}
+
+function buildDefaultLocalDecisionCommitResponse(payload: Record<string, unknown>) {
+  const localDecision = payload.local_decision as Record<string, unknown> | undefined;
+  const decision =
+    typeof localDecision?.decision === "string"
+      ? localDecision.decision
+      : "allow";
+  const deliveryMode =
+    typeof localDecision?.delivery_mode === "string"
+      ? localDecision.delivery_mode
+      : decision === "allow"
+        ? "full_send"
+        : decision === "ask"
+          ? "review_required"
+          : "blocked";
+  const status =
+    decision === "allow"
+      ? "pending"
+      : decision === "ask"
+        ? "review_required"
+        : "rejected";
+  const resolutionId =
+    typeof payload.resolution_id === "string" ? payload.resolution_id : "res_local_default";
+  const recipient =
+    typeof payload.recipient === "string" ? payload.recipient : "alice";
+
+  return {
+    committed: true,
+    message_id: `msg_commit_${resolutionId}`,
+    recorded: true,
+    recipient_results: [
+      {
+        decision,
+        delivery_mode: deliveryMode,
+        delivery_status: status,
+        recipient,
+      },
+    ],
+    resolution: {
+      decision,
+      delivery_mode: deliveryMode,
+      reason_code:
+        typeof localDecision?.reason_code === "string"
+          ? localDecision.reason_code
+          : undefined,
+      resolution_id: resolutionId,
+      summary:
+        typeof localDecision?.summary === "string"
+          ? localDecision.summary
+          : typeof localDecision?.reason === "string"
+            ? localDecision.reason
+            : undefined,
+    },
+    status,
+  };
+}
+
 export function loadBundledDemoStoryFixtures(): DemoStoryFixture[] {
   return loadDemoStoryFixtures();
 }
@@ -496,6 +677,9 @@ function createMockContractClient(options: DemoStoryMockConfig): {
         policy_id: `pol_demo_${createOverrideCount}`,
       };
     },
+    getDirectSendPolicyBundle: async (payload: Record<string, unknown>) => {
+      return buildDefaultDirectSendBundle(payload);
+    },
     getCurrentIdentity: async () => identity,
     getFriendAgentConnections: async (
       username: string,
@@ -512,6 +696,9 @@ function createMockContractClient(options: DemoStoryMockConfig): {
     getPromptContext: async (payload: Record<string, unknown>) => {
       state.getPromptContextCalls.push(payload);
       return promptContextResponse;
+    },
+    getGroupFanoutPolicyBundle: async (payload: Record<string, unknown>) => {
+      return buildDefaultGroupFanoutBundle(payload);
     },
     listBlockedEvents: async (limit?: number) => {
       state.listBlockedEventsCalls.push(limit ?? 0);
@@ -541,11 +728,34 @@ function createMockContractClient(options: DemoStoryMockConfig): {
       state.listReviewsCalls.push(params ?? {});
       return options.reviewsResponse ?? { items: [] };
     },
+    commitLocalDecision: async (
+      payload: Record<string, unknown>,
+      _idempotencyKey?: string,
+    ) => {
+      return buildDefaultLocalDecisionCommitResponse(payload);
+    },
     pingAgentConnection: async (senderConnectionId: string) => {
       state.pingAgentConnectionCalls.push(senderConnectionId);
       return {
         ok: true,
         senderConnectionId,
+      };
+    },
+    registerAgentConnection: async (payload: Record<string, unknown>) => {
+      const connectionId =
+        typeof payload.connectionId === "string"
+          ? payload.connectionId
+          : "conn_registered_default";
+      return {
+        callbackSecret: "callback-secret-from-server",
+        connectionId,
+        mode: "webhook",
+        raw: {
+          callback_secret: "callback-secret-from-server",
+          connection_id: connectionId,
+          mode: "webhook",
+        },
+        updated: false,
       };
     },
     rejectFriendRequest: async (friendshipId: string) => {
@@ -569,13 +779,10 @@ function createMockContractClient(options: DemoStoryMockConfig): {
     },
     resolveDraft: async (payload: Record<string, unknown>) => {
       state.resolveDraftCalls.push(payload);
-      const next = resolveDraftResponses.shift();
-      return (
-        next ?? {
-          decision: "allow",
-          resolution_id: `res_demo_${state.resolveDraftCalls.length}`,
-        }
-      );
+      return {
+        decision: "allow",
+        resolution_id: `res_demo_${state.resolveDraftCalls.length}`,
+      };
     },
     sendFriendRequest: async (username: string) => {
       state.sendFriendRequestCalls.push(username);
