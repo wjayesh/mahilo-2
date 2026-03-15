@@ -86,18 +86,47 @@ Out of scope for P0:
 
 ## Success Matrix
 
-P0 must prove all of the following:
+The harness has two proof profiles. Only the first one gates P0 completion.
 
-- plugin loads in both sandboxes
-- both sandboxes register against Mahilo with valid runtime bootstrap state
-- friendship exists between sender and recipient users
-- direct send `allow` delivers to the receiver sandbox
-- direct send `ask` does not deliver and appears in Mahilo review surfaces
-- direct send `deny` does not deliver and appears in blocked-event surfaces
-- missing local LLM credentials degrade to `ask` rather than silently allowing delivery
-- the operator playbook is accurate enough that rerunning it from scratch does not require private repo knowledge
+### Baseline Deterministic Proof
 
-P1 can additionally prove:
+- Must pass from a fresh temp root with two real OpenClaw sandboxes and a fresh Mahilo DB.
+- Must not require copied provider credentials, `auth-profiles.json`, `/v1/chat/completions`, or any paid-model turn.
+- Must use the non-trusted direct-send proof path: bundle -> local evaluation -> local-decision commit -> transport only for committed `allow`.
+- Must prove delivery and non-delivery against the second real OpenClaw sandbox, not a dummy HTTP receiver.
+
+### Optional Real-Model Proof
+
+- Runs only when the operator explicitly opts in and local provider credentials are available.
+- Covers `ask_network`, `/v1/chat/completions`, and deeper live-session routing checks.
+- Adds confidence, but a failure or skip here does not fail the baseline deterministic proof.
+
+### Required P0 Gate Checks
+
+| Gate | Check                                     | Pass Condition                                                                                                                                  | Minimum Evidence                                                                                                                  |
+| ---- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `G1` | Plugin load in both sandboxes             | Both gateways start with the local Mahilo plugin enabled and expose the expected Mahilo tools.                                                  | Gateway startup logs plus `openclaw plugins list --json` or equivalent output showing `mahilo` and the expected tool names.       |
+| `G2` | Runtime bootstrap and Mahilo registration | Each sandbox has one valid runtime bootstrap entry and one active Mahilo callback connection pointing at that sandbox's `/mahilo/incoming` URL. | Runtime-state JSON for sandbox A and B, Mahilo `GET /api/v1/agents` results, and health/readiness checks for all three processes. |
+| `G3` | Friendship/contact readiness              | The sender and receiver users are active, connected to their own sandboxes, and have an accepted friendship before any policy scenario runs.    | Provisioning summary plus Mahilo friendship acceptance evidence or equivalent network-list evidence.                              |
+
+### Required P0 Scenario Matrix
+
+| Scenario             | Trigger / Fixture                                                                                               | Expected Outcome                                                                                                                                                                                                                                                                           | Required Evidence                                                                                                                                                                                                                                                                                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `S1-send-receive`    | Sender sandbox performs one direct send to the receiver sandbox on the baseline path after `G1`-`G3` are green. | The sender sees a successful send result, Mahilo records a delivered message, and the receiver sandbox records an inbound event. No review or blocked record is created for that message.                                                                                                  | Sender-side result, Mahilo message identifier, and receiver-side transcript/log/webhook evidence showing payload arrival in sandbox B.                                                                                                                                                                                               |
+| `S2-allow`           | A recipient or selector fixture that deterministically resolves to local `allow`.                               | `POST /api/v1/plugin/bundles/direct-send` returns a `resolution_id`, local evaluation resolves `allow`, `POST /api/v1/plugin/local-decisions/commit` persists that decision, `POST /api/v1/messages/send` resumes transport with the same `resolution_id`, and delivery reaches sandbox B. | Bundle response, commit response, resumed send response, shared `resolution_id`, resulting `message_id`, and receiver-side delivery evidence.                                                                                                                                                                                        |
+| `S3-ask`             | A recipient or selector fixture that deterministically resolves to local `ask`.                                 | No transport send occurs, no delivery reaches sandbox B, and Mahilo review surfaces show the committed local decision.                                                                                                                                                                     | Bundle response, commit response with `decision=ask`, `GET /api/v1/plugin/reviews` evidence tied to the same `resolution_id`, and receiver-side absence evidence.                                                                                                                                                                    |
+| `S4-deny`            | A recipient or selector fixture that deterministically resolves to local `deny`.                                | No transport send occurs, no delivery reaches sandbox B, and Mahilo blocked-event surfaces show the committed local decision.                                                                                                                                                              | Bundle response, commit response with `decision=deny`, `GET /api/v1/plugin/events/blocked` evidence tied to the same `resolution_id`, and receiver-side absence evidence.                                                                                                                                                            |
+| `S5-missing-llm-key` | An LLM-evaluated policy is matched while local provider credentials are intentionally absent from the sandbox.  | Local evaluation degrades to `ask` instead of `allow`, no delivery reaches sandbox B, and the review artifact carries a degraded LLM reason code. The expected missing-credential code is `policy.ask.llm.unavailable`.                                                                    | Sandbox config/evidence that provider credentials were intentionally omitted, commit response with `decision=ask`, review evidence with `reason_code=policy.ask.llm.unavailable` (or a documented `policy.ask.llm.<kind>` if the harness intentionally simulates a different evaluator failure), and receiver-side absence evidence. |
+
+### Baseline Exit Rule
+
+- P0 is complete only when one clean-room harness run can execute every `G*` and `S*` row above and emit a per-row pass/fail result.
+- The baseline verifier must fail if any required row is skipped, replaced by a manual judgment, or depends on a model-provider success.
+- Optional real-model checks must be reported separately as `optional` or `skipped_optional`; they must never be blended into the baseline pass signal.
+- The playbook, scripts, and machine-readable artifacts must use stable scenario IDs from this matrix so later tasks can automate verification against the same contract.
+
+### Optional P1 Coverage
 
 - `ask_network` across two real sandboxes
 - `/v1/chat/completions`-driven live model turns
@@ -105,17 +134,18 @@ P1 can additionally prove:
 
 ## Status Legend
 
-| Status | Meaning |
-|--------|---------|
-| `pending` | Not started |
-| `in-progress` | In progress |
-| `blocked` | Waiting on a real blocker |
-| `review` | Implemented and awaiting review |
-| `done` | Completed |
+| Status        | Meaning                         |
+| ------------- | ------------------------------- |
+| `pending`     | Not started                     |
+| `in-progress` | In progress                     |
+| `blocked`     | Waiting on a real blocker       |
+| `review`      | Implemented and awaiting review |
+| `done`        | Completed                       |
 
 ## Phase 0: Lock the Harness Design
 
 ### 0.1 Lock the Success Matrix
+
 - **ID**: `SBX-001`
 - **Status**: `pending`
 - **Priority**: P0
@@ -129,6 +159,7 @@ P1 can additionally prove:
   - [ ] The success matrix is concrete enough to drive build and verification work
 
 ### 0.2 Decide the Bootstrap and Provisioning Strategy
+
 - **ID**: `SBX-002`
 - **Status**: `pending`
 - **Priority**: P0
@@ -142,6 +173,7 @@ P1 can additionally prove:
   - [ ] The plan is centered on the dual-sandbox proof, not on preserving the stale skill/doc
 
 ### 0.3 Define the Verification Artifact Contract
+
 - **ID**: `SBX-003`
 - **Status**: `pending`
 - **Priority**: P0
@@ -156,6 +188,7 @@ P1 can additionally prove:
 ## Phase 1: Build the Dual-Sandbox Bootstrap Surface
 
 ### 1.1 Add a Dual-Sandbox Bootstrap Script
+
 - **ID**: `SBX-010`
 - **Status**: `pending`
 - **Priority**: P0
@@ -173,6 +206,7 @@ P1 can additionally prove:
   - [ ] The script emits a machine-readable summary of the generated paths and ports
 
 ### 1.2 Add a Config Generator for Both OpenClaw Gateways
+
 - **ID**: `SBX-011`
 - **Status**: `pending`
 - **Priority**: P0
@@ -186,6 +220,7 @@ P1 can additionally prove:
   - [ ] The configs clearly distinguish deterministic proof from optional live-model proof inputs
 
 ### 1.3 Add Process Lifecycle and Readiness Helpers
+
 - **ID**: `SBX-012`
 - **Status**: `pending`
 - **Priority**: P0
@@ -202,6 +237,7 @@ P1 can additionally prove:
   - [ ] Shutdown and cleanup are deterministic enough to rerun the harness back-to-back
 
 ### 1.4 Add Log and Artifact Capture
+
 - **ID**: `SBX-013`
 - **Status**: `pending`
 - **Priority**: P1
@@ -217,6 +253,7 @@ P1 can additionally prove:
 ## Phase 2: Provision Two Real Sandboxes Against Mahilo
 
 ### 2.1 Implement a Reproducible Sandbox Provisioning Path
+
 - **ID**: `SBX-020`
 - **Status**: `pending`
 - **Priority**: P0
@@ -231,6 +268,7 @@ P1 can additionally prove:
   - [ ] Any fallback seeding path is clearly labeled as fallback-only
 
 ### 2.2 Register Two Users and Persist Auth Artifacts
+
 - **ID**: `SBX-021`
 - **Status**: `pending`
 - **Priority**: P0
@@ -243,6 +281,7 @@ P1 can additionally prove:
   - [ ] The harness summary records enough metadata to continue without rerunning provisioning
 
 ### 2.3 Register Agent Connections and Runtime Bootstrap for Both Sandboxes
+
 - **ID**: `SBX-022`
 - **Status**: `pending`
 - **Priority**: P0
@@ -256,6 +295,7 @@ P1 can additionally prove:
   - [ ] Both gateways can start with those runtime-state files and attach to the expected Mahilo identity
 
 ### 2.4 Automate Friendship, Optional Roles, and Group Setup
+
 - **ID**: `SBX-023`
 - **Status**: `pending`
 - **Priority**: P0
@@ -269,6 +309,7 @@ P1 can additionally prove:
   - [ ] Group setup exists when needed for later `ask_network` or fanout scenarios
 
 ### 2.5 Seed Policy Scenarios for Live Validation
+
 - **ID**: `SBX-024`
 - **Status**: `pending`
 - **Priority**: P0
@@ -287,6 +328,7 @@ P1 can additionally prove:
 ## Phase 3: Prove Send, Receive, and Policy Enforcement
 
 ### 3.1 Verify Plugin Load and Webhook Surfaces on Both Gateways
+
 - **ID**: `SBX-030`
 - **Status**: `pending`
 - **Priority**: P0
@@ -299,6 +341,7 @@ P1 can additionally prove:
   - [ ] Any startup bootstrap or identity mismatch is surfaced before later scenarios run
 
 ### 3.2 Prove Direct Allow Delivery from Sandbox A to Sandbox B
+
 - **ID**: `SBX-031`
 - **Status**: `pending`
 - **Priority**: P0
@@ -312,6 +355,7 @@ P1 can additionally prove:
   - [ ] Sandbox B records receipt through its real OpenClaw webhook/session surface
 
 ### 3.3 Prove Direct Ask Holds Delivery and Surfaces Review State
+
 - **ID**: `SBX-032`
 - **Status**: `pending`
 - **Priority**: P0
@@ -325,6 +369,7 @@ P1 can additionally prove:
   - [ ] Mahilo review surfaces reflect the local decision coherently
 
 ### 3.4 Prove Direct Deny Blocks Delivery and Surfaces Blocked State
+
 - **ID**: `SBX-033`
 - **Status**: `pending`
 - **Priority**: P0
@@ -338,6 +383,7 @@ P1 can additionally prove:
   - [ ] Mahilo blocked-event or equivalent evidence reflects the denial
 
 ### 3.5 Prove Missing Local LLM Credentials Degrade to Ask
+
 - **ID**: `SBX-034`
 - **Status**: `pending`
 - **Priority**: P0
@@ -350,6 +396,7 @@ P1 can additionally prove:
   - [ ] The failure mode is captured in the operator evidence and later playbook
 
 ### 3.6 Prove or Bound the Two-Sandbox `ask_network` Story
+
 - **ID**: `SBX-035`
 - **Status**: `pending`
 - **Priority**: P1
@@ -363,6 +410,7 @@ P1 can additionally prove:
   - [ ] Routing evidence is preserved in logs or transcripts
 
 ### 3.7 Prove Trusted-vs-Local Mode Parity in the Harness
+
 - **ID**: `SBX-036`
 - **Status**: `pending`
 - **Priority**: P1
@@ -377,6 +425,7 @@ P1 can additionally prove:
 ## Phase 4: Package the Verified Operator Surface
 
 ### 4.1 Write a New Playbook from the Verified Harness
+
 - **ID**: `SBX-040`
 - **Status**: `pending`
 - **Priority**: P0
@@ -390,6 +439,7 @@ P1 can additionally prove:
   - [ ] The playbook clearly distinguishes must-pass proof from optional advanced checks
 
 ### 4.2 Create a New Sandbox Harness Skill from the Verified Playbook
+
 - **ID**: `SBX-041`
 - **Status**: `pending`
 - **Priority**: P0
@@ -403,6 +453,7 @@ P1 can additionally prove:
   - [ ] The skill’s expected outputs match current harness behavior
 
 ### 4.3 Add a Troubleshooting and Known-Blocker Matrix
+
 - **ID**: `SBX-042`
 - **Status**: `pending`
 - **Priority**: P1
@@ -423,6 +474,7 @@ P1 can additionally prove:
 ## Phase 5: Make the Harness Runnable and Reusable
 
 ### 5.1 Add a Machine-Runnable Harness Entry Point
+
 - **ID**: `SBX-050`
 - **Status**: `pending`
 - **Priority**: P0
@@ -436,6 +488,7 @@ P1 can additionally prove:
   - [ ] The command can be rerun from a clean checkout without secret repo knowledge
 
 ### 5.2 Add Structured Verification Output
+
 - **ID**: `SBX-051`
 - **Status**: `pending`
 - **Priority**: P1
@@ -448,6 +501,7 @@ P1 can additionally prove:
   - [ ] The summary redacts secrets while keeping enough detail for debugging
 
 ### 5.3 Add Regression Coverage Around New Helper Logic
+
 - **ID**: `SBX-052`
 - **Status**: `pending`
 - **Priority**: P1
@@ -463,6 +517,7 @@ P1 can additionally prove:
 ## Phase 6: Run the Harness and Close the Loop
 
 ### 6.1 Run the Harness End to End
+
 - **ID**: `SBX-060`
 - **Status**: `pending`
 - **Priority**: P0
@@ -475,6 +530,7 @@ P1 can additionally prove:
   - [ ] The operator result is unambiguous about what passed and what failed
 
 ### 6.2 Fix Directly Obvious Harness Failures and Rerun
+
 - **ID**: `SBX-061`
 - **Status**: `pending`
 - **Priority**: P0
@@ -488,6 +544,7 @@ P1 can additionally prove:
   - [ ] A rerun produces a cleaner baseline for the final audit task
 
 ### 6.3 Publish the Final Operator Summary
+
 - **ID**: `SBX-062`
 - **Status**: `pending`
 - **Priority**: P1
@@ -506,6 +563,7 @@ P1 can additionally prove:
 ## Phase 7: Adaptive Audit Loop
 
 ### 7.1 Audit the Latest Result and Expand the Tracker if Needed
+
 - **ID**: `SBX-090`
 - **Status**: `pending`
 - **Priority**: P0
