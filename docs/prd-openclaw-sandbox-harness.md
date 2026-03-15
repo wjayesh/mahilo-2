@@ -404,7 +404,7 @@ Audit and operator-surface rules:
 ### 1.3 Add Process Lifecycle and Readiness Helpers
 
 - **ID**: `SBX-012`
-- **Status**: `pending`
+- **Status**: `done`
 - **Priority**: P0
 - **Depends on**: `SBX-010`, `SBX-011`
 - **Description**:
@@ -418,6 +418,8 @@ Audit and operator-surface rules:
   - [ ] Health/readiness checks exist for Mahilo and both gateways
   - [ ] Shutdown and cleanup are deterministic enough to rerun the harness back-to-back
 
+- **Notes**:
+  - 2026-03-15T10:18:50.001Z: SBX-012 completed via orchestrator integration.
 ### 1.4 Add Log and Artifact Capture
 
 - **ID**: `SBX-013`
