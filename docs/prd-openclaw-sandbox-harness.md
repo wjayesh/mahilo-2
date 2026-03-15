@@ -217,6 +217,150 @@ The harness has two proof profiles. Only the first one gates P0 completion.
   - [ ] The artifact contract is strong enough to support the final audit task
   - [ ] The harness can later generate a playbook and a skill from those artifacts
 
+#### Verification Artifact Contract
+
+Each harness invocation must write one run-scoped output tree under the fresh temp root. That tree has two distinct audiences, and the harness must keep them separate:
+
+- `runtime/`: secret-bearing files needed to continue the live run. This may contain API keys, callback secrets, invite tokens, unredacted runtime-state JSON, and other bootstrap state that later steps need.
+- `artifacts/`: review-safe evidence for operators and automation. The final audit task, the later playbook, and the later skill must rely on this directory plus the recorded run command instead of terminal memory or ad hoc reruns.
+
+Minimum layout:
+
+```text
+<run-root>/
+  runtime/
+    provisioning.json
+    sandbox-a/runtime-state.json
+    sandbox-b/runtime-state.json
+  artifacts/
+    run-context.json
+    verification-summary.json
+    operator-summary.md
+    commands.jsonl
+    logs/
+      mahilo.log
+      gateway-a.log
+      gateway-b.log
+    provisioning/
+      bootstrap-summary.json
+      friendship-summary.json
+      policy-summary.json
+    sandboxes/
+      sandbox-a/
+        config.redacted.json
+        runtime-state.redacted.json
+        plugin-list.json
+        webhook-head.json
+      sandbox-b/
+        config.redacted.json
+        runtime-state.redacted.json
+        plugin-list.json
+        webhook-head.json
+    scenarios/
+      G1/
+        result.json
+        evidence-index.json
+      G2/
+        result.json
+        evidence-index.json
+      G3/
+        result.json
+        evidence-index.json
+      S1-send-receive/
+        result.json
+        evidence-index.json
+      S2-allow/
+        result.json
+        evidence-index.json
+      S3-ask/
+        result.json
+        evidence-index.json
+      S4-deny/
+        result.json
+        evidence-index.json
+      S5-missing-llm-key/
+        result.json
+        evidence-index.json
+```
+
+Contract rules:
+
+- `run-context.json` is the canonical run manifest. It must include `artifact_contract_version`, `run_id`, timestamps, git commit or dirty-state marker, workspace root, entry command, selected proof profile, `trusted_mode`, provisioning mode (`api` vs `fallback_seed`), base URLs, ports, and the absolute paths for `runtime/` and `artifacts/`.
+- `commands.jsonl` is the canonical execution transcript for reproducibility. Each record must capture the logical step id, command or HTTP action, working directory, redacted environment overrides, start/end timestamps, exit status or HTTP status, and pointers to any captured stdout/stderr or response body files.
+- `verification-summary.json` is the canonical machine-readable verdict for the whole run. It must be sufficient for `SBX-051`, `SBX-060`, and `SBX-090` without opening arbitrary logs first.
+- `operator-summary.md` is the short human digest. It must say what command ran, whether the deterministic baseline passed, which optional checks were skipped or failed, where the artifacts live, and what known limitations remain.
+- Every scenario directory must contain `result.json` and `evidence-index.json`. `result.json` carries the verdict. `evidence-index.json` maps evidence roles to stable relative paths so later tasks do not have to guess filenames.
+- Scenario directories and `verification-summary.json.scenarios[*].id` values must use the exact `G*` and `S*` ids from the success matrix so the harness, playbook, skill, and final audit all speak the same contract.
+- Each `evidence-index.json` entry must identify at least the evidence `role`, `source_kind`, relative `path`, and any related ids such as `message_id`, `resolution_id`, `review_id`, or `blocked_event_id`.
+- Missing required artifacts are a run failure, not a warning. A scenario cannot be marked passed if its required evidence files are absent or broken.
+
+Minimum `verification-summary.json` and per-scenario `result.json` shape:
+
+```json
+{
+  "artifact_contract_version": 1,
+  "run_id": "2026-03-15T12-00-00Z",
+  "overall": {
+    "baseline": "passed",
+    "optional": "skipped_optional"
+  },
+  "scenarios": [
+    {
+      "id": "S3-ask",
+      "profile": "baseline",
+      "status": "passed",
+      "expected_outcome": "ask",
+      "observed_outcome": "ask",
+      "correlation": {
+        "resolution_id": "res_123",
+        "message_id": null,
+        "review_id": "msg_review_123",
+        "blocked_event_id": null
+      },
+      "reason_codes": [],
+      "artifact_roles": {
+        "sender_transcript": "scenarios/S3-ask/sender-tool-result.json",
+        "mahilo_review_evidence": "scenarios/S3-ask/reviews.json",
+        "receiver_absence_evidence": "scenarios/S3-ask/receiver-absence.json"
+      }
+    }
+  ]
+}
+```
+
+Required evidence by gate or scenario:
+
+| Gate / scenario | Required artifact roles |
+| --------------- | ----------------------- |
+| `G1` | Startup logs for both gateways, `openclaw plugins list --json` output for both sandboxes, and `HEAD /mahilo/incoming` evidence for both gateways. |
+| `G2` | Redacted runtime-state evidence for sandbox A and B, Mahilo agent-registration evidence, and readiness checks for Mahilo plus both gateways. |
+| `G3` | Provisioning summary, friendship request/accept evidence or equivalent Mahilo network evidence, and the final sender/receiver identity mapping used by later scenarios. |
+| `S1-send-receive` | Sender-side transcript or tool result, Mahilo-side delivery evidence tied to a `message_id`, receiver-side transcript or webhook evidence, and explicit absence checks for review/blocked state on that message. |
+| `S2-allow` | Bundle response, local-decision commit response, resumed send response, Mahilo-side delivery evidence, and receiver-side delivery evidence. |
+| `S3-ask` | Bundle response, local-decision commit response with `decision=ask`, Mahilo review evidence tied to the same `resolution_id`, and receiver absence evidence. |
+| `S4-deny` | Bundle response, local-decision commit response with `decision=deny`, Mahilo blocked-event evidence tied to the same `resolution_id`, and receiver absence evidence. |
+| `S5-missing-llm-key` | Evidence that local provider credentials were intentionally absent, bundle response, local-decision commit response with `decision=ask`, Mahilo review evidence with the degraded LLM reason code, and receiver absence evidence. |
+| Optional checks such as `ask_network` or real-model turns | The same structure as above, but marked with `profile=optional` and `status=passed|failed|blocked|skipped_optional` so optional results never silently affect the baseline verdict. |
+
+Evidence-source rules:
+
+- Sender-side evidence must come from a real OpenClaw surface: tool invocation result, command output, or session transcript.
+- Receiver-side evidence must come from the real receiver sandbox: inbound webhook capture, session transcript, or equivalent gateway-owned record.
+- Mahilo-side evidence must come from a server-visible source: API response, structured DB snapshot, or structured server log excerpt with the source called out explicitly in `evidence-index.json`.
+- Absence evidence must be explicit. For `ask`, `deny`, and missing-key scenarios, the harness must record the receiver check that proved no delivery occurred instead of only omitting a positive delivery file.
+
+Redaction rules:
+
+- `artifacts/` must never contain live API keys, callback secrets, invite tokens, provider keys, raw `Authorization` headers, or unredacted runtime bootstrap blobs.
+- Secret-bearing files may remain under `runtime/`, but any pointer to them from `artifacts/` must use a redacted path reference, hash, or boolean presence marker.
+- Operator-facing summaries may keep message bodies and selector details only when they are needed to explain the scenario result. Sensitive blocked or review-required payloads should default to excerpts or hashes unless full payload retention is the thing being tested.
+
+Audit and operator-surface rules:
+
+- The final audit task must be able to decide whether the latest harness run is green by reading `artifacts/verification-summary.json`, `artifacts/operator-summary.md`, and the scenario evidence they point to.
+- The future playbook must be derivable from `run-context.json`, `commands.jsonl`, and the successful baseline scenario artifacts. If a command, path, or expected output is missing from those artifacts, the contract is incomplete.
+- The future skill must be derivable from the same artifacts plus the operator summary. It should not need repo archaeology or stale historical docs to reconstruct the proof flow.
+
 ## Phase 1: Build the Dual-Sandbox Bootstrap Surface
 
 ### 1.1 Add a Dual-Sandbox Bootstrap Script
