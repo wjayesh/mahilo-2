@@ -173,7 +173,7 @@ function findManifest(packageJson) {
   }
 
   fail(
-    'Unable to find an OpenClaw manifest. Expected "package.json > openclaw.extensions[].manifest" or "openclaw.plugin.json".',
+    'Unable to find an OpenClaw manifest. Expected "openclaw.plugin.json" in the plugin root and "package.json > openclaw.extensions" entry files.',
   );
 }
 
